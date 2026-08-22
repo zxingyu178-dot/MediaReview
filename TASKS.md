@@ -1,0 +1,152 @@
+# V1 任务清单
+
+## Foundation
+- [x] 仓库初始化(2026-08-19,git 提交待环境可用)
+- [x] Server scaffold
+- [ ] Android scaffold(源码脚手架,0.5.0 起可编译/联调)
+- [x] CI/lint/test(ruff + pytest 就绪)
+
+## Android(0.5.0 首次编译通过)
+- [x] Android 工程编译(assembleDebug + 单测)0.5.0
+- [x] Server discovery(客户端 + 服务器应答端)0.5.0
+- [x] Pairing 0.5.0
+- [x] Server profile(首页)0.5.0
+- [x] Library selection 0.5.0
+- [x] Media wall + 封面大小 + 排序/筛选/搜索 0.5.0
+- [x] 媒体墙设置持久化(DataStore:列数/排序/类型)0.6.0
+- [x] 分页并发防护(request generation + Job cancel)0.6.0
+- [x] 错误页重试按钮 0.6.0
+- [x] 媒体库筛选入口 0.6.0
+- [x] 自动加载下一页 0.6.0
+
+## Android(0.6.0 Image Viewer + 雪碧图预览)
+- [x] Image viewer(全屏大图,双击/双指缩放,平移)0.6.0
+- [x] 媒体卡片点击:图片 → Image Viewer 0.6.0
+- [x] Sprite preview(视频长按 + 横向滑动映射时间)0.6.0
+- [x] 雪碧图未就绪自动触发生成 + 提示 0.6.0
+
+## Android(0.7.0 Media3 播放器 + 批阅模式 + P0/P1)
+- [x] 原图 API:MediaSummary 增加 original_url(图片原图,视频为 None)0.7.0
+- [x] Image Viewer 改原图优先 + 平移边界约束(缩回 1x 归零)0.7.0
+- [x] 导航重构:查看器/播放器路由只传 mediaId,目标页自行取详情 0.7.0
+- [x] 可复用 Player Core(普通播放器 + 批阅共享 Media3 播放层,双实例 P0/P1)0.7.0
+- [x] Media3 普通播放器(全屏 PlayerView + 播放/暂停/进度)0.7.0
+- [x] 媒体墙视频单击 → 普通播放器 0.7.0
+- [x] 批阅模式:竖屏 Pager + 视频/图片混合 + 横屏视频居中 + 右侧 ❤/🗑/⋯ 0.7.0
+- [x] 批阅 P0/P1:页面停稳后才播放,下一条预加载,缓冲时限制 P1 0.7.0
+- [x] 批阅 session_seen(什么都不操作也记录)+ 点赞写 SQLite + 待删除可撤销 0.7.0
+- [x] 雪碧图生成低频轮询(自动进入 ready)+ 位图 LRU/数量上限 0.7.0
+- [x] 服务端雪碧图整体最大尺寸上限 0.7.0
+
+## Android(0.8.0 修正 + 喜欢/待删除/重复页)
+- [x] P0:PlayerCore.playStream 初始化 listener(普通播放器首进即正确显示状态)0.8.0
+- [x] P0:修复 P1 stale-ready(任何 stop 同步清空 ready,快速滑到已停止项重新 prepare)+ 槽位状态机测试 0.8.0
+- [x] P0:Review 会话由服务端按已选库+sort/filter 构建,Android 只提交 source,队列分页支持数千/上万媒体 0.8.0
+- [x] P0:图片页不向 ExoPlayer prepare 空 URL(进入图片停止当前视频/保持静默,正常预加载下一个视频)0.8.0
+- [x] 小修:撤销待删除使用真实 lastDeletedMediaId(不依赖 pager index)0.8.0
+- [x] 小修:点赞/删除 API 成功后才更新 UI;批阅启动恢复已有喜欢/待删除状态 0.8.0
+- [x] 小修:ReviewViewModel.load() 异常捕获 + 重试;普通播放器进度改为可拖动 Slider 0.8.0
+- [x] Jellyfin 播放进度上报闭环(服务端 progress API + Android 周期上报)0.8.0
+- [x] 喜欢独立页面(可打开/取消喜欢)0.8.0
+- [x] 待删除页面(数量/预计释放空间/单项恢复/最终删除二次确认+结果)0.8.0
+- [x] 重复文件页面(完全重复 + 疑似重复,只读不自动删除)0.8.0
+- [x] 批阅断点恢复(进入时恢复最近活动会话,可「新批阅」)0.8.0
+
+## Android(0.9.0 断点恢复 + 播放器完整控制 + 稳定性)
+- [x] 批阅断点恢复:Server current_index 随 position 更新;Android 只加载含目标绝对索引的分页并正确定位 0.9.0
+- [x] Pager 边界保护:页数=已加载数,快速滑动不出现空白页(提前预取)0.9.0
+- [x] 普通播放器进度上报读取实时状态(不缓存旧 playing)0.9.0
+- [x] 退出/切走视频补最后一次 Jellyfin 进度上报 0.9.0
+- [x] loadMore() try/finally 恢复 loadingMore 允许重试 0.9.0
+- [x] dequeueDelete 返回真实成功状态,成功后才改 UI 0.9.0
+- [x] 播放器完整控制:倍速/音量静音/画面比例/横竖屏 0.9.0
+
+## Server(0.8.0 Review 断点 + Web 管理后台 + 诊断)
+- [x] 批阅断点:POST /review/sessions/{id}/position 更新 current_index;新会话自动完成旧 active 0.8.0
+- [x] 深度恢复测试(恢复到第 637/1000 条)0.8.0
+- [x] Web 管理后台 /admin(状态/配对码/缓存/诊断导出)0.8.0
+- [x] 诊断导出 API(日志+脱敏配置+表计数 ZIP)0.8.0
+
+## Server(0.8.1 Stage15: 安全强化 + 批阅体验)
+- [x] System/Admin 敏感接口改为 localhost-or-auth(本机放行,局域网需 token)0.8.1
+- [x] 诊断日志敏感字段脱敏(token/配对码/api_key)0.8.1
+- [x] 完全重复文件在默认批阅队列只保留一个代表项(不自动删除任何文件)0.8.1
+- [x] 媒体排序补 resolution/random 字段 + exclude_favorites(未点赞筛选)0.8.1
+
+## Server
+- [x] 配置
+- [x] 日志
+- [x] SQLite
+- [x] Alembic
+- [x] Health
+- [x] Jellyfin Adapter
+- [x] Library Selection
+- [x] Media API(0.5.0 增加 cover_url)
+- [x] Playback API(0.3.1)
+- [x] Sprite Service(0.3.0)
+- [x] Background Tasks(0.3.0)
+- [x] Favorites(0.3.0)
+- [x] Review Sessions(0.3.0)
+- [x] Delete Queue(0.3.0)
+- [x] Duplicate Scanner(0.3.1)
+- [x] Duplicate Scanner 多级哈希(size+时长候选 / quick_hash 高度可信 / full sha256 exact,0.3.2)
+- [x] Background Duplicate Hash Task(0.3.2)
+- [x] Pairing(0.3.1)
+- [x] Pairing 认证闭环(Bearer token + token_hash + revoke,0.3.2)
+- [x] Pairing Code 局域网安全(仅本机/管理后台生成,0.4.0)
+- [x] /pairing/status 读取配置(0.4.0)
+- [x] Full SHA-256 三层收敛(size+duration→quick_hash→≥2 才全量,0.4.0)
+- [x] 自动发现 UDP 应答端(0.5.0)
+- [x] Admin 0.8.0(Web 管理后台 /admin)
+- [x] Diagnostics 0.8.0(诊断导出 ZIP + 0.8.1 脱敏)
+
+## Android(0.9.1 Stage15: 批阅稳定性 + 播放器完整交互)
+- [x] Review settled 事件 latest-wins(取消旧切换/position 任务 + 令牌校验)0.9.1
+- [x] P0/P1 重构:页面停稳立即切换 ready 当前视频;P1 URL 获取 + prepare 放后台 0.9.1
+- [x] Jellyfin 进度防串片:切换前快照 mediaId/player/position/paused 再上报 0.9.1
+- [x] Review 向前分页 + 恢复结束判断 baseIndex+items.size >= total 0.9.1
+- [x] PlayerCore onIsPlayingChanged/onPlayWhenReadyChanged 状态刷新 0.9.1
+- [x] PlayerScreen 底栏改 Column 解决控制层重叠 0.9.1
+- [x] 播放器手势:单击显隐/双击快进退/亮度音量/左右 seek 0.9.1
+- [x] 播放器字幕/音轨切换 + 锁定 0.9.1
+- [x] 媒体墙排序补分辨率/随机 + 未点赞筛选 0.9.1
+- [x] 点赞轻量弹跳动画;待删除成功后自动滑向下一条并保留撤销 0.9.1
+- [x] Settings 页 + 检查连接/重连/清除配置 + 首页错误状态 0.9.1
+- [x] ReviewViewModel 分页窗口/令牌与槽位状态机测试 0.9.1
+
+## Android(待后续阶段)
+- [x] ~~Image viewer~~(0.6.0 已完成)
+- [x] ~~Sprite preview~~(0.6.0 已完成)
+- [x] ~~Media3 player~~(0.7.0 已完成)
+- [x] ~~Review mode~~(0.7.0 基础版已完成)
+- [x] ~~P0/P1 preloading~~(0.7.0 已完成)
+- [x] ~~Favorites~~(0.8.0 已完成)
+- [x] ~~Delete queue~~(0.8.0 已完成)
+- [x] ~~Duplicates~~(0.8.0 已完成)
+- [x] ~~批阅断点恢复~~(0.8.0 已完成)
+- [x] Settings 0.9.1(服务器信息/检查连接/重连/清除配置)
+- [x] Error states 0.9.1(首页/媒体墙/播放器/批阅错误+重试)
+- [x] Reconnect 0.9.1(Settings 重新配对 + Connect 流程)
+- [ ] 真机联调(真实 Jellyfin / 自动发现组播)
+
+## Deployment
+- [x] Server EXE(PyInstaller onedir,Mediaserver.exe 已验证启动+health+admin)0.8.1
+- [x] FFmpeg 打包支持(build_deploy.py 检测 third_party/ffmpeg;install.ps1 兜底系统 PATH)
+- [x] install.ps1(管理员/复制/数据目录/配置/ffmpeg/端口/防火墙/开机自启/health/报告)0.8.1
+- [x] repair.ps1(文件/服务/端口/ffmpeg/config/DB 检查 + 重建,不删数据)0.8.1
+- [x] uninstall.ps1(停服务删任务删程序,默认保留数据;-DeleteData 才删)0.8.1
+- [x] diagnose.ps1(版本/脱敏配置/health/日志/服务/端口/ffmpeg/Jellyfin/磁盘/DB → ZIP)0.8.1
+- [x] Server ZIP 部署包(build_deploy.py 产出 deploy_handoff/MediaReviewServer-0.8.1_deploy_*.zip)0.8.1
+- [x] Handover(HANDOVER.md 已生成)
+- [ ] APK(Android 0.9.1 APK 已产出 app-debug.apk,正式签名 APK 待发布)
+- [ ] Clean-machine deployment test(迁移到真实 Jellyfin 电脑后执行)
+
+## Stage 16 预部署收口(0.8.1 / 0.9.1)
+- [x] 媒体墙视频单击修复:longPressScrub(onTap=onClick)恢复普通播放器入口
+- [x] 认证边界:/media /libraries require_auth、/cache /jellyfin localhost-or-auth,防 api_key 泄露
+- [x] Android Coil 统一 Bearer ImageLoader(雪碧图/服务器图片自动带 token)
+- [x] Media Snapshot Cache(TTL 180s + LRU 8 + 库选择失效):page1→3 全库只扫一次,含 10000 媒体验收测试
+- [x] LatestWinsScheduler token 永久单调递增,reset 不复用历史 token
+- [x] Review position 改 Channel.CONFLATED 单消费者串行上报 + 测试
+- [x] PlayerCore 槽位改用服务端绝对 queue index(prepend 不再破坏匹配)
+- [x] 待删除 enqueue 成功后才自动滑向下一条(DeleteSucceeded 事件)

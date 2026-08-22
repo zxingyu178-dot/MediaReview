@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.MediaReview" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/ic_launcher_background</item>
+    </style>
+</resources>

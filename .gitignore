@@ -1,0 +1,47 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Android / Gradle
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+
+# Packaging and generated handoffs
+server/dist/
+server/build/
+deploy_handoff/
+review_handoff/
+review_meta/
+*.apk
+*.aab
+*.exe
+*.zip
+
+# Runtime data and secrets
+*.db
+*.db-shm
+*.db-wal
+*.env
+*.env.*
+config.json
+secrets.env
+logs/
+runtime/
+
+# Local worktrees and agent scratch
+.worktrees/
+.superpowers/
+
+# OS/editor noise
+Thumbs.db
+.DS_Store
+desktop.ini

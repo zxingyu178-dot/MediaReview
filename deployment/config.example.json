@@ -1,0 +1,21 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "jellyfin": {
+    "url": "http://127.0.0.1:8096",
+    "api_key": "__SET_DURING_SETUP__"
+  },
+  "storage": {
+    "data_root": "%ProgramData%\\MediaReview",
+    "cache_max_gb": 20
+  },
+  "security": {
+    "pairing_required": true
+  },
+  "features": {
+    "sprites": true,
+    "duplicate_scan": true
+  }
+}
