@@ -36,6 +36,12 @@ def upgrade() -> None:
         sa.Column("last_error", sa.Text(), nullable=True),
     )
     op.create_index("ix_media_sync_state_task_id", "media_sync_state", ["task_id"])
+    op.create_table(
+        "media_refresh_target",
+        sa.Column("library_id", sa.String(64), primary_key=True),
+        sa.Column("task_id", sa.String(32), nullable=False),
+    )
+    op.create_index("ix_media_refresh_target_task_id", "media_refresh_target", ["task_id"])
     op.execute(
         "CREATE UNIQUE INDEX uq_background_task_active_target "
         "ON background_task (type, media_id) "
@@ -93,10 +99,47 @@ def upgrade() -> None:
         "ON media_cache_index "
         "(is_available, library_id, media_type, (width * height), media_id)"
     )
+    op.execute(
+        "CREATE INDEX ix_media_cache_available_global_name "
+        "ON media_cache_index (is_available, name COLLATE NOCASE, media_id, library_id)"
+    )
+    op.execute(
+        "CREATE INDEX ix_media_cache_available_type_global_name "
+        "ON media_cache_index "
+        "(is_available, media_type, name COLLATE NOCASE, media_id, library_id)"
+    )
+    for suffix, column in (
+        ("created", "created_at"),
+        ("size", "size_bytes"),
+        ("duration", "duration_ms"),
+    ):
+        op.execute(
+            f"CREATE INDEX ix_media_cache_available_global_{suffix} "
+            f"ON media_cache_index (is_available, {column}, media_id, library_id)"
+        )
+        op.execute(
+            f"CREATE INDEX ix_media_cache_available_type_global_{suffix} "
+            "ON media_cache_index "
+            f"(is_available, media_type, {column}, media_id, library_id)"
+        )
+    op.execute(
+        "CREATE INDEX ix_media_cache_available_global_resolution "
+        "ON media_cache_index (is_available, (width * height), media_id, library_id)"
+    )
+    op.execute(
+        "CREATE INDEX ix_media_cache_available_type_global_resolution "
+        "ON media_cache_index "
+        "(is_available, media_type, (width * height), media_id, library_id)"
+    )
 
 
 def downgrade() -> None:
     op.drop_index("uq_background_task_active_target", table_name="background_task")
+    for suffix in ("resolution", "duration", "size", "created", "name"):
+        op.drop_index(
+            f"ix_media_cache_available_type_global_{suffix}", table_name="media_cache_index"
+        )
+        op.drop_index(f"ix_media_cache_available_global_{suffix}", table_name="media_cache_index")
     op.drop_index(
         "ix_media_cache_available_library_type_resolution", table_name="media_cache_index"
     )
@@ -110,6 +153,8 @@ def downgrade() -> None:
     op.drop_index("ix_media_cache_available_library_type_name", table_name="media_cache_index")
     op.drop_index("ix_media_cache_available_library_name", table_name="media_cache_index")
     op.drop_index("ix_media_sync_state_task_id", table_name="media_sync_state")
+    op.drop_index("ix_media_refresh_target_task_id", table_name="media_refresh_target")
+    op.drop_table("media_refresh_target")
     op.drop_table("media_sync_state")
     with op.batch_alter_table("media_cache_index") as batch_op:
         batch_op.drop_column("last_seen_at")

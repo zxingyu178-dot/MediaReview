@@ -34,6 +34,7 @@ from app.db.models import (
     Favorite,
     LibrarySelection,
     MediaCacheIndex,
+    MediaRefreshTarget,
     MediaSyncState,
     utc_now,
 )
@@ -41,6 +42,7 @@ from app.db.session import Database
 
 # 单次从 Jellyfin 拉取媒体列表的分页上限,防止一次请求过重
 _LIBRARY_PAGE = 500
+_UPSERT_BATCH_SIZE = 500
 TASK_TYPE_MEDIA_REFRESH = "media_refresh"
 _SYNC_ERROR = "媒体同步失败，请稍后重试"
 
@@ -204,44 +206,48 @@ def upsert_media_items(
     ]
     if not payload:
         return 0
-    ids = [item["media_id"] for item in payload]
-    existing_count = int(
-        session.scalar(
-            sa.select(sa.func.count())
-            .select_from(MediaCacheIndex)
-            .where(MediaCacheIndex.media_id.in_(ids))
+    inserted_count = 0
+    for start in range(0, len(payload), _UPSERT_BATCH_SIZE):
+        batch = payload[start : start + _UPSERT_BATCH_SIZE]
+        ids = [item["media_id"] for item in batch]
+        existing_count = int(
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(MediaCacheIndex)
+                .where(MediaCacheIndex.media_id.in_(ids))
+            )
+            or 0
         )
-        or 0
-    )
-    statement = sqlite_insert(MediaCacheIndex).values(payload)
-    excluded = statement.excluded
-    update_values = {
-        "jellyfin_id": excluded.jellyfin_id,
-        "library_id": excluded.library_id,
-        "name": excluded.name,
-        "media_type": excluded.media_type,
-        "duration_ms": excluded.duration_ms,
-        "size_bytes": excluded.size_bytes,
-        "width": excluded.width,
-        "height": excluded.height,
-        "container": excluded.container,
-        "media_path": excluded.media_path,
-        "fingerprint": excluded.fingerprint,
-        "created_at": excluded.created_at,
-        "modified_at": excluded.modified_at,
-        "is_available": True,
-        "synced_at": excluded.synced_at,
-    }
-    if generation is not None:
-        update_values["sync_generation"] = excluded.sync_generation
-        update_values["last_seen_at"] = excluded.last_seen_at
-    statement = statement.on_conflict_do_update(
-        index_elements=[MediaCacheIndex.media_id],
-        set_=update_values,
-    )
-    session.execute(statement)
+        statement = sqlite_insert(MediaCacheIndex).values(batch)
+        excluded = statement.excluded
+        update_values = {
+            "jellyfin_id": excluded.jellyfin_id,
+            "library_id": excluded.library_id,
+            "name": excluded.name,
+            "media_type": excluded.media_type,
+            "duration_ms": excluded.duration_ms,
+            "size_bytes": excluded.size_bytes,
+            "width": excluded.width,
+            "height": excluded.height,
+            "container": excluded.container,
+            "media_path": excluded.media_path,
+            "fingerprint": excluded.fingerprint,
+            "created_at": excluded.created_at,
+            "modified_at": excluded.modified_at,
+            "is_available": True,
+            "synced_at": excluded.synced_at,
+        }
+        if generation is not None:
+            update_values["sync_generation"] = excluded.sync_generation
+            update_values["last_seen_at"] = excluded.last_seen_at
+        statement = statement.on_conflict_do_update(
+            index_elements=[MediaCacheIndex.media_id],
+            set_=update_values,
+        )
+        session.execute(statement)
+        inserted_count += len(batch) - existing_count
     session.flush()
-    return len(payload) - existing_count
+    return inserted_count
 
 
 def _escaped_like(value: str) -> str:
@@ -430,60 +436,66 @@ def schedule_media_refresh(
     targets = sorted({library_id for library_id in library_ids if library_id})
     if not targets:
         raise ValueError("媒体刷新至少需要一个媒体库")
-    target_key = _target_key(targets)
-    existing = session.scalar(
-        sa.select(BackgroundTask)
-        .where(
-            BackgroundTask.type == TASK_TYPE_MEDIA_REFRESH,
-            BackgroundTask.media_id == target_key,
+    # 清理正常终态之外可能遗留的孤儿 claim；该条件 DELETE 同时取得 SQLite 写锁，
+    # 让多个 scheduler 在读取/创建 claim 的整个外层请求事务中串行化。
+    active_task = sa.exists(
+        sa.select(1).where(
+            BackgroundTask.task_id == MediaRefreshTarget.task_id,
             BackgroundTask.status.in_(("pending", "running")),
         )
-        .order_by(BackgroundTask.created_at.asc())
-        .limit(1)
     )
-    if existing is not None:
-        return existing
-
-    try:
-        with session.begin_nested():
-            task = BackgroundTask(
-                task_id=uuid.uuid4().hex,
-                type=TASK_TYPE_MEDIA_REFRESH,
-                status="pending",
-                params=json.dumps(
-                    {"library_ids": targets, "force": bool(force)},
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ),
-                progress=0,
-                media_id=target_key,
-            )
-            session.add(task)
-            for library_id in targets:
-                state = session.get(MediaSyncState, library_id)
-                if state is None:
-                    state = MediaSyncState(library_id=library_id)
-                    session.add(state)
-                state.state = "pending"
-                state.task_id = task.task_id
-                state.processed = 0
-                state.total = 0
-                state.last_error = None
-            session.flush()
-    except IntegrityError:
-        winner = session.scalar(
-            sa.select(BackgroundTask)
-            .where(
-                BackgroundTask.type == TASK_TYPE_MEDIA_REFRESH,
-                BackgroundTask.media_id == target_key,
-                BackgroundTask.status.in_(("pending", "running")),
-            )
-            .limit(1)
+    session.execute(sa.delete(MediaRefreshTarget).where(~active_task))
+    for _attempt in range(4):
+        active_claims = list(
+            session.execute(
+                sa.select(MediaRefreshTarget.library_id, BackgroundTask)
+                .join(BackgroundTask, BackgroundTask.task_id == MediaRefreshTarget.task_id)
+                .where(
+                    MediaRefreshTarget.library_id.in_(targets),
+                    BackgroundTask.status.in_(("pending", "running")),
+                )
+                .order_by(BackgroundTask.created_at.desc(), BackgroundTask.task_id.desc())
+            ).all()
         )
-        if winner is None:
-            raise
-        return winner
-    return task
+        claimed_ids = {library_id for library_id, _task in active_claims}
+        remaining = [library_id for library_id in targets if library_id not in claimed_ids]
+        if not remaining:
+            return active_claims[0][1]
+
+        target_key = _target_key(remaining)
+        try:
+            with session.begin_nested():
+                task = BackgroundTask(
+                    task_id=uuid.uuid4().hex,
+                    type=TASK_TYPE_MEDIA_REFRESH,
+                    status="pending",
+                    params=json.dumps(
+                        {"library_ids": remaining, "force": bool(force)},
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    progress=0,
+                    media_id=target_key,
+                )
+                session.add(task)
+                session.flush()
+                for library_id in remaining:
+                    session.add(MediaRefreshTarget(library_id=library_id, task_id=task.task_id))
+                    state = session.get(MediaSyncState, library_id)
+                    if state is None:
+                        state = MediaSyncState(library_id=library_id)
+                        session.add(state)
+                    state.state = "pending"
+                    state.task_id = task.task_id
+                    state.processed = 0
+                    state.total = 0
+                    state.last_error = None
+                session.flush()
+            return task
+        except IntegrityError:
+            session.expire_all()
+            continue
+    raise RuntimeError("媒体刷新目标正在被并发调度，请稍后重试")
 
 
 def media_sync_view(session: Session, library_ids: Iterable[str], *, available_count: int) -> dict:
@@ -564,6 +576,9 @@ def _finish_cancelled(database: Database, task_id: str, targets: Iterable[str]) 
                 )
                 .values(state="cancelled", last_error=None)
             )
+            session.execute(
+                sa.delete(MediaRefreshTarget).where(MediaRefreshTarget.task_id == task_id)
+            )
         session.commit()
 
 
@@ -586,6 +601,9 @@ def _finish_failed(database: Database, task_id: str, targets: Iterable[str]) -> 
                     MediaSyncState.task_id == task_id,
                 )
                 .values(state="failed", last_error=_SYNC_ERROR)
+            )
+            session.execute(
+                sa.delete(MediaRefreshTarget).where(MediaRefreshTarget.task_id == task_id)
             )
         session.commit()
 
@@ -649,6 +667,7 @@ def _commit_refresh_success(
                     last_error=None,
                 )
             )
+        session.execute(sa.delete(MediaRefreshTarget).where(MediaRefreshTarget.task_id == task_id))
         session.commit()
         return True
 

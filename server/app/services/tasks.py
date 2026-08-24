@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.db.models import BackgroundTask, MediaSyncState, utc_now
+from app.db.models import BackgroundTask, MediaRefreshTarget, MediaSyncState, utc_now
 from app.db.session import Database
 
 logger = get_logger("tasks")
@@ -107,6 +107,9 @@ class TaskManager:
             row.status = "failed"
             row.error = error
             row.finished_at = utc_now()
+            session.execute(
+                sa.delete(MediaRefreshTarget).where(MediaRefreshTarget.task_id == task_id)
+            )
             session.commit()
 
 
@@ -150,19 +153,30 @@ def list_task_rows(
 
 def cancel_task(session: Session, task: BackgroundTask) -> BackgroundTask:
     """幂等取消 pending/running；运行中处理器在分页边界观察 cancelled。"""
-    if task.status not in {"pending", "running"}:
-        return task
-    task.status = "cancelled"
-    task.finished_at = task.finished_at or utc_now()
-    for state in session.scalars(
-        sa.select(MediaSyncState).where(
-            MediaSyncState.task_id == task.task_id,
-            MediaSyncState.state.in_(("pending", "running")),
+    won = session.execute(
+        sa.update(BackgroundTask)
+        .where(
+            BackgroundTask.task_id == task.task_id,
+            BackgroundTask.status.in_(("pending", "running")),
         )
-    ).all():
-        state.state = "cancelled"
-        state.last_error = None
+        .values(status="cancelled", finished_at=utc_now())
+        .returning(BackgroundTask.task_id)
+        .execution_options(synchronize_session=False)
+    ).first()
+    if won is not None:
+        session.execute(
+            sa.update(MediaSyncState)
+            .where(
+                MediaSyncState.task_id == task.task_id,
+                MediaSyncState.state.in_(("pending", "running")),
+            )
+            .values(state="cancelled", last_error=None)
+        )
+        session.execute(
+            sa.delete(MediaRefreshTarget).where(MediaRefreshTarget.task_id == task.task_id)
+        )
     session.flush()
+    session.refresh(task)
     return task
 
 

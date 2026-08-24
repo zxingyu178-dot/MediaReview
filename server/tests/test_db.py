@@ -84,7 +84,9 @@ def test_0010_upgrades_existing_media_without_row_or_user_state_loss(tmp_path: P
 
     inspector = inspect(engine)
     columns = {column["name"] for column in inspector.get_columns("media_cache_index")}
+    tables = set(inspector.get_table_names())
     task_indexes = {index["name"]: index for index in inspector.get_indexes("background_task")}
+    refresh_target_pk = inspector.get_pk_constraint("media_refresh_target")
     with engine.connect() as connection:
         media = connection.execute(
             text(
@@ -95,6 +97,8 @@ def test_0010_upgrades_existing_media_without_row_or_user_state_loss(tmp_path: P
         favorite_count = connection.execute(text("SELECT count(*) FROM favorite")).scalar_one()
 
     assert {"is_available", "sync_generation", "last_seen_at"} <= columns
+    assert "media_refresh_target" in tables
+    assert refresh_target_pk["constrained_columns"] == ["library_id"]
     assert media.media_id == "aaaaaaaaaaaaaaaaaaaaaaaa"
     assert media.is_available == 1
     assert media.sync_generation is None
@@ -134,7 +138,7 @@ def test_0010_query_indexes_serve_all_deterministic_sorts_on_100k_rows(
                 SELECT
                     printf('%024x', value),
                     'jf-' || value,
-                    'lib-big',
+                    CASE WHEN value % 4 < 2 THEN 'lib-a' ELSE 'lib-b' END,
                     printf('movie-%06d', value),
                     CASE WHEN value % 2 = 0 THEN 'video' ELSE 'image' END,
                     CASE WHEN value % 20 = 0 THEN NULL ELSE value * 10 END,
@@ -161,42 +165,54 @@ def test_0010_query_indexes_serve_all_deterministic_sorts_on_100k_rows(
 
     try:
         with Session(engine) as session:
-            for sort_by in ("name", "created", "size", "duration", "resolution", "random"):
-                for sort_order in ("asc", "desc"):
-                    for selected_type in (None, "video"):
-                        captured.clear()
-                        started = time.perf_counter()
-                        rows, total = media_index.list_cached_media(
-                            session,
-                            library_ids=["lib-big"],
-                            media_type=selected_type,
-                            sort_by=sort_by,
-                            sort_order=sort_order,
-                            random_seed="plan-seed",
-                            page=1000,
-                            page_size=50,
-                        )
-                        elapsed = time.perf_counter() - started
-                        expected_total = 50_000 if selected_type else 100_000
-                        assert total == expected_total
-                        assert len(rows) == 50, (
-                            f"{sort_by}/{sort_order}/type={selected_type} returned {len(rows)}"
-                        )
-                        assert elapsed < 1.0, (
-                            f"{sort_by}/{sort_order}/type={selected_type} took {elapsed:.3f}s"
-                        )
-                        if sort_by == "random":
-                            continue
-                        assert captured
-                        with engine.connect() as connection:
-                            for statement, parameters in captured:
-                                plan = connection.exec_driver_sql(
-                                    f"EXPLAIN QUERY PLAN {statement}", parameters
-                                ).all()
-                                detail = " | ".join(str(row[-1]) for row in plan)
-                                assert "TEMP B-TREE" not in detail.upper(), (
-                                    f"{sort_by}/{sort_order}/type={selected_type}: {detail}"
-                                )
+            scenarios = [(["lib-a"], 50_000, 400), (["lib-a", "lib-b"], 100_000, 1000)]
+            for library_ids, library_total, page in scenarios:
+                for sort_by in ("name", "created", "size", "duration", "resolution", "random"):
+                    for sort_order in ("asc", "desc"):
+                        for selected_type in (None, "video"):
+                            captured.clear()
+                            started = time.perf_counter()
+                            rows, total = media_index.list_cached_media(
+                                session,
+                                library_ids=library_ids,
+                                media_type=selected_type,
+                                sort_by=sort_by,
+                                sort_order=sort_order,
+                                random_seed="plan-seed",
+                                page=page,
+                                page_size=50,
+                            )
+                            elapsed = time.perf_counter() - started
+                            expected_total = library_total // 2 if selected_type else library_total
+                            assert total == expected_total
+                            assert len(rows) == 50, (
+                                f"{library_ids}/{sort_by}/{sort_order}/type={selected_type} "
+                                f"returned {len(rows)}"
+                            )
+                            assert elapsed < 1.0, (
+                                f"{library_ids}/{sort_by}/{sort_order}/type={selected_type} "
+                                f"took {elapsed:.3f}s"
+                            )
+                            if sort_by == "random":
+                                continue
+                            assert captured
+                            with engine.connect() as connection:
+                                for statement, parameters in captured:
+                                    plan = connection.exec_driver_sql(
+                                        f"EXPLAIN QUERY PLAN {statement}", parameters
+                                    ).all()
+                                    detail = " | ".join(str(row[-1]) for row in plan)
+                                    assert "TEMP B-TREE" not in detail.upper(), (
+                                        f"{library_ids}/{sort_by}/{sort_order}/"
+                                        f"type={selected_type}: {detail}"
+                                    )
+                                    expected_index_token = (
+                                        "GLOBAL" if len(library_ids) > 1 else "LIBRARY"
+                                    )
+                                    assert expected_index_token in detail.upper(), (
+                                        f"{library_ids} did not use {expected_index_token} index: "
+                                        f"{detail}"
+                                    )
     finally:
         event.remove(engine, "before_cursor_execute", capture_ordered_select)
         engine.dispose()

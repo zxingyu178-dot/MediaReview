@@ -39,13 +39,18 @@ SQL count、筛选、搜索、排序与分页，也不构造 Jellyfin HTTP 客�
 `media_refresh` 后台任务；未知或未选库只读缓存，不触发自动刷新。
 
 后台处理器按 Jellyfin 每页 500 条读取，以 SQLite `ON CONFLICT DO UPDATE` 分批提交。
+同一批量 upsert 内部也按 500 条安全分块，兼容旧批阅路径一次传入上万条媒体。
 每次运行使用 generation ID；只有全部目标库所有分页都成功后，才在任务
 `running -> succeeded` CAS 的同一写事务中把本代未见记录标记为
 `is_available=false`。任一库失败或协作取消都不会隐藏旧缓存，错误只持久化为脱敏中文消息。
+`media_refresh_target` 以 `library_id` 主键持有活动任务租约；重叠的目标集合会拆成不相交
+任务，成功、失败或取消终态在同一事务释放租约。取消 API 自身也用条件 UPDATE CAS，陈旧
+请求不能覆盖已提交的 succeeded 终态。
 
-查询索引分别覆盖有/无 `media_type` 的 `available + library` 前缀以及
-name、created、size、duration、resolution 排序；固定排序关键路径不使用 SQLite 临时
-B-tree。10 万条索引的 50 项分页自动化门禁为测试机 `< 1s`，生产目标为 `< 250ms`。
+查询索引分别覆盖单库的 `available + library` 前缀和默认多库的全局顺序，两者均提供
+有/无 `media_type` 的 name、created、size、duration、resolution 排序；固定排序关键路径
+不使用 SQLite 临时 B-tree。10 万条索引的 50 项分页自动化门禁为测试机 `< 1s`，生产目标
+为 `< 250ms`。
 
 ## 2. 推荐技术栈
 
@@ -296,7 +301,8 @@ android/
 
 `media_cache_index` 额外保存 `is_available`、`sync_generation`、`last_seen_at`；
 `media_sync_state` 以 `library_id` 为主键保存状态、任务 ID、处理进度、最近开始/成功时间和
-脱敏错误。Jellyfin 凭据、原始 traceback 和完整上游数据库不得写入这些表。
+脱敏错误；`media_refresh_target` 以库主键防止重叠 generation 并发。Jellyfin 凭据、原始
+traceback 和完整上游数据库不得写入这些表。
 
 ## 8. media_id
 

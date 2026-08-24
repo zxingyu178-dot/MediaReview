@@ -616,6 +616,18 @@
   100,000 行、24 个排序组合通过 `<1s`，固定排序关键计划无 `TEMP B-TREE`。
 - 返修 focused `25 passed`；全量重跑 `171 passed`；ruff check/format 均通过。
 
+第二轮独立复审返修：
+
+- cancel API 改为单条 pending/running 条件 UPDATE/RETURNING；只有 CAS winner 才更新
+  `MediaSyncState` 和释放目标租约，陈旧 ORM 请求不能覆盖 succeeded。
+- 0010 新增 `media_refresh_target` 库主键租约；调度把 `[A]` 与 `[A,B]` 等重叠请求拆为
+  不相交活动任务，并发调度也由数据库唯一约束兜底。
+- `upsert_media_items()` 内部按 500 条分块；16,000 条 legacy payload 两次 upsert 均不触发
+  SQLite 变量上限，新增计数语义保持。
+- 单库复合索引之外新增多库全局排序索引；真实 0009→0010、100,000 行、单/多库 × 六排序
+  × 升降序 × 有/无 media type 共 48 组合通过 `<1s`，五种固定排序分别命中 library/global
+  索引且无 `TEMP B-TREE`。
+
 遗留：
 
 - `< 250ms` 是生产目标，本任务自动化只强制测试机 `< 1s`；真实 56,533 条生产副本、

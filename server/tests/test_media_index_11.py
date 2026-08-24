@@ -13,6 +13,7 @@ from app.adapters.jellyfin.models import MediaItem
 from app.db import models
 from app.db.session import Database
 from app.services import media_index
+from app.services import tasks as task_service
 from app.services.tasks import TaskManager
 
 
@@ -197,6 +198,25 @@ def test_legacy_upsert_does_not_clear_active_sync_generation(tmp_path: Path) -> 
             refreshed = session.get(models.MediaCacheIndex, media_id)
             assert refreshed is not None
             assert refreshed.sync_generation == "active-generation"
+    finally:
+        database.dispose()
+
+
+def test_legacy_upsert_chunks_16k_items_below_sqlite_variable_limit(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    try:
+        items = [_item(f"{idx:024x}") for idx in range(16_000)]
+        with database.session() as session:
+            inserted = media_index.upsert_media_items(session, items)
+            session.commit()
+        with database.session() as session:
+            assert inserted == 16_000
+            assert (
+                session.scalar(sa.select(sa.func.count()).select_from(models.MediaCacheIndex))
+                == 16_000
+            )
+            assert session.get(models.MediaCacheIndex, f"{15_999:024x}") is not None
+            assert media_index.upsert_media_items(session, items) == 0
     finally:
         database.dispose()
 
@@ -477,6 +497,156 @@ def test_two_task_managers_atomically_claim_one_pending_task(tmp_path: Path) -> 
         winners = [claim for claim in claims if claim is not None]
         assert len(winners) == 1
         assert winners[0][0] == "claim-once"
+    finally:
+        database.dispose()
+
+
+def test_stale_cancel_cannot_overwrite_successful_refresh_cas(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    stale_session = database.session()
+    try:
+        old_id = "7" * 24
+        with database.session() as session:
+            row = _row(old_id)
+            row.sync_generation = "old-generation"
+            session.add(row)
+            session.commit()
+        task_id = _scheduled_refresh(database, ["lib-a"])
+        stale_task = stale_session.get(models.BackgroundTask, task_id)
+        assert stale_task is not None and stale_task.status == "running"
+
+        committed = media_index._commit_refresh_success(
+            database,
+            task_id,
+            ["lib-a"],
+            generation="new-generation",
+            totals={"lib-a": 0},
+        )
+        task_service.cancel_task(stale_session, stale_task)
+        stale_session.commit()
+
+        with database.session() as session:
+            task = session.get(models.BackgroundTask, task_id)
+            state = session.get(models.MediaSyncState, "lib-a")
+            assert committed is True
+            assert task is not None and task.status == "succeeded"
+            assert state is not None and state.state == "succeeded"
+            assert session.get(models.MediaCacheIndex, old_id).is_available is False
+    finally:
+        stale_session.close()
+        database.dispose()
+
+
+def test_overlapping_refresh_targets_are_decomposed_into_disjoint_active_tasks(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    try:
+        with database.session() as session:
+            task_a = media_index.schedule_media_refresh(session, ["lib-a"])
+            task_b = media_index.schedule_media_refresh(session, ["lib-a", "lib-b"])
+            session.commit()
+            targets_a = set(media_index._task_targets(task_a))
+            targets_b = set(media_index._task_targets(task_b))
+
+        assert targets_a == {"lib-a"}
+        assert targets_b == {"lib-b"}
+        assert targets_a.isdisjoint(targets_b)
+
+        with database.session() as session:
+            task_a.status = "running"
+            task_b.status = "running"
+            session.merge(task_a)
+            session.merge(task_b)
+            media_index.upsert_media_items(
+                session,
+                [_item("8" * 24, library_id="lib-a")],
+                generation="gen-a",
+            )
+            media_index.upsert_media_items(
+                session,
+                [_item("9" * 24, library_id="lib-b")],
+                generation="gen-b",
+            )
+            session.commit()
+
+        assert media_index._commit_refresh_success(
+            database,
+            task_a.task_id,
+            targets_a,
+            generation="gen-a",
+            totals={"lib-a": 1},
+        )
+        assert media_index._commit_refresh_success(
+            database,
+            task_b.task_id,
+            targets_b,
+            generation="gen-b",
+            totals={"lib-b": 1},
+        )
+        with database.session() as session:
+            assert session.get(models.MediaCacheIndex, "8" * 24).is_available is True
+            assert session.get(models.MediaCacheIndex, "9" * 24).is_available is True
+    finally:
+        database.dispose()
+
+
+def test_database_rejects_two_active_claims_for_same_library(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    try:
+        with database.session() as session:
+            session.add_all(
+                [
+                    models.MediaRefreshTarget(library_id="lib-a", task_id="task-a"),
+                    models.MediaRefreshTarget(library_id="lib-a", task_id="task-ab"),
+                ]
+            )
+            try:
+                session.commit()
+            except sa.exc.IntegrityError:
+                session.rollback()
+            else:
+                raise AssertionError("duplicate active library claim was accepted")
+    finally:
+        database.dispose()
+
+
+def test_concurrent_overlapping_schedulers_leave_only_disjoint_claims(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    barrier = Barrier(2)
+    try:
+
+        def schedule(targets: list[str]) -> str:
+            with database.session() as session:
+                barrier.wait(timeout=5)
+                task = media_index.schedule_media_refresh(session, targets)
+                session.commit()
+                return task.task_id
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(schedule, ["lib-a"]),
+                pool.submit(schedule, ["lib-a", "lib-b"]),
+            ]
+            returned_ids = {future.result(timeout=10) for future in futures}
+
+        with database.session() as session:
+            claims = list(session.scalars(sa.select(models.MediaRefreshTarget)).all())
+            active_tasks = list(
+                session.scalars(
+                    sa.select(models.BackgroundTask).where(
+                        models.BackgroundTask.task_id.in_({claim.task_id for claim in claims})
+                    )
+                ).all()
+            )
+            target_sets = [set(media_index._task_targets(task)) for task in active_tasks]
+            assert {claim.library_id for claim in claims} == {"lib-a", "lib-b"}
+            assert returned_ids <= {task.task_id for task in active_tasks}
+            assert all(
+                left.isdisjoint(right)
+                for index, left in enumerate(target_sets)
+                for right in target_sets[index + 1 :]
+            )
     finally:
         database.dispose()
 

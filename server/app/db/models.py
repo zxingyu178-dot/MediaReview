@@ -175,6 +175,84 @@ Index(
     MediaCacheIndex.media_id,
 )
 
+# 默认“全部已选库”路径需要跨 library_id 的全局顺序；library_id 放在稳定排序键后
+# 仅用于覆盖筛选，单库路径继续使用上面的 library-prefixed 索引。
+Index(
+    "ix_media_cache_available_global_name",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.name.collate("NOCASE"),
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_type_global_name",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.name.collate("NOCASE"),
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_global_created",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.created_at,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_type_global_created",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.created_at,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_global_size",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.size_bytes,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_type_global_size",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.size_bytes,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_global_duration",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.duration_ms,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_type_global_duration",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.duration_ms,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_global_resolution",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.width * MediaCacheIndex.height,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+Index(
+    "ix_media_cache_available_type_global_resolution",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.width * MediaCacheIndex.height,
+    MediaCacheIndex.media_id,
+    MediaCacheIndex.library_id,
+)
+
 
 class MediaSyncState(Base):
     """每个媒体库的持久化同步状态；不保存凭据或上游原始错误。"""
@@ -190,6 +268,15 @@ class MediaSyncState(Base):
     last_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MediaRefreshTarget(Base):
+    """活动媒体刷新按库租约；主键保证重叠 target 不能并发。"""
+
+    __tablename__ = "media_refresh_target"
+
+    library_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
 
 
 class BackgroundTask(Base):
