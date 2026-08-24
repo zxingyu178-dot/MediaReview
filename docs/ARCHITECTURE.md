@@ -78,6 +78,9 @@ Jellyfin server API Key 只用于中间层到 Jellyfin 的 Authorization header�
 视频仍只提供 Jellyfin direct URL，中间层不建立任何 server-key 视频代理。Task 6 正式建立
 可撤销的客户端凭据或 playback contract 前，兼容字段 `stream_url` 不含凭据，并同时返回
 `requires_jellyfin_auth=true` 与中文可操作状态；客户端不得把该安全过渡响应视为可直接播放。
+Jellyfin 配置边界把 base URL 规范化为 HTTP(S) scheme、合法 host/port 与可选安全 base path，
+拒绝 userinfo、query、fragment、空 host、非法端口和路径穿越；构造 client 与 direct URL 时复用
+同一规范化函数，所有路径中的 Jellyfin ID 按单段编码，防止配置或 ID 重新注入凭据/URL 结构。
 
 “confirmed exact”由共享哈希合同定义：full SHA-256 必须是精确 64 位十六进制文本。SQLite
 连接注册同一个 Python 严格谓词为 deterministic UDF，SQL 还要求存储类型为 text、原始字节长度

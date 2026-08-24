@@ -44,26 +44,6 @@ async def jellyfin_client(request: Request) -> AsyncIterator[JellyfinClient]:
         yield client
 
 
-async def build_jellyfin_client(request: Request) -> JellyfinClient:
-    """按需获取 Jellyfin 客户端(路由内调用,鉴权失败时不会触碰 Jellyfin)。
-
-    - 优先使用测试注入的 dependency_overrides(保持 mock 可断言)
-    - 否则按配置构建真实客户端
-    """
-    override = request.app.dependency_overrides.get(jellyfin_client)
-    if override is not None:
-        # 测试注入的 override(如 conftest 的 override_client)无参数
-        gen = override()
-        try:
-            return await gen.__anext__()
-        except StopAsyncIteration:  # pragma: no cover - override 契约异常
-            raise RuntimeError("jellyfin_client override 未产出客户端") from None
-    settings: AppConfig = request.app.state.settings
-    if not settings.jellyfin.is_configured():
-        raise ConfigError("Jellyfin 尚未配置 API Key,请先在管理后台完成配置")
-    return JellyfinClient(settings.jellyfin)
-
-
 @router.get("/status", response_model=Envelope[JellyfinStatus])
 async def status(
     _auth=Depends(require_localhost_or_auth),

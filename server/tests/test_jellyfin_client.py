@@ -6,7 +6,12 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from app.adapters.jellyfin.client import JellyfinAuthError, JellyfinClient, JellyfinError
+from app.adapters.jellyfin.client import (
+    JellyfinAuthError,
+    JellyfinClient,
+    JellyfinError,
+    item_stream_url,
+)
 from app.core.config import JellyfinConfig
 from tests.conftest import JELLYFIN_USER_ID, make_jellyfin_mock_transport
 
@@ -126,6 +131,18 @@ def test_direct_video_url_never_contains_server_key(jellyfin_config: JellyfinCon
     assert "static=true" in stream
     assert "test-api-key" not in stream
     assert "api_key" not in stream.casefold()
+
+
+def test_direct_video_url_normalizes_base_path_and_encodes_item_id() -> None:
+    stream = item_stream_url(
+        "HTTPS://JF.Example:9443/jellyfin%20home/",
+        "folder/video ?#%",
+    )
+
+    assert stream == (
+        "https://jf.example:9443/jellyfin%20home/"
+        "Videos/folder%2Fvideo%20%3F%23%25/stream?static=true"
+    )
 
 
 def test_unconfigured_key_rejected() -> None:

@@ -6,8 +6,11 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr, ValidationError
 
-from app.core.config import ConfigLoadError, load_config
+from app.core.config import AppConfig, ConfigLoadError, JellyfinConfig, load_config
+
+SERVER_KEY = "server-only-config-test-key"
 
 
 def test_defaults_without_config_file(tmp_path: Path) -> None:
@@ -83,3 +86,60 @@ def test_invalid_values_rejected(tmp_path: Path) -> None:
     config_file.write_text(json.dumps({"server": {"port": 99999}}), encoding="utf-8")
     with pytest.raises(ValueError):
         load_config(config_file)
+
+
+def test_jellyfin_url_is_normalized_and_preserves_safe_base_path() -> None:
+    config = JellyfinConfig(
+        url="  HTTPS://JF.Example:9443/jellyfin%20home/  ",
+        api_key=SecretStr("placeholder"),
+    )
+
+    assert config.url == "https://jf.example:9443/jellyfin%20home"
+    assert config.host == config.url
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        f"http://jf.local:8096/?api_key={SERVER_KEY}",
+        f"http://{SERVER_KEY}@jf.local:8096/base",
+        f"http://user:{SERVER_KEY}@jf.local:8096/base",
+        f"http://jf.local:8096/base#{SERVER_KEY}",
+    ),
+)
+def test_jellyfin_url_rejects_secret_bearing_query_userinfo_or_fragment(url: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        JellyfinConfig(url=url, api_key=SecretStr(SERVER_KEY))
+
+    assert SERVER_KEY not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "ftp://jf.local/media",
+        "jf.local:8096",
+        "http:///missing-host",
+        "http://jf.local:99999",
+        "http://jf.local/base/../admin",
+        "http://jf.local/base//nested",
+        "http://jf local:8096",
+    ),
+)
+def test_jellyfin_url_rejects_invalid_scheme_authority_port_or_base_path(url: str) -> None:
+    with pytest.raises(ValidationError):
+        JellyfinConfig(url=url)
+
+
+def test_jellyfin_url_assignment_uses_the_same_validation_boundary() -> None:
+    config = JellyfinConfig()
+
+    with pytest.raises(ValidationError):
+        config.url = f"http://jf.local/?api_key={SERVER_KEY}"
+
+
+def test_app_config_validation_error_does_not_echo_rejected_jellyfin_url() -> None:
+    with pytest.raises(ValidationError) as caught:
+        AppConfig.model_validate({"jellyfin": {"url": f"http://{SERVER_KEY}@jf.local"}})
+
+    assert SERVER_KEY not in str(caught.value)

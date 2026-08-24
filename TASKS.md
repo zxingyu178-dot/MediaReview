@@ -95,6 +95,9 @@
 - [x] I1（二审）：SQLite text/字节长度/shared UDF 拒绝 NUL、BLOB、Unicode 等动态类型分叉
 - [x] I2：图片上游禁用自动重定向，同源/跨源/链路本地/循环均不发起第二跳
 - [x] M2：删除死 `_SORT_KEY_FN` / `_sort_items` 并更新图片代理注释
+- [x] I3：Jellyfin HTTP(S) base URL 在配置边界严格规范化，拒绝 userinfo/query/fragment 等注入
+- [x] I3：保留安全 base path、编码 Jellyfin ID，完整 playback JSON 不含 server key
+- [x] M3：删除无调用 `build_jellyfin_client()`，统一使用 FastAPI async dependency
 
 ## Server
 - [x] 配置

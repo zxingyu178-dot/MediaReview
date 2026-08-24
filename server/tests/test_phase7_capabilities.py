@@ -231,6 +231,40 @@ def test_playback_api_returns_stream_url(jellyfin_api_client) -> None:
     assert "认证" in data["message"]
 
 
+def test_playback_full_json_uses_normalized_base_path_and_encoded_item_id(
+    jellyfin_api_client,
+) -> None:
+    client, _ = jellyfin_api_client
+    client.app.state.settings.jellyfin.url = "HTTPS://JF.Example:9443/jellyfin%20home/"
+    db: Database = client.app.state.database
+    with db.session() as session:
+        session.add(
+            MediaCacheIndex(
+                media_id="encoded-playback",
+                jellyfin_id="folder/video ?#%",
+                library_id="lib-movies",
+                name="Encoded.mp4",
+                media_type="video",
+                fingerprint="fp-encoded-playback",
+            )
+        )
+        session.commit()
+
+    response = client.get("/api/v1/media/encoded-playback/playback")
+
+    assert response.status_code == 200
+    assert "test-api-key" not in response.text
+    assert "test-api-key" not in "\n".join(
+        f"{name}: {value}" for name, value in response.headers.items()
+    )
+    data = response.json()["data"]
+    assert data["stream_url"] == (
+        "https://jf.example:9443/jellyfin%20home/"
+        "Videos/folder%2Fvideo%20%3F%23%25/stream?static=true"
+    )
+    assert data["requires_jellyfin_auth"] is True
+
+
 def test_playback_api_rejects_unknown_or_non_video(jellyfin_api_client) -> None:
     client, _ = jellyfin_api_client
     db: Database = client.app.state.database

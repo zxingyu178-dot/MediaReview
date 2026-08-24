@@ -695,6 +695,17 @@
 - **M2 单一排序合同**：删除已无调用的 `_SORT_KEY_FN` / `_sort_items()`，并把图片字段注释更新为
   需配对认证的 MediaReview 相对代理 URL。
 
+第三轮独立审查修复（I3/M3）：
+
+- **I3 配置源头约束**：`JellyfinConfig.url` 在构造和赋值时统一规范化 HTTP(S) scheme、host、port
+  与安全 base path；拒绝 userinfo/query/fragment、空或非法 host、非法 port、控制字符、反斜杠、
+  空路径段与 dot-segment。验证错误隐藏原始输入，避免含 key 的非法 URL 进入错误文本。
+- Jellyfin client 和 direct URL builder 复用同一规范化函数，user/item ID 统一按单个 URL path
+  segment 编码。完整 playback JSON 回归覆盖 base path、特殊 item ID、body/header 无 server key，
+  继续只返回无凭据 direct URL且不新增视频代理。
+- **M3 依赖入口收敛**：删除 Task 2 旧同步建队移除后已无调用的 `build_jellyfin_client()`；保留
+  FastAPI `jellyfin_client` async dependency 作为唯一生命周期/测试 override 入口。
+
 提交：
 
 - `feat(server): build review queues from sqlite`（本任务单一提交）

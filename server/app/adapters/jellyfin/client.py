@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -26,7 +27,7 @@ from app.adapters.jellyfin.models import (
     Library,
     MediaItem,
 )
-from app.core.config import JellyfinConfig
+from app.core.config import JellyfinConfig, normalize_jellyfin_base_url
 from app.core.errors import JellyfinError
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -35,13 +36,16 @@ _MAX_PAGE_LIMIT = 1000
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024
 
 
-def _strip_host(host: str) -> str:
-    return host.rstrip("/")
+def _path_segment(value: str) -> str:
+    if not value:
+        raise ValueError("Jellyfin ID 不能为空")
+    return quote(value, safe="")
 
 
 def item_stream_url(host: str, item_id: str) -> str:
     """构造不含凭据的 Jellyfin 视频地址；调用方必须明确认证仍未满足。"""
-    return f"{_strip_host(host)}/Videos/{item_id}/stream?static=true"
+    base_url = normalize_jellyfin_base_url(host)
+    return f"{base_url}/Videos/{_path_segment(item_id)}/stream?static=true"
 
 
 class JellyfinAuthError(JellyfinError):
@@ -52,7 +56,7 @@ class JellyfinAuthError(JellyfinError):
 class JellyfinClient:
     def __init__(self, config: JellyfinConfig, transport: httpx.AsyncBaseTransport | None = None):
         self._config = config
-        self._base_url = config.host
+        self._base_url = normalize_jellyfin_base_url(config.host)
         self._api_key = config.api_key.get_secret_value()
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
@@ -169,7 +173,7 @@ class JellyfinClient:
     # ---- 媒体库与媒体 ----
 
     async def libraries(self, user_id: str) -> list[Library]:
-        raw = await self._get(f"/Users/{user_id}/Views")
+        raw = await self._get(f"/Users/{_path_segment(user_id)}/Views")
         assert isinstance(raw, dict)
         return [map_library(JFItem.from_raw(item)) for item in raw.get("Items", [])]
 
@@ -201,7 +205,7 @@ class JellyfinClient:
             params["SortOrder"] = sort_order
         if search_term:
             params["SearchTerm"] = search_term
-        raw = await self._get(f"/Users/{user_id}/Items", params=params)
+        raw = await self._get(f"/Users/{_path_segment(user_id)}/Items", params=params)
         assert isinstance(raw, dict)
         return JFItemsPage.from_raw(raw)
 
@@ -216,7 +220,7 @@ class JellyfinClient:
         return items, page.total_record_count
 
     async def media_item(self, user_id: str, item_id: str, library_id: str = "") -> MediaItem:
-        raw = await self._get(f"/Users/{user_id}/Items/{item_id}")
+        raw = await self._get(f"/Users/{_path_segment(user_id)}/Items/{_path_segment(item_id)}")
         assert isinstance(raw, dict)
         item = JFItem.from_raw(raw)
         if not item.jellyfin_id:
@@ -230,12 +234,12 @@ class JellyfinClient:
 
     async def thumbnail_image(self, item_id: str, max_width: int = 480) -> tuple[bytes, str]:
         return await self._image_request(
-            f"/Items/{item_id}/Images/Primary",
+            f"/Items/{_path_segment(item_id)}/Images/Primary",
             params={"maxWidth": max_width, "quality": 80},
         )
 
     async def original_image(self, item_id: str) -> tuple[bytes, str]:
-        return await self._image_request(f"/Items/{item_id}/Download")
+        return await self._image_request(f"/Items/{_path_segment(item_id)}/Download")
 
     # ---- 播放进度上报 ----
 
