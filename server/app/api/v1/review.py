@@ -11,15 +11,15 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.adapters.jellyfin.client import JellyfinClient, item_original_url, item_thumbnail_url
-from app.adapters.jellyfin.mapper import include_types_for
+from app.adapters.jellyfin.client import item_original_url, item_thumbnail_url
 from app.api.v1.auth import require_auth
-from app.api.v1.jellyfin import build_jellyfin_client
-from app.api.v1.media import _SORT_KEY_FN, MediaSummary, _sort_items, _summary_from_row
+from app.api.v1.media import MediaSummary, _summary_from_row
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
@@ -63,54 +63,6 @@ def _get_review(db: Session, session_id: str):
     return review_session
 
 
-async def _collect_review_queue(
-    request: Request,
-    client: JellyfinClient,
-    db: Session,
-    filter_snapshot: dict,
-    sort_snapshot: dict,
-) -> list:
-    """按 source 从已选媒体库收集并排序完整批阅队列(供创建会话使用)。
-
-    与 /media 列表同源:不依赖客户端提交 media_ids,天然支持数千/上万媒体。
-    """
-    user_id = request.app.state.settings.jellyfin.user_id
-    if not user_id:
-        raise ValidationFailedError("尚未确定 Jellyfin 用户,请先完成媒体库配置")
-    targets = media_index.selected_library_ids(db)
-    if not targets:
-        raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
-
-    media_type = filter_snapshot.get("media_type")
-    search = filter_snapshot.get("search")
-    sort_by = sort_snapshot.get("sort_by", "name")
-    sort_order = sort_snapshot.get("sort_order", "asc")
-    if sort_by not in _SORT_KEY_FN:
-        raise ValidationFailedError("不支持的排序字段")
-    if sort_order not in ("asc", "desc"):
-        raise ValidationFailedError("不支持的排序方向")
-
-    include_types = include_types_for(media_type)
-    all_items: list = []
-    seen: set[str] = set()
-    for lib_id in targets:
-        for item in await media_index.collect_library_items(
-            client,
-            user_id,
-            lib_id,
-            include_types=include_types,
-            search_term=search,
-        ):
-            if item.media_id not in seen:
-                seen.add(item.media_id)
-                all_items.append(item)
-    if not all_items:
-        raise ValidationFailedError("没有可批阅的媒体")
-    media_index.upsert_media_items(db, all_items)
-    ordered = _sort_items(all_items, sort_by, sort_order)
-    return _dedupe_exact_duplicates(db, ordered)
-
-
 def _dedupe_exact_duplicates(db: Session, ordered: list) -> list:
     """完全重复(byte-identical)文件在默认批阅队列只保留一个代表项。
 
@@ -131,35 +83,49 @@ def _dedupe_exact_duplicates(db: Session, ordered: list) -> list:
     return [it for it in ordered if it.media_id not in drop]
 
 
+def _validated_source(body: CreateSessionBody) -> tuple[dict, dict]:
+    """按 GET /media 的字段语义校验灵活 source 快照。"""
+    filter_snapshot = dict(body.source.filter)
+    sort_snapshot = dict(body.source.sort)
+    media_type = filter_snapshot.get("media_type")
+    if media_type is not None and media_type not in ("video", "image"):
+        raise ValidationFailedError("不支持的媒体类型")
+    search = filter_snapshot.get("search")
+    if search is not None and (not isinstance(search, str) or len(search) > 200):
+        raise ValidationFailedError("搜索条件必须是最多 200 个字符的文本")
+    sort_by = sort_snapshot.get("sort_by", "name")
+    if sort_by not in ("name", "created", "size", "duration", "resolution", "random"):
+        raise ValidationFailedError("不支持的排序字段")
+    sort_order = sort_snapshot.get("sort_order", "asc")
+    if sort_order not in ("asc", "desc"):
+        raise ValidationFailedError("不支持的排序方向")
+    random_seed = sort_snapshot.get("random_seed")
+    if random_seed is not None and (not isinstance(random_seed, str) or len(random_seed) > 128):
+        raise ValidationFailedError("随机排序种子必须是最多 128 个字符的文本")
+    if sort_by == "random" and not random_seed:
+        sort_snapshot["random_seed"] = secrets.token_hex(16)
+    return filter_snapshot, sort_snapshot
+
+
 @router.post("/sessions", response_model=Envelope[dict])
 async def create_review_session(
     body: CreateSessionBody,
-    request: Request,
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[dict]:
-    # 客户端按需构建,避免 Jellyfin 未配置时在鉴权前抛 500(鉴权优先返回 401)
-    client = await build_jellyfin_client(request)
+    filter_snapshot, sort_snapshot = _validated_source(body)
+    targets = media_index.selected_library_ids(db)
     try:
-        ordered = await _collect_review_queue(
-            request,
-            client,
+        created = review.create_session_from_index(
             db,
-            body.source.filter,
-            body.source.sort,
+            library_ids=targets,
+            filter_snapshot=filter_snapshot,
+            sort_snapshot=sort_snapshot,
         )
-        # 新建会话前完成所有旧 active 会话,避免数据库长期累计多个 active
-        review.complete_all_active(db)
-        created = review.create_session(
-            db,
-            [it.media_id for it in ordered],
-            filter_snapshot=body.source.filter,
-            sort_snapshot=body.source.sort,
-        )
-        db.commit()
-        return ok(review.session_view(created))
-    finally:
-        await client.close()
+    except ValueError as exc:
+        raise ValidationFailedError(str(exc)) from exc
+    db.commit()
+    return ok(review.session_view(created))
 
 
 @router.get("/sessions/latest", response_model=Envelope[dict])
@@ -205,19 +171,18 @@ async def get_queue(
 ) -> Envelope[ReviewQueuePage]:
     """分页返回批阅队列(按会话顺序)。支持数千/上万媒体,客户端按需翻页。"""
     _get_review(db, session_id)
-    items = review.session_items(db, session_id)
-    total = len(items)
-    offset = (page - 1) * page_size
-    paged = items[offset : offset + page_size]
+    paged, total = review.session_queue_page(
+        db,
+        session_id,
+        page=page,
+        page_size=page_size,
+    )
     result: list[QueueItem] = []
-    for row in paged:
-        media = media_index.get_cached_media(db, row.media_id)
-        if media is None:
-            continue
+    for index, media in paged:
         cover, original = _queue_urls(request, media)
         result.append(
             QueueItem(
-                index=row.index,
+                index=index,
                 media=_summary_from_row(media, cover_url=cover, original_url=original),
             )
         )

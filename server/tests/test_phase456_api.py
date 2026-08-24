@@ -37,10 +37,27 @@ def _seed_media(app, media_id: str, *, media_path: str = "D:\\Media\\x.mp4") -> 
 
 
 def test_review_api_flow_source_based(jellyfin_api_client) -> None:
-    """批阅会话由服务端按 source(筛选/排序)从已选媒体库构建队列,并支持分页。"""
+    """批阅会话按 source 从 SQLite 已选库索引构建队列,并支持分页。"""
     client, _transport = jellyfin_api_client
     client.get("/api/v1/libraries")
     client.put("/api/v1/libraries/selection", json={"selected": ["lib-movies"]})
+    db: Database = client.app.state.database
+    with db.session() as session:
+        session.add_all(
+            [
+                MediaCacheIndex(
+                    media_id=f"mv-{index}",
+                    jellyfin_id=f"jf-mv-{index}",
+                    library_id="lib-movies",
+                    name=name,
+                    media_type="video",
+                    fingerprint=f"fp-mv-{index}",
+                    is_available=True,
+                )
+                for index, name in enumerate(["B.mp4", "a.mp4", "C.mp4", "d.mp4", "E.mp4"], start=1)
+            ]
+        )
+        session.commit()
 
     resp = client.post(
         "/api/v1/review/sessions",

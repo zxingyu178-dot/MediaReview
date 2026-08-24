@@ -640,3 +640,38 @@
 
 ---
 
+### 2026-08-24 — MediaReview 1.1 Task 2 · 批阅数据库建队与稳定分页
+
+完成：
+
+- `POST /api/v1/review/sessions` 改为 SQLite-only：只读取当前已选库的可用
+  `MediaCacheIndex`，不构造 Jellyfin/httpx 客户端、不调用 `/Items`。
+- source 的 `media_type`、`search`、`sort_by`、`sort_order` 按 `GET /media` 语义校验；
+  random 排序把 seed 固化到会话快照，保证保存队列可复现。
+- SQL 窗口函数完成筛选、稳定 NULL-last 排序、exact 代表项和连续绝对 index；队列使用单次
+  `INSERT ... SELECT` 写入。只有 full SHA-256 确认组折叠，疑似重复保留，不修改媒体文件。
+- 旧 active 完成、新会话和队列处于同一事务；校验或插入失败保持旧 active 且不留部分新队列。
+- queue API 改为 SQL `COUNT + OFFSET/LIMIT` 后一次 JOIN 媒体索引，不调用全量
+  `session_items()`，无逐项 N+1；缺失/不可用媒体不压缩绝对 index 或 total。
+- latest-active 对相同 updated/created 时间增加 session ID 稳定 tie-break；旧 current index、
+  seen、position、advance、complete、恢复与 envelope 回归通过。
+
+验证：
+
+- TDD RED：`server/tests/test_review_queue_11.py` 初次运行 `6 failed`，失败原因均为待实现合同。
+- focused GREEN：新增 Task 2 测试 `6 passed`；批阅/鉴权回归 `35 passed`。
+- 100,000 行隔离建队实测 `1.112s`，低于测试机 `<5s` 门槛（非生产 SLA）。
+- full server pytest：`182 passed, 1 warning in 82.97s`；warning 为既有 Starlette/httpx
+  deprecation，不影响结果。
+
+遗留：
+
+- `<5s` 仅为隔离测试机门禁；真实媒体库并发刷新期间的写锁竞争和部署机器耗时留待后续实测。
+- 本任务未进入 Android、播放、删除、指纹算法、后台刷新或部署范围。
+
+提交：
+
+- `feat(server): build review queues from sqlite`（本任务单一提交）
+
+---
+

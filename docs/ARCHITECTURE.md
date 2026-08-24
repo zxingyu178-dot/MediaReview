@@ -52,6 +52,21 @@ SQL count、筛选、搜索、排序与分页，也不构造 Jellyfin HTTP 客�
 不使用 SQLite 临时 B-tree。10 万条索引的 50 项分页自动化门禁为测试机 `< 1s`，生产目标
 为 `< 250ms`。
 
+### 1.2 数据库优先批阅队列
+
+`POST /api/v1/review/sessions` 只读取已选媒体库和 SQLite `media_cache_index`，不构造
+Jellyfin/httpx 客户端，也不在请求内调用 Jellyfin `/Items`。`media_type`、`search`、
+`sort_by`、`sort_order` 沿用媒体墙语义；随机排序把生成或传入的 seed 固化到会话快照。
+
+筛选、稳定 NULL-last 排序、完全重复代表项选择和连续绝对索引均由 SQL 窗口函数完成，
+队列通过单次 `INSERT ... SELECT` 写入。只有 full SHA-256 已确认的 exact 组才折叠，按请求
+排序最先的成员为代表项；疑似重复保留，媒体文件和索引均不被删除或修改。完成旧 active
+会话、新建会话和写队列处于同一事务，校验或插入失败会整体回滚。
+
+`GET /api/v1/review/sessions/{session_id}/queue` 使用 SQL `COUNT` 和按绝对队列索引的
+`OFFSET/LIMIT` 子查询，再一次 JOIN 当前可用媒体。缓存媒体缺失或不可用时，该页可少于
+`page_size`，但保存的绝对 `index` 和队列 `total` 不压缩，保证旧客户端断点恢复语义稳定。
+
 ## 2. 推荐技术栈
 
 ### Server
@@ -254,10 +269,13 @@ android/
 ### 批阅
 
 - `POST /api/v1/review/sessions`
+- `GET /api/v1/review/sessions/latest`
 - `GET /api/v1/review/sessions/{session_id}`
-- `PUT /api/v1/review/sessions/{session_id}/progress`
+- `GET /api/v1/review/sessions/{session_id}/queue`
 - `POST /api/v1/review/sessions/{session_id}/seen`
-- `POST /api/v1/review/sessions/{session_id}/resume`
+- `POST /api/v1/review/sessions/{session_id}/position`
+- `POST /api/v1/review/sessions/{session_id}/advance`
+- `POST /api/v1/review/sessions/{session_id}/complete`
 
 ### 待删除
 

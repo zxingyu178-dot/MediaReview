@@ -81,6 +81,14 @@
 - [x] 同步失败/取消保留旧缓存并返回脱敏中文状态
 - [x] `POST /media/refresh` 幂等刷新 + `/tasks` 查询/详情/协作取消（配对认证）
 
+## Server(1.1.0 Task 2: 批阅数据库建队与稳定分页)
+- [x] `POST /review/sessions` 仅从已选库 SQLite 可用索引建队，不构造或访问 Jellyfin/httpx
+- [x] SQL 筛选/搜索/稳定排序/完全重复代表项 + 单次 `INSERT ... SELECT` 队列写入
+- [x] 随机会话固化 seed；旧 active 完成、新会话和队列写入同一事务并失败回滚
+- [x] 队列使用 SQL `COUNT + OFFSET/LIMIT + JOIN`，缺失项不压缩绝对 index/total
+- [x] 10 万条建队测试机 `< 5s`（实测 1.112s；非生产 SLA）
+- [x] current index、seen、position、advance、complete、latest-active 与 API envelope 回归兼容
+
 ## Server
 - [x] 配置
 - [x] 日志
