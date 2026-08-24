@@ -682,6 +682,19 @@
 - remediation full server pytest：`190 passed, 1 warning in 96.24s`。
 - 严格 hash SQL 合同后的 100,000 行隔离建队实测 `1.212s`，仍低于 `<5s` 测试机门禁。
 
+第二轮独立审查修复（C2/I1/I2/M2）：
+
+- **C2 播放凭据边界**：legacy `stream_url` 保留但移除 Jellyfin server API key；响应新增
+  `requires_jellyfin_auth=true` 与中文状态，明确当前凭据不足且不可直接播放。中间层未新增视频代理；
+  Task 6 负责建立可撤销客户端凭据或正式 playback contract。
+- **I1 SQLite 动态类型边界**：SQLite 连接注册共享 strict full SHA-256 deterministic UDF，SQL 同时
+  要求 `typeof=text` 与原始字节长度 64。NUL 头/中/尾、`64hex+NUL+suffix`、BLOB、Unicode、非 hex
+  与 Python scanner 保持一致，真实建队不误折叠。
+- **I2 图片重定向边界**：图片读取显式 `follow_redirects=False`；同源、跨源、链路本地和循环 30x
+  均不发起第二跳，返回不含 Location、上游 body 或 server key 的脱敏错误。
+- **M2 单一排序合同**：删除已无调用的 `_SORT_KEY_FN` / `_sort_items()`，并把图片字段注释更新为
+  需配对认证的 MediaReview 相对代理 URL。
+
 提交：
 
 - `feat(server): build review queues from sqlite`（本任务单一提交）

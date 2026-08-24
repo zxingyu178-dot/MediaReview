@@ -85,6 +85,8 @@
 
 - [ ] 先增加 Direct Play、单次 HLS 回退、错误分类和最终进度补报测试。
 - [ ] Playback API 返回 direct、fallback_hls、headers、时长和恢复位置；保留 `stream_url` 一版。
+- [ ] 建立可撤销的客户端 Jellyfin 凭据或正式 playback contract；完成前 `stream_url` 不含 server
+  key，并以 `requires_jellyfin_auth=true` 明示不可播放，禁止新增 server-key 视频代理。
 - [ ] 完成手势、倍速、字幕、音轨、比例、旋转、亮度、音量和锁定。
 - [ ] 失败只回退一次；HLS 失败显示中文可操作错误。
 

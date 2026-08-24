@@ -71,12 +71,18 @@ Jellyfin/httpx 客户端，也不在请求内调用 Jellyfin `/Items`。`media_t
 相对路径：`/api/v1/media/{media_id}/thumbnail` 与 `/api/v1/media/{media_id}/original`。
 Jellyfin server API Key 只用于中间层到 Jellyfin 的 Authorization header，不进入 URL 或 JSON。
 图片代理只接受上游 `image/*`，按 Content-Length 和实际累计字节限制 25 MiB，并返回
-`X-Content-Type-Options: nosniff`；original 只允许图片媒体。视频仍走既有直连播放合同，图片
-代理绝不转发视频流。
+`X-Content-Type-Options: nosniff`；original 只允许图片媒体。图片上游禁止自动重定向，所有 30x
+（含同源、跨源、链路本地与循环）都在第一跳返回脱敏错误，避免代理成为 SSRF 字节回传通道。
+图片代理绝不转发视频流。
 
-“confirmed exact”由共享哈希合同定义：full SHA-256 必须是精确 64 位十六进制文本。批阅 SQL
-与 duplicate scanner 复用该合同；短值、非 hex、读取失败哨兵、未完成和仅 quick hash 均不会
-折叠，避免把未确认内容误当作完全重复。
+视频仍只提供 Jellyfin direct URL，中间层不建立任何 server-key 视频代理。Task 6 正式建立
+可撤销的客户端凭据或 playback contract 前，兼容字段 `stream_url` 不含凭据，并同时返回
+`requires_jellyfin_auth=true` 与中文可操作状态；客户端不得把该安全过渡响应视为可直接播放。
+
+“confirmed exact”由共享哈希合同定义：full SHA-256 必须是精确 64 位十六进制文本。SQLite
+连接注册同一个 Python 严格谓词为 deterministic UDF，SQL 还要求存储类型为 text、原始字节长度
+精确为 64；因此 NUL、BLOB、Unicode、非 hex、读取失败哨兵、未完成和仅 quick hash 均不会折叠。
+duplicate scanner 直接复用同一 Python 谓词，避免 SQL/Python 语义分叉。
 
 ## 2. 推荐技术栈
 

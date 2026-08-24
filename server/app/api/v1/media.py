@@ -4,7 +4,7 @@
 - POST /media/refresh: 幂等编排持久化媒体刷新任务
 - GET /media/{media_id}: 读取本地缓存索引的单条媒体详情
 
-播放/缩略图直连 URL 由阶段 Playback API 单独提供。
+图片字段返回需 MediaReview 认证的相对代理 URL；视频播放不经过中间层代理。
 """
 
 from __future__ import annotations
@@ -31,16 +31,6 @@ router = APIRouter(prefix="/media", tags=["media"])
 SortField = Literal["name", "created", "size", "duration", "resolution", "random"]
 SortOrder = Literal["asc", "desc"]
 
-# 允许客户端传入的排序字段白名单(服务端映射,禁止直接拼 SQL/上游字段)
-_SORT_KEY_FN = {
-    "name": lambda it: it.name.casefold() if it.name else "",
-    "created": lambda it: it.created_at,
-    "size": lambda it: it.size_bytes,
-    "duration": lambda it: it.duration_ms,
-    "resolution": lambda it: ((it.width or 0) * (it.height or 0)) or None,
-    "random": lambda it: it.media_id,
-}
-
 
 class MediaSummary(BaseModel):
     media_id: str
@@ -54,9 +44,9 @@ class MediaSummary(BaseModel):
     container: str | None = None
     created_at: datetime | None = None
     modified_at: datetime | None = None
-    # 封面缩略图直连 URL(客户端可直连 Jellyfin,中间层不代理图片字节)
+    # 需 MediaReview 配对认证的相对缩略图代理 URL
     cover_url: str | None = None
-    # 原图直连 URL(图片查看器优先读取;视频为 None,走播放 API)
+    # 需 MediaReview 配对认证的相对原图代理 URL；视频为 None
     original_url: str | None = None
 
 
@@ -111,15 +101,6 @@ def _summary_from_row(
         cover_url=cover_url,
         original_url=original_url,
     )
-
-
-def _sort_items(items, sort_by: SortField, sort_order: SortOrder):
-    """按白名单排序;字段缺失(None)永远排在末尾,与升降序无关。"""
-    key = _SORT_KEY_FN[sort_by]
-    present = [it for it in items if key(it) is not None]
-    missing = [it for it in items if key(it) is None]
-    present.sort(key=key, reverse=(sort_order == "desc"))
-    return present + missing
 
 
 def _require_user_id(request: Request) -> str:
@@ -272,6 +253,8 @@ class PlaybackInfo(BaseModel):
     media_id: str
     title: str
     stream_url: str
+    requires_jellyfin_auth: bool
+    message: str
     media_type: str
     duration_ms: int | None = None
     width: int | None = None
@@ -286,10 +269,10 @@ async def get_playback_info(
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
 ) -> Envelope[PlaybackInfo]:
-    """获取媒体播放信息: 返回 Jellyfin 直连流地址与视频元数据。
+    """获取媒体播放信息: 返回无凭据 Jellyfin 直连地址与视频元数据。
 
-    接口只返回直连 URL,不自带凭据;Android 用其直连 Jellyfin 播放,
-    中间层不转发视频流(见 AGENTS.md 禁止事项)。仅视频支持播放。
+    当前尚无可撤销的客户端级 Jellyfin 凭据合同，因此明确标记为需要认证；
+    中间层不转发视频流。仅视频支持播放。
     """
     row = media_index.get_cached_media(db, media_id)
     if row is None:
@@ -302,6 +285,8 @@ async def get_playback_info(
             media_id=row.media_id,
             title=row.name,
             stream_url=stream_url,
+            requires_jellyfin_auth=True,
+            message="需要为此设备配置 Jellyfin 客户端认证后才能播放；当前不会下发服务器 API Key",
             media_type=row.media_type,
             duration_ms=row.duration_ms,
             width=row.width,

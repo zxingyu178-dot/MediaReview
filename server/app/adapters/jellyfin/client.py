@@ -2,8 +2,8 @@
 
 - httpx.AsyncClient,超时与异常统一映射为 AppError 体系
 - 只暴露 JF* 模型与统一 DTO,Jellyfin 原始 JSON 不出本包
-- 直连 URL(视频流/原图/缩略图)由本类构造,Android 用其直连 Jellyfin,
-  中间层不转发大流量(AGENTS.md 禁止事项)
+- 视频只返回不含服务器凭据的 Jellyfin 直连 URL；图片由受控代理读取。
+- 中间层绝不代理视频流。
 """
 
 from __future__ import annotations
@@ -39,19 +39,9 @@ def _strip_host(host: str) -> str:
     return host.rstrip("/")
 
 
-def item_stream_url(host: str, api_key: str, item_id: str) -> str:
-    return f"{_strip_host(host)}/Videos/{item_id}/stream?static=true&api_key={api_key}"
-
-
-def item_original_url(host: str, api_key: str, item_id: str) -> str:
-    return f"{_strip_host(host)}/Items/{item_id}/Download?api_key={api_key}"
-
-
-def item_thumbnail_url(host: str, api_key: str, item_id: str, max_width: int = 480) -> str:
-    return (
-        f"{_strip_host(host)}/Items/{item_id}/Images/Primary"
-        f"?maxWidth={max_width}&quality=80&api_key={api_key}"
-    )
+def item_stream_url(host: str, item_id: str) -> str:
+    """构造不含凭据的 Jellyfin 视频地址；调用方必须明确认证仍未满足。"""
+    return f"{_strip_host(host)}/Videos/{item_id}/stream?static=true"
 
 
 class JellyfinAuthError(JellyfinError):
@@ -69,7 +59,7 @@ class JellyfinClient:
             headers=self._auth_headers(),
             timeout=_TIMEOUT,
             transport=transport,
-            follow_redirects=True,
+            follow_redirects=False,
         )
 
     def _auth_headers(self) -> dict[str, str]:
@@ -135,9 +125,12 @@ class JellyfinClient:
                 path,
                 params=params,
                 headers={"Accept": "image/*"},
+                follow_redirects=False,
             ) as response:
                 if response.status_code in (401, 403):
                     raise JellyfinAuthError()
+                if 300 <= response.status_code < 400:
+                    raise JellyfinError("Jellyfin 图片接口不允许重定向")
                 if response.status_code >= 400:
                     raise JellyfinError(f"Jellyfin 图片接口返回异常状态 {response.status_code}")
                 content_type = response.headers.get("Content-Type", "").partition(";")[0].strip()
@@ -230,16 +223,10 @@ class JellyfinClient:
             raise JellyfinError("Jellyfin 返回的媒体项缺少 ID")
         return map_media_item(item, library_id=library_id)
 
-    # ---- 直连 URL(客户端直连 Jellyfin,中间层不转发) ----
+    # ---- 不含凭据的视频直连 URL（中间层绝不转发视频） ----
 
     def video_stream_url(self, item_id: str) -> str:
-        return item_stream_url(self._base_url, self._api_key, item_id)
-
-    def image_original_url(self, item_id: str) -> str:
-        return item_original_url(self._base_url, self._api_key, item_id)
-
-    def thumbnail_url(self, item_id: str, max_width: int = 480) -> str:
-        return item_thumbnail_url(self._base_url, self._api_key, item_id, max_width)
+        return item_stream_url(self._base_url, item_id)
 
     async def thumbnail_image(self, item_id: str, max_width: int = 480) -> tuple[bytes, str]:
         return await self._image_request(
@@ -267,7 +254,5 @@ class JellyfinClient:
 __all__ = [
     "JellyfinAuthError",
     "JellyfinClient",
-    "item_original_url",
     "item_stream_url",
-    "item_thumbnail_url",
 ]

@@ -119,19 +119,13 @@ async def test_report_progress_payload(jellyfin_config: JellyfinConfig) -> None:
     assert body["IsPaused"] is False
 
 
-def test_direct_urls(jellyfin_config: JellyfinConfig) -> None:
+def test_direct_video_url_never_contains_server_key(jellyfin_config: JellyfinConfig) -> None:
     jf = JellyfinClient(jellyfin_config, transport=make_jellyfin_mock_transport())
     stream = jf.video_stream_url("it-video")
     assert stream.startswith("http://127.0.0.1:8096/Videos/it-video/stream")
     assert "static=true" in stream
-    assert "api_key=test-api-key" in stream
-
-    image = jf.image_original_url("it-photo")
-    assert image.startswith("http://127.0.0.1:8096/Items/it-photo/Download")
-
-    thumb = jf.thumbnail_url("it-video")
-    assert "/Images/Primary" in thumb
-    assert "maxWidth=480" in thumb
+    assert "test-api-key" not in stream
+    assert "api_key" not in stream.casefold()
 
 
 def test_unconfigured_key_rejected() -> None:

@@ -13,6 +13,7 @@ from app.adapters.jellyfin.client import JellyfinClient
 from app.db import models
 from app.db.session import Database
 from app.services import review
+from app.services.hash_contract import full_sha256_sql_predicate, is_full_sha256
 
 
 def _media(
@@ -132,6 +133,66 @@ def test_review_only_folds_strict_full_sha256(
     )
     assert response.status_code == 200
     assert response.json()["data"]["total_count"] == expected_total
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("a" * 64, True),
+        ("ABCDEF0123456789" * 4, True),
+        ("\0" + "a" * 63, False),
+        ("a" * 31 + "\0" + "a" * 32, False),
+        ("a" * 63 + "\0", False),
+        ("a" * 64 + "\0suffix", False),
+        (b"a" * 64, False),
+        ("é" * 64, False),
+        ("g" * 64, False),
+    ],
+)
+def test_sql_full_sha256_predicate_matches_python_for_sqlite_edge_values(
+    tmp_path: Path, value: object, expected: bool
+) -> None:
+    db = Database(tmp_path / "database" / "mediareview.db")
+    db.create_all()
+    with db.session() as session:
+        sql_result = session.scalar(sa.select(full_sha256_sql_predicate(sa.literal(value))))
+    assert is_full_sha256(value) is expected  # type: ignore[arg-type]
+    assert bool(sql_result) is expected
+    db.dispose()
+
+
+@pytest.mark.parametrize(
+    "invalid_sha256",
+    [
+        "\0" + "a" * 63,
+        "a" * 31 + "\0" + "a" * 32,
+        "a" * 63 + "\0",
+        "a" * 64 + "\0suffix",
+        b"a" * 64,
+        "é" * 64,
+        "g" * 64,
+    ],
+)
+def test_review_queue_never_folds_sqlite_values_rejected_by_python_contract(
+    app, client, invalid_sha256: object
+) -> None:
+    db: Database = app.state.database
+    _select_library(db)
+    with db.session() as session:
+        first = _media("invalid-a", name="A.mp4")
+        second = _media("invalid-b", name="B.mp4")
+        first.sha256 = invalid_sha256  # type: ignore[assignment]
+        second.sha256 = invalid_sha256  # type: ignore[assignment]
+        session.add_all([first, second])
+        session.commit()
+
+    response = client.post(
+        "/api/v1/review/sessions",
+        json={"source": {"filter": {}, "sort": {"sort_by": "name"}}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["total_count"] == 2
 
 
 def test_invalid_or_failed_create_rolls_back_old_active_session(app, client, monkeypatch) -> None:

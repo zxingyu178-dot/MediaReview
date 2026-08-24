@@ -100,6 +100,10 @@ def test_exact_scanner_rejects_invalid_full_sha256_values(tmp_path: Path) -> Non
         (600, "g" * 64),
         (700, "unreadable-io"),
         (800, "a" * 64),
+        (810, "a" * 64 + "\0suffix"),
+        (820, b"a" * 64),
+        (830, "a" * 31 + "\0" + "a" * 32),
+        (840, "é" * 64),
     )
     for size, sha256 in pairs:
         _seed_media(db, f"{size}-a", size=size, duration=3000, sha256=sha256)
@@ -222,6 +226,9 @@ def test_playback_api_returns_stream_url(jellyfin_api_client) -> None:
     data = resp.json()["data"]
     assert data["media_id"] == "play1"
     assert data["stream_url"].startswith("http://127.0.0.1:8096/Videos/jf-video-1/stream")
+    assert "api_key" not in data["stream_url"].casefold()
+    assert data["requires_jellyfin_auth"] is True
+    assert "认证" in data["message"]
 
 
 def test_playback_api_rejects_unknown_or_non_video(jellyfin_api_client) -> None:

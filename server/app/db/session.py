@@ -14,11 +14,18 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Base
+from app.services.hash_contract import is_full_sha256
 
 
 def _configure_sqlite(engine: Engine) -> None:
     @event.listens_for(engine, "connect")
     def _set_pragma(dbapi_connection, _record) -> None:  # noqa: ANN001
+        dbapi_connection.create_function(
+            "mediareview_is_full_sha256",
+            1,
+            is_full_sha256,
+            deterministic=True,
+        )
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")

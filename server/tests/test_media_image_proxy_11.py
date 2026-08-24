@@ -26,7 +26,27 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.host in {"evil.example", "169.254.169.254"}:
+            return httpx.Response(
+                200, content=b"redirected-image", headers={"Content-Type": "image/png"}
+            )
+        if request.url.path == "/redirect-target":
+            return httpx.Response(
+                200, content=b"same-origin-image", headers={"Content-Type": "image/png"}
+            )
         item_id = request.url.path.split("/")[2]
+        if item_id == "jf-redirect-cross":
+            return httpx.Response(302, headers={"Location": "http://evil.example/image.png"})
+        if item_id == "jf-redirect-link":
+            return httpx.Response(
+                302, headers={"Location": "http://169.254.169.254/latest/meta-data"}
+            )
+        if item_id == "jf-redirect-same":
+            return httpx.Response(
+                302, headers={"Location": "http://127.0.0.1:8096/redirect-target"}
+            )
+        if item_id == "jf-redirect-loop":
+            return httpx.Response(302, headers={"Location": str(request.url)})
         if item_id == "jf-error":
             return httpx.Response(500, json={"error": "upstream-secret-body"})
         if item_id == "jf-text":
@@ -84,6 +104,10 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
                         ("img-error", "jf-error", "image"),
                         ("img-text", "jf-text", "image"),
                         ("img-large", "jf-large", "image"),
+                        ("img-redirect-cross", "jf-redirect-cross", "image"),
+                        ("img-redirect-link", "jf-redirect-link", "image"),
+                        ("img-redirect-same", "jf-redirect-same", "image"),
+                        ("img-redirect-loop", "jf-redirect-loop", "image"),
                         ("video", "jf-video", "video"),
                     )
                 ]
@@ -112,10 +136,20 @@ def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image
     queue = client.get(f"/api/v1/review/sessions/{created['session_id']}/queue", headers=headers)
     media_page = client.get("/api/v1/media", headers=headers)
     detail = client.get("/api/v1/media/img-ok", headers=headers)
+    playback = client.get("/api/v1/media/video/playback", headers=headers)
 
-    assert queue.status_code == media_page.status_code == detail.status_code == 200
-    for response in (queue, media_page, detail):
+    assert (
+        queue.status_code
+        == media_page.status_code
+        == detail.status_code
+        == playback.status_code
+        == 200
+    )
+    for response in (queue, media_page, detail, playback):
         assert SERVER_KEY not in response.text
+        assert SERVER_KEY not in "\n".join(
+            f"{name}: {value}" for name, value in response.headers.items()
+        )
     queue_media = [item["media"] for item in queue.json()["data"]["items"]]
     assert all(
         item["cover_url"] == f"/api/v1/media/{item['media_id']}/thumbnail" for item in queue_media
@@ -125,6 +159,10 @@ def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image
     )
     assert detail.json()["data"]["cover_url"] == "/api/v1/media/img-ok/thumbnail"
     assert detail.json()["data"]["original_url"] == "/api/v1/media/img-ok/original"
+    playback_data = playback.json()["data"]
+    assert playback_data["requires_jellyfin_auth"] is True
+    assert "认证" in playback_data["message"]
+    assert "api_key" not in playback_data["stream_url"].casefold()
     assert requests == []
 
 
@@ -156,3 +194,27 @@ def test_image_proxy_validates_media_type_content_and_size(secure_image_client) 
         assert response.status_code == 502
         assert SERVER_KEY not in response.text
         assert "upstream-secret-body" not in response.text
+
+
+@pytest.mark.parametrize(
+    "media_id",
+    (
+        "img-redirect-cross",
+        "img-redirect-link",
+        "img-redirect-same",
+        "img-redirect-loop",
+    ),
+)
+def test_image_proxy_never_follows_upstream_redirects(secure_image_client, media_id: str) -> None:
+    client, token, requests = secure_image_client
+    before = len(requests)
+
+    response = client.get(f"/api/v1/media/{media_id}/original", headers=_auth(token))
+
+    assert response.status_code == 502
+    assert len(requests) == before + 1
+    assert SERVER_KEY not in response.text
+    assert "evil.example" not in response.text
+    assert "169.254.169.254" not in response.text
+    assert "redirect-target" not in response.text
+    assert "location" not in response.headers

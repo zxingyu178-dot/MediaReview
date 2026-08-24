@@ -91,6 +91,10 @@
 - [x] C1：review/media 图片字段改配对认证相对代理 URL，server Jellyfin Key 不进入响应
 - [x] I1：SQL exact 与 duplicate scanner 共享严格 64-hex full SHA-256 合同
 - [x] M1：删除已脱离生产入口的 Python 队列去重 helper 与私有直测
+- [x] C2：playback JSON/URL/header 不下发 server key；无凭据 direct URL 明示仍需 Jellyfin 认证
+- [x] I1（二审）：SQLite text/字节长度/shared UDF 拒绝 NUL、BLOB、Unicode 等动态类型分叉
+- [x] I2：图片上游禁用自动重定向，同源/跨源/链路本地/循环均不发起第二跳
+- [x] M2：删除死 `_SORT_KEY_FN` / `_sort_items` 并更新图片代理注释
 
 ## Server
 - [x] 配置
