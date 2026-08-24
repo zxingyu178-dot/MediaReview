@@ -78,6 +78,20 @@ def _normalize_base_path(path: str) -> str:
     return "/" + "/".join(normalized)
 
 
+def _client_reachable_hostname(hostname: str) -> str:
+    normalized = _normalize_hostname(hostname.strip("[]"))
+    plain = normalized.strip("[]").rstrip(".").casefold()
+    if plain == "localhost":
+        raise ValueError("客户端 URL host 不得为回环地址")
+    try:
+        address = ip_address(plain)
+    except ValueError:
+        return normalized
+    if address.is_loopback or address.is_unspecified or address.is_multicast:
+        raise ValueError("客户端 URL host 不可由局域网客户端访问")
+    return normalized
+
+
 def normalize_jellyfin_base_url(value: str) -> str:
     """校验并规范化 Jellyfin HTTP(S) origin 与可选 base path。"""
     if not isinstance(value, str):
@@ -142,7 +156,7 @@ def ensure_jellyfin_url_excludes_api_key(url: str, api_key: str) -> None:
 class ServerConfig(BaseModel):
     # 局域网服务必须监听全部网卡,供手机直连(见 docs/DEPLOYMENT.md)
     host: str = "0.0.0.0"  # noqa: S104
-    port: int = Field(default=8765, ge=1, le=65535)
+    port: int = Field(default=8766, ge=1, le=65535)
 
 
 class JellyfinConfig(BaseModel):
@@ -153,6 +167,8 @@ class JellyfinConfig(BaseModel):
     )
 
     url: str = _DEFAULT_JELLYFIN_URL
+    # 可选的手机可达地址；留空时按请求 MediaReview 所用 host 派生。
+    client_url: str = ""
     api_key: SecretStr = SecretStr("")
     # Jellyfin 用户 ID,留空时由阶段 2 自动发现
     user_id: str = ""
@@ -162,11 +178,12 @@ class JellyfinConfig(BaseModel):
     def _validate_url_api_key_pair(cls, data: object) -> object:
         if not isinstance(data, dict):
             return data
-        raw_url = data.get("url", _DEFAULT_JELLYFIN_URL)
         raw_key = data.get("api_key", "")
-        if isinstance(raw_url, str):
-            normalized_url = normalize_jellyfin_base_url(raw_url)
-            ensure_jellyfin_url_excludes_api_key(normalized_url, _secret_text(raw_key))
+        for field, default in (("url", _DEFAULT_JELLYFIN_URL), ("client_url", "")):
+            raw_url = data.get(field, default)
+            if isinstance(raw_url, str) and raw_url.strip():
+                normalized_url = normalize_jellyfin_base_url(raw_url)
+                ensure_jellyfin_url_excludes_api_key(normalized_url, _secret_text(raw_key))
         return data
 
     @field_validator("url")
@@ -174,12 +191,36 @@ class JellyfinConfig(BaseModel):
     def _validate_url(cls, value: str) -> str:
         return normalize_jellyfin_base_url(value)
 
+    @field_validator("client_url")
+    @classmethod
+    def _validate_client_url(cls, value: str) -> str:
+        if not value.strip():
+            return ""
+        normalized = normalize_jellyfin_base_url(value)
+        parsed = urlsplit(normalized)
+        _client_reachable_hostname(parsed.hostname or "")
+        return normalized
+
     @property
     def host(self) -> str:
         return self.url
 
     def is_configured(self) -> bool:
         return bool(self.api_key.get_secret_value())
+
+    def client_base_url(self, request_host: str) -> str:
+        """返回手机可达 Jellyfin base URL，不复制 server key。"""
+        if self.client_url:
+            result = self.client_url
+        else:
+            parsed = urlsplit(self.url)
+            normalized_host = _client_reachable_hostname(request_host)
+            authority = (
+                normalized_host if parsed.port is None else f"{normalized_host}:{parsed.port}"
+            )
+            result = f"{parsed.scheme}://{authority}{parsed.path}"
+        ensure_jellyfin_url_excludes_api_key(result, self.api_key.get_secret_value())
+        return result
 
 
 class StorageConfig(BaseModel):
@@ -215,6 +256,9 @@ class AppConfig(BaseModel):
         """返回脱敏后的配置(用于诊断/管理接口),不暴露 API Key。"""
         data = self.model_dump(mode="json")
         jellyfin = data["jellyfin"]
+        # 诊断只表达是否配置，不回传 server-only/loopback 主机。
+        jellyfin["url"] = "configured" if self.jellyfin.url else ""
+        jellyfin["client_url"] = "configured" if self.jellyfin.client_url else ""
         jellyfin["api_key"] = "********" if self.jellyfin.is_configured() else ""
         return data
 

@@ -19,6 +19,12 @@ data class MediaPage(
     val total: Int = 0,
     val page: Int = 1,
     val page_size: Int = 50,
+    val sync: MediaSyncDto = MediaSyncDto(),
+)
+
+@Serializable
+data class MediaSyncDto(
+    val state: String = "unknown",
 )
 
 @Serializable

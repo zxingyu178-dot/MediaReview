@@ -7,6 +7,7 @@ import com.mediareview.app.core.model.Envelope
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.HealthOut
 import com.mediareview.app.core.model.LibraryItem
+import com.mediareview.app.core.model.JellyfinStatusOut
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.core.model.PairingStatusOut
@@ -40,6 +41,9 @@ interface MediaReviewApi {
 
     @GET("/api/v1/pairing/status")
     suspend fun pairingStatus(): Envelope<PairingStatusOut>
+
+    @GET("/api/v1/jellyfin/status")
+    suspend fun jellyfinStatus(): Envelope<JellyfinStatusOut>
 
     @POST("/api/v1/pairing/verify")
     suspend fun verify(@Body body: VerifyRequest): Envelope<VerifyOut>

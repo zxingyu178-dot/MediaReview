@@ -72,7 +72,7 @@ class SettingsViewModel @Inject constructor(
     /** 清除已保存服务器配置与配对 token(保留 deviceId),供重新连接。 */
     fun clearAndReconnect(onCleared: () -> Unit) {
         viewModelScope.launch {
-            store.clear()
+            pairingRepository.clear()
             _ui.update { it.copy(paired = false, baseUrl = "", checkMessage = "配置已清除,请重新连接") }
             onCleared()
         }

@@ -174,7 +174,7 @@ def test_playback_final_serialization_rejects_key_from_client_builder(
     monkeypatch.setattr(
         JellyfinClient,
         "video_stream_url",
-        lambda _self, _item_id: f"http://jf.local:8096/base/{SERVER_KEY}/stream",
+        lambda _self, _item_id, **_kwargs: f"http://jf.local:8096/base/{SERVER_KEY}/stream",
     )
     response = client.get("/api/v1/media/video/playback", headers=_auth(token))
 

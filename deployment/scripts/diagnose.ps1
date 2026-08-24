@@ -8,7 +8,7 @@
 [CmdletBinding()]
 param(
     [string]$DataRoot = "$env:ProgramData\MediaReview",
-    [int]$Port = 8765
+    [int]$Port = 8766
 )
 $ErrorActionPreference = "Continue"
 $taskName = "MediaReviewServer"

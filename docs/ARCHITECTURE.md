@@ -86,6 +86,28 @@ Jellyfin 配置边界把 base URL 规范化为 HTTP(S) scheme、合法 host/port
 构造、每次视频 URL 构造和 playback 序列化分别再做终检；即使未来配置入口或依赖注入绕过模型，
 也只返回脱敏配置错误，不把含 key 的 URL 交给客户端。
 
+### 1.3 局域网连接身份与客户端 URL
+
+MediaReview 的固定 TCP 端口是 `8766`，UDP 发现端口是 `35001`。Android 只把 UDP
+回复当候选：解析服务器名/端口、使用数据包来源地址、去重并完成
+`GET /api/v1/system/health` 后才展示；手动 hostname、IPv4、括号 IPv6 与显式 HTTP(S)/端口
+始终保留为兜底。回环、未指定、组播、旧 `8765`、畸形回复和健康失败候选均被忽略。
+
+`jellyfin.client_url` 是可选的手机可达 Jellyfin base URL，复用 `jellyfin.url` 的严格
+HTTP(S)、安全 base path 和 server-key 排除边界。未配置时，服务端仅把配置的 Jellyfin host
+替换为手机访问 MediaReview 请求所用的 host，保留 scheme、port 和 base path。图片继续走
+MediaReview 配对认证代理，视频继续直连 Jellyfin且 `requires_jellyfin_auth=true`；不增加视频代理
+或 Task 6 播放凭据。Android `MediaUrlResolver` 是 Coil/Media3 前的集中边界：相对图片/雪碧图
+地址解析到配对服务器；Jellyfin 回环/server-only host 安全替换为配对 host；非 HTTP(S)、userinfo、
+畸形和凭据 URL 被拒绝。
+
+Android installation ID 首次生成后持久化且清除连接时保留；服务端 `0012` 新增规范化唯一
+`installation_id`，同一身份重复配对只旋转一行 token 并立即使旧 token 失效。迁移只合并
+trim+casefold 后完全相同的历史 ID，并保留最新有效凭据；不同历史 ID 不猜测为同一物理设备。
+Bearer token 不再明文存入 DataStore：AES-GCM key 留在 Android Keystore，DataStore 只保存密文；
+首次读取会迁移并删除旧明文 key。连接模型分别表达 MediaReview、Jellyfin、同步和认证状态，
+Task 4 再负责视觉呈现。
+
 “confirmed exact”由共享哈希合同定义：full SHA-256 必须是精确 64 位十六进制文本。SQLite
 连接注册同一个 Python 严格谓词为 deterministic UDF，SQL 还要求存储类型为 text、原始字节长度
 精确为 64；因此 NUL、BLOB、Unicode、非 hex、读取失败哨兵、未完成和仅 quick hash 均不会折叠。

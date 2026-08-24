@@ -30,6 +30,11 @@ _DEFAULT_TTL_MINUTES = 10
 _TOKEN_ALPHABET = string.ascii_letters + string.digits
 
 
+def normalize_installation_id(value: str) -> str:
+    """安装身份按 trim + casefold 规范化；不猜测不同历史 ID 的物理归属。"""
+    return (value or "").strip().casefold()
+
+
 def _new_code() -> str:
     return f"{random.SystemRandom().randint(0, 10**_CODE_LENGTH - 1):0{_CODE_LENGTH}d}"
 
@@ -65,7 +70,7 @@ def verify_and_pair(session: Session, code: str, device_id: str) -> str:
     校验: 码存在、未使用、未过期。任一项不满足返回 False(客户端应重新获取码)。
     """
     code = (code or "").strip()
-    device_id = (device_id or "").strip()
+    device_id = normalize_installation_id(device_id)
     if not code or not device_id:
         return ""
     row = session.scalars(sa.select(PairingCode).where(PairingCode.code == code)).first()
@@ -77,11 +82,14 @@ def verify_and_pair(session: Session, code: str, device_id: str) -> str:
     row.used_at = utc_now()
 
     token = _new_token()
-    device = session.get(PairedDevice, device_id)
+    device = session.scalars(
+        sa.select(PairedDevice).where(PairedDevice.installation_id == device_id)
+    ).first()
     if device is None:
         session.add(
             PairedDevice(
                 device_id=device_id,
+                installation_id=device_id,
                 paired_at=utc_now(),
                 token_hash=_token_hash(token),
                 revoked=False,
@@ -117,7 +125,10 @@ def authenticate(session: Session, token: str, *, touch: bool = True) -> PairedD
 
 def revoke_device(session: Session, device_id: str) -> bool:
     """撤销某设备的认证(token 立即失效),用于管理端解除设备。"""
-    device = session.get(PairedDevice, (device_id or "").strip())
+    normalized = normalize_installation_id(device_id)
+    device = session.scalars(
+        sa.select(PairedDevice).where(PairedDevice.installation_id == normalized)
+    ).first()
     if device is None:
         return False
     device.revoked = True
@@ -127,10 +138,12 @@ def revoke_device(session: Session, device_id: str) -> bool:
 
 
 def is_paired(session: Session, device_id: str) -> bool:
-    device_id = (device_id or "").strip()
+    device_id = normalize_installation_id(device_id)
     if not device_id:
         return False
-    row = session.get(PairedDevice, device_id)
+    row = session.scalars(
+        sa.select(PairedDevice).where(PairedDevice.installation_id == device_id)
+    ).first()
     return row is not None and not row.revoked
 
 
@@ -166,6 +179,7 @@ __all__ = [
     "generate_pairing_code",
     "is_paired",
     "list_codes",
+    "normalize_installation_id",
     "paired_devices",
     "revoke_device",
     "verify_and_pair",

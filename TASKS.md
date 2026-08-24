@@ -101,6 +101,17 @@
 - [x] I4：url/api_key 构造与双向赋值交叉校验，host/path/percent/大小写均不得携带 server key
 - [x] I4：Jellyfin client 与 playback 序列化终检，即使配置入口绕过也不返回含 key URL
 
+## MediaReview(1.1.0 Task 3: 局域网 URL、发现与配对身份)
+- [x] TCP 默认端口统一为 8766；UDP 35001 回复解析、来源 host、去重与 health 确认
+- [x] 手动 hostname/IPv4/括号 IPv6/HTTP(S)/port 规范化与中文失败，手动入口始终保留
+- [x] 可选 `jellyfin.client_url` 与 request-host 派生 client-facing playback URL
+- [x] Android `MediaUrlResolver` 集中解析相对图片/雪碧图并拒绝不安全或凭据 URL
+- [x] installation ID 先稳定持久化；同设备重复配对 upsert/rotate token/旧 token 失效
+- [x] Alembic `0012_pairing_device_identity` 从 0010 链接，覆盖升级/去重/回滚与数据保留
+- [x] token 迁移到 Android Keystore-backed AES-GCM；clear 保留 installation ID
+- [x] repository/view-model 分离 MediaReview、Jellyfin、sync、authentication 状态
+- [x] 保持 Task 2 图片代理、server-key 排除、禁视频代理与 Task 6 认证过渡合同
+
 ## Server
 - [x] 配置
 - [x] 日志

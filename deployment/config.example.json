@@ -1,7 +1,7 @@
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8765
+    "port": 8766
   },
   "jellyfin": {
     "url": "http://127.0.0.1:8096",

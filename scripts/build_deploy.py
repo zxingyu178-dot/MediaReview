@@ -94,7 +94,7 @@ def main() -> int:
 1. 解压本 ZIP 到目标电脑。
 2. 右键 `scripts/install.ps1` → 使用 PowerShell 以管理员运行。
 3. 按提示确认 Jellyfin(编辑 `%ProgramData%\\MediaReview\\config\\config.json`)。
-4. 浏览器打开 `http://<电脑IP>:8765/admin` 生成配对码。
+4. 浏览器打开 `http://<电脑IP>:8766/admin` 生成配对码。
 5. 手机安装 APK,自动发现电脑,输入配对码完成。
 
 ## 数据位置

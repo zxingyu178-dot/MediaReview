@@ -19,7 +19,7 @@ def _percent_encode_every_byte(value: str) -> str:
 
 def test_defaults_without_config_file(tmp_path: Path) -> None:
     config = load_config(tmp_path / "missing.json")
-    assert config.server.port == 8765
+    assert config.server.port == 8766
     assert config.server.host == "0.0.0.0"
     assert not config.jellyfin.is_configured()
     assert config.security.pairing_required is True

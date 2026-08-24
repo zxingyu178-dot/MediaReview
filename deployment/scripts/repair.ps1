@@ -8,7 +8,7 @@
 param(
     [string]$InstallDir = "$env:ProgramFiles\MediaReviewServer",
     [string]$DataRoot   = "$env:ProgramData\MediaReview",
-    [int]$Port          = 8765
+    [int]$Port          = 8766
 )
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot

@@ -7,9 +7,9 @@ import org.junit.Test
 class UrlNormalizeTest {
 
     @Test
-    fun `无端口自动补 8765`() {
-        assertEquals("http://192.168.1.10:8765", normalizeBaseUrl("192.168.1.10"))
-        assertEquals("http://192.168.1.10:8765", normalizeBaseUrl("http://192.168.1.10"))
+    fun `无端口自动补 8766`() {
+        assertEquals("http://192.168.1.10:8766", normalizeBaseUrl("192.168.1.10"))
+        assertEquals("http://192.168.1.10:8766", normalizeBaseUrl("http://192.168.1.10"))
     }
 
     @Test
@@ -20,11 +20,17 @@ class UrlNormalizeTest {
 
     @Test
     fun `末尾斜杠被清除`() {
-        assertEquals("http://192.168.1.10:8765", normalizeBaseUrl("192.168.1.10/"))
+        assertEquals("http://192.168.1.10:8766", normalizeBaseUrl("192.168.1.10/"))
     }
 
     @Test
     fun `https 前缀保留`() {
-        assertEquals("https://192.168.1.10:8765", normalizeBaseUrl("https://192.168.1.10"))
+        assertEquals("https://192.168.1.10:8766", normalizeBaseUrl("https://192.168.1.10"))
+    }
+
+    @Test
+    fun `支持 hostname 与括号 IPv6`() {
+        assertEquals("http://mediareview.local:8766", normalizeBaseUrl("mediareview.local"))
+        assertEquals("http://[fd00::20]:8766", normalizeBaseUrl("[fd00::20]"))
     }
 }

@@ -14,7 +14,7 @@ private val Context.serverDataStore by preferencesDataStore(name = "media_review
  * 服务器配置本地持久化(DataStore):
  * 记录已连接服务器地址与配对 token,供后续请求携带。
  *
- * token 以密文写入并非强制;V1 局域网安全边界内先持久化,后续可升级到 EncryptedSharedPreferences。
+ * token 只以 Android Keystore-backed AES-GCM 密文持久化；base URL 与 installation ID 留在 DataStore。
  */
 data class ServerProfile(
     val baseUrl: String = "",
@@ -24,20 +24,40 @@ data class ServerProfile(
     val isPaired: Boolean get() = token.isNotBlank()
 }
 
-class ServerProfileStore(private val context: Context) {
+class ServerProfileStore(
+    private val context: Context,
+    private val crypto: CredentialCipher = AndroidKeystoreCredentialCipher(),
+) {
 
     private val keyBaseUrl = stringPreferencesKey("base_url")
     private val keyToken = stringPreferencesKey("token")
+    private val keyEncryptedToken = stringPreferencesKey("token_ciphertext")
     private val keyDeviceId = stringPreferencesKey("device_id")
 
     val profile: Flow<ServerProfile> = context.serverDataStore.data.map { prefs ->
         ServerProfile(
             baseUrl = prefs[keyBaseUrl].orEmpty(),
-            token = prefs[keyToken].orEmpty(),
+            token = prefs[keyEncryptedToken]?.let { runCatching { crypto.decrypt(it) }.getOrDefault("") }.orEmpty(),
         )
     }
 
-    suspend fun current(): ServerProfile = profile.first()
+    suspend fun current(): ServerProfile {
+        val prefs = context.serverDataStore.data.first()
+        val migration = migrateCredential(
+            encryptedToken = prefs[keyEncryptedToken].orEmpty(),
+            plaintextToken = prefs[keyToken].orEmpty(),
+            crypto = crypto,
+        )
+        if (migration.removePlaintext) {
+            context.serverDataStore.edit { mutable ->
+                if (migration.encryptedToken.isNotBlank()) {
+                    mutable[keyEncryptedToken] = migration.encryptedToken
+                }
+                mutable.remove(keyToken)
+            }
+        }
+        return ServerProfile(prefs[keyBaseUrl].orEmpty(), migration.token)
+    }
 
     suspend fun saveBaseUrl(baseUrl: String) {
         context.serverDataStore.edit { prefs ->
@@ -45,10 +65,10 @@ class ServerProfileStore(private val context: Context) {
         }
     }
 
-    suspend fun savePairing(token: String, deviceId: String) {
+    suspend fun savePairing(token: String) {
         context.serverDataStore.edit { prefs ->
-            prefs[keyToken] = token
-            prefs[keyDeviceId] = deviceId
+            prefs[keyEncryptedToken] = crypto.encrypt(token)
+            prefs.remove(keyToken)
         }
     }
 
@@ -57,7 +77,7 @@ class ServerProfileStore(private val context: Context) {
         // 仅用于标识本客户端;即使取消配对也不随之清除。
         var id = context.serverDataStore.data.map { it[keyDeviceId].orEmpty() }.first()
         if (id.isBlank()) {
-            id = java.util.UUID.randomUUID().toString()
+            id = stableInstallationId(id) { java.util.UUID.randomUUID().toString() }
             context.serverDataStore.edit { prefs -> prefs[keyDeviceId] = id }
         }
         return id
@@ -67,6 +87,7 @@ class ServerProfileStore(private val context: Context) {
         context.serverDataStore.edit { prefs ->
             prefs.remove(keyBaseUrl)
             prefs.remove(keyToken)
+            prefs.remove(keyEncryptedToken)
         }
     }
 }

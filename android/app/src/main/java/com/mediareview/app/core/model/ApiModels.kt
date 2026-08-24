@@ -26,8 +26,8 @@ data class ErrorBody(
 @Serializable
 data class HealthOut(
     val status: String = "",
-    val database: String = "",
     val version: String = "",
+    val components: Map<String, String> = emptyMap(),
 )
 
 /** 配对要求与已配对设备概览(GET /pairing/status)。 */
@@ -184,4 +184,11 @@ data class DuplicateGroupDto(
     val size_bytes: Long = 0,
     val duration_ms: Long? = null,
     val detail: String = "",
+)
+
+@Serializable
+data class JellyfinStatusOut(
+    val server_name: String = "",
+    val version: String = "",
+    val jellyfin_id: String = "",
 )

@@ -721,3 +721,39 @@
 
 ---
 
+### 2026-08-24 — MediaReview 1.1 Task 3 · 局域网 URL、发现与配对身份
+
+完成：
+
+- Server TCP 默认/部署脚本统一到 `8766`，UDP 继续 `35001`；Android 解析发现服务名和端口，
+  使用数据包来源 host 去重并执行 `/health` 确认，手动 hostname/IPv4/括号 IPv6 始终可用。
+- 新增可选 `jellyfin.client_url`；留空时按认证请求访问 MediaReview 的 host 派生 Jellyfin
+  client-facing base URL并保留 scheme/port/base path。诊断隐藏 server-only URL；server key 不进
+  URL/JSON/header，图片代理与禁止视频代理合同保持。
+- Android 新增集中 `MediaUrlResolver`，在 repository 数据边界解析所有 Coil/Media3 使用的图片、
+  雪碧图与 playback URL，拒绝非 HTTP(S)、userinfo、畸形与凭据参数。
+- installation ID 首次生成后持久化；删除 `android-default` fallback。Server 按规范化
+  installation ID upsert，同设备三次配对只保留一行并逐次使旧 token 失效。
+- Alembic `0012_pairing_device_identity` 直接从 `0010` 链接；合并仅限 trim+casefold 完全相同
+  的旧 ID并保留最新有效凭据，不猜测不同历史 ID。升级、回滚和数据保留有真实迁移测试。
+- Android bearer token 改用 Keystore AES-GCM；首次读取迁移旧明文 key后删除，clear 删除凭据与
+  base URL但保留 installation ID。连接模型分别暴露 MediaReview/Jellyfin/sync/authentication。
+
+TDD 与验证：
+
+- Server RED：Task 3 focused 初次 `7 failed`；诊断 loopback 另有独立 `1 failed`。
+- Server GREEN：Task 3 focused 通过；全量 `244 tests` 通过，ruff check/format 与 diff check 通过。
+- Android RED：focused 首次因待实现 resolver/discovery/credential/state 接口稳定失败；实现后
+  首轮 `15/15`，自审补凭据持久化/内存同时 clear 后最终 `16/16` focused 通过。
+- Android full：`52` 个 JVM 测试通过，`:app:assembleDebug` 成功。
+
+遗留边界：
+
+- 按任务约束未进行真实 LAN/组播、真机、真实 Jellyfin 或 Android Keystore instrumentation；
+  这些属于部署/物理设备验收，不由 JVM/ASGI 证据代替。
+- 三个不同历史 ID 无法安全推断为同一物理设备，0012 会保留三行并在 Task 3 report 中明确为
+  cleanup limitation。
+- 未做 Task 4 视觉重构、Task 6 播放凭据、HLS/播放器状态机、删除/重复或部署/live-service 变更。
+
+---
+

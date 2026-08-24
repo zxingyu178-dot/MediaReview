@@ -43,6 +43,6 @@ cache 可以重建，不属于必须备份数据。
 
 - Jellyfin
 - MediaReview 服务
-- 8765
+- 8766
 - 防火墙
 - 日志

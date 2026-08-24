@@ -281,8 +281,13 @@ async def get_playback_info(
         raise MediaNotFoundError()
     if row.media_type != "video":
         raise ValidationFailedError("仅视频支持播放,该媒体非视频类型")
-    stream_url = client.video_stream_url(row.jellyfin_id)
-    server_key = request.app.state.settings.jellyfin.api_key.get_secret_value()
+    jellyfin_settings = request.app.state.settings.jellyfin
+    request_host = request.url.hostname or ""
+    stream_url = client.video_stream_url(
+        row.jellyfin_id,
+        base_url=jellyfin_settings.client_base_url(request_host),
+    )
+    server_key = jellyfin_settings.api_key.get_secret_value()
     try:
         ensure_jellyfin_url_excludes_api_key(stream_url, server_key)
     except ValueError:

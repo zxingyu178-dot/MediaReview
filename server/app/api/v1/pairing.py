@@ -69,6 +69,7 @@ def devices(_auth=Depends(require_auth), db: Session = Depends(get_db)) -> Envel
     rows = [
         {
             "device_id": d.device_id,
+            "installation_id": d.installation_id,
             "name": d.name,
             "paired_at": d.paired_at,
             "revoked": d.revoked,

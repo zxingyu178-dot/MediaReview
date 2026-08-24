@@ -225,7 +225,7 @@ def test_playback_api_returns_stream_url(jellyfin_api_client) -> None:
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["media_id"] == "play1"
-    assert data["stream_url"].startswith("http://127.0.0.1:8096/Videos/jf-video-1/stream")
+    assert data["stream_url"].startswith("http://testserver:8096/Videos/jf-video-1/stream")
     assert "api_key" not in data["stream_url"].casefold()
     assert data["requires_jellyfin_auth"] is True
     assert "认证" in data["message"]
@@ -259,7 +259,7 @@ def test_playback_full_json_uses_normalized_base_path_and_encoded_item_id(
     )
     data = response.json()["data"]
     assert data["stream_url"] == (
-        "https://jf.example:9443/jellyfin%20home/"
+        "https://testserver:9443/jellyfin%20home/"
         "Videos/folder%2Fvideo%20%3F%23%25/stream?static=true"
     )
     assert data["requires_jellyfin_auth"] is True

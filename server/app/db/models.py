@@ -426,6 +426,7 @@ class PairedDevice(Base):
     __tablename__ = "paired_device"
 
     device_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    installation_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     paired_at: Mapped[datetime] = mapped_column(default=utc_now)
     token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)

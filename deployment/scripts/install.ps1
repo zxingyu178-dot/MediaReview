@@ -5,13 +5,13 @@
   参数:
     -InstallDir  安装目录   (默认 $env:ProgramFiles\MediaReviewServer)
     -DataRoot    数据目录   (默认 $env:ProgramData\MediaReview)
-    -Port        服务端口   (默认 8765)
+    -Port        服务端口   (默认 8766)
 #>
 [CmdletBinding()]
 param(
     [string]$InstallDir = "$env:ProgramFiles\MediaReviewServer",
     [string]$DataRoot   = "$env:ProgramData\MediaReview",
-    [int]$Port          = 8765
+    [int]$Port          = 8766
 )
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot

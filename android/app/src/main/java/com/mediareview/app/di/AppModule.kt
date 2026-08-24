@@ -9,6 +9,7 @@ import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.AuthInterceptor
 import com.mediareview.app.core.network.CacheAuthInterceptor
 import com.mediareview.app.core.network.TokenProvider
+import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.connect.data.PairingRepository
 import dagger.Module
 import dagger.Provides

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.network.TokenProvider
 import com.mediareview.app.feature.connect.data.PairingRepository
 import com.mediareview.app.feature.connect.data.ServerProfileView
+import com.mediareview.app.feature.connect.data.ConnectionState
+import com.mediareview.app.feature.connect.data.AuthenticationState
 import com.mediareview.app.feature.connect.discovery.DiscoveredServer
 import com.mediareview.app.feature.connect.discovery.ServerDiscovery
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,7 +21,7 @@ import kotlinx.coroutines.launch
 enum class ConnectStep { Discover, ManualIp, Pairing }
 
 /** 默认 MediaReview 端口:无显式端口时补全。 */
-private const val DEFAULT_PORT = 8765
+private const val DEFAULT_PORT = 8766
 
 data class ConnectUiState(
     val step: ConnectStep = ConnectStep.Discover,
@@ -33,26 +35,35 @@ data class ConnectUiState(
     val message: String = "",
     val error: String? = null,
     val paired: Boolean = false,
+    val connection: ConnectionState = ConnectionState(),
 )
 
 /**
  * 把用户输入规范化为 base url:
  * - 已带 http:// 则保持;
  * - 否则补 http://;
- * - 无显式端口(host:port)时补 :8765,有端口则尊重用户输入。
+ * - 无显式端口(host:port)时补 :8766,有端口则尊重用户输入。
  */
 internal fun normalizeBaseUrl(input: String): String {
     val trimmed = input.trim().trimEnd('/')
-    val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    require(trimmed.isNotBlank() && '\\' !in trimmed) { "服务器地址格式无效" }
+    val withScheme = if (Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)) {
         trimmed
     } else {
         "http://$trimmed"
     }
-    // 解析 host[:port],若无端口则补默认
-    val hostPort = withScheme.removePrefix("http://").removePrefix("https://")
-    val hasPort = Regex(":[0-9]+$").containsMatchIn(hostPort)
-    val authority = if (hasPort) hostPort else "$hostPort:$DEFAULT_PORT"
-    return if (withScheme.startsWith("https")) "https://$authority" else "http://$authority"
+    val uri = runCatching { java.net.URI(withScheme) }
+        .getOrElse { throw IllegalArgumentException("服务器地址无法解析") }
+    require(uri.scheme.lowercase() in setOf("http", "https")) { "仅支持 HTTP 或 HTTPS" }
+    require(uri.host != null && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null) {
+        "服务器地址包含不支持的内容"
+    }
+    require(uri.rawPath.isNullOrEmpty() || uri.rawPath == "/") { "服务器地址不能包含路径" }
+    val normalizedHost = uri.host.trim('[', ']')
+    val host = if (':' in normalizedHost) "[$normalizedHost]" else normalizedHost
+    val port = if (uri.port == -1) DEFAULT_PORT else uri.port
+    require(port in 1..65535) { "服务器端口无效" }
+    return "${uri.scheme.lowercase()}://$host:$port"
 }
 
 @HiltViewModel
@@ -73,7 +84,7 @@ class ConnectViewModel @Inject constructor(
     /** 启动时恢复已保存服务器(已配对则直接进入已配对态)。 */
     private suspend fun restore() {
         val saved: ServerProfileView = repository.load()
-        _ui.update { it.copy(deviceId = saved.deviceId) }
+        _ui.update { it.copy(deviceId = saved.deviceId, connection = saved.connection) }
         if (saved.paired && saved.baseUrl.isNotBlank()) {
             _ui.update { it.copy(paired = true, selectedBaseUrl = saved.baseUrl) }
         } else if (saved.baseUrl.isNotBlank()) {
@@ -110,14 +121,17 @@ class ConnectViewModel @Inject constructor(
         }
     }
 
-    /** 手动 IP:先健康检查再跳转到配对;无显式端口自动补 8765。 */
+    /** 手动 IP:先健康检查再跳转到配对;无显式端口自动补 8766。 */
     fun testManualServer() {
         val ip = _ui.value.manualIp.trim()
         if (ip.isBlank()) {
             _ui.update { it.copy(error = "请输入服务器地址") }
             return
         }
-        val baseUrl = normalizeBaseUrl(ip)
+        val baseUrl = runCatching { normalizeBaseUrl(ip) }.getOrElse {
+            _ui.update { state -> state.copy(error = it.message ?: "服务器地址无效") }
+            return
+        }
         _ui.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val r = repository.checkHealthy(baseUrl)) {
@@ -127,6 +141,7 @@ class ConnectViewModel @Inject constructor(
                             busy = false,
                             selectedBaseUrl = baseUrl,
                             step = ConnectStep.Pairing,
+                            connection = r.connection,
                         )
                     }
                 }
@@ -142,16 +157,29 @@ class ConnectViewModel @Inject constructor(
     fun submitCode() {
         val code = _ui.value.code.trim()
         val baseUrl = _ui.value.selectedBaseUrl
-        val deviceId = _ui.value.deviceId.ifBlank { "android-default" }
+        val deviceId = _ui.value.deviceId
         if (code.isBlank()) {
             _ui.update { it.copy(error = "请输入配对码") }
             return
         }
+        if (deviceId.isBlank()) {
+            _ui.update { it.copy(error = "正在准备设备身份,请稍后重试") }
+            return
+        }
         _ui.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            when (val r = repository.verifyAndPair(baseUrl, deviceId, code)) {
+            when (val r = repository.verifyAndPair(baseUrl, code)) {
                 is PairingRepository.Result.Paired -> {
-                    _ui.update { it.copy(busy = false, paired = true, message = "配对成功") }
+                    _ui.update {
+                        it.copy(
+                            busy = false,
+                            paired = true,
+                            message = "配对成功",
+                            connection = it.connection.copy(
+                                authentication = AuthenticationState.Paired,
+                            ),
+                        )
+                    }
                 }
                 is PairingRepository.Result.Failure -> {
                     _ui.update { it.copy(busy = false, error = r.message) }

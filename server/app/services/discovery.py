@@ -30,7 +30,7 @@ class DiscoveryResponder:
     def __init__(
         self,
         server_name: str = "MediaReview",
-        port: int = 8765,
+        port: int = 8766,
         group: str = MULTICAST_GROUP,
         mcast_port: int = MULTICAST_PORT,
     ) -> None:

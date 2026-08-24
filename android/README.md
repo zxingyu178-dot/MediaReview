@@ -17,9 +17,9 @@ Kotlin + Jetpack Compose + Media3。
 
 - **Server Profile + 首页**(`feature/home`):显示服务器地址、设备编号(UUID)、配对态,提供进入媒体库选择与媒体墙的入口。
 - **Library Selection**(`feature/library`):媒体库勾选、保存、返回;走 `/api/v1/libraries` 与 `/api/v1/libraries/selection`。
-- **Media Wall**(`feature/mediawall`):LazyVerticalGrid 封面网格 + 列数(封面大小)滑杆(2~5 列)+ 排序(名称/添加时间/大小/时长,再点切换升降序)+ 类型筛选(全部/视频/图片)+ 搜索(服务端 search)+ 加载更多分页;封面用 Coil 直连 Jellyfin Primary(`cover_url`)。
+- **Media Wall**(`feature/mediawall`):LazyVerticalGrid 封面网格 + 列数(封面大小)滑杆(2~5 列)+ 排序(名称/添加时间/大小/时长,再点切换升降序)+ 类型筛选(全部/视频/图片)+ 搜索(服务端 search)+ 加载更多分页;封面经 `MediaUrlResolver` 解析 MediaReview 认证代理地址后交给 Coil。
 - 导航:connect → home → library / media_wall。
-- 手动 IP 无端口自动补 `:8765`;deviceId 用稳定 UUID 而非服务器 IP。
+- 手动 IP 无端口自动补 `:8766`;installation ID 用稳定 UUID 而非服务器 IP。
 
 ## 阶段 8:工程骨架 + Server Discovery + Pairing
 

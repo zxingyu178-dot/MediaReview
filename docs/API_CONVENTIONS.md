@@ -96,3 +96,28 @@
 
 三者都要求配对认证。取消 pending/running 幂等；运行中任务在分页边界协作退出。
 任务视图不返回原始 params、result、上游异常、traceback、Token 或 API Key。
+
+## 局域网发现与手动连接
+
+- MediaReview TCP 默认端口：`8766`；UDP 发现端口：`35001`。
+- UDP 回复：`MEDIAREVIEW <server_name>\n<port>`；客户端必须使用数据包来源地址作为 host，
+  去重并通过 `/api/v1/system/health` 后才显示。
+- 手动地址支持 hostname、IPv4、`[IPv6]`、可选 `http://`/`https://` 与端口；未写端口补
+  `8766`，任何网络调用前先校验并以中文报告失败。
+
+## 配对身份与凭据
+
+`POST /api/v1/pairing/verify` 继续接收兼容字段 `device_id`，其值必须是 Android 已先持久化的
+installation ID。服务端以 trim+casefold 规范化后的 `installation_id` upsert；同一安装重复
+配对旋转 token，旧 token 立即失效且数据库只保留一行。服务端只存 token SHA-256；Android
+只存 Android Keystore-backed AES-GCM 密文。清除连接会删除 base URL/credential，但保留
+installation ID。
+
+## 客户端 Jellyfin URL
+
+可选配置 `jellyfin.client_url` 与 `jellyfin.url` 使用相同 HTTP(S)、host/port/base path、
+userinfo/query/fragment 和 server-key 排除规则。配置时所有 client-facing direct URL 使用它；
+留空时服务端把 `jellyfin.url` 的 host 替换为认证请求访问 MediaReview 所用 host，并保留其余
+安全组件。JSON、URL 与诊断不返回 loopback/server-only host 或 server key。图片仍使用
+MediaReview 相对认证代理；视频不经 FastAPI 代理，Task 6 前保持
+`requires_jellyfin_auth=true`。

@@ -1,63 +1,94 @@
 package com.mediareview.app.feature.connect.discovery
 
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.SocketTimeoutException
+import java.net.URI
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** 自动发现到的服务器候选。 */
+private const val DEFAULT_PORT = 8766
+private const val MULTICAST_PORT = 35001
+private const val MULTICAST_GROUP = "239.255.42.99"
+
 data class DiscoveredServer(
     val host: String,
-    val port: Int = 8765,
+    val port: Int = DEFAULT_PORT,
     val name: String = "",
 ) {
-    val baseUrl: String get() = "http://$host:$port"
+    val baseUrl: String
+        get() = "http://${if (':' in host) "[$host]" else host}:$port"
 }
 
-/**
- * 局域网服务发现。
- *
- * 策略(可替换):
- * 1. UDP 组播 / 广播:向组播/广播地址发一个小数据报,监听响应;
- *    服务器实现为"收到本机自定义探测则回包,给出 ServerName + 端口"。
- * 2. 兜底扫描常见网段端口(可选,默认关闭)。
- *
- * 阶段 8 提供接口与组播实现;若你的服务器不支持探测协议,
- * 可退化到"手动 IP"页,二者并列 UI。
- */
-class ServerDiscovery(port: Int = 8765) {
+fun parseDiscoveryReply(payload: String, sourceHost: String): DiscoveredServer? {
+    val address = runCatching { InetAddress.getByName(sourceHost) }.getOrNull() ?: return null
+    if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isMulticastAddress) return null
+    val lines = payload.lines()
+    if (lines.size != 2 || !lines[0].startsWith("MEDIAREVIEW ")) return null
+    val name = lines[0].removePrefix("MEDIAREVIEW ").trim()
+    val port = lines[1].trim().toIntOrNull() ?: return null
+    if (name.isBlank() || port !in 1..65535) return null
+    return DiscoveredServer(address.hostAddress ?: return null, port, name)
+}
 
-    private val multicastGroup = "239.255.42.99"
-    private val multicastPort = 35001
+suspend fun confirmHealthyCandidates(
+    candidates: List<DiscoveredServer>,
+    healthCheck: suspend (String) -> Boolean,
+): List<DiscoveredServer> {
+    val unique = candidates.distinctBy { it.host.lowercase() to it.port }
+    return unique.filter { candidate -> runCatching { healthCheck(candidate.baseUrl) }.getOrDefault(false) }
+}
 
-    /** 发送探测并收集响应(阻塞式,切到 IO 线程);超时返回已发现的服务器。 */
+class ServerDiscovery(
+    private val healthCheck: suspend (String) -> Boolean = ::defaultHealthCheck,
+) {
     suspend fun discover(timeoutMs: Long = 2000): List<DiscoveredServer> =
         withContext(Dispatchers.IO) {
-            java.net.DatagramSocket().use { socket ->
+            val candidates = mutableListOf<DiscoveredServer>()
+            DatagramSocket().use { socket ->
                 socket.broadcast = true
-                val msg = "MEDIAREVIEW_DISCOVER".toByteArray(Charsets.UTF_8)
-                val packet = java.net.DatagramPacket(
-                    msg,
-                    msg.size,
-                    InetAddress.getByName(multicastGroup),
-                    multicastPort,
+                socket.soTimeout = 200
+                val message = "MEDIAREVIEW_DISCOVER".toByteArray(Charsets.UTF_8)
+                socket.send(
+                    DatagramPacket(
+                        message,
+                        message.size,
+                        InetAddress.getByName(MULTICAST_GROUP),
+                        MULTICAST_PORT,
+                    ),
                 )
-                socket.soTimeout = timeoutMs.toInt()
-                socket.send(packet)
-                val found = LinkedHashSet<String>()
-                val buf = ByteArray(2048)
-                val end = System.currentTimeMillis() + timeoutMs
-                while (System.currentTimeMillis() < end) {
+                val deadline = System.currentTimeMillis() + timeoutMs
+                val buffer = ByteArray(2048)
+                while (System.currentTimeMillis() < deadline) {
+                    ensureActive()
                     try {
-                        val resp = java.net.DatagramPacket(buf, buf.size)
-                        socket.receive(resp)
-                        if (resp.length > 0) {
-                            found.add(resp.address.hostAddress ?: continue)
-                        }
-                    } catch (_: java.net.SocketTimeoutException) {
-                        break
+                        val response = DatagramPacket(buffer, buffer.size)
+                        socket.receive(response)
+                        parseDiscoveryReply(
+                            String(response.data, response.offset, response.length, Charsets.UTF_8),
+                            response.address.hostAddress.orEmpty(),
+                        )?.let(candidates::add)
+                    } catch (_: SocketTimeoutException) {
+                        // Short timeout makes cancellation observable until use closes the socket.
                     }
                 }
-                found.map { DiscoveredServer(host = it) }
             }
+            confirmHealthyCandidates(candidates, healthCheck)
         }
+}
+
+private suspend fun defaultHealthCheck(baseUrl: String): Boolean = withContext(Dispatchers.IO) {
+    val connection = URI("$baseUrl/api/v1/system/health").toURL().openConnection() as HttpURLConnection
+    try {
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 1200
+        connection.readTimeout = 1200
+        connection.instanceFollowRedirects = false
+        connection.responseCode == HttpURLConnection.HTTP_OK
+    } finally {
+        connection.disconnect()
+    }
 }

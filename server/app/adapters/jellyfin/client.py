@@ -234,9 +234,9 @@ class JellyfinClient:
 
     # ---- 不含凭据的视频直连 URL（中间层绝不转发视频） ----
 
-    def video_stream_url(self, item_id: str) -> str:
+    def video_stream_url(self, item_id: str, *, base_url: str | None = None) -> str:
         ensure_jellyfin_url_excludes_api_key(self._base_url, self._api_key)
-        stream_url = item_stream_url(self._base_url, item_id)
+        stream_url = item_stream_url(base_url or self._base_url, item_id)
         ensure_jellyfin_url_excludes_api_key(stream_url, self._api_key)
         return stream_url
 
