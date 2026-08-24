@@ -17,13 +17,17 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.adapters.jellyfin.client import item_original_url, item_thumbnail_url
 from app.api.v1.auth import require_auth
-from app.api.v1.media import MediaSummary, _summary_from_row
+from app.api.v1.media import (
+    MediaSummary,
+    _summary_from_row,
+    media_original_url,
+    media_thumbnail_url,
+)
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
-from app.services import duplicate_scanner, media_index, review
+from app.services import media_index, review
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -61,26 +65,6 @@ def _get_review(db: Session, session_id: str):
     if review_session is None:
         raise NotFoundError(message="批阅会话不存在")
     return review_session
-
-
-def _dedupe_exact_duplicates(db: Session, ordered: list) -> list:
-    """完全重复(byte-identical)文件在默认批阅队列只保留一个代表项。
-
-    代表项取排序后最先出现的成员;其余从批阅队列移除。**只影响批阅队列,不自动
-    删除任何文件**(删除仍需用户确认),与 AGENTS.md「疑似/重复不自动删除」一致。
-    """
-    groups = duplicate_scanner.scan_exact_duplicates(db)
-    if not groups:
-        return ordered
-    drop: set[str] = set()
-    for grp in groups:
-        keep = next((m.media_id for m in ordered if m.media_id in grp.media_ids), None)
-        for media_id in grp.media_ids:
-            if media_id != keep:
-                drop.add(media_id)
-    if not drop:
-        return ordered
-    return [it for it in ordered if it.media_id not in drop]
 
 
 def _validated_source(body: CreateSessionBody) -> tuple[dict, dict]:
@@ -146,18 +130,11 @@ async def get_review_session(
 
 
 def _queue_urls(request: Request, media) -> tuple[str | None, str | None]:
-    """基于配置构造封面/原图直连 URL;Jellyfin 未配置时返回 None(不阻塞批阅接口)。"""
+    """返回不含 Jellyfin 凭据的 MediaReview 相对图片 URL。"""
     settings = request.app.state.settings.jellyfin
     if not settings.is_configured() or not media.jellyfin_id:
         return None, None
-    api_key = settings.api_key.get_secret_value()
-    cover = item_thumbnail_url(settings.host, api_key, media.jellyfin_id)
-    original = (
-        item_original_url(settings.host, api_key, media.jellyfin_id)
-        if media.media_type == "image"
-        else None
-    )
-    return cover, original
+    return media_thumbnail_url(media.media_id), media_original_url(media)
 
 
 @router.get("/sessions/{session_id}/queue", response_model=Envelope[ReviewQueuePage])

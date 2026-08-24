@@ -159,44 +159,6 @@ def test_review_resume_deep_index(app, client) -> None:
     assert done["status"] == "completed"
 
 
-def test_review_queue_dedupes_exact_duplicates(app, client) -> None:
-    """完全重复文件在默认批阅队列只保留一个代表项(不自动删除任何文件)。"""
-    from app.api.v1.review import _dedupe_exact_duplicates
-
-    db: Database = app.state.database
-    with db.session() as s:
-        for mid, sha in (("dup-a", "abc"), ("dup-b", "abc"), ("single", "def")):
-            s.add(
-                MediaCacheIndex(
-                    media_id=mid,
-                    jellyfin_id="j-" + mid,
-                    library_id="lib-movies",
-                    name=mid + ".mp4",
-                    media_type="video",
-                    fingerprint="fp-" + mid,
-                    size_bytes=1000,
-                    duration_ms=5000,
-                    quick_hash="qh-" + sha,
-                    sha256=sha,
-                    media_path=f"D:\\Media\\{mid}.mp4",
-                )
-            )
-        s.commit()
-
-    class _Fake:
-        def __init__(self, mid: str) -> None:
-            self.media_id = mid
-
-    ordered = [_Fake("dup-a"), _Fake("dup-b"), _Fake("single")]
-    with db.session() as s:
-        result = _dedupe_exact_duplicates(s, ordered)
-    # 保留排序最先的代表项 dup-a;dup-b 从批阅队列移除
-    assert [it.media_id for it in result] == ["dup-a", "single"]
-    # 不自动删除任何文件(数据行仍在)
-    with db.session() as s:
-        assert s.query(MediaCacheIndex).count() == 3
-
-
 def test_favorites_api_flow(app, client) -> None:
     _seed_media(app, "fav1")
     resp = client.post("/api/v1/favorites/fav1")

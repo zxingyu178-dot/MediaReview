@@ -32,6 +32,7 @@ from app.core.errors import JellyfinError
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 # 拉取大列表时的单页上限,防止一次请求过重
 _MAX_PAGE_LIMIT = 1000
+_MAX_IMAGE_BYTES = 25 * 1024 * 1024
 
 
 def _strip_host(host: str) -> str:
@@ -121,6 +122,45 @@ class JellyfinClient:
         except ValueError as exc:
             raise JellyfinError("Jellyfin 返回了无法解析的内容") from exc
 
+    async def _image_request(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bytes, str]:
+        """受控读取上游图片；凭据只在 Authorization header 中发送。"""
+        try:
+            async with self._http.stream(
+                "GET",
+                path,
+                params=params,
+                headers={"Accept": "image/*"},
+            ) as response:
+                if response.status_code in (401, 403):
+                    raise JellyfinAuthError()
+                if response.status_code >= 400:
+                    raise JellyfinError(f"Jellyfin 图片接口返回异常状态 {response.status_code}")
+                content_type = response.headers.get("Content-Type", "").partition(";")[0].strip()
+                if not content_type.lower().startswith("image/"):
+                    raise JellyfinError("Jellyfin 图片接口返回了非图片内容")
+                content_length = response.headers.get("Content-Length")
+                if content_length:
+                    try:
+                        if int(content_length) > _MAX_IMAGE_BYTES:
+                            raise JellyfinError("Jellyfin 图片超过允许的大小")
+                    except ValueError:
+                        pass
+                payload = bytearray()
+                async for chunk in response.aiter_bytes():
+                    payload.extend(chunk)
+                    if len(payload) > _MAX_IMAGE_BYTES:
+                        raise JellyfinError("Jellyfin 图片超过允许的大小")
+                return bytes(payload), content_type
+        except JellyfinError:
+            raise
+        except httpx.HTTPError as exc:
+            raise JellyfinError("无法读取 Jellyfin 图片,请确认服务连接正常") from exc
+
     # ---- 系统与用户 ----
 
     async def system_info(self) -> JFSystemInfo:
@@ -200,6 +240,15 @@ class JellyfinClient:
 
     def thumbnail_url(self, item_id: str, max_width: int = 480) -> str:
         return item_thumbnail_url(self._base_url, self._api_key, item_id, max_width)
+
+    async def thumbnail_image(self, item_id: str, max_width: int = 480) -> tuple[bytes, str]:
+        return await self._image_request(
+            f"/Items/{item_id}/Images/Primary",
+            params={"maxWidth": max_width, "quality": 80},
+        )
+
+    async def original_image(self, item_id: str) -> tuple[bytes, str]:
+        return await self._image_request(f"/Items/{item_id}/Download")
 
     # ---- 播放进度上报 ----
 

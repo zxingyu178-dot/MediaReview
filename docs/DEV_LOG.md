@@ -669,6 +669,19 @@
 - `<5s` 仅为隔离测试机门禁；真实媒体库并发刷新期间的写锁竞争和部署机器耗时留待后续实测。
 - 本任务未进入 Android、播放、删除、指纹算法、后台刷新或部署范围。
 
+独立审查修复（C1/I1/M1）：
+
+- **C1 API Key 边界**：review queue、media list/detail 的 cover/original 改为 MediaReview 相对
+  URL；新增配对认证 thumbnail/original 图片代理。Jellyfin key 仅在上游 Authorization header，
+  不进入 URL/JSON；代理验证媒体类型、`image/*`、25 MiB 上限并脱敏错误，绝不代理视频流。
+- **I1 exact 合同**：新增共享 `hash_contract`，Python scanner 与 SQLite SQL 共同要求精确
+  64 位 hex full SHA-256；短值、非 hex、失败哨兵和 quick-only 不折叠。
+- **M1 单一生产入口**：删除 API 层未使用的 `_dedupe_exact_duplicates`、依赖与私有直测，只保留
+  `create_session_from_index` 真实入口验收。
+- TDD remediation RED：安全/哈希 focused 首次 `6 failed, 3 passed`；GREEN `9 passed`。
+- remediation full server pytest：`190 passed, 1 warning in 96.24s`。
+- 严格 hash SQL 合同后的 100,000 行隔离建队实测 `1.212s`，仍低于 `<5s` 测试机门禁。
+
 提交：
 
 - `feat(server): build review queues from sqlite`（本任务单一提交）

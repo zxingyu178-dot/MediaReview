@@ -86,8 +86,11 @@
 - [x] SQL 筛选/搜索/稳定排序/完全重复代表项 + 单次 `INSERT ... SELECT` 队列写入
 - [x] 随机会话固化 seed；旧 active 完成、新会话和队列写入同一事务并失败回滚
 - [x] 队列使用 SQL `COUNT + OFFSET/LIMIT + JOIN`，缺失项不压缩绝对 index/total
-- [x] 10 万条建队测试机 `< 5s`（实测 1.112s；非生产 SLA）
+- [x] 10 万条建队测试机 `< 5s`（严格 hash 合同后实测 1.212s；非生产 SLA）
 - [x] current index、seen、position、advance、complete、latest-active 与 API envelope 回归兼容
+- [x] C1：review/media 图片字段改配对认证相对代理 URL，server Jellyfin Key 不进入响应
+- [x] I1：SQL exact 与 duplicate scanner 共享严格 64-hex full SHA-256 合同
+- [x] M1：删除已脱离生产入口的 Python 队列去重 helper 与私有直测
 
 ## Server
 - [x] 配置

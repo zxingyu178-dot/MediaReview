@@ -1,0 +1,158 @@
+"""Task 2 安全修复：配对认证图片代理与 API Key 不泄露。"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Iterator
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
+
+from app.adapters.jellyfin.client import JellyfinClient
+from app.api.v1.jellyfin import jellyfin_client
+from app.core.config import AppConfig, SecurityConfig, StorageConfig
+from app.db import models
+from app.db.session import Database
+from app.main import create_app
+
+SERVER_KEY = "server-only-test-key"
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+@pytest.fixture
+def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx.Request]]]:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        item_id = request.url.path.split("/")[2]
+        if item_id == "jf-error":
+            return httpx.Response(500, json={"error": "upstream-secret-body"})
+        if item_id == "jf-text":
+            return httpx.Response(
+                200, content=b"not-an-image", headers={"Content-Type": "text/plain"}
+            )
+        if item_id == "jf-large":
+            return httpx.Response(
+                200,
+                content=b"small-body",
+                headers={
+                    "Content-Type": "image/jpeg",
+                    "Content-Length": str(MAX_IMAGE_BYTES + 1),
+                },
+            )
+        if request.url.path.endswith("/Download"):
+            return httpx.Response(200, content=b"png-bytes", headers={"Content-Type": "image/png"})
+        if request.url.path.endswith("/Images/Primary"):
+            return httpx.Response(
+                200, content=b"jpeg-bytes", headers={"Content-Type": "image/jpeg"}
+            )
+        return httpx.Response(404, json={"error": "unexpected"})
+
+    config = AppConfig(
+        storage=StorageConfig(data_root=str(data_root)),
+        security=SecurityConfig(pairing_required=True, pairing_code_remote_allowed=True),
+    )
+    config.jellyfin.api_key = SecretStr(SERVER_KEY)
+    config.jellyfin.user_id = "user-a"
+    transport = httpx.MockTransport(handler)
+    app = create_app(config)
+
+    async def override_client() -> AsyncIterator[JellyfinClient]:
+        async with JellyfinClient(config.jellyfin, transport=transport) as client:
+            yield client
+
+    app.dependency_overrides[jellyfin_client] = override_client
+    with TestClient(app) as client:
+        db: Database = app.state.database
+        with db.session() as session:
+            session.add(models.LibrarySelection(jellyfin_id="lib-a", name="图库", selected=True))
+            session.add_all(
+                [
+                    models.MediaCacheIndex(
+                        media_id=media_id,
+                        jellyfin_id=jellyfin_id,
+                        library_id="lib-a",
+                        name=f"{media_id}.jpg" if media_type == "image" else f"{media_id}.mp4",
+                        media_type=media_type,
+                        fingerprint=f"fp-{media_id}",
+                        is_available=True,
+                    )
+                    for media_id, jellyfin_id, media_type in (
+                        ("img-ok", "jf-ok", "image"),
+                        ("img-error", "jf-error", "image"),
+                        ("img-text", "jf-text", "image"),
+                        ("img-large", "jf-large", "image"),
+                        ("video", "jf-video", "video"),
+                    )
+                ]
+            )
+            session.commit()
+        code = client.post("/api/v1/pairing/code").json()["data"]["code"]
+        token = client.post(
+            "/api/v1/pairing/verify",
+            json={"device_id": "phone-image", "code": code},
+        ).json()["data"]["token"]
+        yield client, token, requests
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image_client) -> None:
+    client, token, requests = secure_image_client
+    headers = _auth(token)
+    created = client.post(
+        "/api/v1/review/sessions",
+        json={"source": {"filter": {}, "sort": {"sort_by": "name"}}},
+        headers=headers,
+    ).json()["data"]
+    queue = client.get(f"/api/v1/review/sessions/{created['session_id']}/queue", headers=headers)
+    media_page = client.get("/api/v1/media", headers=headers)
+    detail = client.get("/api/v1/media/img-ok", headers=headers)
+
+    assert queue.status_code == media_page.status_code == detail.status_code == 200
+    for response in (queue, media_page, detail):
+        assert SERVER_KEY not in response.text
+    queue_media = [item["media"] for item in queue.json()["data"]["items"]]
+    assert all(
+        item["cover_url"] == f"/api/v1/media/{item['media_id']}/thumbnail" for item in queue_media
+    )
+    assert next(item for item in queue_media if item["media_id"] == "img-ok")["original_url"] == (
+        "/api/v1/media/img-ok/original"
+    )
+    assert detail.json()["data"]["cover_url"] == "/api/v1/media/img-ok/thumbnail"
+    assert detail.json()["data"]["original_url"] == "/api/v1/media/img-ok/original"
+    assert requests == []
+
+
+def test_image_proxy_requires_pairing_and_keeps_server_key_upstream(secure_image_client) -> None:
+    client, token, requests = secure_image_client
+    assert client.get("/api/v1/media/img-ok/thumbnail").status_code == 401
+    assert requests == []
+
+    thumbnail = client.get("/api/v1/media/img-ok/thumbnail", headers=_auth(token))
+    original = client.get("/api/v1/media/img-ok/original", headers=_auth(token))
+    assert thumbnail.status_code == 200 and thumbnail.content == b"jpeg-bytes"
+    assert thumbnail.headers["content-type"].startswith("image/jpeg")
+    assert thumbnail.headers["x-content-type-options"] == "nosniff"
+    assert original.status_code == 200 and original.content == b"png-bytes"
+    assert original.headers["content-type"].startswith("image/png")
+    assert SERVER_KEY not in thumbnail.text and SERVER_KEY not in original.text
+    assert len(requests) == 2
+    assert all(SERVER_KEY in request.headers["Authorization"] for request in requests)
+    assert all(SERVER_KEY not in str(request.url) for request in requests)
+
+
+def test_image_proxy_validates_media_type_content_and_size(secure_image_client) -> None:
+    client, token, _requests = secure_image_client
+    headers = _auth(token)
+    assert client.get("/api/v1/media/ghost/thumbnail", headers=headers).status_code == 404
+    assert client.get("/api/v1/media/video/original", headers=headers).status_code == 422
+    for media_id in ("img-error", "img-text", "img-large"):
+        response = client.get(f"/api/v1/media/{media_id}/original", headers=headers)
+        assert response.status_code == 502
+        assert SERVER_KEY not in response.text
+        assert "upstream-secret-body" not in response.text

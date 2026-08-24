@@ -21,6 +21,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.db.models import MediaCacheIndex
+from app.services.hash_contract import is_full_sha256
 from app.services.hash_tasks import HASH_UNREADABLE
 
 # 疑似重复: 批量查询单次上限,避免一次返回过大
@@ -63,8 +64,8 @@ def _candidate_pairs(session: Session, *, limit: int = _MAX_GROUPS) -> list[tupl
     return [(int(sz), int(dur)) for sz, dur, _cnt in rows]
 
 
-def _is_valid_hash(h: str | None) -> bool:
-    """哈希字段有效: 非空且不是"读取失败"哨兵(unreadable-io)。"""
+def _is_valid_quick_hash(h: str | None) -> bool:
+    """采样哈希字段有效: 非空且不是"读取失败"哨兵。"""
     return bool(h) and h != HASH_UNREADABLE
 
 
@@ -138,7 +139,7 @@ def scan_exact_duplicates(session: Session) -> list[DuplicateGroup]:
         # 按 sha256 进一步切分;sha256 无效(None 或读取失败哨兵)的成员排除在外
         buckets: dict[str, list[tuple[str, str]]] = {}
         for media_id, name, _qh, sha in members:
-            if not _is_valid_hash(sha):
+            if not is_full_sha256(sha):
                 continue
             buckets.setdefault(sha, []).append((media_id, name))
         groups.extend(_bucket_groups("exact", size_bytes, duration_ms, list(buckets.values())))
@@ -161,7 +162,7 @@ def _high_groups(session: Session) -> list[DuplicateGroup]:
         members = _pair_members(session, size_bytes, duration_ms)
         buckets: dict[str, list[tuple[str, str]]] = {}
         for media_id, name, qh, _sha in members:
-            if not _is_valid_hash(qh) or media_id in exact_assigned:
+            if not _is_valid_quick_hash(qh) or media_id in exact_assigned:
                 continue
             buckets.setdefault(qh, []).append((media_id, name))
         groups.extend(_bucket_groups("high", size_bytes, duration_ms, list(buckets.values())))

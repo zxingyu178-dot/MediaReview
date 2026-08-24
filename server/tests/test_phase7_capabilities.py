@@ -93,6 +93,25 @@ def test_exact_requires_computed_sha256(tmp_path: Path) -> None:
     db.dispose()
 
 
+def test_exact_scanner_rejects_invalid_full_sha256_values(tmp_path: Path) -> None:
+    db = _make_db(tmp_path)
+    pairs = (
+        (500, "partial-hash"),
+        (600, "g" * 64),
+        (700, "unreadable-io"),
+        (800, "a" * 64),
+    )
+    for size, sha256 in pairs:
+        _seed_media(db, f"{size}-a", size=size, duration=3000, sha256=sha256)
+        _seed_media(db, f"{size}-b", size=size, duration=3000, sha256=sha256)
+
+    with db.session() as session:
+        exact = duplicate_scanner.scan_exact_duplicates(session)
+    assert len(exact) == 1
+    assert set(exact[0].media_ids) == {"800-a", "800-b"}
+    db.dispose()
+
+
 def test_candidates_are_pending_hash_media(tmp_path: Path) -> None:
     """仅 size+duration 一致、quick_hash 尚未计算 → 进入候选(等待后台哈希)。"""
     db = _make_db(tmp_path)

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import MediaCacheIndex, ReviewSession, ReviewSessionItem, utc_now
 from app.services import media_index
-from app.services.hash_tasks import HASH_UNREADABLE
+from app.services.hash_contract import full_sha256_sql_predicate
 
 
 def _new_session_id() -> str:
@@ -111,9 +111,7 @@ def _representative_queue_select(
     valid_exact = sa.and_(
         MediaCacheIndex.size_bytes.is_not(None),
         MediaCacheIndex.duration_ms.is_not(None),
-        MediaCacheIndex.sha256.is_not(None),
-        MediaCacheIndex.sha256 != HASH_UNREADABLE,
-        MediaCacheIndex.sha256 != "",
+        full_sha256_sql_predicate(MediaCacheIndex.sha256),
     )
     duplicate_key = sa.case(
         (

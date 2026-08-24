@@ -166,7 +166,7 @@ def test_media_detail_not_found(jellyfin_api_client) -> None:
 
 
 def test_media_original_url_image_present_video_null(jellyfin_api_client) -> None:
-    """图片返回原图直连 URL(下载原图);视频原图走播放 API,original_url 为 None。"""
+    """图片返回 MediaReview 安全代理 URL；视频 original_url 为 None。"""
     client, _transport = jellyfin_api_client
     _seed_mock_library(client, "lib-photos")
     _seed_mock_library(client, "lib-movies")
@@ -176,8 +176,9 @@ def test_media_original_url_image_present_video_null(jellyfin_api_client) -> Non
     assert images, "照片库应返回图片"
     for img in images:
         assert img["media_type"] == "image"
-        assert img["cover_url"] and "Images/Primary" in img["cover_url"]
-        assert img["original_url"] and "/Download" in img["original_url"]
+        assert img["cover_url"] == f"/api/v1/media/{img['media_id']}/thumbnail"
+        assert img["original_url"] == f"/api/v1/media/{img['media_id']}/original"
+        assert "api_key=" not in str(img)
 
     resp2 = client.get("/api/v1/media", params={"library_id": "lib-movies"})
     videos = resp2.json()["data"]["items"]

@@ -63,8 +63,8 @@ def test_create_session_is_sqlite_only_and_uses_sql_queue_contract(
     with db.session() as session:
         session.add_all(
             [
-                _media("dup-a", name="Clip A.mp4", sha256="exact-hash"),
-                _media("dup-z", name="Clip Z.mp4", sha256="exact-hash"),
+                _media("dup-a", name="Clip A.mp4", sha256="a" * 64),
+                _media("dup-z", name="Clip Z.mp4", sha256="a" * 64),
                 _media("sus-a", name="Clip Y.mp4", quick_hash="suspected"),
                 _media("sus-b", name="Clip X.mp4", quick_hash="suspected"),
                 _media("photo", name="Clip Photo.jpg", media_type="image"),
@@ -101,6 +101,37 @@ def test_create_session_is_sqlite_only_and_uses_sql_queue_contract(
     assert [item["index"] for item in queue["items"]] == [0, 1, 2]
     with db.session() as session:
         assert session.scalar(sa.select(sa.func.count()).select_from(models.MediaCacheIndex)) == 8
+
+
+@pytest.mark.parametrize(
+    ("sha256", "quick_hash", "expected_total"),
+    [
+        ("a" * 64, None, 1),
+        ("partial-hash", None, 2),
+        ("g" * 64, None, 2),
+        ("unreadable-io", None, 2),
+        (None, "b" * 64, 2),
+    ],
+)
+def test_review_only_folds_strict_full_sha256(
+    app, client, sha256: str | None, quick_hash: str | None, expected_total: int
+) -> None:
+    db: Database = app.state.database
+    _select_library(db)
+    with db.session() as session:
+        session.add_all(
+            [
+                _media("hash-a", name="A.mp4", sha256=sha256, quick_hash=quick_hash),
+                _media("hash-b", name="B.mp4", sha256=sha256, quick_hash=quick_hash),
+            ]
+        )
+        session.commit()
+    response = client.post(
+        "/api/v1/review/sessions",
+        json={"source": {"filter": {}, "sort": {"sort_by": "name"}}},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["total_count"] == expected_total
 
 
 def test_invalid_or_failed_create_rolls_back_old_active_session(app, client, monkeypatch) -> None:

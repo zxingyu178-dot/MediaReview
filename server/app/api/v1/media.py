@@ -12,15 +12,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.adapters.jellyfin.client import (
-    JellyfinClient,
-    item_original_url,
-    item_thumbnail_url,
-)
+from app.adapters.jellyfin.client import JellyfinClient
 from app.adapters.jellyfin.models import MediaType
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
@@ -87,11 +83,14 @@ class MediaRefreshBody(BaseModel):
     force: bool = False
 
 
-def _original_url(host: str, api_key: str, item) -> str | None:
-    """图片返回原图直连 URL;视频原图走播放 API,这里不返回。"""
+def media_thumbnail_url(media_id: str) -> str:
+    return f"/api/v1/media/{media_id}/thumbnail"
+
+
+def media_original_url(item) -> str | None:
     if item.media_type != "image":
         return None
-    return item_original_url(host, api_key, item.jellyfin_id)
+    return f"/api/v1/media/{item.media_id}/original"
 
 
 def _summary_from_row(
@@ -175,15 +174,13 @@ async def list_media(
         random_seed=random_seed,
     )
     sync = media_index.media_sync_view(db, targets, available_count=available_count)
-    config = request.app.state.settings.jellyfin
-    api_key = config.api_key.get_secret_value()
     return ok(
         MediaPage(
             items=[
                 _summary_from_row(
                     row,
-                    cover_url=item_thumbnail_url(config.host, api_key, row.jellyfin_id),
-                    original_url=_original_url(config.host, api_key, row),
+                    cover_url=media_thumbnail_url(row.media_id),
+                    original_url=media_original_url(row),
                 )
                 for row in paged
             ],
@@ -219,7 +216,6 @@ async def get_media(
     media_id: str,
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
-    client: JellyfinClient = Depends(jellyfin_client),
 ) -> Envelope[MediaSummary]:
     """按 media_id 读取单条媒体详情(来自本地缓存索引)。"""
     row = media_index.get_cached_media(db, media_id)
@@ -228,12 +224,48 @@ async def get_media(
     return ok(
         _summary_from_row(
             row,
-            cover_url=client.thumbnail_url(row.jellyfin_id),
-            original_url=(
-                client.image_original_url(row.jellyfin_id) if row.media_type == "image" else None
-            ),
+            cover_url=media_thumbnail_url(row.media_id),
+            original_url=media_original_url(row),
         )
     )
+
+
+def _image_response(payload: bytes, content_type: str) -> Response:
+    return Response(
+        content=payload,
+        media_type=content_type,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/{media_id}/thumbnail", response_class=Response)
+async def get_media_thumbnail(
+    media_id: str,
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+    client: JellyfinClient = Depends(jellyfin_client),
+) -> Response:
+    row = media_index.get_cached_media(db, media_id)
+    if row is None or not row.jellyfin_id:
+        raise MediaNotFoundError()
+    payload, content_type = await client.thumbnail_image(row.jellyfin_id)
+    return _image_response(payload, content_type)
+
+
+@router.get("/{media_id}/original", response_class=Response)
+async def get_media_original(
+    media_id: str,
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+    client: JellyfinClient = Depends(jellyfin_client),
+) -> Response:
+    row = media_index.get_cached_media(db, media_id)
+    if row is None or not row.jellyfin_id:
+        raise MediaNotFoundError()
+    if row.media_type != "image":
+        raise ValidationFailedError("仅图片支持原图读取")
+    payload, content_type = await client.original_image(row.jellyfin_id)
+    return _image_response(payload, content_type)
 
 
 class PlaybackInfo(BaseModel):

@@ -67,6 +67,17 @@ Jellyfin/httpx 客户端，也不在请求内调用 Jellyfin `/Items`。`media_t
 `OFFSET/LIMIT` 子查询，再一次 JOIN 当前可用媒体。缓存媒体缺失或不可用时，该页可少于
 `page_size`，但保存的绝对 `index` 和队列 `total` 不压缩，保证旧客户端断点恢复语义稳定。
 
+媒体列表、详情和批阅队列的 `cover_url` / `original_url` 只返回配对认证的 MediaReview
+相对路径：`/api/v1/media/{media_id}/thumbnail` 与 `/api/v1/media/{media_id}/original`。
+Jellyfin server API Key 只用于中间层到 Jellyfin 的 Authorization header，不进入 URL 或 JSON。
+图片代理只接受上游 `image/*`，按 Content-Length 和实际累计字节限制 25 MiB，并返回
+`X-Content-Type-Options: nosniff`；original 只允许图片媒体。视频仍走既有直连播放合同，图片
+代理绝不转发视频流。
+
+“confirmed exact”由共享哈希合同定义：full SHA-256 必须是精确 64 位十六进制文本。批阅 SQL
+与 duplicate scanner 复用该合同；短值、非 hex、读取失败哨兵、未完成和仅 quick hash 均不会
+折叠，避免把未确认内容误当作完全重复。
+
 ## 2. 推荐技术栈
 
 ### Server
@@ -254,6 +265,7 @@ android/
 - `GET /api/v1/media/{media_id}`
 - `GET /api/v1/media/{media_id}/playback`
 - `GET /api/v1/media/{media_id}/thumbnail`
+- `GET /api/v1/media/{media_id}/original`
 
 ### 雪碧图
 
