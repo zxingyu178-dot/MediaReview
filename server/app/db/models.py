@@ -14,11 +14,13 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Index,
     Integer,
     MetaData,
     String,
     Text,
     UniqueConstraint,
+    and_,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -89,7 +91,66 @@ class MediaCacheIndex(Base):
     sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime | None] = mapped_column(nullable=True)
     modified_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sync_generation: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     synced_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+
+# 媒体墙的 count/filter/order/page 均在 SQLite 中执行。排序索引把可用性、库、类型
+# 放在前缀，避免 5 万至 10 万规模下回退为全表 Python 排序。
+Index(
+    "ix_media_cache_available_library_type_name",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.name.collate("NOCASE"),
+)
+Index(
+    "ix_media_cache_available_library_type_created",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.created_at,
+)
+Index(
+    "ix_media_cache_available_library_type_size",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.size_bytes,
+)
+Index(
+    "ix_media_cache_available_library_type_duration",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.duration_ms,
+)
+Index(
+    "ix_media_cache_available_library_type_resolution",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.media_type,
+    MediaCacheIndex.width,
+    MediaCacheIndex.height,
+)
+
+
+class MediaSyncState(Base):
+    """每个媒体库的持久化同步状态；不保存凭据或上游原始错误。"""
+
+    __tablename__ = "media_sync_state"
+
+    library_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # idle | pending | running | succeeded | failed | cancelled
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
+    task_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class BackgroundTask(Base):
@@ -112,6 +173,19 @@ class BackgroundTask(Base):
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+Index(
+    "uq_background_task_active_target",
+    BackgroundTask.type,
+    BackgroundTask.media_id,
+    unique=True,
+    sqlite_where=and_(
+        BackgroundTask.type == "media_refresh",
+        BackgroundTask.media_id.is_not(None),
+        BackgroundTask.status.in_(("pending", "running")),
+    ),
+)
 
 
 class SpriteManifest(Base):

@@ -33,7 +33,7 @@ from app.core.responses import Envelope, ErrorBody, error_response
 from app.db.migrate import run_migrations
 from app.db.session import Database
 from app.media.ffmpeg import FfmpegExecutor
-from app.services import discovery, hash_tasks, sprite
+from app.services import discovery, hash_tasks, media_index, sprite
 from app.services.tasks import TaskManager
 
 logger = get_logger("main")
@@ -68,6 +68,10 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
 
         # 后台任务引擎: 注册雪碧图生成处理器;features.sprites 关闭时跳过
         task_manager = TaskManager(database)
+        task_manager.register(
+            media_index.TASK_TYPE_MEDIA_REFRESH,
+            media_index.make_media_refresh_handler(settings.jellyfin),
+        )
         if settings.features.sprites:
             executor = FfmpegExecutor(settings.storage.ffmpeg_dir)
             app.state.media_executor = executor

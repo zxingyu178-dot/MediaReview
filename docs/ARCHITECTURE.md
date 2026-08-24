@@ -31,6 +31,20 @@ Android Media3 Player
 - Jellyfin 是媒体数据源。
 - MediaReview 自己管理批阅相关状态。
 
+### 1.1 数据库优先媒体索引
+
+`GET /api/v1/media` 的列表唯一数据源是 SQLite `media_cache_index`。请求内只执行
+SQL count、筛选、搜索、排序与分页，不等待或发起 Jellyfin `/Items` 采集。若已选媒体库
+尚无可用缓存，请求立即返回空页和 `pending/running` 同步元数据，并幂等编排一个
+`media_refresh` 后台任务。
+
+后台处理器按 Jellyfin 每页 500 条读取，以 SQLite `ON CONFLICT DO UPDATE` 分批提交。
+每次运行使用 generation ID；只有某个媒体库所有分页完整成功后，才把该库本代未见记录
+标记为 `is_available=false`。失败或协作取消不会隐藏旧缓存，错误只持久化为脱敏中文消息。
+
+查询索引覆盖 `available + library + type` 以及 name、created、size、duration、resolution
+排序。10 万条索引的 50 项分页自动化门禁为测试机 `< 1s`，生产目标为 `< 250ms`。
+
 ## 2. 推荐技术栈
 
 ### Server
@@ -214,6 +228,7 @@ android/
 ### 媒体
 
 - `GET /api/v1/media`
+- `POST /api/v1/media/refresh`
 - `GET /api/v1/media/{media_id}`
 - `GET /api/v1/media/{media_id}/playback`
 - `GET /api/v1/media/{media_id}/thumbnail`
@@ -265,6 +280,7 @@ android/
 - `paired_devices`
 - `library_selection`
 - `media_cache_index`
+- `media_sync_state`
 - `favorites`
 - `review_sessions`
 - `review_session_items`
@@ -275,6 +291,10 @@ android/
 - `audit_log`
 
 不要复制完整 Jellyfin 数据库，只缓存本项目需要的字段。
+
+`media_cache_index` 额外保存 `is_available`、`sync_generation`、`last_seen_at`；
+`media_sync_state` 以 `library_id` 为主键保存状态、任务 ID、处理进度、最近开始/成功时间和
+脱敏错误。Jellyfin 凭据、原始 traceback 和完整上游数据库不得写入这些表。
 
 ## 8. media_id
 

@@ -1,4 +1,4 @@
-"""媒体索引服务: 媒体库勾选 + 媒体缓存索引 + 媒体快照缓存。
+"""媒体索引服务: 数据库优先查询、媒体库勾选与后台刷新。
 
 阶段 3 职责:
 - 媒体库勾选状态持久化(library_selection)
@@ -6,25 +6,43 @@
 - 媒体快照缓存(内存 LRU + TTL):避免媒体墙每翻一页就重新扫描 Jellyfin 全库
 
 只缓存本项目需要的字段,不复制 Jellyfin 数据库(见 ARCHITECTURE 第 7 节)。
-所有写操作在请求会话内完成,避免阻塞普通 HTTP。大库媒体采集由媒体 API 分页进行,
-本模块只负责落地与查询。
+普通 GET 请求只查询 SQLite。Jellyfin 全库采集仅由 TaskManager 在线程中执行，
+每 500 条短事务 upsert；只有一个媒体库完整成功后才隐藏该库未见的旧项目。
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import time
-from collections.abc import Iterable
+import uuid
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+import sqlalchemy as sa
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters.jellyfin.client import JellyfinClient
 from app.adapters.jellyfin.models import Library, MediaItem
-from app.db.models import LibrarySelection, MediaCacheIndex, utc_now
+from app.core.config import JellyfinConfig
+from app.db.models import (
+    BackgroundTask,
+    Favorite,
+    LibrarySelection,
+    MediaCacheIndex,
+    MediaSyncState,
+    utc_now,
+)
+from app.db.session import Database
 
 # 单次从 Jellyfin 拉取媒体列表的分页上限,防止一次请求过重
 _LIBRARY_PAGE = 500
+TASK_TYPE_MEDIA_REFRESH = "media_refresh"
+_SYNC_ERROR = "媒体同步失败，请稍后重试"
 
 # 媒体快照缓存:内存 LRU + TTL(秒)
 _MEDIA_SNAPSHOT_TTL_SECONDS = 180  # 3 分钟
@@ -89,7 +107,7 @@ def upsert_libraries(session: Session, libraries: Iterable[Library]) -> None:
 
     新增媒体库默认勾选;已存在媒体库仅同步名称/类型/顺序,保留用户的勾选状态。
     """
-    existing = {row.jellyfin_id: row for row in session.scalars(select(LibrarySelection)).all()}
+    existing = {row.jellyfin_id: row for row in session.scalars(sa.select(LibrarySelection)).all()}
     now = utc_now()
     for order, lib in enumerate(libraries):
         row = existing.get(lib.jellyfin_id)
@@ -114,7 +132,7 @@ def upsert_libraries(session: Session, libraries: Iterable[Library]) -> None:
 
 def library_selection_rows(session: Session) -> list[LibrarySelection]:
     return list(
-        session.scalars(select(LibrarySelection).order_by(LibrarySelection.sort_order)).all()
+        session.scalars(sa.select(LibrarySelection).order_by(LibrarySelection.sort_order)).all()
     )
 
 
@@ -137,7 +155,7 @@ def selected_library_ids(session: Session) -> list[str]:
     return [
         row.jellyfin_id
         for row in session.scalars(
-            select(LibrarySelection)
+            sa.select(LibrarySelection)
             .where(LibrarySelection.selected.is_(True))
             .order_by(LibrarySelection.sort_order)
         ).all()
@@ -147,59 +165,496 @@ def selected_library_ids(session: Session) -> list[str]:
 # ---- 媒体缓存索引 ----
 
 
-def _to_index_row(session: Session, item: MediaItem, *, now) -> MediaCacheIndex:
-    return MediaCacheIndex(
-        media_id=item.media_id,
-        jellyfin_id=item.jellyfin_id,
-        library_id=item.library_id,
-        name=item.name,
-        media_type=item.media_type,
-        duration_ms=item.duration_ms,
-        size_bytes=item.size_bytes,
-        width=item.width,
-        height=item.height,
-        container=item.container,
-        fingerprint=item.fingerprint,
-        created_at=item.created_at,
-        modified_at=item.modified_at,
-        synced_at=now,
-        media_path=item.media_path,
+def _index_payload(item: MediaItem, *, generation: str | None, now: datetime) -> dict:
+    return {
+        "media_id": item.media_id,
+        "jellyfin_id": item.jellyfin_id,
+        "library_id": item.library_id,
+        "name": item.name,
+        "media_type": item.media_type,
+        "duration_ms": item.duration_ms,
+        "size_bytes": item.size_bytes,
+        "width": item.width,
+        "height": item.height,
+        "container": item.container,
+        "media_path": item.media_path,
+        "fingerprint": item.fingerprint,
+        "created_at": item.created_at,
+        "modified_at": item.modified_at,
+        "is_available": True,
+        "sync_generation": generation,
+        "last_seen_at": now,
+        "synced_at": now,
+    }
+
+
+def upsert_media_items(
+    session: Session,
+    items: Iterable[MediaItem],
+    *,
+    generation: str | None = None,
+    now: datetime | None = None,
+) -> int:
+    """用 SQLite ON CONFLICT 批量 upsert，不预载整个媒体索引。"""
+    timestamp = now or utc_now()
+    payload = [
+        _index_payload(item, generation=generation, now=timestamp)
+        for item in items
+        if item.media_id
+    ]
+    if not payload:
+        return 0
+    ids = [item["media_id"] for item in payload]
+    existing_count = int(
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(MediaCacheIndex)
+            .where(MediaCacheIndex.media_id.in_(ids))
+        )
+        or 0
     )
-
-
-def upsert_media_items(session: Session, items: Iterable[MediaItem]) -> int:
-    """把统一 MediaItem 写入 media_cache_index(按 media_id upsert)。返回新增条数。"""
-    existing = {row.media_id: row for row in session.scalars(select(MediaCacheIndex)).all()}
-    now = utc_now()
-    inserted = 0
-    for item in items:
-        if not item.media_id:
-            continue
-        row = existing.get(item.media_id)
-        if row is None:
-            session.add(_to_index_row(session, item, now=now))
-            inserted += 1
-        else:
-            row.jellyfin_id = item.jellyfin_id
-            row.library_id = item.library_id
-            row.name = item.name
-            row.media_type = item.media_type
-            row.duration_ms = item.duration_ms
-            row.size_bytes = item.size_bytes
-            row.width = item.width
-            row.height = item.height
-            row.container = item.container
-            row.media_path = item.media_path
-            row.fingerprint = item.fingerprint
-            row.created_at = item.created_at
-            row.modified_at = item.modified_at
-            row.synced_at = now
+    statement = sqlite_insert(MediaCacheIndex).values(payload)
+    excluded = statement.excluded
+    update_values = {
+        "jellyfin_id": excluded.jellyfin_id,
+        "library_id": excluded.library_id,
+        "name": excluded.name,
+        "media_type": excluded.media_type,
+        "duration_ms": excluded.duration_ms,
+        "size_bytes": excluded.size_bytes,
+        "width": excluded.width,
+        "height": excluded.height,
+        "container": excluded.container,
+        "media_path": excluded.media_path,
+        "fingerprint": excluded.fingerprint,
+        "created_at": excluded.created_at,
+        "modified_at": excluded.modified_at,
+        "is_available": True,
+        "synced_at": excluded.synced_at,
+    }
+    if generation is not None:
+        update_values["sync_generation"] = excluded.sync_generation
+        update_values["last_seen_at"] = excluded.last_seen_at
+    statement = statement.on_conflict_do_update(
+        index_elements=[MediaCacheIndex.media_id],
+        set_=update_values,
+    )
+    session.execute(statement)
     session.flush()
-    return inserted
+    return len(payload) - existing_count
+
+
+def _escaped_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _sort_expression(sort_by: str, random_seed: str | None):
+    if sort_by == "name":
+        return MediaCacheIndex.name.collate("NOCASE")
+    if sort_by == "created":
+        return MediaCacheIndex.created_at
+    if sort_by == "size":
+        return MediaCacheIndex.size_bytes
+    if sort_by == "duration":
+        return MediaCacheIndex.duration_ms
+    if sort_by == "resolution":
+        return sa.case(
+            (
+                sa.and_(
+                    MediaCacheIndex.width.is_not(None),
+                    MediaCacheIndex.height.is_not(None),
+                    MediaCacheIndex.width > 0,
+                    MediaCacheIndex.height > 0,
+                ),
+                MediaCacheIndex.width * MediaCacheIndex.height,
+            ),
+            else_=None,
+        )
+    if sort_by == "random":
+        seed = random_seed or datetime.now(UTC).date().isoformat()
+        rotation = int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8], 16) % 24
+        # media_id 本身是 SHA-256 派生的均匀十六进制；按 seed 旋转后在 SQL 中排序，
+        # 无需 ORDER BY RANDOM()，同一 seed 跨页和跨进程都稳定。
+        return sa.func.substr(MediaCacheIndex.media_id, rotation + 1).op("||")(
+            sa.func.substr(MediaCacheIndex.media_id, 1, rotation)
+        )
+    raise ValueError(f"不支持的媒体排序字段: {sort_by}")
+
+
+def list_cached_media(
+    session: Session,
+    *,
+    library_ids: Iterable[str],
+    media_type: str | None = None,
+    search: str | None = None,
+    exclude_favorites: bool = False,
+    sort_by: str = "name",
+    sort_order: str = "asc",
+    page: int = 1,
+    page_size: int = 50,
+    random_seed: str | None = None,
+) -> tuple[list[MediaCacheIndex], int]:
+    """在 SQLite 中完成 count、筛选、排序与分页，不把全表载入 Python。"""
+    targets = sorted(set(library_ids))
+    if not targets:
+        return [], 0
+    conditions = [
+        MediaCacheIndex.is_available.is_(True),
+        MediaCacheIndex.library_id.in_(targets),
+    ]
+    if media_type:
+        conditions.append(MediaCacheIndex.media_type == media_type)
+    if search and search.strip():
+        pattern = f"%{_escaped_like(search.strip().casefold())}%"
+        conditions.append(sa.func.lower(MediaCacheIndex.name).like(pattern, escape="\\"))
+    if exclude_favorites:
+        conditions.append(
+            ~sa.exists(sa.select(1).where(Favorite.media_id == MediaCacheIndex.media_id))
+        )
+
+    total = int(
+        session.scalar(sa.select(sa.func.count()).select_from(MediaCacheIndex).where(*conditions))
+        or 0
+    )
+    sort_value = _sort_expression(sort_by, random_seed)
+    direction = sort_value.desc() if sort_order == "desc" else sort_value.asc()
+    statement = (
+        sa.select(MediaCacheIndex)
+        .where(*conditions)
+        .order_by(sort_value.is_(None).asc(), direction, MediaCacheIndex.media_id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return list(session.scalars(statement).all()), total
 
 
 def get_cached_media(session: Session, media_id: str) -> MediaCacheIndex | None:
     return session.get(MediaCacheIndex, media_id)
+
+
+def available_media_count(session: Session, library_ids: Iterable[str]) -> int:
+    targets = sorted(set(library_ids))
+    if not targets:
+        return 0
+    return int(
+        session.scalar(
+            sa.select(sa.func.count())
+            .select_from(MediaCacheIndex)
+            .where(
+                MediaCacheIndex.is_available.is_(True),
+                MediaCacheIndex.library_id.in_(targets),
+            )
+        )
+        or 0
+    )
+
+
+# ---- 持久化后台刷新 ----
+
+
+def _target_key(library_ids: Iterable[str]) -> str:
+    canonical = ",".join(sorted(set(library_ids)))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+
+
+def schedule_media_refresh(
+    session: Session, library_ids: Iterable[str], *, force: bool = False
+) -> BackgroundTask:
+    """幂等编排目标库集合；force 不会绕过已有 pending/running 任务。"""
+    targets = sorted({library_id for library_id in library_ids if library_id})
+    if not targets:
+        raise ValueError("媒体刷新至少需要一个媒体库")
+    target_key = _target_key(targets)
+    existing = session.scalar(
+        sa.select(BackgroundTask)
+        .where(
+            BackgroundTask.type == TASK_TYPE_MEDIA_REFRESH,
+            BackgroundTask.media_id == target_key,
+            BackgroundTask.status.in_(("pending", "running")),
+        )
+        .order_by(BackgroundTask.created_at.asc())
+        .limit(1)
+    )
+    if existing is not None:
+        return existing
+
+    try:
+        with session.begin_nested():
+            task = BackgroundTask(
+                task_id=uuid.uuid4().hex,
+                type=TASK_TYPE_MEDIA_REFRESH,
+                status="pending",
+                params=json.dumps(
+                    {"library_ids": targets, "force": bool(force)},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                progress=0,
+                media_id=target_key,
+            )
+            session.add(task)
+            for library_id in targets:
+                state = session.get(MediaSyncState, library_id)
+                if state is None:
+                    state = MediaSyncState(library_id=library_id)
+                    session.add(state)
+                state.state = "pending"
+                state.task_id = task.task_id
+                state.processed = 0
+                state.total = 0
+                state.last_error = None
+            session.flush()
+    except IntegrityError:
+        winner = session.scalar(
+            sa.select(BackgroundTask)
+            .where(
+                BackgroundTask.type == TASK_TYPE_MEDIA_REFRESH,
+                BackgroundTask.media_id == target_key,
+                BackgroundTask.status.in_(("pending", "running")),
+            )
+            .limit(1)
+        )
+        if winner is None:
+            raise
+        return winner
+    return task
+
+
+def media_sync_view(session: Session, library_ids: Iterable[str], *, available_count: int) -> dict:
+    targets = sorted(set(library_ids))
+    rows = list(
+        session.scalars(
+            sa.select(MediaSyncState).where(MediaSyncState.library_id.in_(targets))
+        ).all()
+    )
+    by_library = {row.library_id: row for row in rows}
+    states = [by_library[target].state if target in by_library else "idle" for target in targets]
+    priority = {"running": 0, "pending": 1, "failed": 2, "cancelled": 3, "succeeded": 4, "idle": 5}
+    state = min(states, key=lambda value: priority.get(value, 6)) if states else "idle"
+    selected = next((row for row in rows if row.state == state), rows[0] if rows else None)
+    successes = [by_library[target].last_success_at for target in targets if target in by_library]
+    last_success_at = (
+        min(value for value in successes if value is not None)
+        if len(successes) == len(targets) and all(value is not None for value in successes)
+        else None
+    )
+    messages = {
+        "idle": "媒体索引可用" if available_count else "尚未建立媒体索引",
+        "pending": "媒体索引已进入后台同步队列",
+        "running": "正在后台同步媒体索引",
+        "succeeded": "媒体索引同步完成",
+        "failed": _SYNC_ERROR,
+        "cancelled": "媒体索引同步已取消",
+    }
+    return {
+        "state": state,
+        "stale": state in {"failed", "cancelled"}
+        or (available_count > 0 and state in {"pending", "running"}),
+        "task_id": selected.task_id if selected is not None else None,
+        "processed": sum(row.processed for row in rows),
+        "total": sum(row.total for row in rows),
+        "last_success_at": last_success_at,
+        "message": messages.get(state, "媒体索引状态未知"),
+    }
+
+
+def _task_targets(task: BackgroundTask) -> list[str]:
+    try:
+        payload = json.loads(task.params or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return []
+    values = payload.get("library_ids")
+    if not isinstance(values, list):
+        return []
+    return sorted({value for value in values if isinstance(value, str) and value})
+
+
+def _is_cancelled(database: Database, task_id: str) -> bool:
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        return task is None or task.status == "cancelled"
+
+
+def _finish_cancelled(database: Database, task_id: str, targets: Iterable[str]) -> None:
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        if task is not None:
+            task.status = "cancelled"
+            task.finished_at = task.finished_at or utc_now()
+        for library_id in targets:
+            state = session.get(MediaSyncState, library_id)
+            if state is not None and state.task_id == task_id and state.state != "succeeded":
+                state.state = "cancelled"
+                state.last_error = None
+        session.commit()
+
+
+def _finish_failed(database: Database, task_id: str, targets: Iterable[str]) -> None:
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        if task is not None and task.status != "cancelled":
+            task.status = "failed"
+            task.error = _SYNC_ERROR
+            task.finished_at = utc_now()
+        for library_id in targets:
+            state = session.get(MediaSyncState, library_id)
+            if state is not None and state.task_id == task_id and state.state != "succeeded":
+                state.state = "failed"
+                state.last_error = _SYNC_ERROR
+        session.commit()
+
+
+async def _refresh_media_index_async(
+    database: Database,
+    task_id: str,
+    *,
+    user_id: str,
+    client_factory: Callable[[], JellyfinClient],
+) -> None:
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        if task is None:
+            return
+        targets = _task_targets(task)
+        if task.status == "cancelled":
+            _finish_cancelled(database, task_id, targets)
+            return
+        now = utc_now()
+        for library_id in targets:
+            state = session.get(MediaSyncState, library_id)
+            if state is None:
+                state = MediaSyncState(library_id=library_id, task_id=task_id)
+                session.add(state)
+            state.state = "running"
+            state.task_id = task_id
+            state.processed = 0
+            state.total = 0
+            state.last_started_at = now
+            state.last_error = None
+        session.commit()
+
+    generation = uuid.uuid4().hex
+    completed = 0
+    async with client_factory() as client:
+        for library_id in targets:
+            start = 0
+            total = 0
+            while True:
+                if _is_cancelled(database, task_id):
+                    _finish_cancelled(database, task_id, targets)
+                    return
+                page, reported_total = await client.media_page(
+                    user_id,
+                    parent_id=library_id,
+                    start_index=start,
+                    limit=_LIBRARY_PAGE,
+                )
+                if _is_cancelled(database, task_id):
+                    _finish_cancelled(database, task_id, targets)
+                    return
+                total = max(0, int(reported_total))
+                if not page and start < total:
+                    raise RuntimeError("Jellyfin 媒体分页提前结束")
+                with database.session() as session:
+                    task = session.get(BackgroundTask, task_id)
+                    if task is None or task.status == "cancelled":
+                        session.rollback()
+                        _finish_cancelled(database, task_id, targets)
+                        return
+                    now = utc_now()
+                    upsert_media_items(session, page, generation=generation, now=now)
+                    start += len(page)
+                    state = session.get(MediaSyncState, library_id)
+                    if state is not None:
+                        state.processed = start
+                        state.total = total
+                    session.commit()
+                if not page or start >= total:
+                    break
+
+            # 只有该库所有分页完整成功后，才隐藏本代未见的旧缓存。
+            if _is_cancelled(database, task_id):
+                _finish_cancelled(database, task_id, targets)
+                return
+            with database.session() as session:
+                session.execute(
+                    sa.update(MediaCacheIndex)
+                    .where(
+                        MediaCacheIndex.library_id == library_id,
+                        MediaCacheIndex.is_available.is_(True),
+                        sa.or_(
+                            MediaCacheIndex.sync_generation.is_(None),
+                            MediaCacheIndex.sync_generation != generation,
+                        ),
+                    )
+                    .values(is_available=False)
+                )
+                state = session.get(MediaSyncState, library_id)
+                if state is not None:
+                    state.state = "succeeded"
+                    state.processed = start
+                    state.total = total
+                    state.last_success_at = utc_now()
+                    state.last_error = None
+                completed += 1
+                task = session.get(BackgroundTask, task_id)
+                if task is not None:
+                    task.progress = min(99, int(completed * 100 / max(1, len(targets))))
+                session.commit()
+
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        if task is not None and task.status != "cancelled":
+            task.status = "succeeded"
+            task.progress = 100
+            task.result = json.dumps({"libraries": len(targets)}, separators=(",", ":"))
+            task.error = None
+            task.finished_at = utc_now()
+        session.commit()
+
+
+def refresh_media_index(
+    database: Database,
+    task_id: str,
+    *,
+    user_id: str,
+    client_factory: Callable[[], JellyfinClient],
+) -> None:
+    """TaskManager 线程处理器入口；所有异常只持久化为安全中文消息。"""
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        targets = _task_targets(task) if task is not None else []
+    try:
+        if not user_id:
+            raise RuntimeError("缺少 Jellyfin 用户")
+        asyncio.run(
+            _refresh_media_index_async(
+                database,
+                task_id,
+                user_id=user_id,
+                client_factory=client_factory,
+            )
+        )
+    except Exception:  # noqa: BLE001 - 上游异常统一脱敏，TaskManager 不暴露 traceback
+        if _is_cancelled(database, task_id):
+            _finish_cancelled(database, task_id, targets)
+        else:
+            _finish_failed(database, task_id, targets)
+
+
+def make_media_refresh_handler(config: JellyfinConfig) -> Callable[[Database, str], None]:
+    """按应用配置构造媒体刷新处理器；凭据只留在内存客户端中。"""
+    captured = config.model_copy(deep=True)
+
+    def _handler(database: Database, task_id: str) -> None:
+        refresh_media_index(
+            database,
+            task_id,
+            user_id=captured.user_id,
+            client_factory=lambda: JellyfinClient(captured),
+        )
+
+    return _handler
 
 
 # ---- 采集辅助 ----
@@ -230,3 +685,24 @@ async def collect_library_items(
         if not page or start >= total:
             break
     return items
+
+
+__all__ = [
+    "TASK_TYPE_MEDIA_REFRESH",
+    "apply_selection",
+    "available_media_count",
+    "collect_library_items",
+    "get_cached_media",
+    "get_media_snapshot",
+    "invalidate_media_snapshots",
+    "library_selection_rows",
+    "list_cached_media",
+    "make_media_refresh_handler",
+    "media_sync_view",
+    "put_media_snapshot",
+    "refresh_media_index",
+    "schedule_media_refresh",
+    "selected_library_ids",
+    "upsert_libraries",
+    "upsert_media_items",
+]

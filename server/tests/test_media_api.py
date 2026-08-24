@@ -1,8 +1,6 @@
-"""阶段 3: 媒体分页/排序/筛选接口测试。
+"""媒体数据库分页/排序/筛选接口测试。
 
-含阶段 16 预部署收口:
-- 媒体快照缓存验收:连续 page 1/2/3,Jellyfin 全库采集只执行一次
-- 10000 媒体(等价 mock)分页性能:大库分页不重复全库扫描
+1.1 起 GET /media 只读 SQLite；Jellyfin 采集由后台 media_refresh 任务负责。
 """
 
 from __future__ import annotations
@@ -10,14 +8,22 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import httpx
-from conftest import JELLYFIN_USER_ID, make_jellyfin_mock_transport
+import sqlalchemy as sa
+from conftest import (
+    JELLYFIN_USER_ID,
+    _movie_item,
+    _photo_item,
+    make_jellyfin_mock_transport,
+)
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.adapters.jellyfin.client import JellyfinClient
-from app.adapters.jellyfin.mapper import compute_media_id
+from app.adapters.jellyfin.mapper import compute_media_id, map_media_item
+from app.adapters.jellyfin.models import JFItem
 from app.api.v1.jellyfin import jellyfin_client
 from app.core.config import AppConfig, SecurityConfig, StorageConfig
+from app.db import models
 from app.main import create_app
 from app.services import media_index
 
@@ -28,8 +34,28 @@ def _names(resp) -> list[str]:
     return [item["name"] for item in body["data"]["items"]]
 
 
+def _seed_mock_library(client: TestClient, library_id: str) -> None:
+    if library_id == "lib-movies":
+        raw_items = [
+            _movie_item(1, "B.mp4"),
+            _movie_item(2, "a.mp4"),
+            _movie_item(3, "C.mp4"),
+            _movie_item(4, "d.mp4"),
+            _movie_item(5, "E.mp4"),
+        ]
+    elif library_id == "lib-photos":
+        raw_items = [_photo_item(1, "P1.jpg"), _photo_item(2, "P2.jpg")]
+    else:
+        raise AssertionError(f"unsupported mock library {library_id}")
+    items = [map_media_item(JFItem.from_raw(raw), library_id=library_id) for raw in raw_items]
+    with client.app.state.database.session() as session:
+        media_index.upsert_media_items(session, items)
+        session.commit()
+
+
 def test_media_list_single_library_default_sort(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     resp = client.get("/api/v1/media", params={"library_id": "lib-movies"})
     assert resp.status_code == 200
     body = resp.json()["data"]
@@ -42,6 +68,7 @@ def test_media_list_single_library_default_sort(jellyfin_api_client) -> None:
 
 def test_media_list_sort_by_size_desc(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     resp = client.get(
         "/api/v1/media",
         params={"library_id": "lib-movies", "sort_by": "size", "sort_order": "desc"},
@@ -52,6 +79,7 @@ def test_media_list_sort_by_size_desc(jellyfin_api_client) -> None:
 
 def test_media_list_filter_media_type_video(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     resp = client.get("/api/v1/media", params={"library_id": "lib-movies", "media_type": "video"})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -61,6 +89,7 @@ def test_media_list_filter_media_type_video(jellyfin_api_client) -> None:
 
 def test_media_list_filter_no_match(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     resp = client.get("/api/v1/media", params={"library_id": "lib-movies", "media_type": "image"})
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -70,6 +99,7 @@ def test_media_list_filter_no_match(jellyfin_api_client) -> None:
 
 def test_media_list_pagination(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     resp = client.get(
         "/api/v1/media", params={"library_id": "lib-movies", "page": 2, "page_size": 2}
     )
@@ -102,6 +132,8 @@ def test_media_list_all_selected_libraries(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
     client.get("/api/v1/libraries", params={"user_id": "user-0001"})
     client.put("/api/v1/libraries/selection", json={"selected": ["lib-movies", "lib-photos"]})
+    _seed_mock_library(client, "lib-movies")
+    _seed_mock_library(client, "lib-photos")
     resp = client.get("/api/v1/media")
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -111,6 +143,7 @@ def test_media_list_all_selected_libraries(jellyfin_api_client) -> None:
 
 def test_media_detail_roundtrip(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     list_resp = client.get("/api/v1/media", params={"library_id": "lib-movies"})
     media_id = list_resp.json()["data"]["items"][0]["media_id"]
     detail = client.get(f"/api/v1/media/{media_id}")
@@ -135,6 +168,8 @@ def test_media_detail_not_found(jellyfin_api_client) -> None:
 def test_media_original_url_image_present_video_null(jellyfin_api_client) -> None:
     """图片返回原图直连 URL(下载原图);视频原图走播放 API,original_url 为 None。"""
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-photos")
+    _seed_mock_library(client, "lib-movies")
     resp = client.get("/api/v1/media", params={"library_id": "lib-photos"})
     assert resp.status_code == 200
     images = resp.json()["data"]["items"]
@@ -152,6 +187,7 @@ def test_media_original_url_image_present_video_null(jellyfin_api_client) -> Non
 def test_media_exclude_favorites_filter(jellyfin_api_client) -> None:
     """exclude_favorites=true 时排除已点赞媒体(未点赞筛选)。"""
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     list_resp = client.get("/api/v1/media", params={"library_id": "lib-movies"})
     items = list_resp.json()["data"]["items"]
     assert len(items) == 5
@@ -175,6 +211,7 @@ def test_media_exclude_favorites_filter(jellyfin_api_client) -> None:
 def test_media_progress_reports_to_jellyfin(jellyfin_api_client) -> None:
     """POST /media/{id}/progress 回传 Jellyfin 播放进度(Sessions/Playing/Progress)。"""
     client, _transport = jellyfin_api_client
+    _seed_mock_library(client, "lib-movies")
     list_resp = client.get("/api/v1/media", params={"library_id": "lib-movies"})
     media_id = list_resp.json()["data"]["items"][0]["media_id"]
     resp = client.post(
@@ -188,7 +225,7 @@ def test_media_progress_reports_to_jellyfin(jellyfin_api_client) -> None:
 # ---- 阶段 16: 媒体快照缓存验收 ----
 
 
-def _make_counting_app(handler) -> tuple[TestClient, dict[str, int]]:
+def _make_counting_app(handler, data_root) -> tuple[TestClient, dict[str, int]]:
     """构造带 Items 调用计数的应用;返回 (client, calls)。"""
     calls = {"items": 0}
     base = handler
@@ -199,7 +236,7 @@ def _make_counting_app(handler) -> tuple[TestClient, dict[str, int]]:
         return base(request)
 
     config = AppConfig(
-        storage=StorageConfig(data_root=""),
+        storage=StorageConfig(data_root=str(data_root)),
         security=SecurityConfig(pairing_required=False),
     )
     config.jellyfin.api_key = SecretStr("test-api-key")
@@ -215,29 +252,26 @@ def _make_counting_app(handler) -> tuple[TestClient, dict[str, int]]:
     return TestClient(app), calls
 
 
-def test_media_pagination_scans_jellyfin_once() -> None:
-    """验收: 连续请求 page 1/2/3,Jellyfin 全库采集只能执行一次。"""
-    media_index.invalidate_media_snapshots()  # 隔离测试间的共享快照
-    client, calls = _make_counting_app(make_jellyfin_mock_transport().handler)
+def test_media_pagination_never_scans_jellyfin(data_root) -> None:
+    """连续 page 1/2/3 都只读 SQLite，Jellyfin Items 调用为零。"""
+    client, calls = _make_counting_app(make_jellyfin_mock_transport().handler, data_root)
     with client as c:
         c.get("/api/v1/libraries")
         c.put("/api/v1/libraries/selection", json={"selected": ["lib-movies"]})
+        _seed_mock_library(c, "lib-movies")
 
         p1 = c.get("/api/v1/media", params={"library_id": "lib-movies", "page": 1, "page_size": 2})
         assert p1.status_code == 200
-        scan_after_page1 = calls["items"]
-        assert scan_after_page1 > 0  # 首页确实触发了一次全库采集
+        assert calls["items"] == 0
 
         p2 = c.get("/api/v1/media", params={"library_id": "lib-movies", "page": 2, "page_size": 2})
         p3 = c.get("/api/v1/media", params={"library_id": "lib-movies", "page": 3, "page_size": 2})
         assert p2.status_code == 200 and p3.status_code == 200
-        # 第 2、3 页走快照,不再重新扫描 Jellyfin
-        assert calls["items"] == scan_after_page1
+        assert calls["items"] == 0
 
 
-def test_media_pagination_large_library_no_rescan() -> None:
-    """10000 媒体(等价 mock)分页: 连续翻页不重复全库扫描。"""
-    media_index.invalidate_media_snapshots()
+def test_media_pagination_large_library_no_rescan(data_root) -> None:
+    """10,000 条 SQLite 索引连续翻页和切排序都不访问 Jellyfin。"""
 
     def big_handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -274,18 +308,35 @@ def test_media_pagination_large_library_no_rescan() -> None:
                 return httpx.Response(200, json={"Items": items, "TotalRecordCount": total})
         return httpx.Response(404, json={"error": "unexpected " + path})
 
-    client, calls = _make_counting_app(big_handler)
+    client, calls = _make_counting_app(big_handler, data_root)
     with client as c:
         c.get("/api/v1/libraries")
         c.put("/api/v1/libraries/selection", json={"selected": ["lib-big"]})
+        payload = [
+            {
+                "media_id": compute_media_id(f"big-{i}"),
+                "jellyfin_id": f"big-{i}",
+                "library_id": "lib-big",
+                "name": f"movie{i:05d}.mp4",
+                "media_type": "video",
+                "size_bytes": 1000 + i,
+                "duration_ms": 6000 + i,
+                "width": 1920,
+                "height": 1080,
+                "fingerprint": f"fp-{i}",
+                "is_available": True,
+            }
+            for i in range(10_000)
+        ]
+        with c.app.state.database.engine.begin() as connection:
+            connection.execute(sa.insert(models.MediaCacheIndex), payload)
 
         p1 = c.get("/api/v1/media", params={"library_id": "lib-big", "page": 1, "page_size": 50})
         assert p1.status_code == 200
         data1 = p1.json()["data"]
         assert data1["total"] == 10_000
         assert len(data1["items"]) == 50
-        scan_after_page1 = calls["items"]
-        assert scan_after_page1 == 20  # 10_000 / 500 一页 = 20 次 Items 调用完成全库采集
+        assert calls["items"] == 0
 
         # 切排序、翻页均不再扫描
         p2 = c.get("/api/v1/media", params={"library_id": "lib-big", "page": 2, "page_size": 50})
@@ -301,4 +352,4 @@ def test_media_pagination_large_library_no_rescan() -> None:
         )
         assert p2.status_code == 200 and p_sorted.status_code == 200
         assert p2.json()["data"]["items"][0]["name"] == "movie00050.mp4"
-        assert calls["items"] == scan_after_page1
+        assert calls["items"] == 0

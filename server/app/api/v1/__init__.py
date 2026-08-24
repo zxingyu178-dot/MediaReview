@@ -15,6 +15,7 @@ from app.api.v1 import (
     pairing,
     review,
     system,
+    tasks,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -28,5 +29,6 @@ api_router.include_router(favorites.router)
 api_router.include_router(delete_queue.router)
 api_router.include_router(duplicates.router)
 api_router.include_router(pairing.router)
+api_router.include_router(tasks.router)
 
 __all__ = ["api_router"]

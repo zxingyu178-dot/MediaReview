@@ -16,8 +16,11 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+import sqlalchemy as sa
+from sqlalchemy.orm import Session
+
 from app.core.logging import get_logger
-from app.db.models import BackgroundTask, utc_now
+from app.db.models import BackgroundTask, MediaSyncState, utc_now
 from app.db.session import Database
 
 logger = get_logger("tasks")
@@ -98,4 +101,60 @@ class TaskManager:
             session.commit()
 
 
-__all__ = ["TaskManager"]
+def safe_task_view(task: BackgroundTask) -> dict:
+    """返回不含 params/result/raw exception 的通用任务视图。"""
+    safe_error = None
+    if task.status == "failed":
+        safe_error = (
+            "媒体同步失败，请稍后重试"
+            if task.type == "media_refresh"
+            else "后台任务执行失败，请稍后重试"
+        )
+    return {
+        "task_id": task.task_id,
+        "type": task.type,
+        "status": task.status,
+        "progress": task.progress,
+        "media_id": task.media_id if task.type != "media_refresh" else None,
+        "error": safe_error,
+        "created_at": task.created_at,
+        "started_at": task.started_at,
+        "finished_at": task.finished_at,
+    }
+
+
+def list_task_rows(
+    session: Session,
+    *,
+    task_type: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[BackgroundTask]:
+    statement = sa.select(BackgroundTask)
+    if task_type:
+        statement = statement.where(BackgroundTask.type == task_type)
+    if status:
+        statement = statement.where(BackgroundTask.status == status)
+    statement = statement.order_by(BackgroundTask.created_at.desc()).limit(limit)
+    return list(session.scalars(statement).all())
+
+
+def cancel_task(session: Session, task: BackgroundTask) -> BackgroundTask:
+    """幂等取消 pending/running；运行中处理器在分页边界观察 cancelled。"""
+    if task.status not in {"pending", "running"}:
+        return task
+    task.status = "cancelled"
+    task.finished_at = task.finished_at or utc_now()
+    for state in session.scalars(
+        sa.select(MediaSyncState).where(
+            MediaSyncState.task_id == task.task_id,
+            MediaSyncState.state.in_(("pending", "running")),
+        )
+    ).all():
+        state.state = "cancelled"
+        state.last_error = None
+    session.flush()
+    return task
+
+
+__all__ = ["TaskManager", "cancel_task", "list_task_rows", "safe_task_view"]

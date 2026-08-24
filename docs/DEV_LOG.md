@@ -569,3 +569,51 @@
 
 ---
 
+### 2026-08-24 — 1.1 Task 1 · 数据库优先媒体索引与后台同步
+
+完成：
+
+- Server 版本更新为 `1.1.0`；`GET /api/v1/media` 改为 SQLite 唯一列表数据源，
+  count、library/type/search/favorite exclusion、六类排序与 page slicing 全部在 SQL 完成。
+- `MediaCacheIndex` 增加 `is_available`、`sync_generation`、`last_seen_at`，新增
+  `MediaSyncState`；Alembic `0010` 把旧行无损升级为 available，并增加媒体墙查询索引。
+- `media_refresh` 注册到 `TaskManager`：Jellyfin 每页 500 条，SQLite bulk upsert，
+  generation 完整成功门禁；失败/取消不隐藏旧缓存，错误只记录脱敏中文消息。
+- 新增 `POST /api/v1/media/refresh`、`GET /api/v1/tasks`、
+  `GET /api/v1/tasks/{task_id}`、`POST /api/v1/tasks/{task_id}/cancel`；均保持配对认证边界，
+  通用任务视图不返回 raw params/result/traceback。
+- `MediaPage` 增加 `sync`；空缓存立即返回并只编排一个任务，已有缓存同步失败时仍立即可读。
+
+验证：
+
+- 真实 RED：新增 focused 验收首次 `13 failed`，失败原因为缺失 SQL 查询、同步状态/处理器、
+  refresh/tasks API 和 0010 列。
+- focused GREEN：`15 passed`；全量 Server：`165 passed`，仅保留已记录的第三方
+  Starlette `httpx` 弃用警告。
+- `ruff check .`：`All checks passed!`；`ruff format --check .`：通过。
+- 10 万条 SQLite 索引、50 项分页断言 `< 1s`；生产性能目标记录为 `< 250ms`。
+- 自审追加 RED→GREEN：active-target 部分唯一索引防并发重复活动任务；旧调用路径 upsert
+  不清除活动 `sync_generation`；最后一页提交后再次检查取消状态，避免 cancelled 任务进入
+  unseen 失效窗口。
+
+测试：
+
+- `test_media_index_11.py`：SQL 筛选/排序/稳定随机/availability/10 万条性能、失败、取消、
+  generation 成功门禁。
+- `test_media_sync_api_11.py`：GET 零 Jellyfin Items、空缓存幂等入队、force 幂等、目标校验、
+  通用任务查询/取消/脱敏/认证。
+- `test_db.py`：从真实 0009 schema 升级 0010，媒体行和收藏状态无损。
+- `test_media_api.py`：原详情、播放进度、收藏、图片 URL 与分页兼容路径改为预置 SQLite。
+
+遗留：
+
+- `< 250ms` 是生产目标，本任务自动化只强制测试机 `< 1s`；真实 56,533 条生产副本、
+  后台刷新耗时和手机端超时消失需后续部署/实机阶段验证。
+- 本任务未修改 Task 2 批阅建队；其现有同步 Jellyfin 行为按范围留给下一任务。
+
+提交：
+
+- `feat(server): add database-first media refresh`（本任务单一提交）
+
+---
+

@@ -73,6 +73,14 @@
 - [x] 完全重复文件在默认批阅队列只保留一个代表项(不自动删除任何文件)0.8.1
 - [x] 媒体排序补 resolution/random 字段 + exclude_favorites(未点赞筛选)0.8.1
 
+## Server(1.1.0 Task 1: 数据库优先媒体索引与后台同步)
+- [x] `GET /media` 改为 SQLite count/filter/search/order/page，零 Jellyfin `/Items` 调用
+- [x] `MediaCacheIndex` availability/generation/last_seen + `MediaSyncState` + Alembic 0010 无损升级
+- [x] 10 万条索引 50 项分页测试机 `< 1s`，生产目标 `< 250ms`
+- [x] `media_refresh` 每批 500 条 bulk upsert，完整成功后才隐藏未见项目
+- [x] 同步失败/取消保留旧缓存并返回脱敏中文状态
+- [x] `POST /media/refresh` 幂等刷新 + `/tasks` 查询/详情/协作取消（配对认证）
+
 ## Server
 - [x] 配置
 - [x] 日志
