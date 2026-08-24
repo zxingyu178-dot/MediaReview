@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import sqlalchemy as sa
 
@@ -11,6 +13,7 @@ from app.adapters.jellyfin.models import MediaItem
 from app.db import models
 from app.db.session import Database
 from app.services import media_index
+from app.services.tasks import TaskManager
 
 
 def _database(tmp_path: Path) -> Database:
@@ -340,6 +343,140 @@ def test_cancellation_after_final_page_does_not_hide_unseen_cache(
             sync = session.get(models.MediaSyncState, "lib-a")
             assert unseen is not None and unseen.is_available is True
             assert sync is not None and sync.state == "cancelled"
+    finally:
+        database.dispose()
+
+
+def test_cancel_racing_after_last_status_check_cannot_hide_unseen_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """最终失效必须与 running→succeeded CAS 同一事务，封住末页取消竞态。"""
+    database = _database(tmp_path)
+    try:
+        seen_id = "c" * 24
+        unseen_id = "d" * 24
+        with database.session() as session:
+            session.add_all([_row(seen_id), _row(unseen_id)])
+            session.commit()
+        task_id = _scheduled_refresh(database, ["lib-a"])
+        fake = _PagedClient([([_item(seen_id)], 1)])
+        real_is_cancelled = media_index._is_cancelled
+        checks = 0
+
+        def cancel_after_last_check(db, checked_task_id):
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                with db.session() as session:
+                    task = session.get(models.BackgroundTask, checked_task_id)
+                    assert task is not None
+                    task.status = "cancelled"
+                    session.commit()
+                # 模拟取消恰好落在旧实现的 check 与失效 UPDATE 之间。
+                return False
+            return real_is_cancelled(db, checked_task_id)
+
+        monkeypatch.setattr(media_index, "_is_cancelled", cancel_after_last_check)
+        media_index.refresh_media_index(
+            database,
+            task_id,
+            user_id="user-a",
+            client_factory=lambda: fake,
+        )
+
+        with database.session() as session:
+            unseen = session.get(models.MediaCacheIndex, unseen_id)
+            task = session.get(models.BackgroundTask, task_id)
+            assert checks >= 3
+            assert unseen is not None and unseen.is_available is True
+            assert task is not None and task.status == "cancelled"
+    finally:
+        database.dispose()
+
+
+class _SecondLibraryFailsClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+    async def media_page(self, _user_id, *, parent_id, **_kwargs):
+        if parent_id == "lib-a":
+            return [_item("e" * 24, library_id="lib-a")], 1
+        raise RuntimeError("second library failed")
+
+
+def test_second_library_failure_does_not_invalidate_first_library(tmp_path: Path) -> None:
+    """任一目标库失败时，本轮所有库都不得提交 unseen 失效。"""
+    database = _database(tmp_path)
+    try:
+        unseen_a = "f" * 24
+        unseen_b = "1" * 24
+        with database.session() as session:
+            session.add_all(
+                [
+                    _row(unseen_a, library_id="lib-a"),
+                    _row(unseen_b, library_id="lib-b"),
+                ]
+            )
+            session.commit()
+        task_id = _scheduled_refresh(database, ["lib-a", "lib-b"])
+
+        media_index.refresh_media_index(
+            database,
+            task_id,
+            user_id="user-a",
+            client_factory=_SecondLibraryFailsClient,
+        )
+
+        with database.session() as session:
+            task = session.get(models.BackgroundTask, task_id)
+            states = {
+                row.library_id: row.state
+                for row in session.scalars(
+                    sa.select(models.MediaSyncState).where(models.MediaSyncState.task_id == task_id)
+                )
+            }
+            assert task is not None and task.status == "failed"
+            assert session.get(models.MediaCacheIndex, unseen_a).is_available is True
+            assert session.get(models.MediaCacheIndex, unseen_b).is_available is True
+            assert states == {"lib-a": "failed", "lib-b": "failed"}
+    finally:
+        database.dispose()
+
+
+def test_two_task_managers_atomically_claim_one_pending_task(tmp_path: Path) -> None:
+    """两个进程式 manager 并发 claim 时只能有一个获得同一 task。"""
+    database = _database(tmp_path)
+    try:
+        with database.session() as session:
+            session.add(
+                models.BackgroundTask(
+                    task_id="claim-once",
+                    type="media_refresh",
+                    status="pending",
+                )
+            )
+            session.commit()
+
+        managers = [TaskManager(database), TaskManager(database)]
+        select_barrier = Barrier(2)
+
+        @sa.event.listens_for(database.engine, "before_cursor_execute")
+        def synchronize_legacy_select(
+            _conn, _cursor, statement, _parameters, _context, _executemany
+        ):
+            normalized = " ".join(statement.lower().split())
+            if normalized.startswith("select") and "from background_task" in normalized:
+                select_barrier.wait(timeout=5)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            claims = list(pool.map(lambda manager: manager._claim_next(), managers))
+
+        winners = [claim for claim in claims if claim is not None]
+        assert len(winners) == 1
+        assert winners[0][0] == "claim-once"
     finally:
         database.dispose()
 

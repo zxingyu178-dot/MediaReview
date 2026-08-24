@@ -605,6 +605,17 @@
 - `test_db.py`：从真实 0009 schema 升级 0010，媒体行和收藏状态无损。
 - `test_media_api.py`：原详情、播放进度、收藏、图片 URL 与分页兼容路径改为预置 SQLite。
 
+独立审查返修：
+
+- `GET /media` 移除 Jellyfin client 依赖，直连 URL 改用纯配置函数；未知/未选库不再由 GET
+  自动入队。
+- 全目标成功后才以任务终态 CAS、unseen 失效和库状态同事务提交；第二库失败与末页取消
+  竞态均保留所有旧 unseen。
+- `TaskManager` 用 SQLite 条件 UPDATE/RETURNING 原子 claim，双 manager 只有一个胜出。
+- 0010/ORM/query 统一五种固定排序表达式，并补齐有/无 media type 索引；真实 0009→0010、
+  100,000 行、24 个排序组合通过 `<1s`，固定排序关键计划无 `TEMP B-TREE`。
+- 返修 focused `25 passed`；全量重跑 `171 passed`；ruff check/format 均通过。
+
 遗留：
 
 - `< 250ms` 是生产目标，本任务自动化只强制测试机 `< 1s`；真实 56,533 条生产副本、

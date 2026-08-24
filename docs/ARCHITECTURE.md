@@ -34,16 +34,18 @@ Android Media3 Player
 ### 1.1 数据库优先媒体索引
 
 `GET /api/v1/media` 的列表唯一数据源是 SQLite `media_cache_index`。请求内只执行
-SQL count、筛选、搜索、排序与分页，不等待或发起 Jellyfin `/Items` 采集。若已选媒体库
+SQL count、筛选、搜索、排序与分页，也不构造 Jellyfin HTTP 客户端。若已选媒体库
 尚无可用缓存，请求立即返回空页和 `pending/running` 同步元数据，并幂等编排一个
-`media_refresh` 后台任务。
+`media_refresh` 后台任务；未知或未选库只读缓存，不触发自动刷新。
 
 后台处理器按 Jellyfin 每页 500 条读取，以 SQLite `ON CONFLICT DO UPDATE` 分批提交。
-每次运行使用 generation ID；只有某个媒体库所有分页完整成功后，才把该库本代未见记录
-标记为 `is_available=false`。失败或协作取消不会隐藏旧缓存，错误只持久化为脱敏中文消息。
+每次运行使用 generation ID；只有全部目标库所有分页都成功后，才在任务
+`running -> succeeded` CAS 的同一写事务中把本代未见记录标记为
+`is_available=false`。任一库失败或协作取消都不会隐藏旧缓存，错误只持久化为脱敏中文消息。
 
-查询索引覆盖 `available + library + type` 以及 name、created、size、duration、resolution
-排序。10 万条索引的 50 项分页自动化门禁为测试机 `< 1s`，生产目标为 `< 250ms`。
+查询索引分别覆盖有/无 `media_type` 的 `available + library` 前缀以及
+name、created、size、duration、resolution 排序；固定排序关键路径不使用 SQLite 临时
+B-tree。10 万条索引的 50 项分页自动化门禁为测试机 `< 1s`，生产目标为 `< 250ms`。
 
 ## 2. 推荐技术栈
 

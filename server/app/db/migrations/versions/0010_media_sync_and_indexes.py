@@ -43,30 +43,55 @@ def upgrade() -> None:
         "AND status IN ('pending', 'running')"
     )
 
-    # name 使用 NOCASE，resolution 使用表达式索引；其余排序字段用普通复合索引。
+    # 每种排序同时提供有/无 media_type 的路径，并包含稳定 tie-break media_id。
+    op.execute(
+        "CREATE INDEX ix_media_cache_available_library_name "
+        "ON media_cache_index (is_available, library_id, name COLLATE NOCASE, media_id)"
+    )
     op.execute(
         "CREATE INDEX ix_media_cache_available_library_type_name "
-        "ON media_cache_index (is_available, library_id, media_type, name COLLATE NOCASE)"
+        "ON media_cache_index "
+        "(is_available, library_id, media_type, name COLLATE NOCASE, media_id)"
+    )
+    op.create_index(
+        "ix_media_cache_available_library_created",
+        "media_cache_index",
+        ["is_available", "library_id", "created_at", "media_id"],
     )
     op.create_index(
         "ix_media_cache_available_library_type_created",
         "media_cache_index",
-        ["is_available", "library_id", "media_type", "created_at"],
+        ["is_available", "library_id", "media_type", "created_at", "media_id"],
+    )
+    op.create_index(
+        "ix_media_cache_available_library_size",
+        "media_cache_index",
+        ["is_available", "library_id", "size_bytes", "media_id"],
     )
     op.create_index(
         "ix_media_cache_available_library_type_size",
         "media_cache_index",
-        ["is_available", "library_id", "media_type", "size_bytes"],
+        ["is_available", "library_id", "media_type", "size_bytes", "media_id"],
+    )
+    op.create_index(
+        "ix_media_cache_available_library_duration",
+        "media_cache_index",
+        ["is_available", "library_id", "duration_ms", "media_id"],
     )
     op.create_index(
         "ix_media_cache_available_library_type_duration",
         "media_cache_index",
-        ["is_available", "library_id", "media_type", "duration_ms"],
+        ["is_available", "library_id", "media_type", "duration_ms", "media_id"],
+    )
+    op.execute(
+        "CREATE INDEX ix_media_cache_available_library_resolution "
+        "ON media_cache_index "
+        "(is_available, library_id, (width * height), media_id)"
     )
     op.execute(
         "CREATE INDEX ix_media_cache_available_library_type_resolution "
         "ON media_cache_index "
-        "(is_available, library_id, media_type, (width * height))"
+        "(is_available, library_id, media_type, (width * height), media_id)"
     )
 
 
@@ -75,10 +100,15 @@ def downgrade() -> None:
     op.drop_index(
         "ix_media_cache_available_library_type_resolution", table_name="media_cache_index"
     )
+    op.drop_index("ix_media_cache_available_library_resolution", table_name="media_cache_index")
     op.drop_index("ix_media_cache_available_library_type_duration", table_name="media_cache_index")
+    op.drop_index("ix_media_cache_available_library_duration", table_name="media_cache_index")
     op.drop_index("ix_media_cache_available_library_type_size", table_name="media_cache_index")
+    op.drop_index("ix_media_cache_available_library_size", table_name="media_cache_index")
     op.drop_index("ix_media_cache_available_library_type_created", table_name="media_cache_index")
+    op.drop_index("ix_media_cache_available_library_created", table_name="media_cache_index")
     op.drop_index("ix_media_cache_available_library_type_name", table_name="media_cache_index")
+    op.drop_index("ix_media_cache_available_library_name", table_name="media_cache_index")
     op.drop_index("ix_media_sync_state_task_id", table_name="media_sync_state")
     op.drop_table("media_sync_state")
     with op.batch_alter_table("media_cache_index") as batch_op:

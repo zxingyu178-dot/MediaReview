@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.adapters.jellyfin.client import JellyfinClient
+from app.adapters.jellyfin.client import (
+    JellyfinClient,
+    item_original_url,
+    item_thumbnail_url,
+)
 from app.adapters.jellyfin.models import MediaType
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
@@ -83,11 +87,11 @@ class MediaRefreshBody(BaseModel):
     force: bool = False
 
 
-def _original_url(client: JellyfinClient, item) -> str | None:
+def _original_url(host: str, api_key: str, item) -> str | None:
     """图片返回原图直连 URL;视频原图走播放 API,这里不返回。"""
     if item.media_type != "image":
         return None
-    return client.image_original_url(item.jellyfin_id)
+    return item_original_url(host, api_key, item.jellyfin_id)
 
 
 def _summary_from_row(
@@ -142,19 +146,21 @@ async def list_media(
     random_seed: str | None = Query(default=None, max_length=128),
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
-    client: JellyfinClient = Depends(jellyfin_client),
 ) -> Envelope[MediaPage]:
     """立即返回数据库分页；空索引只编排一次后台刷新。"""
     _require_user_id(request)
+    selected = set(media_index.selected_library_ids(db))
     if library_id:
         targets = [library_id]
+        auto_refresh_allowed = library_id in selected
     else:
-        targets = media_index.selected_library_ids(db)
+        targets = sorted(selected)
+        auto_refresh_allowed = True
         if not targets:
             raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
 
     available_count = media_index.available_media_count(db, targets)
-    if available_count == 0:
+    if available_count == 0 and auto_refresh_allowed:
         media_index.schedule_media_refresh(db, targets)
     paged, total = media_index.list_cached_media(
         db,
@@ -169,13 +175,15 @@ async def list_media(
         random_seed=random_seed,
     )
     sync = media_index.media_sync_view(db, targets, available_count=available_count)
+    config = request.app.state.settings.jellyfin
+    api_key = config.api_key.get_secret_value()
     return ok(
         MediaPage(
             items=[
                 _summary_from_row(
                     row,
-                    cover_url=client.thumbnail_url(row.jellyfin_id),
-                    original_url=_original_url(client, row),
+                    cover_url=item_thumbnail_url(config.host, api_key, row.jellyfin_id),
+                    original_url=_original_url(config.host, api_key, row),
                 )
                 for row in paged
             ],
@@ -221,7 +229,9 @@ async def get_media(
         _summary_from_row(
             row,
             cover_url=client.thumbnail_url(row.jellyfin_id),
-            original_url=_original_url(client, row),
+            original_url=(
+                client.image_original_url(row.jellyfin_id) if row.media_type == "image" else None
+            ),
         )
     )
 

@@ -77,18 +77,27 @@ class TaskManager:
     def _claim_next(self) -> tuple[str, str, str] | None:
         """原子地取一个 pending 任务并标记为 running,防止多实例重复处理。"""
         with self.database.session() as session:
-            row = (
-                session.query(BackgroundTask)
-                .filter(BackgroundTask.status == "pending")
-                .order_by(BackgroundTask.created_at.asc())
-                .first()
+            candidate = (
+                sa.select(BackgroundTask.task_id)
+                .where(BackgroundTask.status == "pending")
+                .order_by(BackgroundTask.created_at.asc(), BackgroundTask.task_id.asc())
+                .limit(1)
+                .scalar_subquery()
             )
-            if row is None:
+            claimed = session.execute(
+                sa.update(BackgroundTask)
+                .where(
+                    BackgroundTask.task_id == candidate,
+                    BackgroundTask.status == "pending",
+                )
+                .values(status="running", started_at=utc_now())
+                .returning(BackgroundTask.task_id, BackgroundTask.type, BackgroundTask.status)
+            ).first()
+            if claimed is None:
+                session.rollback()
                 return None
-            row.status = "running"
-            row.started_at = utc_now()
             session.commit()
-            return (row.task_id, row.type, "running")
+            return (claimed.task_id, claimed.type, claimed.status)
 
     def _fail_orphan(self, task_id: str, error: str) -> None:
         with self.database.session() as session:

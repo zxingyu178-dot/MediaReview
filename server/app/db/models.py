@@ -97,14 +97,29 @@ class MediaCacheIndex(Base):
     synced_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
 
 
-# 媒体墙的 count/filter/order/page 均在 SQLite 中执行。排序索引把可用性、库、类型
-# 放在前缀，避免 5 万至 10 万规模下回退为全表 Python 排序。
+# 媒体墙的 count/filter/order/page 均在 SQLite 中执行。每种排序同时提供有/无
+# media_type 的索引前缀，并包含稳定 tie-break media_id。
+Index(
+    "ix_media_cache_available_library_name",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.name.collate("NOCASE"),
+    MediaCacheIndex.media_id,
+)
 Index(
     "ix_media_cache_available_library_type_name",
     MediaCacheIndex.is_available,
     MediaCacheIndex.library_id,
     MediaCacheIndex.media_type,
     MediaCacheIndex.name.collate("NOCASE"),
+    MediaCacheIndex.media_id,
+)
+Index(
+    "ix_media_cache_available_library_created",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.created_at,
+    MediaCacheIndex.media_id,
 )
 Index(
     "ix_media_cache_available_library_type_created",
@@ -112,6 +127,14 @@ Index(
     MediaCacheIndex.library_id,
     MediaCacheIndex.media_type,
     MediaCacheIndex.created_at,
+    MediaCacheIndex.media_id,
+)
+Index(
+    "ix_media_cache_available_library_size",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.size_bytes,
+    MediaCacheIndex.media_id,
 )
 Index(
     "ix_media_cache_available_library_type_size",
@@ -119,6 +142,14 @@ Index(
     MediaCacheIndex.library_id,
     MediaCacheIndex.media_type,
     MediaCacheIndex.size_bytes,
+    MediaCacheIndex.media_id,
+)
+Index(
+    "ix_media_cache_available_library_duration",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.duration_ms,
+    MediaCacheIndex.media_id,
 )
 Index(
     "ix_media_cache_available_library_type_duration",
@@ -126,14 +157,22 @@ Index(
     MediaCacheIndex.library_id,
     MediaCacheIndex.media_type,
     MediaCacheIndex.duration_ms,
+    MediaCacheIndex.media_id,
+)
+Index(
+    "ix_media_cache_available_library_resolution",
+    MediaCacheIndex.is_available,
+    MediaCacheIndex.library_id,
+    MediaCacheIndex.width * MediaCacheIndex.height,
+    MediaCacheIndex.media_id,
 )
 Index(
     "ix_media_cache_available_library_type_resolution",
     MediaCacheIndex.is_available,
     MediaCacheIndex.library_id,
     MediaCacheIndex.media_type,
-    MediaCacheIndex.width,
-    MediaCacheIndex.height,
+    MediaCacheIndex.width * MediaCacheIndex.height,
+    MediaCacheIndex.media_id,
 )
 
 

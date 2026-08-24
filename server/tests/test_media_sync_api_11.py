@@ -82,6 +82,30 @@ def test_get_media_uses_cache_and_makes_zero_jellyfin_items_calls(data_root: Pat
         assert calls["items"] == 0
 
 
+def test_get_media_does_not_construct_jellyfin_http_client(data_root: Path, monkeypatch) -> None:
+    """缓存列表只需要配置生成 URL，不得实例化 Jellyfin/httpx 客户端。"""
+    app = _configured_app(
+        data_root,
+        lambda _request: httpx.Response(500, json={"unexpected": True}),
+    )
+    app.dependency_overrides.pop(jellyfin_client)
+
+    def fail_if_constructed(*_args, **_kwargs):
+        raise AssertionError("GET /media constructed JellyfinClient")
+
+    monkeypatch.setattr(JellyfinClient, "__init__", fail_if_constructed)
+    with TestClient(app) as client:
+        _seed_selected(client)
+        with client.app.state.database.session() as session:
+            session.add(_cached_row())
+            session.commit()
+
+        response = client.get("/api/v1/media")
+
+        assert response.status_code == 200
+        assert response.json()["data"]["items"][0]["cover_url"]
+
+
 def test_empty_cache_returns_immediately_and_enqueues_once(data_root: Path) -> None:
     calls = {"items": 0}
 
@@ -145,6 +169,33 @@ def test_refresh_rejects_unknown_or_unselected_library(data_root: Path) -> None:
         unselected = client.post("/api/v1/media/refresh", json={"library_ids": ["lib-off"]})
         assert unknown.status_code == 422
         assert unselected.status_code == 422
+
+
+def test_get_media_never_auto_refreshes_unknown_or_unselected_library(data_root: Path) -> None:
+    app = _configured_app(
+        data_root,
+        lambda _request: httpx.Response(200, json={"Items": [], "TotalRecordCount": 0}),
+    )
+    with TestClient(app) as client:
+        _seed_selected(client)
+        with client.app.state.database.session() as session:
+            session.add(
+                models.LibrarySelection(
+                    jellyfin_id="lib-off",
+                    name="未选媒体库",
+                    selected=False,
+                )
+            )
+            session.commit()
+
+        unknown = client.get("/api/v1/media", params={"library_id": "missing"})
+        unselected = client.get("/api/v1/media", params={"library_id": "lib-off"})
+
+        assert unknown.status_code == 200
+        assert unselected.status_code == 200
+        with client.app.state.database.session() as session:
+            tasks = session.query(models.BackgroundTask).filter_by(type="media_refresh").all()
+            assert tasks == []
 
 
 def test_task_list_get_and_cancel_are_idempotent_and_sanitized(data_root: Path) -> None:

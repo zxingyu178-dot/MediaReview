@@ -7,7 +7,7 @@
 
 只缓存本项目需要的字段,不复制 Jellyfin 数据库(见 ARCHITECTURE 第 7 节)。
 普通 GET 请求只查询 SQLite。Jellyfin 全库采集仅由 TaskManager 在线程中执行，
-每 500 条短事务 upsert；只有一个媒体库完整成功后才隐藏该库未见的旧项目。
+每 500 条短事务 upsert；只有本任务全部目标库成功后才原子隐藏未见的旧项目。
 """
 
 from __future__ import annotations
@@ -258,18 +258,8 @@ def _sort_expression(sort_by: str, random_seed: str | None):
     if sort_by == "duration":
         return MediaCacheIndex.duration_ms
     if sort_by == "resolution":
-        return sa.case(
-            (
-                sa.and_(
-                    MediaCacheIndex.width.is_not(None),
-                    MediaCacheIndex.height.is_not(None),
-                    MediaCacheIndex.width > 0,
-                    MediaCacheIndex.height > 0,
-                ),
-                MediaCacheIndex.width * MediaCacheIndex.height,
-            ),
-            else_=None,
-        )
+        # 必须与 ORM/Alembic 的表达式索引逐字等价。
+        return MediaCacheIndex.width * MediaCacheIndex.height
     if sort_by == "random":
         seed = random_seed or datetime.now(UTC).date().isoformat()
         rotation = int(hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8], 16) % 24
@@ -317,15 +307,91 @@ def list_cached_media(
         or 0
     )
     sort_value = _sort_expression(sort_by, random_seed)
-    direction = sort_value.desc() if sort_order == "desc" else sort_value.asc()
-    statement = (
-        sa.select(MediaCacheIndex)
-        .where(*conditions)
-        .order_by(sort_value.is_(None).asc(), direction, MediaCacheIndex.media_id.asc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+    descending = sort_order == "desc"
+    direction = sort_value.desc() if descending else sort_value.asc()
+    tie_direction = (
+        MediaCacheIndex.media_id.desc() if descending else MediaCacheIndex.media_id.asc()
     )
-    return list(session.scalars(statement).all()), total
+    offset = (page - 1) * page_size
+
+    if sort_by == "random":
+        statement = (
+            sa.select(MediaCacheIndex)
+            .where(*conditions)
+            .order_by(direction, tie_direction)
+            .offset(offset)
+            .limit(page_size)
+        )
+        return list(session.scalars(statement).all()), total
+
+    # NULL-last 不能在 ORDER BY 前加 `expr IS NULL`，否则 SQLite 无法使用排序索引。
+    # 将 present/missing 分成少量索引查询，仍只取当前页，不加载全表。
+    if sort_by == "name":
+        present_condition = MediaCacheIndex.name.is_not(None)
+        missing_conditions = [(MediaCacheIndex.name.is_(None), True)]
+        present_total = total
+    elif sort_by == "resolution":
+        present_condition = sort_value > 0
+        # 分开 NULL 和非正数，避免 OR 破坏表达式索引的 ORDER BY 路径。
+        missing_conditions = [(sort_value.is_(None), True), (sort_value <= 0, False)]
+        present_total = int(
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(MediaCacheIndex)
+                .where(*conditions, present_condition)
+            )
+            or 0
+        )
+    else:
+        present_condition = sort_value.is_not(None)
+        missing_conditions = [(sort_value.is_(None), True)]
+        present_total = int(
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(MediaCacheIndex)
+                .where(*conditions, present_condition)
+            )
+            or 0
+        )
+
+    rows: list[MediaCacheIndex] = []
+    if offset < present_total:
+        present_limit = min(page_size, present_total - offset)
+        present_statement = (
+            sa.select(MediaCacheIndex)
+            .where(*conditions, present_condition)
+            .order_by(direction, tie_direction)
+            .offset(offset)
+            .limit(present_limit)
+        )
+        rows.extend(session.scalars(present_statement).all())
+
+    if len(rows) < page_size and offset + page_size > present_total:
+        missing_offset = max(0, offset - present_total)
+        for missing_condition, sort_is_constant in missing_conditions:
+            if len(rows) >= page_size:
+                break
+            missing_total = int(
+                session.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(MediaCacheIndex)
+                    .where(*conditions, missing_condition)
+                )
+                or 0
+            )
+            if missing_offset >= missing_total:
+                missing_offset -= missing_total
+                continue
+            missing_statement = (
+                sa.select(MediaCacheIndex)
+                .where(*conditions, missing_condition)
+                .order_by(*([tie_direction] if sort_is_constant else [direction, tie_direction]))
+                .offset(missing_offset)
+                .limit(page_size - len(rows))
+            )
+            rows.extend(session.scalars(missing_statement).all())
+            missing_offset = 0
+    return rows, total
 
 
 def get_cached_media(session: Session, media_id: str) -> MediaCacheIndex | None:
@@ -477,31 +543,114 @@ def _is_cancelled(database: Database, task_id: str) -> bool:
 
 def _finish_cancelled(database: Database, task_id: str, targets: Iterable[str]) -> None:
     with database.session() as session:
-        task = session.get(BackgroundTask, task_id)
-        if task is not None:
-            task.status = "cancelled"
-            task.finished_at = task.finished_at or utc_now()
-        for library_id in targets:
-            state = session.get(MediaSyncState, library_id)
-            if state is not None and state.task_id == task_id and state.state != "succeeded":
-                state.state = "cancelled"
-                state.last_error = None
+        session.execute(
+            sa.update(BackgroundTask)
+            .where(
+                BackgroundTask.task_id == task_id,
+                BackgroundTask.status.in_(("pending", "running")),
+            )
+            .values(status="cancelled", finished_at=utc_now())
+        )
+        status = session.scalar(
+            sa.select(BackgroundTask.status).where(BackgroundTask.task_id == task_id)
+        )
+        if status == "cancelled":
+            session.execute(
+                sa.update(MediaSyncState)
+                .where(
+                    MediaSyncState.library_id.in_(list(targets)),
+                    MediaSyncState.task_id == task_id,
+                    MediaSyncState.state.in_(("pending", "running")),
+                )
+                .values(state="cancelled", last_error=None)
+            )
         session.commit()
 
 
 def _finish_failed(database: Database, task_id: str, targets: Iterable[str]) -> None:
     with database.session() as session:
-        task = session.get(BackgroundTask, task_id)
-        if task is not None and task.status != "cancelled":
-            task.status = "failed"
-            task.error = _SYNC_ERROR
-            task.finished_at = utc_now()
-        for library_id in targets:
-            state = session.get(MediaSyncState, library_id)
-            if state is not None and state.task_id == task_id and state.state != "succeeded":
-                state.state = "failed"
-                state.last_error = _SYNC_ERROR
+        claimed = session.execute(
+            sa.update(BackgroundTask)
+            .where(
+                BackgroundTask.task_id == task_id,
+                BackgroundTask.status == "running",
+            )
+            .values(status="failed", error=_SYNC_ERROR, finished_at=utc_now())
+            .returning(BackgroundTask.task_id)
+        ).first()
+        if claimed is not None:
+            session.execute(
+                sa.update(MediaSyncState)
+                .where(
+                    MediaSyncState.library_id.in_(list(targets)),
+                    MediaSyncState.task_id == task_id,
+                )
+                .values(state="failed", last_error=_SYNC_ERROR)
+            )
         session.commit()
+
+
+def _commit_refresh_success(
+    database: Database,
+    task_id: str,
+    targets: Iterable[str],
+    *,
+    generation: str,
+    totals: dict[str, int],
+) -> bool:
+    """CAS 抢占最终提交，并在同一写事务中失效 unseen 与完成全部状态。"""
+    target_list = list(targets)
+    finished_at = utc_now()
+    with database.session() as session:
+        claimed = session.execute(
+            sa.update(BackgroundTask)
+            .where(
+                BackgroundTask.task_id == task_id,
+                BackgroundTask.status == "running",
+            )
+            .values(
+                status="succeeded",
+                progress=100,
+                result=json.dumps({"libraries": len(target_list)}, separators=(",", ":")),
+                error=None,
+                finished_at=finished_at,
+            )
+            .returning(BackgroundTask.task_id)
+        ).first()
+        if claimed is None:
+            session.rollback()
+            return False
+
+        session.execute(
+            sa.update(MediaCacheIndex)
+            .where(
+                MediaCacheIndex.library_id.in_(target_list),
+                MediaCacheIndex.is_available.is_(True),
+                sa.or_(
+                    MediaCacheIndex.sync_generation.is_(None),
+                    MediaCacheIndex.sync_generation != generation,
+                ),
+            )
+            .values(is_available=False)
+        )
+        for library_id in target_list:
+            total = totals[library_id]
+            session.execute(
+                sa.update(MediaSyncState)
+                .where(
+                    MediaSyncState.library_id == library_id,
+                    MediaSyncState.task_id == task_id,
+                )
+                .values(
+                    state="succeeded",
+                    processed=total,
+                    total=total,
+                    last_success_at=finished_at,
+                    last_error=None,
+                )
+            )
+        session.commit()
+        return True
 
 
 async def _refresh_media_index_async(
@@ -535,6 +684,7 @@ async def _refresh_media_index_async(
 
     generation = uuid.uuid4().hex
     completed = 0
+    totals: dict[str, int] = {}
     async with client_factory() as client:
         for library_id in targets:
             start = 0
@@ -572,45 +722,26 @@ async def _refresh_media_index_async(
                 if not page or start >= total:
                     break
 
-            # 只有该库所有分页完整成功后，才隐藏本代未见的旧缓存。
+            # 所有目标库都成功后才统一隐藏本代未见的旧缓存。
             if _is_cancelled(database, task_id):
                 _finish_cancelled(database, task_id, targets)
                 return
             with database.session() as session:
-                session.execute(
-                    sa.update(MediaCacheIndex)
-                    .where(
-                        MediaCacheIndex.library_id == library_id,
-                        MediaCacheIndex.is_available.is_(True),
-                        sa.or_(
-                            MediaCacheIndex.sync_generation.is_(None),
-                            MediaCacheIndex.sync_generation != generation,
-                        ),
-                    )
-                    .values(is_available=False)
-                )
-                state = session.get(MediaSyncState, library_id)
-                if state is not None:
-                    state.state = "succeeded"
-                    state.processed = start
-                    state.total = total
-                    state.last_success_at = utc_now()
-                    state.last_error = None
                 completed += 1
+                totals[library_id] = total
                 task = session.get(BackgroundTask, task_id)
-                if task is not None:
+                if task is not None and task.status == "running":
                     task.progress = min(99, int(completed * 100 / max(1, len(targets))))
                 session.commit()
 
-    with database.session() as session:
-        task = session.get(BackgroundTask, task_id)
-        if task is not None and task.status != "cancelled":
-            task.status = "succeeded"
-            task.progress = 100
-            task.result = json.dumps({"libraries": len(targets)}, separators=(",", ":"))
-            task.error = None
-            task.finished_at = utc_now()
-        session.commit()
+    if not _commit_refresh_success(
+        database,
+        task_id,
+        targets,
+        generation=generation,
+        totals=totals,
+    ):
+        _finish_cancelled(database, task_id, targets)
 
 
 def refresh_media_index(
