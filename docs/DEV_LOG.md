@@ -706,6 +706,15 @@
 - **M3 依赖入口收敛**：删除 Task 2 旧同步建队移除后已无调用的 `build_jellyfin_client()`；保留
   FastAPI `jellyfin_client` async dependency 作为唯一生命周期/测试 override 入口。
 
+最终放行审查修复（I4）：
+
+- `JellyfinConfig` 增加 url/api_key 模型级交叉校验，构造、先 key 后 URL、先 URL 后 key 三条路径
+  都在赋值落地前拒绝 URL 任意组件携带非空 server key；大小写变化、合法 host/base path 与逐字节
+  percent 编码均覆盖，ValidationError 继续隐藏输入与 key。
+- Jellyfin client 构造、`video_stream_url()` 每次生成前后以及 playback DTO 序列化前分别执行同一
+  无 key 终检。测试使用 `model_construct`、私有 base URL 变更和 mock builder 模拟未来配置/依赖
+  绕过，均只得到脱敏配置错误；合法无 key base path 继续保留，仍未新增视频代理。
+
 提交：
 
 - `feat(server): build review queues from sqlite`（本任务单一提交）

@@ -20,7 +20,8 @@ from app.adapters.jellyfin.client import JellyfinClient
 from app.adapters.jellyfin.models import MediaType
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
-from app.core.errors import MediaNotFoundError, ValidationFailedError
+from app.core.config import ensure_jellyfin_url_excludes_api_key
+from app.core.errors import ConfigError, MediaNotFoundError, ValidationFailedError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
 from app.services import media_index
@@ -265,6 +266,7 @@ class PlaybackInfo(BaseModel):
 @router.get("/{media_id}/playback", response_model=Envelope[PlaybackInfo])
 async def get_playback_info(
     media_id: str,
+    request: Request,
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
@@ -280,6 +282,11 @@ async def get_playback_info(
     if row.media_type != "video":
         raise ValidationFailedError("仅视频支持播放,该媒体非视频类型")
     stream_url = client.video_stream_url(row.jellyfin_id)
+    server_key = request.app.state.settings.jellyfin.api_key.get_secret_value()
+    try:
+        ensure_jellyfin_url_excludes_api_key(stream_url, server_key)
+    except ValueError:
+        raise ConfigError("Jellyfin 播放配置存在凭据泄漏风险") from None
     return ok(
         PlaybackInfo(
             media_id=row.media_id,

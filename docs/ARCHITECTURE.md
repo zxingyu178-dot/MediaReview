@@ -81,6 +81,10 @@ Jellyfin server API Key 只用于中间层到 Jellyfin 的 Authorization header�
 Jellyfin 配置边界把 base URL 规范化为 HTTP(S) scheme、合法 host/port 与可选安全 base path，
 拒绝 userinfo、query、fragment、空 host、非法端口和路径穿越；构造 client 与 direct URL 时复用
 同一规范化函数，所有路径中的 Jellyfin ID 按单段编码，防止配置或 ID 重新注入凭据/URL 结构。
+`url` 与非空 `api_key` 还有双向交叉合同：构造及任一字段赋值都会按大小写无关与多层 percent
+解码语义拒绝 URL 任意组件携带 server key，且在字段落地前失败、不污染原配置。Jellyfin client
+构造、每次视频 URL 构造和 playback 序列化分别再做终检；即使未来配置入口或依赖注入绕过模型，
+也只返回脱敏配置错误，不把含 key 的 URL 交给客户端。
 
 “confirmed exact”由共享哈希合同定义：full SHA-256 必须是精确 64 位十六进制文本。SQLite
 连接注册同一个 Python 严格谓词为 deterministic UDF，SQL 还要求存储类型为 text、原始字节长度

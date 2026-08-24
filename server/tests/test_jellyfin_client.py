@@ -145,6 +145,29 @@ def test_direct_video_url_normalizes_base_path_and_encodes_item_id() -> None:
     )
 
 
+def test_client_rejects_bypassed_config_when_url_contains_server_key() -> None:
+    bypassed = JellyfinConfig.model_construct(
+        url="http://jf.local:8096/base/server-only-config-test-key",
+        api_key=SecretStr("server-only-config-test-key"),
+        user_id="",
+    )
+
+    with pytest.raises(ValueError) as caught:
+        JellyfinClient(bypassed, transport=make_jellyfin_mock_transport())
+
+    assert "server-only-config-test-key" not in str(caught.value)
+
+
+def test_client_stream_builder_rechecks_mutated_base_url(jellyfin_config: JellyfinConfig) -> None:
+    client = JellyfinClient(jellyfin_config, transport=make_jellyfin_mock_transport())
+    client._base_url = "http://jf.local:8096/base/test-api-key"
+
+    with pytest.raises(ValueError) as caught:
+        client.video_stream_url("it-video")
+
+    assert "test-api-key" not in str(caught.value)
+
+
 def test_unconfigured_key_rejected() -> None:
     config = JellyfinConfig(url="http://127.0.0.1:8096", api_key=SecretStr(""))
     assert not config.is_configured()

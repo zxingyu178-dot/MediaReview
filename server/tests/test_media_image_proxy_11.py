@@ -166,6 +166,27 @@ def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image
     assert requests == []
 
 
+def test_playback_final_serialization_rejects_key_from_client_builder(
+    secure_image_client, monkeypatch
+) -> None:
+    client, token, requests = secure_image_client
+
+    monkeypatch.setattr(
+        JellyfinClient,
+        "video_stream_url",
+        lambda _self, _item_id: f"http://jf.local:8096/base/{SERVER_KEY}/stream",
+    )
+    response = client.get("/api/v1/media/video/playback", headers=_auth(token))
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "CONFIG_ERROR"
+    assert SERVER_KEY not in response.text
+    assert SERVER_KEY not in "\n".join(
+        f"{name}: {value}" for name, value in response.headers.items()
+    )
+    assert requests == []
+
+
 def test_image_proxy_requires_pairing_and_keeps_server_key_upstream(secure_image_client) -> None:
     client, token, requests = secure_image_client
     assert client.get("/api/v1/media/img-ok/thumbnail").status_code == 401

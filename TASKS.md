@@ -98,6 +98,8 @@
 - [x] I3：Jellyfin HTTP(S) base URL 在配置边界严格规范化，拒绝 userinfo/query/fragment 等注入
 - [x] I3：保留安全 base path、编码 Jellyfin ID，完整 playback JSON 不含 server key
 - [x] M3：删除无调用 `build_jellyfin_client()`，统一使用 FastAPI async dependency
+- [x] I4：url/api_key 构造与双向赋值交叉校验，host/path/percent/大小写均不得携带 server key
+- [x] I4：Jellyfin client 与 playback 序列化终检，即使配置入口绕过也不返回含 key URL
 
 ## Server
 - [x] 配置

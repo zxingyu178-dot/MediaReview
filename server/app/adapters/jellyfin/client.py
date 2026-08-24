@@ -27,7 +27,11 @@ from app.adapters.jellyfin.models import (
     Library,
     MediaItem,
 )
-from app.core.config import JellyfinConfig, normalize_jellyfin_base_url
+from app.core.config import (
+    JellyfinConfig,
+    ensure_jellyfin_url_excludes_api_key,
+    normalize_jellyfin_base_url,
+)
 from app.core.errors import JellyfinError
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
@@ -58,6 +62,7 @@ class JellyfinClient:
         self._config = config
         self._base_url = normalize_jellyfin_base_url(config.host)
         self._api_key = config.api_key.get_secret_value()
+        ensure_jellyfin_url_excludes_api_key(self._base_url, self._api_key)
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             headers=self._auth_headers(),
@@ -230,7 +235,10 @@ class JellyfinClient:
     # ---- 不含凭据的视频直连 URL（中间层绝不转发视频） ----
 
     def video_stream_url(self, item_id: str) -> str:
-        return item_stream_url(self._base_url, item_id)
+        ensure_jellyfin_url_excludes_api_key(self._base_url, self._api_key)
+        stream_url = item_stream_url(self._base_url, item_id)
+        ensure_jellyfin_url_excludes_api_key(stream_url, self._api_key)
+        return stream_url
 
     async def thumbnail_image(self, item_id: str, max_width: int = 480) -> tuple[bytes, str]:
         return await self._image_request(

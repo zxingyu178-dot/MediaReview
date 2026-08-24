@@ -13,6 +13,10 @@ from app.core.config import AppConfig, ConfigLoadError, JellyfinConfig, load_con
 SERVER_KEY = "server-only-config-test-key"
 
 
+def _percent_encode_every_byte(value: str) -> str:
+    return "".join(f"%{byte:02X}" for byte in value.encode("utf-8"))
+
+
 def test_defaults_without_config_file(tmp_path: Path) -> None:
     config = load_config(tmp_path / "missing.json")
     assert config.server.port == 8765
@@ -143,3 +147,54 @@ def test_app_config_validation_error_does_not_echo_rejected_jellyfin_url() -> No
         AppConfig.model_validate({"jellyfin": {"url": f"http://{SERVER_KEY}@jf.local"}})
 
     assert SERVER_KEY not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        f"http://jf.local:8096/base/{SERVER_KEY}",
+        f"http://{SERVER_KEY}.jf.local:8096/base",
+        f"http://jf.local:8096/base/{SERVER_KEY.upper()}",
+        f"http://jf.local:8096/base/{_percent_encode_every_byte(SERVER_KEY)}",
+    ),
+)
+def test_jellyfin_config_construction_rejects_api_key_in_any_url_component(url: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        JellyfinConfig(url=url, api_key=SecretStr(SERVER_KEY))
+
+    assert SERVER_KEY.casefold() not in str(caught.value).casefold()
+
+
+def test_jellyfin_url_assignment_rejects_existing_api_key_without_mutating_config() -> None:
+    config = JellyfinConfig(
+        url="https://jf.example:9443/safe-base",
+        api_key=SecretStr(SERVER_KEY),
+    )
+
+    with pytest.raises(ValidationError) as caught:
+        config.url = f"https://jf.example:9443/base/{SERVER_KEY}"
+
+    assert SERVER_KEY not in str(caught.value)
+    assert config.url == "https://jf.example:9443/safe-base"
+
+
+def test_jellyfin_api_key_assignment_rejects_existing_url_without_mutating_config() -> None:
+    contaminated_url = f"https://jf.example:9443/base/{SERVER_KEY}"
+    config = JellyfinConfig(url=contaminated_url)
+
+    with pytest.raises(ValidationError) as caught:
+        config.api_key = SecretStr(SERVER_KEY)
+
+    assert SERVER_KEY not in str(caught.value)
+    assert config.api_key.get_secret_value() == ""
+    assert config.url == contaminated_url
+
+
+def test_jellyfin_config_keeps_valid_base_path_without_api_key() -> None:
+    config = JellyfinConfig(
+        url="HTTPS://JF.Example:9443/media%20server/",
+        api_key=SecretStr(SERVER_KEY),
+    )
+
+    assert config.url == "https://jf.example:9443/media%20server"
+    assert config.api_key.get_secret_value() == SERVER_KEY

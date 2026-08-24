@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 DEFAULT_DATA_ROOT = r"%ProgramData%\MediaReview"
 
@@ -28,6 +28,7 @@ _ENV_PREFIX = "MEDIAREVIEW__"
 _HOST_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 _INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _PATH_SEGMENT_SAFE = "-._~!$&'()*+,;=:@"
+_DEFAULT_JELLYFIN_URL = "http://127.0.0.1:8096"
 
 
 def _normalize_hostname(hostname: str) -> str:
@@ -106,6 +107,38 @@ def normalize_jellyfin_base_url(value: str) -> str:
     return f"{scheme}://{authority}{_normalize_base_path(parsed.path)}"
 
 
+def _secret_text(value: object) -> str:
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    return value if isinstance(value, str) else ""
+
+
+def jellyfin_url_contains_api_key(url: str, api_key: str) -> bool:
+    """按大小写无关、percent 解码语义判断 URL 是否携带非空 server key。"""
+    if not api_key:
+        return False
+    needles = {api_key.casefold(), quote(api_key, safe="").casefold()}
+    try:
+        needles.add(api_key.encode("idna").decode("ascii").casefold())
+    except UnicodeError:
+        pass
+    representations = {url.casefold()}
+    decoded = url
+    for _ in range(3):
+        next_decoded = unquote(decoded, errors="strict")
+        representations.add(next_decoded.casefold())
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    return any(needle in candidate for needle in needles for candidate in representations)
+
+
+def ensure_jellyfin_url_excludes_api_key(url: str, api_key: str) -> None:
+    """拒绝任何组件携带 server key 的 Jellyfin URL；错误不得包含输入或 key。"""
+    if jellyfin_url_contains_api_key(url, api_key):
+        raise ValueError("Jellyfin URL 不得包含服务器 API Key")
+
+
 class ServerConfig(BaseModel):
     # 局域网服务必须监听全部网卡,供手机直连(见 docs/DEPLOYMENT.md)
     host: str = "0.0.0.0"  # noqa: S104
@@ -119,10 +152,22 @@ class JellyfinConfig(BaseModel):
         validate_default=True,
     )
 
-    url: str = "http://127.0.0.1:8096"
+    url: str = _DEFAULT_JELLYFIN_URL
     api_key: SecretStr = SecretStr("")
     # Jellyfin 用户 ID,留空时由阶段 2 自动发现
     user_id: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_url_api_key_pair(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        raw_url = data.get("url", _DEFAULT_JELLYFIN_URL)
+        raw_key = data.get("api_key", "")
+        if isinstance(raw_url, str):
+            normalized_url = normalize_jellyfin_base_url(raw_url)
+            ensure_jellyfin_url_excludes_api_key(normalized_url, _secret_text(raw_key))
+        return data
 
     @field_validator("url")
     @classmethod
@@ -253,6 +298,8 @@ __all__ = [
     "ServerConfig",
     "StorageConfig",
     "load_config",
+    "ensure_jellyfin_url_excludes_api_key",
+    "jellyfin_url_contains_api_key",
     "normalize_jellyfin_base_url",
     "persist_jellyfin_user_id",
     "resolve_data_root",
