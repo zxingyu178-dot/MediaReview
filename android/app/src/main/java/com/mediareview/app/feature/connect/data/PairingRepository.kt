@@ -7,6 +7,9 @@ import com.mediareview.app.core.network.TokenProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 import retrofit2.HttpException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 internal suspend fun clearCredentialState(
     clearPersistent: suspend () -> Unit,
@@ -26,6 +29,8 @@ class PairingRepository @Inject constructor(
     private val tokenProvider: TokenProvider,
     private val apiFactory: ApiFactory,
 ) {
+    private val _connection = MutableStateFlow(ConnectionState())
+    val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
 
     sealed interface Result {
         data class HealthOk(
@@ -34,21 +39,26 @@ class PairingRepository @Inject constructor(
             val connection: ConnectionState,
         ) : Result
         data class Paired(val deviceId: String, val token: String) : Result
-        data class Failure(val message: String) : Result
+        data class Failure(
+            val message: String,
+            val connection: ConnectionState = ConnectionState(mediaReview = OnlineState.Offline),
+        ) : Result
     }
 
-    private fun apiFor(baseUrl: String): MediaReviewApi = apiFactory.create(baseUrl)
+    private fun apiFor(baseUrl: String, authenticated: Boolean = true): MediaReviewApi =
+        apiFactory.create(baseUrl, authenticated)
 
     /** 校验服务器可达且返回健康信息。 */
     suspend fun checkHealthy(baseUrl: String): Result {
         return try {
-            val resp = apiFor(baseUrl).health()
+            val resp = apiFor(baseUrl, authenticated = false).health()
             if (resp.success && resp.data != null) {
-                val api = apiFor(baseUrl)
+                val publicApi = apiFor(baseUrl, authenticated = false)
                 val pairingRequired = runCatching {
-                    api.pairingStatus().data?.pairing_required
+                    publicApi.pairingStatus().data?.pairing_required
                 }.getOrNull()
-                val paired = tokenProvider.token.isNotBlank()
+                val paired = tokenProvider.tokenFor(baseUrl) != null
+                val api = apiFor(baseUrl, authenticated = true)
                 var authenticationRejected = false
                 val jellyfinOnline = if (paired || pairingRequired == false) {
                     try {
@@ -78,23 +88,28 @@ class PairingRepository @Inject constructor(
                 } else {
                     SyncState.Unknown
                 }
+                val connection = buildConnectionState(
+                    mediaReviewOnline = true,
+                    jellyfinOnline = jellyfinOnline,
+                    pairingRequired = pairingRequired,
+                    paired = paired,
+                    syncState = syncState,
+                    authenticationRejected = authenticationRejected,
+                )
+                if (authenticationRejected) tokenProvider.clear()
+                _connection.value = connection
                 Result.HealthOk(
                     version = resp.data.version,
                     pairingRequired = pairingRequired,
-                    connection = buildConnectionState(
-                        mediaReviewOnline = true,
-                        jellyfinOnline = jellyfinOnline,
-                        pairingRequired = pairingRequired,
-                        paired = paired,
-                        syncState = syncState,
-                        authenticationRejected = authenticationRejected,
-                    ),
+                    connection = connection,
                 )
             } else {
-                Result.Failure("服务器响应异常:${resp.error?.message}")
+                Result.Failure("服务器响应异常")
             }
-        } catch (e: Exception) {
-            Result.Failure("无法连接服务器:${e.message}")
+        } catch (_: Exception) {
+            val connection = ConnectionState(mediaReview = OnlineState.Offline)
+            _connection.value = connection
+            Result.Failure("无法连接服务器", connection)
         }
     }
 
@@ -103,7 +118,7 @@ class PairingRepository @Inject constructor(
         return try {
             val deviceId = store.deviceId()
             if (deviceId.isBlank()) return Result.Failure("设备身份尚未准备完成")
-            val resp = apiFor(baseUrl).verify(
+            val resp = apiFor(baseUrl, authenticated = false).verify(
                 com.mediareview.app.core.network.VerifyRequest(
                     device_id = deviceId,
                     code = code.trim(),
@@ -112,8 +127,16 @@ class PairingRepository @Inject constructor(
             val data = resp.data
             if (resp.success && data != null && data.paired && data.token.isNotBlank()) {
                 store.saveBaseUrl(baseUrl)
-                store.savePairing(data.token)
-                tokenProvider.set(data.token)
+                try {
+                    store.savePairing(data.token)
+                } catch (_: Exception) {
+                    store.invalidateCredential()
+                    tokenProvider.clear()
+                    _connection.value = ConnectionState(authentication = AuthenticationState.Rejected)
+                    return Result.Failure("安全凭据无法保存", _connection.value)
+                }
+                tokenProvider.set(data.token, baseUrl)
+                _connection.value = _connection.value.copy(authentication = AuthenticationState.Paired)
                 Result.Paired(deviceId = deviceId, token = data.token)
             } else {
                 val msg = resp.error?.message ?: "配对码无效或已过期"
@@ -127,20 +150,27 @@ class PairingRepository @Inject constructor(
     /** 载入已保存的服务器配置(启动时恢复)。 */
     suspend fun load(): ServerProfileView {
         val profile = store.current()
+        tokenProvider.clear()
         if (profile.token.isNotBlank()) {
-            tokenProvider.set(profile.token)
+            tokenProvider.set(profile.token, profile.baseUrl)
         }
+        var restored = restoredConnectionState(profile.isPaired, profile.credentialRejected)
+        if (profile.baseUrl.isNotBlank()) {
+            restored = when (val probe = checkHealthy(profile.baseUrl)) {
+                is Result.HealthOk -> probe.connection
+                is Result.Failure -> probe.connection
+                else -> restored
+            }
+            if (profile.credentialRejected) {
+                restored = restored.copy(authentication = AuthenticationState.Rejected)
+            }
+        }
+        _connection.value = restored
         return ServerProfileView(
             baseUrl = profile.baseUrl,
-            paired = profile.isPaired,
+            paired = restored.authentication == AuthenticationState.Paired,
             deviceId = store.deviceId(),
-            connection = ConnectionState(
-                authentication = if (profile.isPaired) {
-                    AuthenticationState.Paired
-                } else {
-                    AuthenticationState.Unpaired
-                },
-            ),
+            connection = restored,
         )
     }
 
@@ -166,6 +196,17 @@ data class ConnectionState(
     val jellyfin: OnlineState = OnlineState.Unknown,
     val sync: SyncState = SyncState.Unknown,
     val authentication: AuthenticationState = AuthenticationState.Unpaired,
+)
+
+internal fun restoredConnectionState(
+    credentialPresent: Boolean,
+    credentialRejected: Boolean,
+): ConnectionState = ConnectionState(
+    authentication = when {
+        credentialRejected -> AuthenticationState.Rejected
+        credentialPresent -> AuthenticationState.Unknown
+        else -> AuthenticationState.Unpaired
+    },
 )
 
 internal fun buildConnectionState(

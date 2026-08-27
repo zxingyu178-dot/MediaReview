@@ -47,15 +47,16 @@ class MediaRepository @Inject constructor(
     private val apiFactory: ApiFactory,
     private val mediaUrlResolver: MediaUrlResolver,
 ) {
+    private val controlledServerOnlyHosts = setOf("localhost")
 
     private suspend fun pairedBaseUrl(): String = store.current().baseUrl
 
     private fun resolveMedia(media: MediaSummary, baseUrl: String): MediaSummary = media.copy(
         cover_url = media.cover_url?.takeIf { it.isNotBlank() }?.let {
-            mediaUrlResolver.resolve(it, baseUrl)
+            mediaUrlResolver.resolve(it, baseUrl, controlledServerOnlyHosts)
         },
         original_url = media.original_url?.takeIf { it.isNotBlank() }?.let {
-            mediaUrlResolver.resolve(it, baseUrl)
+            mediaUrlResolver.resolve(it, baseUrl, controlledServerOnlyHosts)
         },
     )
 
@@ -122,7 +123,7 @@ class MediaRepository @Inject constructor(
         val m = unwrap(api().spriteManifest(mediaId))
             ?: throw IllegalStateException("雪碧图尚未生成")
         if (m.url.isNullOrBlank()) return m
-        return m.copy(url = mediaUrlResolver.resolve(m.url, pairedBaseUrl()))
+        return m.copy(url = mediaUrlResolver.resolve(m.url, pairedBaseUrl(), controlledServerOnlyHosts))
     }
 
     /** 触发雪碧图后台生成(服务端幂等,已就绪则直返)。 */
@@ -135,7 +136,11 @@ class MediaRepository @Inject constructor(
         runCatching {
             unwrap(api().playback(mediaId))?.let { playback ->
                 playback.copy(
-                    stream_url = mediaUrlResolver.resolve(playback.stream_url, pairedBaseUrl()),
+                    stream_url = mediaUrlResolver.resolve(
+                        playback.stream_url,
+                        pairedBaseUrl(),
+                        controlledServerOnlyHosts,
+                    ),
                 )
             }
         }.getOrNull()

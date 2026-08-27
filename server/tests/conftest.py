@@ -193,6 +193,8 @@ def jellyfin_api_client(
 ) -> Iterator[tuple[TestClient, httpx.MockTransport]]:
     """带 Jellyfin mock 的 API 客户端,同时返回 transport 供断言。"""
     app_config.jellyfin.api_key = SecretStr("test-api-key")
+    # Starlette TestClient 的单标签 request host 仅在测试配置中显式允许。
+    app_config.jellyfin.client_host_allowlist = ["testserver"]
     # 预设 user_id,供阶段 3 media 接口直接使用(模拟已完成的媒体库配置)
     app_config.jellyfin.user_id = JELLYFIN_USER_ID
     transport = make_jellyfin_mock_transport()

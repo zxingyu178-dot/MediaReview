@@ -5,6 +5,17 @@ import org.junit.Test
 
 class ConnectionStateTest {
     @Test
+    fun `本地凭据存在不能在未探测时冒充已配对`() {
+        assertEquals(
+            AuthenticationState.Unknown,
+            restoredConnectionState(credentialPresent = true, credentialRejected = false).authentication,
+        )
+        assertEquals(
+            AuthenticationState.Rejected,
+            restoredConnectionState(credentialPresent = false, credentialRejected = true).authentication,
+        )
+    }
+    @Test
     fun `连接状态分别表达服务 Jellyfin 同步和认证`() {
         val state = ConnectionState(
             mediaReview = OnlineState.Online,

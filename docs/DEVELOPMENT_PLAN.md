@@ -273,7 +273,7 @@ MediaReview-Server-x.y.z.zip
 - 创建 `%ProgramData%\MediaReview`
 - 初始化配置
 - 检测 Jellyfin 8096
-- 检测端口 8765
+- 检测端口 8766
 - 配置防火墙
 - 注册开机自启/Windows 服务
 - 启动 Server

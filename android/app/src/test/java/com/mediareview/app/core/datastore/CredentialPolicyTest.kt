@@ -44,4 +44,17 @@ class CredentialPolicyTest {
         assertEquals("wen_rm", migration.encryptedToken)
         assertTrue(migration.removePlaintext)
     }
+
+    @Test
+    fun `损坏密文使凭据失效并要求删除密文和残留明文`() {
+        val broken = object : CredentialCipher {
+            override fun encrypt(plaintext: String): String = error("keystore unavailable")
+            override fun decrypt(ciphertext: String): String = error("bad tag")
+        }
+        val migration = migrateCredential("broken", "legacy", broken)
+        assertEquals("", migration.token)
+        assertTrue(migration.removePlaintext)
+        assertTrue(migration.removeEncrypted)
+        assertTrue(migration.credentialRejected)
+    }
 }

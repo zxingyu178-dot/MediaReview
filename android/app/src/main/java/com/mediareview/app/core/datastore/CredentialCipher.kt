@@ -18,24 +18,36 @@ data class CredentialMigration(
     val token: String,
     val encryptedToken: String,
     val removePlaintext: Boolean,
+    val removeEncrypted: Boolean = false,
+    val credentialRejected: Boolean = false,
 )
 
 fun migrateCredential(
     encryptedToken: String,
     plaintextToken: String,
     crypto: CredentialCipher,
-): CredentialMigration = when {
-    encryptedToken.isNotBlank() -> CredentialMigration(
-        token = crypto.decrypt(encryptedToken),
-        encryptedToken = encryptedToken,
+): CredentialMigration = try {
+    when {
+        encryptedToken.isNotBlank() -> CredentialMigration(
+            token = crypto.decrypt(encryptedToken),
+            encryptedToken = encryptedToken,
+            removePlaintext = plaintextToken.isNotBlank(),
+        )
+        plaintextToken.isNotBlank() -> CredentialMigration(
+            token = plaintextToken,
+            encryptedToken = crypto.encrypt(plaintextToken),
+            removePlaintext = true,
+        )
+        else -> CredentialMigration("", "", false)
+    }
+} catch (_: Exception) {
+    CredentialMigration(
+        token = "",
+        encryptedToken = "",
         removePlaintext = plaintextToken.isNotBlank(),
+        removeEncrypted = encryptedToken.isNotBlank(),
+        credentialRejected = true,
     )
-    plaintextToken.isNotBlank() -> CredentialMigration(
-        token = plaintextToken,
-        encryptedToken = crypto.encrypt(plaintextToken),
-        removePlaintext = true,
-    )
-    else -> CredentialMigration("", "", false)
 }
 
 fun stableInstallationId(existing: String, generator: () -> String): String =

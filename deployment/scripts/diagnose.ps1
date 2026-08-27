@@ -31,7 +31,7 @@ $logDir = Join-Path $DataRoot "logs"
 try {
     $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 5
     Out-Diag "health.txt" "version: $($h.data.version)`nstatus: $($h.data.status)`ncomponents: $($h.data.components | ConvertTo-Json -Compress)"
-} catch { Out-Diag "health.txt" "health 不可达: $_" }
+} catch { Out-Diag "health.txt" "health_error: unreachable" }
 
 # 2. 配置(脱敏)
 $configFile = Join-Path $DataRoot "config\config.json"
@@ -40,6 +40,10 @@ if (Test-Path $configFile) {
     $masked = $cfg
     if ($masked.jellyfin.api_key) { $masked.jellyfin.api_key = "********" }
     if ($masked.jellyfin.user_id) { $masked.jellyfin.user_id = "********" }
+    $masked.jellyfin | Add-Member -NotePropertyName url_configured -Value ([bool]$masked.jellyfin.url) -Force
+    $masked.jellyfin | Add-Member -NotePropertyName client_url_configured -Value ([bool]$masked.jellyfin.client_url) -Force
+    $masked.jellyfin.PSObject.Properties.Remove('url')
+    $masked.jellyfin.PSObject.Properties.Remove('client_url')
     Out-Diag "config_masked.json" ($masked | ConvertTo-Json -Depth 6)
 } else { Out-Diag "config_masked.json" "config 不存在" }
 
@@ -78,7 +82,7 @@ if ($jfUrl) {
     try {
         $r = Invoke-WebRequest -Uri "$jfUrl/System/Info/Public" -UseBasicParsing -TimeoutSec 5
         Out-Diag "jellyfin.txt" "Jellyfin 可达: $($r.StatusCode)"
-    } catch { Out-Diag "jellyfin.txt" "Jellyfin 不可达: $_" }
+    } catch { Out-Diag "jellyfin.txt" "jellyfin_error: unreachable" }
 } else { Out-Diag "jellyfin.txt" "未配置 Jellyfin" }
 
 # 8. 磁盘

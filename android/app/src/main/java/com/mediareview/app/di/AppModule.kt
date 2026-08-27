@@ -55,13 +55,13 @@ object AppModule {
     @Singleton
     fun provideAuthInterceptor(
         tokenProvider: TokenProvider,
-    ): AuthInterceptor = AuthInterceptor(tokenProvider::token)
+    ): AuthInterceptor = AuthInterceptor(tokenProvider)
 
     @Provides
     @Singleton
     fun provideCacheAuthInterceptor(
         tokenProvider: TokenProvider,
-    ): CacheAuthInterceptor = CacheAuthInterceptor(tokenProvider::token)
+    ): CacheAuthInterceptor = CacheAuthInterceptor(tokenProvider)
 
     @Provides
     @Singleton
@@ -72,6 +72,16 @@ object AppModule {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    @Provides
+    @Singleton
+    @Named("public")
+    fun providePublicOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(false)
         .build()
 
     @Provides
@@ -103,8 +113,9 @@ object AppModule {
     @Singleton
     fun provideApiFactory(
         okHttp: OkHttpClient,
+        @Named("public") publicHttp: OkHttpClient,
         json: Json,
-    ): ApiFactory = ApiFactory(okHttp, json)
+    ): ApiFactory = ApiFactory(okHttp, publicHttp, json)
 
     @Provides
     @Singleton

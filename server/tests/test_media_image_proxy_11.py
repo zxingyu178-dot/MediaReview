@@ -84,6 +84,7 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
             yield client
 
     app.dependency_overrides[jellyfin_client] = override_client
+    app.state.settings.jellyfin.client_host_allowlist = ["testserver"]
     with TestClient(app) as client:
         db: Database = app.state.database
         with db.session() as session:

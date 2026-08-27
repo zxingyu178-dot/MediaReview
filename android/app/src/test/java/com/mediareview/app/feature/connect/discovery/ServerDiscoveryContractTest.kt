@@ -3,6 +3,8 @@ package com.mediareview.app.feature.connect.discovery
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServerDiscoveryContractTest {
@@ -41,5 +43,45 @@ class ServerDiscoveryContractTest {
 
         assertEquals(listOf(DiscoveredServer("192.168.31.20", 8766, "A")), candidates)
         assertEquals(2, checked.size)
+    }
+
+
+    @Test
+    fun `健康确认只接受受限 MediaReview JSON 合同`() {
+        val valid = """{"success":true,"data":{"status":"ok","version":"1.1","components":{"database":"ok"}}}"""
+        assertTrue(validateMediaReviewHealth(200, "application/json; charset=utf-8", valid.toByteArray()))
+        assertFalse(validateMediaReviewHealth(302, "application/json", valid.toByteArray()))
+        assertFalse(validateMediaReviewHealth(200, "text/html", valid.toByteArray()))
+        assertFalse(validateMediaReviewHealth(200, "application/json", "{}".toByteArray()))
+        assertFalse(validateMediaReviewHealth(200, "application/json", ByteArray(8193)))
+    }
+
+    @Test
+    fun `探测异常与取消都关闭响应资源且取消不被吞掉`() = runBlocking {
+        var closed = 0
+        val timeout = probeMediaReviewHealth {
+            object : HealthResponse {
+                override val status = 200
+                override val contentType = "application/json"
+                override fun readBody(limit: Int): ByteArray = throw java.net.SocketTimeoutException()
+                override fun close() { closed += 1 }
+            }
+        }
+        assertFalse(timeout)
+        assertEquals(1, closed)
+
+        try {
+            probeMediaReviewHealth {
+                object : HealthResponse {
+                    override val status = 200
+                    override val contentType = "application/json"
+                    override fun readBody(limit: Int): ByteArray = throw kotlinx.coroutines.CancellationException()
+                    override fun close() { closed += 1 }
+                }
+            }
+            throw AssertionError("expected cancellation")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            assertEquals(2, closed)
+        }
     }
 }

@@ -40,6 +40,7 @@ def test_client_url_uses_same_validation_and_secret_exclusion() -> None:
     config = JellyfinConfig(
         url="http://127.0.0.1:8096/jellyfin",
         client_url=" HTTPS://Jellyfin.Lan:9443/jellyfin/ ",
+        client_host_allowlist=["jellyfin.lan"],
         api_key=SecretStr("server-only-key"),
     )
 
@@ -55,6 +56,39 @@ def test_client_url_uses_same_validation_and_secret_exclusion() -> None:
     for loopback in ("http://127.0.0.1:8096", "http://localhost:8096", "http://[::1]:8096"):
         with pytest.raises(ValidationError):
             JellyfinConfig(client_url=loopback)
+
+
+@pytest.mark.parametrize(
+    "client_url",
+    (
+        "http://192.168.31.20:0/jellyfin",
+        "http://jellyfin:8096/jellyfin",
+        "http://jellyfin.internal:8096/jellyfin",
+        "http://jellyfin.local:8096/jellyfin",
+    ),
+)
+def test_client_url_rejects_invalid_port_and_server_only_hosts_without_allowlist(
+    client_url: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        JellyfinConfig(client_url=client_url)
+
+
+def test_explicit_allowlist_controls_local_client_hostname_and_request_host() -> None:
+    config = JellyfinConfig(
+        url="http://127.0.0.1:8096/jellyfin",
+        client_url="http://jellyfin.internal:8096/jellyfin",
+        client_host_allowlist=["JELLYFIN.INTERNAL"],
+    )
+    assert config.client_url == "http://jellyfin.internal:8096/jellyfin"
+
+    derived = JellyfinConfig(
+        url="http://127.0.0.1:8096/jellyfin",
+        client_host_allowlist=["jellyfin.internal"],
+    )
+    assert derived.client_base_url("JELLYFIN.INTERNAL") == (
+        "http://jellyfin.internal:8096/jellyfin"
+    )
 
 
 def test_derived_client_url_rejects_loopback_or_unspecified_request_host() -> None:
@@ -247,6 +281,36 @@ def test_0012_upgrade_merges_only_exact_normalized_identity_and_keeps_newest_tok
         "historical-id-1",
         "historical-id-2",
         "historical-id-3",
+    }
+
+
+def test_0012_upgrade_does_not_let_newer_malformed_hash_replace_valid_token(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pairing-malformed-upgrade.db'}"
+    config = _alembic_config(database_url)
+    command.upgrade(config, "0010")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO paired_device "
+                "(device_id, name, paired_at, token_hash, revoked, last_seen_at) VALUES "
+                "(' Install-Valid ', 'valid', '2026-01-01', :valid, 0, NULL), "
+                "('install-valid', 'malformed', '2026-12-01', 'bad', 0, NULL), "
+                "('INSTALL-VALID', 'revoked', '2027-01-01', :revoked, 1, NULL)"
+            ),
+            {"valid": "a" * 64, "revoked": "b" * 64},
+        )
+
+    command.upgrade(config, "0012")
+    with engine.connect() as connection:
+        row = connection.execute(text("SELECT name, token_hash, revoked FROM paired_device")).one()
+    assert row == ("valid", "a" * 64, 0)
+
+    command.downgrade(config, "0010")
+    assert "installation_id" not in {
+        column["name"] for column in inspect(engine).get_columns("paired_device")
     }
 
 

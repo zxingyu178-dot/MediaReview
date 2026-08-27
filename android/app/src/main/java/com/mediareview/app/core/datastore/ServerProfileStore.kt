@@ -19,6 +19,7 @@ private val Context.serverDataStore by preferencesDataStore(name = "media_review
 data class ServerProfile(
     val baseUrl: String = "",
     val token: String = "",
+    val credentialRejected: Boolean = false,
 ) {
     val isConfigured: Boolean get() = baseUrl.isNotBlank()
     val isPaired: Boolean get() = token.isNotBlank()
@@ -48,15 +49,20 @@ class ServerProfileStore(
             plaintextToken = prefs[keyToken].orEmpty(),
             crypto = crypto,
         )
-        if (migration.removePlaintext) {
+        if (migration.removePlaintext || migration.removeEncrypted) {
             context.serverDataStore.edit { mutable ->
                 if (migration.encryptedToken.isNotBlank()) {
                     mutable[keyEncryptedToken] = migration.encryptedToken
                 }
                 mutable.remove(keyToken)
+                if (migration.removeEncrypted) mutable.remove(keyEncryptedToken)
             }
         }
-        return ServerProfile(prefs[keyBaseUrl].orEmpty(), migration.token)
+        return ServerProfile(
+            prefs[keyBaseUrl].orEmpty(),
+            migration.token,
+            migration.credentialRejected,
+        )
     }
 
     suspend fun saveBaseUrl(baseUrl: String) {
@@ -69,6 +75,13 @@ class ServerProfileStore(
         context.serverDataStore.edit { prefs ->
             prefs[keyEncryptedToken] = crypto.encrypt(token)
             prefs.remove(keyToken)
+        }
+    }
+
+    suspend fun invalidateCredential() {
+        context.serverDataStore.edit { prefs ->
+            prefs.remove(keyToken)
+            prefs.remove(keyEncryptedToken)
         }
     }
 

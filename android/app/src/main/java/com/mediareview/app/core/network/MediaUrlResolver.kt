@@ -1,6 +1,9 @@
 package com.mediareview.app.core.network
 
 import java.net.URI
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -52,12 +55,50 @@ class MediaUrlResolver @Inject constructor() {
     }
 
     private fun rejectCredentials(uri: URI) {
-        val query = uri.rawQuery.orEmpty().lowercase()
-        require(
-            listOf("api_key", "apikey", "token", "authorization", "x-emby-token").none {
-                Regex("(^|&)$it=").containsMatchIn(query)
-            },
-        ) { "媒体地址不得携带凭据" }
+        val query = uri.rawQuery.orEmpty()
+        require(query.length <= 8192) { "媒体地址 query 过长" }
+        require(';' !in query) { "媒体地址 query 分隔表达不明确" }
+        val credentialNames = setOf("api_key", "apikey", "token", "authorization", "x-emby-token")
+        for (parameter in query.split('&').filter { it.isNotEmpty() }) {
+            var name = parameter.substringBefore('=')
+            repeat(3) {
+                name = strictQueryDecode(name)
+                require(name.lowercase() !in credentialNames) { "媒体地址不得携带凭据" }
+            }
+        }
+    }
+
+    private fun strictQueryDecode(value: String): String {
+        val bytes = ByteArrayOutputStream(value.length)
+        var index = 0
+        while (index < value.length) {
+            when (val char = value[index]) {
+                '%' -> {
+                    require(index + 2 < value.length) { "媒体地址 query 编码无效" }
+                    val octet = value.substring(index + 1, index + 3).toIntOrNull(16)
+                        ?: throw IllegalArgumentException("媒体地址 query 编码无效")
+                    bytes.write(octet)
+                    index += 3
+                }
+                '+' -> {
+                    bytes.write(' '.code)
+                    index += 1
+                }
+                else -> {
+                    bytes.write(char.toString().toByteArray(Charsets.UTF_8))
+                    index += 1
+                }
+            }
+        }
+        return try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes.toByteArray()))
+                .toString()
+        } catch (_: Exception) {
+            throw IllegalArgumentException("媒体地址 query 编码无效")
+        }
     }
 
     private fun isLoopback(host: String): Boolean {
@@ -68,6 +109,7 @@ class MediaUrlResolver @Inject constructor() {
 
     private fun isReservedServerOnlyHost(host: String): Boolean {
         val normalized = host.trim('[', ']').lowercase().trimEnd('.')
+        if (':' in normalized) return false
         return '.' !in normalized || listOf(".internal", ".local", ".lan").any {
             normalized.endsWith(it)
         }

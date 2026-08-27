@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.datastore.ServerProfile
 import com.mediareview.app.core.datastore.ServerProfileStore
+import com.mediareview.app.feature.connect.data.PairingRepository
+import com.mediareview.app.feature.connect.data.ConnectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,11 +19,13 @@ data class HomeUiState(
     val paired: Boolean = false,
     val loading: Boolean = true,
     val error: String? = null,
+    val connection: ConnectionState = ConnectionState(),
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val store: ServerProfileStore,
+    private val pairingRepository: PairingRepository,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(HomeUiState(loading = true))
@@ -36,12 +40,13 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _ui.value = HomeUiState(loading = true)
             try {
-                val profile: ServerProfile = store.current()
+                val restored = pairingRepository.load()
                 _ui.value = HomeUiState(
-                    baseUrl = profile.baseUrl,
-                    deviceId = store.deviceId(),
-                    paired = profile.isPaired,
+                    baseUrl = restored.baseUrl,
+                    deviceId = restored.deviceId,
+                    paired = restored.paired,
                     loading = false,
+                    connection = restored.connection,
                 )
             } catch (e: Exception) {
                 _ui.value = HomeUiState(loading = false, error = e.message ?: "读取配置失败")

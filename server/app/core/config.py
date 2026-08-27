@@ -78,7 +78,12 @@ def _normalize_base_path(path: str) -> str:
     return "/" + "/".join(normalized)
 
 
-def _client_reachable_hostname(hostname: str) -> str:
+_SERVER_ONLY_SUFFIXES = (".internal", ".local", ".lan")
+
+
+def _client_reachable_hostname(
+    hostname: str, allowlist: set[str] | frozenset[str] = frozenset()
+) -> str:
     normalized = _normalize_hostname(hostname.strip("[]"))
     plain = normalized.strip("[]").rstrip(".").casefold()
     if plain == "localhost":
@@ -86,6 +91,8 @@ def _client_reachable_hostname(hostname: str) -> str:
     try:
         address = ip_address(plain)
     except ValueError:
+        if plain not in allowlist and ("." not in plain or plain.endswith(_SERVER_ONLY_SUFFIXES)):
+            raise ValueError("客户端 URL host 需要显式 allowlist") from None
         return normalized
     if address.is_loopback or address.is_unspecified or address.is_multicast:
         raise ValueError("客户端 URL host 不可由局域网客户端访问")
@@ -116,6 +123,8 @@ def normalize_jellyfin_base_url(value: str) -> str:
         port = parsed.port
     except ValueError as exc:
         raise ValueError("Jellyfin URL port 非法") from exc
+    if port == 0:
+        raise ValueError("Jellyfin URL port 非法")
     hostname = _normalize_hostname(parsed.hostname)
     authority = hostname if port is None else f"{hostname}:{port}"
     return f"{scheme}://{authority}{_normalize_base_path(parsed.path)}"
@@ -169,6 +178,8 @@ class JellyfinConfig(BaseModel):
     url: str = _DEFAULT_JELLYFIN_URL
     # 可选的手机可达地址；留空时按请求 MediaReview 所用 host 派生。
     client_url: str = ""
+    # 明确允许客户端 DNS 可解析的本地域名；默认不猜测单标签或私有后缀。
+    client_host_allowlist: list[str] = []
     api_key: SecretStr = SecretStr("")
     # Jellyfin 用户 ID,留空时由阶段 2 自动发现
     user_id: str = ""
@@ -191,15 +202,31 @@ class JellyfinConfig(BaseModel):
     def _validate_url(cls, value: str) -> str:
         return normalize_jellyfin_base_url(value)
 
+    @field_validator("client_host_allowlist")
+    @classmethod
+    def _validate_client_host_allowlist(cls, value: list[str]) -> list[str]:
+        normalized = []
+        for host in value:
+            item = _normalize_hostname(host.strip("[]")).rstrip(".").casefold()
+            if not item or item == "localhost":
+                raise ValueError("客户端 host allowlist 非法")
+            normalized.append(item)
+        return sorted(set(normalized))
+
     @field_validator("client_url")
     @classmethod
-    def _validate_client_url(cls, value: str) -> str:
+    def _normalize_client_url(cls, value: str) -> str:
+        return normalize_jellyfin_base_url(value) if value.strip() else ""
+
+    @model_validator(mode="after")
+    def _validate_client_url(self) -> JellyfinConfig:
+        value = self.client_url
         if not value.strip():
-            return ""
+            return self
         normalized = normalize_jellyfin_base_url(value)
         parsed = urlsplit(normalized)
-        _client_reachable_hostname(parsed.hostname or "")
-        return normalized
+        _client_reachable_hostname(parsed.hostname or "", frozenset(self.client_host_allowlist))
+        return self
 
     @property
     def host(self) -> str:
@@ -214,7 +241,9 @@ class JellyfinConfig(BaseModel):
             result = self.client_url
         else:
             parsed = urlsplit(self.url)
-            normalized_host = _client_reachable_hostname(request_host)
+            normalized_host = _client_reachable_hostname(
+                request_host, frozenset(self.client_host_allowlist)
+            )
             authority = (
                 normalized_host if parsed.port is None else f"{normalized_host}:{parsed.port}"
             )

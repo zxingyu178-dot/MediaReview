@@ -10,6 +10,7 @@ defines the chain; the later duplicate-groups migration must chain from head.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 import sqlalchemy as sa
@@ -23,6 +24,13 @@ depends_on = None
 
 def _normalized(value: str) -> str:
     return value.strip().casefold()
+
+
+_TOKEN_HASH = re.compile(r"[0-9a-fA-F]{64}\Z")
+
+
+def _has_valid_credential(row: sa.RowMapping) -> bool:
+    return not bool(row["revoked"]) and bool(_TOKEN_HASH.fullmatch(str(row["token_hash"] or "")))
 
 
 def upgrade() -> None:
@@ -51,7 +59,7 @@ def upgrade() -> None:
         winner = max(
             candidates,
             key=lambda row: (
-                bool(row["token_hash"]) and not bool(row["revoked"]),
+                _has_valid_credential(row),
                 str(row["paired_at"] or ""),
                 str(row["last_seen_at"] or ""),
             ),

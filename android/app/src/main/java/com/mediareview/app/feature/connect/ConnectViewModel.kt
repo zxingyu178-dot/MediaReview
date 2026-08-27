@@ -146,7 +146,7 @@ class ConnectViewModel @Inject constructor(
                     }
                 }
                 is PairingRepository.Result.Failure -> {
-                    _ui.update { it.copy(busy = false, error = r.message) }
+                    _ui.update { it.copy(busy = false, error = r.message, connection = r.connection) }
                 }
                 else -> _ui.update { it.copy(busy = false) }
             }
@@ -182,7 +182,7 @@ class ConnectViewModel @Inject constructor(
                     }
                 }
                 is PairingRepository.Result.Failure -> {
-                    _ui.update { it.copy(busy = false, error = r.message) }
+                    _ui.update { it.copy(busy = false, error = r.message, connection = r.connection) }
                 }
                 else -> _ui.update { it.copy(busy = false) }
             }

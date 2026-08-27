@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.datastore.ServerProfile
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.feature.connect.data.PairingRepository
+import com.mediareview.app.feature.connect.data.ConnectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,7 @@ data class SettingsUiState(
     /** 连接检查结果:null=未检查;否则为错误消息或"连接正常"。 */
     val checkMessage: String? = null,
     val checking: Boolean = false,
+    val connection: ConnectionState = ConnectionState(),
 )
 
 /** 设置页:查看服务器配置、检查连接、重新配对/清除配置。 */
@@ -35,12 +37,13 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val profile: ServerProfile = store.current()
+            val restored = pairingRepository.load()
             _ui.value = SettingsUiState(
                 loading = false,
-                baseUrl = profile.baseUrl,
-                deviceId = store.deviceId(),
-                paired = profile.isPaired,
+                baseUrl = restored.baseUrl,
+                deviceId = restored.deviceId,
+                paired = restored.paired,
+                connection = restored.connection,
             )
         }
     }
@@ -58,6 +61,13 @@ class SettingsViewModel @Inject constructor(
             _ui.update {
                 it.copy(
                     checking = false,
+                    connection = when (result) {
+                        is PairingRepository.Result.HealthOk -> result.connection
+                        is PairingRepository.Result.Failure -> result.connection
+                        else -> it.connection
+                    },
+                    paired = result is PairingRepository.Result.HealthOk &&
+                        result.connection.authentication == com.mediareview.app.feature.connect.data.AuthenticationState.Paired,
                     checkMessage = when (result) {
                         is PairingRepository.Result.HealthOk ->
                             "连接正常(服务器 v${result.version})"

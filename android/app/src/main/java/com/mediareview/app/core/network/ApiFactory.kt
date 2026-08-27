@@ -14,14 +14,15 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
  */
 @Singleton
 class ApiFactory @Inject constructor(
-    private val okHttp: OkHttpClient,
+    private val authenticatedHttp: OkHttpClient,
+    private val publicHttp: OkHttpClient,
     private val json: Json,
 ) {
-    fun create(baseUrl: String): MediaReviewApi {
+    fun create(baseUrl: String, authenticated: Boolean = true): MediaReviewApi {
         val clean = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         return Retrofit.Builder()
             .baseUrl(clean)
-            .client(okHttp)
+            .client(if (authenticated) authenticatedHttp else publicHttp)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
             .create(MediaReviewApi::class.java)
