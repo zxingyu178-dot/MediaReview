@@ -139,7 +139,9 @@ class MediaRepository @Inject constructor(
                     stream_url = mediaUrlResolver.resolve(
                         playback.stream_url,
                         pairedBaseUrl(),
-                        controlledServerOnlyHosts,
+                        playback.stream_url_rewrite_hosts.toSet(),
+                        authoritative = playback.stream_url_authoritative,
+                        legacyServerOnlyHeuristics = playback.stream_url_source == "legacy",
                     ),
                 )
             }

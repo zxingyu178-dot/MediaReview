@@ -255,6 +255,12 @@ class PlaybackInfo(BaseModel):
     title: str
     stream_url: str
     requires_jellyfin_auth: bool
+    # 新客户端依据 provenance 决定是否允许 host rewrite；旧客户端可忽略新增字段。
+    stream_url_authoritative: bool = False
+    stream_url_source: Literal["configured_client_url", "request_host_fallback"] = (
+        "request_host_fallback"
+    )
+    stream_url_rewrite_hosts: list[str] = []
     message: str
     media_type: str
     duration_ms: int | None = None
@@ -288,6 +294,7 @@ async def get_playback_info(
         base_url=jellyfin_settings.client_base_url(request_host),
     )
     server_key = jellyfin_settings.api_key.get_secret_value()
+    authoritative = bool(jellyfin_settings.client_url)
     try:
         ensure_jellyfin_url_excludes_api_key(stream_url, server_key)
     except ValueError:
@@ -298,6 +305,11 @@ async def get_playback_info(
             title=row.name,
             stream_url=stream_url,
             requires_jellyfin_auth=True,
+            stream_url_authoritative=authoritative,
+            stream_url_source=(
+                "configured_client_url" if authoritative else "request_host_fallback"
+            ),
+            stream_url_rewrite_hosts=[],
             message="需要为此设备配置 Jellyfin 客户端认证后才能播放；当前不会下发服务器 API Key",
             media_type=row.media_type,
             duration_ms=row.duration_ms,

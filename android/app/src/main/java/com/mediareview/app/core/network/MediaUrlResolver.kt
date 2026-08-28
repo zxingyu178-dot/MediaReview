@@ -14,6 +14,8 @@ class MediaUrlResolver @Inject constructor() {
         rawUrl: String,
         pairedServerBaseUrl: String,
         serverOnlyHosts: Set<String> = emptySet(),
+        authoritative: Boolean = false,
+        legacyServerOnlyHeuristics: Boolean = true,
     ): String {
         val raw = rawUrl.trim()
         require(raw.isNotEmpty() && '\\' !in raw) { "媒体地址格式无效" }
@@ -26,9 +28,13 @@ class MediaUrlResolver @Inject constructor() {
         }
         rejectCredentials(input)
         val inputHost = input.host ?: throw IllegalArgumentException("媒体地址缺少主机")
-        val replaceHost = isLoopback(inputHost) || isReservedServerOnlyHost(inputHost) || serverOnlyHosts.any {
-            it.equals(inputHost, ignoreCase = true)
-        }
+        val replaceHost = !authoritative && (
+            isLoopback(inputHost) ||
+                (legacyServerOnlyHeuristics && isReservedServerOnlyHost(inputHost)) ||
+                serverOnlyHosts.any {
+                it.equals(inputHost, ignoreCase = true)
+            }
+        )
         if (!replaceHost) return input.toASCIIString()
         val pairedHost = paired.host?.trim('[', ']')
             ?: throw IllegalArgumentException("配对服务器地址缺少主机")

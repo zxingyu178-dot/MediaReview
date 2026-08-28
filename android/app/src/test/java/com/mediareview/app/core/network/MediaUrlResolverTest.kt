@@ -78,4 +78,49 @@ class MediaUrlResolverTest {
             ),
         )
     }
+
+    @Test
+    fun `authoritative client url 对 allowlisted host 不做猜测改写`() {
+        for (host in listOf("jellyfin", "jellyfin.internal", "jellyfin.local", "jellyfin.lan")) {
+            assertEquals(
+                "http://$host:8096/Videos/a/stream?static=true",
+                resolver.resolve(
+                    "http://$host:8096/Videos/a/stream?static=true",
+                    "http://192.168.31.20:8766",
+                    serverOnlyHosts = emptySet(),
+                    authoritative = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `authoritative url 仍拒绝 userinfo 与 credential query`() {
+        for (url in listOf(
+            "http://user:pass@jellyfin.internal/file",
+            "http://jellyfin.internal/file?%61pi_key=secret",
+        )) {
+            assertThrows(IllegalArgumentException::class.java) {
+                resolver.resolve(
+                    url,
+                    "http://192.168.31.20:8766",
+                    authoritative = true,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `新 Server fallback 合同禁用客户端 server only 猜测`() {
+        assertEquals(
+            "http://jellyfin.internal:8096/Videos/a/stream",
+            resolver.resolve(
+                "http://jellyfin.internal:8096/Videos/a/stream",
+                "http://192.168.31.20:8766",
+                serverOnlyHosts = emptySet(),
+                authoritative = false,
+                legacyServerOnlyHeuristics = false,
+            ),
+        )
+    }
 }

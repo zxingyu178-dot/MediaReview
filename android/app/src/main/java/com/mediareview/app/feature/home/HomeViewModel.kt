@@ -2,8 +2,6 @@ package com.mediareview.app.feature.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.mediareview.app.core.datastore.ServerProfile
-import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.feature.connect.data.PairingRepository
 import com.mediareview.app.feature.connect.data.ConnectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -11,6 +9,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
@@ -24,7 +24,6 @@ data class HomeUiState(
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val store: ServerProfileStore,
     private val pairingRepository: PairingRepository,
 ) : ViewModel() {
 
@@ -32,6 +31,11 @@ class HomeViewModel @Inject constructor(
     val ui: StateFlow<HomeUiState> = _ui.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            pairingRepository.connection.collect { connection ->
+                _ui.update { it.copy(connection = connection) }
+            }
+        }
         reload()
     }
 

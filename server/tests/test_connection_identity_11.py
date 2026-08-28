@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import httpx
@@ -183,6 +184,97 @@ def test_configured_client_url_wins_over_request_host(tmp_path: Path) -> None:
     assert response.json()["data"]["stream_url"].startswith(
         "https://jellyfin.home:9443/jellyfin/Videos/video-2/stream"
     )
+
+
+@pytest.mark.parametrize(
+    "client_host",
+    ("jellyfin", "jellyfin.internal", "jellyfin.local", "jellyfin.lan"),
+)
+def test_allowlisted_client_url_is_authoritative_in_playback_contract(
+    tmp_path: Path,
+    client_host: str,
+) -> None:
+    settings = AppConfig(
+        jellyfin=JellyfinConfig(
+            url="http://127.0.0.1:8096/jellyfin",
+            client_url=f"http://{client_host}:8096/jellyfin",
+            client_host_allowlist=[client_host],
+            api_key=SecretStr("test-server-key"),
+            user_id="user-1",
+        ),
+        storage=StorageConfig(data_root=str(tmp_path / "data")),
+        security=SecurityConfig(pairing_required=False),
+    )
+    app = create_app(settings)
+
+    async def override_client():
+        async with JellyfinClient(
+            settings.jellyfin, transport=httpx.MockTransport(lambda _: httpx.Response(404))
+        ) as mock_client:
+            yield mock_client
+
+    app.dependency_overrides[jellyfin_client] = override_client
+    with TestClient(app, base_url="http://192.168.31.20:8766") as client:
+        with client.app.state.database.session() as session:
+            session.add(
+                MediaCacheIndex(
+                    media_id=f"authoritative-{client_host}",
+                    jellyfin_id="video-authoritative",
+                    library_id="library-1",
+                    name="Authoritative.mp4",
+                    media_type="video",
+                    fingerprint=f"fp-{client_host}",
+                )
+            )
+            session.commit()
+        payload = client.get(f"/api/v1/media/authoritative-{client_host}/playback").json()["data"]
+
+    assert payload["stream_url"].startswith(f"http://{client_host}:8096/jellyfin/")
+    assert payload["stream_url_authoritative"] is True
+    assert payload["stream_url_source"] == "configured_client_url"
+    assert payload["stream_url_rewrite_hosts"] == []
+
+
+def test_request_host_fallback_declares_non_authoritative_rewrite_contract(
+    tmp_path: Path,
+) -> None:
+    settings = AppConfig(
+        jellyfin=JellyfinConfig(
+            url="http://127.0.0.1:8096/jellyfin",
+            api_key=SecretStr("test-server-key"),
+            user_id="user-1",
+        ),
+        storage=StorageConfig(data_root=str(tmp_path / "data")),
+        security=SecurityConfig(pairing_required=False),
+    )
+    app = create_app(settings)
+
+    async def override_client():
+        async with JellyfinClient(
+            settings.jellyfin, transport=httpx.MockTransport(lambda _: httpx.Response(404))
+        ) as mock_client:
+            yield mock_client
+
+    app.dependency_overrides[jellyfin_client] = override_client
+    with TestClient(app, base_url="http://192.168.31.20:8766") as client:
+        with client.app.state.database.session() as session:
+            session.add(
+                MediaCacheIndex(
+                    media_id="fallback-contract",
+                    jellyfin_id="video-fallback",
+                    library_id="library-1",
+                    name="Fallback.mp4",
+                    media_type="video",
+                    fingerprint="fp-fallback-contract",
+                )
+            )
+            session.commit()
+        payload = client.get("/api/v1/media/fallback-contract/playback").json()["data"]
+
+    assert payload["stream_url_authoritative"] is False
+    assert payload["stream_url_source"] == "request_host_fallback"
+    assert payload["stream_url_rewrite_hosts"] == []
+    assert "127.0.0.1" not in json.dumps(payload)
 
 
 def test_diagnostics_config_does_not_expose_server_only_jellyfin_host(tmp_path: Path) -> None:

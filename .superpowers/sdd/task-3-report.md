@@ -158,3 +158,35 @@ Android focused BUILD SUCCESSFUL，ruff check/format 与 diff check 均通过。
    `jellyfin.client_host_allowlist`；默认拒绝是安全边界。
 
 Formal review 阶段结论：I1–I8/M1 已按自动化合同关闭；保留上述真实环境验收边界。
+
+## 第二轮独立复审 I1–I4 返修（2026-08-28）
+
+审查源：`.superpowers/sdd/task-3-rereview.md`。第二轮指出显式 `client_url`
+与 Android host 猜测冲突、首次 installation ID 并发竞争、配对业务失败被误报为
+Offline，以及 401 后持久密文复活四项问题。
+
+### RED → GREEN
+
+- Server playback DTO 新增明确 URL provenance/authoritative/rewrite 合同；显式且已验证的
+  `client_url` 标记为 authoritative，Android 仍检查 scheme/userinfo/credential，但不再
+  猜测替换其 host。fallback 派生 URL 才携带受控 rewrite 信息。allowlisted 单标签和
+  `.internal/.local/.lan` 由 Server/Android 参数化合同共同覆盖。
+- installation ID 的首次 read-generate-write 由进程内互斥协调，两个并发 caller 返回并
+  持久化同一非空 ID。
+- `PairingRepository.Result.Failure` 不再默认等同 Offline；只有网络失败设置
+  MediaReview Offline。无效/过期配对码保持 MediaReview Online 并表达认证失败，所有路径
+  更新同一个 `StateFlow<ConnectionState>`，Connect/Settings/Home 消费该状态。
+- 已认证 probe 收到 401 时同时清除 DataStore 密文/遗留明文和内存 token，保留 base URL 与
+  installation ID；当前 UI 会话保持 Rejected，重启不会重新发送旧凭据。
+
+### 主代理 fresh 验证
+
+- Server full：`258 passed`，仅既有 Starlette/httpx deprecation warning。
+- Server focused：`tests/test_connection_identity_11.py` 为 `20 passed`。
+- Server quality：`ruff check .`、`ruff format --check .`、`git diff --check` 通过；
+  初次 format check 正确发现一个新增测试换行，格式化后 focused 与全部静态检查复跑通过。
+- Android：`:app:testDebugUnitTest :app:assembleDebug --rerun-tasks` 为
+  `BUILD SUCCESSFUL`；XML 汇总 `69 tests`、0 failure/0 error/0 skipped，51 tasks executed。
+
+第二轮自动化合同已关闭。仍未执行真实 LAN/UDP、反向代理、物理 Android、真实 Jellyfin
+或 Keystore instrumentation，因此阶段只能在自动化范围内验收。
