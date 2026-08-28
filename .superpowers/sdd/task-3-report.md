@@ -240,3 +240,49 @@ Offline，以及 401 后持久密文复活四项问题。
    不再重发并要求用户显式清除；若底层存储持续不可写，用户操作仍需先解决设备存储/Keystore 故障。
 
 第三轮最终审查的两个 Important 已在自动化合同范围内关闭。
+
+## Release gate I1–I2 返修（2026-08-28）
+
+审查源：`.superpowers/sdd/task-3-release-gate.md`。本轮仅修复离线恢复状态基线和配对凭据保存/
+清除双失败的 fail-closed 顺序；未修改 Server、媒体 URL、代理或其他阶段合同。
+
+### RED 证据
+
+- 新增 repository-level 测试后，`PairingRepositoryLifecycleTest` 稳定为
+  `7 tests completed, 2 failed`。
+- I1 RED：fresh Repository 存在持久 token，`health()` 抛 `IOException` 时返回
+  `MediaReview=Offline + Authentication=Unpaired`，证明恢复出的 Unknown 基线未先写入共享流。
+- I2 RED：`savePairing()` 与 `invalidateCredential()` 连续抛 `IOException` 时，外层 catch 把本地
+  存储错误误报为 Offline，内存 stale token 未清，session latch 未置 Rejected。
+
+### GREEN 与合同关闭
+
+- I1：`load()` 从持久 profile 计算 `restoredConnectionState` 后，在任何网络 probe 前先写入唯一
+  `StateFlow`。因此 fresh Repository 离线启动稳定表达 `Offline + Unknown`；本地 token 既不冒充
+  Paired，也不被误报为 Unpaired。
+- I2：`savePairing()` 失败后，任何持久 invalidation 前先清 `TokenProvider` 并设置 session Rejected；
+  invalidation 在独立 catch 中处理。双失败返回固定、无异常原文的可操作存储错误，MediaReview 保持
+  Online，且同实例后续 `load()` 与 `checkHealthy()` 均不重新装载或发送旧 token。
+- invalidation 成功时仍返回既有“安全凭据无法保存”错误；成功重新配对或显式 clear 仍是解除 session
+  Rejected 的唯一正常路径。
+
+### Release gate 最终验证
+
+- Android focused：`PairingRepositoryLifecycleTest` `7/7`，`BUILD SUCCESSFUL`。
+- Android fresh full/assemble：`:app:testDebugUnitTest :app:assembleDebug --rerun-tasks --offline`
+  `BUILD SUCCESSFUL`，51 tasks executed；XML 汇总 `75 tests`、0 failure/0 error/0 skipped，仅既有
+  `PlayerViewModel.kt` delicate API warning。
+- Server focused：`tests/test_connection_identity_11.py` `20 passed`；full collect `258 tests` 且
+  full pytest exit 0，仅既有 Starlette/httpx deprecation warning。
+- Server quality：`ruff check .` 为 `All checks passed!`；`ruff format --check .` 为
+  `85 files already formatted`；`git diff --check` exit 0。
+- 隔离数据路径为 `E:\aihome\codex\temp\mediareview-task3-releasefix`；未访问真实 LAN/服务/设备、
+  `C:\ProgramData`、运行中 0.8.1 服务、真实配置或密钥。
+
+### 剩余验收边界 / concerns
+
+1. 仍未执行真实 UDP/LAN、反向代理、物理 Android、真实 Jellyfin 或 Keystore instrumentation。
+2. 若持久存储持续不可写，底层旧密文可能跨进程保留；当前 Repository 实例会 fail closed、保持
+   Rejected 且不重发，但用户仍须修复存储/Keystore 后执行显式清除或重新配对。
+
+Release gate 两个 Important 已在自动化合同范围内关闭。

@@ -218,16 +218,26 @@ class PairingRepository internal constructor(
                 store.saveBaseUrl(baseUrl)
                 try {
                     store.savePairing(data.token)
-                } catch (_: Exception) {
-                    store.invalidateCredential()
+                } catch (error: Exception) {
                     tokenProvider.clear()
                     credentialRejectedInSession = true
+                    val rejected = _connection.value.copy(
+                        mediaReview = OnlineState.Online,
+                        authentication = AuthenticationState.Rejected,
+                    )
+                    if (error is CancellationException) throw error
+                    try {
+                        store.invalidateCredential()
+                    } catch (cleanupError: CancellationException) {
+                        throw cleanupError
+                    } catch (_: Exception) {
+                        credentialCleanupMessageInSession = CREDENTIAL_SAVE_CLEANUP_MESSAGE
+                        return failure(CREDENTIAL_SAVE_CLEANUP_MESSAGE, rejected)
+                    }
+                    credentialCleanupMessageInSession = null
                     return failure(
                         "安全凭据无法保存",
-                        _connection.value.copy(
-                            mediaReview = OnlineState.Online,
-                            authentication = AuthenticationState.Rejected,
-                        ),
+                        rejected,
                     )
                 }
                 tokenProvider.set(data.token, baseUrl)
@@ -280,7 +290,8 @@ class PairingRepository internal constructor(
         if (profile.token.isNotBlank() && !credentialRejectedInSession) {
             tokenProvider.set(profile.token, profile.baseUrl)
         }
-        var restored = restoredConnectionState(profile.isPaired, profile.credentialRejected)
+        var restored = restoredConnectionState(profile.isPaired, credentialRejectedInSession)
+        _connection.value = restored
         var message = credentialCleanupMessageInSession
         if (profile.baseUrl.isNotBlank()) {
             restored = when (val probe = checkHealthy(profile.baseUrl)) {
@@ -316,6 +327,8 @@ class PairingRepository internal constructor(
     private companion object {
         const val CREDENTIAL_CLEANUP_MESSAGE =
             "配对凭据已失效，但无法清除本地凭据；请在连接设置中清除配置后重新配对"
+        const val CREDENTIAL_SAVE_CLEANUP_MESSAGE =
+            "安全凭据无法保存，且无法清除旧凭据；请在连接设置中清除配置后重新配对"
     }
 }
 

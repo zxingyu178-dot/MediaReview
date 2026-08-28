@@ -49,6 +49,23 @@ class PairingRepositoryLifecycleTest {
     }
 
     @Test
+    fun `fresh repository 持久 token 离线恢复为 offline unknown`() = runBlocking {
+        val store = FakePairingStore(profile = ServerProfile("http://server.example:8766", "persisted"))
+        val repository = PairingRepository(
+            store,
+            TokenProvider(),
+            FakePairingApiFactory(FakePairingApi(healthFailure = IOException("offline"))),
+        )
+
+        val restored = repository.load()
+
+        assertEquals(OnlineState.Offline, restored.connection.mediaReview)
+        assertEquals(AuthenticationState.Unknown, restored.connection.authentication)
+        assertEquals(restored.connection, repository.connection.value)
+        assertFalse(restored.paired)
+    }
+
+    @Test
     fun `probe 401 持久清除 credential 本次 rejected 且重启不重发`() = runBlocking {
         val store = FakePairingStore(profile = ServerProfile("http://server.example:8766", "stale"))
         val api = FakePairingApi(protectedFailure = unauthorized())
@@ -125,6 +142,44 @@ class PairingRepositoryLifecycleTest {
         assertEquals(1, api.protectedCalls)
     }
 
+    @Test
+    fun `save pairing 与 invalidate 双失败先 fail closed 且不重发旧 token`() = runBlocking {
+        val baseUrl = "http://server.example:8766"
+        val store = FakePairingStore(
+            profile = ServerProfile(baseUrl, "stale"),
+            savePairingFailure = IOException("write failed"),
+            invalidationFailure = IOException("delete failed"),
+        )
+        val api = FakePairingApi(
+            verifyResult = Envelope(
+                success = true,
+                data = VerifyOut(paired = true, token = "replacement"),
+            ),
+        )
+        val tokenProvider = TokenProvider().also { it.set("stale", baseUrl) }
+        val repository = PairingRepository(store, tokenProvider, FakePairingApiFactory(api))
+
+        val failed = repository.verifyAndPair(baseUrl, "123456") as PairingRepository.Result.Failure
+
+        assertEquals(OnlineState.Online, failed.connection.mediaReview)
+        assertEquals(AuthenticationState.Rejected, failed.connection.authentication)
+        assertTrue(failed.message.contains("清除"))
+        assertEquals("", tokenProvider.token)
+        assertEquals("stale", store.profile.token)
+        assertEquals(1, store.invalidations)
+
+        val reloaded = repository.load()
+        assertEquals(AuthenticationState.Rejected, reloaded.connection.authentication)
+        assertTrue(reloaded.message.orEmpty().contains("清除"))
+        assertEquals("", tokenProvider.token)
+        assertEquals(0, api.protectedCalls)
+
+        val probed = repository.checkHealthy(baseUrl)
+        assertTrue(probed is PairingRepository.Result.HealthOk)
+        assertEquals(AuthenticationState.Rejected, repository.connection.value.authentication)
+        assertEquals(0, api.protectedCalls)
+    }
+
     private fun unauthorized(): HttpException = HttpException(
         Response.error<Unit>(
             401,
@@ -135,12 +190,16 @@ class PairingRepositoryLifecycleTest {
 
 private class FakePairingStore(
     var profile: ServerProfile = ServerProfile("http://server.example:8766"),
+    private val savePairingFailure: Exception? = null,
     private val invalidationFailure: Exception? = null,
 ) : PairingStore {
     var invalidations = 0
     override suspend fun current(): ServerProfile = profile
     override suspend fun saveBaseUrl(baseUrl: String) { profile = profile.copy(baseUrl = baseUrl) }
-    override suspend fun savePairing(token: String) { profile = profile.copy(token = token) }
+    override suspend fun savePairing(token: String) {
+        savePairingFailure?.let { throw it }
+        profile = profile.copy(token = token)
+    }
     override suspend fun invalidateCredential() {
         invalidations += 1
         invalidationFailure?.let { throw it }
@@ -156,14 +215,18 @@ private class FakePairingApiFactory(private val api: PairingApi) : PairingApiFac
 
 private class FakePairingApi(
     var verifyResult: Envelope<VerifyOut> = Envelope(success = true, data = VerifyOut()),
+    private val healthFailure: Exception? = null,
     private val verifyFailure: Exception? = null,
     private val protectedFailure: Exception? = null,
 ) : PairingApi {
     var protectedCalls = 0
-    override suspend fun health() = Envelope(
-        success = true,
-        data = HealthOut(status = "ok", version = "1.1", components = mapOf("database" to "ok")),
-    )
+    override suspend fun health(): Envelope<HealthOut> {
+        healthFailure?.let { throw it }
+        return Envelope(
+            success = true,
+            data = HealthOut(status = "ok", version = "1.1", components = mapOf("database" to "ok")),
+        )
+    }
     override suspend fun pairingStatus() = Envelope(
         success = true,
         data = PairingStatusOut(pairing_required = true),
