@@ -15,10 +15,11 @@ import com.mediareview.app.core.network.VerifyRequest
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
-import retrofit2.HttpException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import retrofit2.HttpException
 
 internal interface PairingStore {
     suspend fun current(): ServerProfile
@@ -91,6 +92,7 @@ class PairingRepository internal constructor(
     private val _connection = MutableStateFlow(ConnectionState())
     val connection: StateFlow<ConnectionState> = _connection.asStateFlow()
     private var credentialRejectedInSession = false
+    private var credentialCleanupMessageInSession: String? = null
 
     sealed interface Result {
         data class HealthOk(
@@ -162,9 +164,17 @@ class PairingRepository internal constructor(
                     authenticationRejected = authenticationRejected,
                 )
                 if (authenticationRejected && paired) {
-                    runCatching { store.invalidateCredential() }
                     tokenProvider.clear()
                     credentialRejectedInSession = true
+                    try {
+                        store.invalidateCredential()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        credentialCleanupMessageInSession = CREDENTIAL_CLEANUP_MESSAGE
+                        return failure(CREDENTIAL_CLEANUP_MESSAGE, connection)
+                    }
+                    credentialCleanupMessageInSession = null
                 }
                 _connection.value = connection
                 Result.HealthOk(
@@ -178,6 +188,8 @@ class PairingRepository internal constructor(
                     _connection.value.copy(mediaReview = OnlineState.Online),
                 )
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             val connection = if (error is IOException) {
                 _connection.value.copy(mediaReview = OnlineState.Offline)
@@ -220,6 +232,7 @@ class PairingRepository internal constructor(
                 }
                 tokenProvider.set(data.token, baseUrl)
                 credentialRejectedInSession = false
+                credentialCleanupMessageInSession = null
                 _connection.value = _connection.value.copy(
                     mediaReview = OnlineState.Online,
                     authentication = AuthenticationState.Paired,
@@ -227,12 +240,15 @@ class PairingRepository internal constructor(
                 Result.Paired(deviceId = deviceId, token = data.token)
             } else {
                 val msg = resp.error?.message ?: "配对码无效或已过期"
-                credentialRejectedInSession = false
                 failure(
                     msg,
                     _connection.value.copy(
                         mediaReview = OnlineState.Online,
-                        authentication = AuthenticationState.Unpaired,
+                        authentication = if (credentialRejectedInSession) {
+                            AuthenticationState.Rejected
+                        } else {
+                            AuthenticationState.Unpaired
+                        },
                     ),
                 )
             }
@@ -242,7 +258,10 @@ class PairingRepository internal constructor(
             } else {
                 _connection.value.copy(
                     mediaReview = OnlineState.Online,
-                    authentication = if (error is HttpException && error.code() == 401) {
+                    authentication = if (
+                        credentialRejectedInSession ||
+                        error is HttpException && error.code() == 401
+                    ) {
                         AuthenticationState.Rejected
                     } else {
                         AuthenticationState.Unpaired
@@ -256,19 +275,23 @@ class PairingRepository internal constructor(
     /** 载入已保存的服务器配置(启动时恢复)。 */
     suspend fun load(): ServerProfileView {
         val profile = store.current()
-        credentialRejectedInSession = profile.credentialRejected
+        credentialRejectedInSession = credentialRejectedInSession || profile.credentialRejected
         tokenProvider.clear()
-        if (profile.token.isNotBlank()) {
+        if (profile.token.isNotBlank() && !credentialRejectedInSession) {
             tokenProvider.set(profile.token, profile.baseUrl)
         }
         var restored = restoredConnectionState(profile.isPaired, profile.credentialRejected)
+        var message = credentialCleanupMessageInSession
         if (profile.baseUrl.isNotBlank()) {
             restored = when (val probe = checkHealthy(profile.baseUrl)) {
                 is Result.HealthOk -> probe.connection
-                is Result.Failure -> probe.connection
+                is Result.Failure -> {
+                    message = credentialCleanupMessageInSession ?: probe.message
+                    probe.connection
+                }
                 else -> restored
             }
-            if (profile.credentialRejected) {
+            if (credentialRejectedInSession) {
                 restored = restored.copy(authentication = AuthenticationState.Rejected)
             }
         }
@@ -278,6 +301,7 @@ class PairingRepository internal constructor(
             paired = restored.authentication == AuthenticationState.Paired,
             deviceId = store.deviceId(),
             connection = restored,
+            message = message,
         )
     }
 
@@ -285,7 +309,13 @@ class PairingRepository internal constructor(
     suspend fun clear() {
         clearCredentialState(store::clear, tokenProvider::clear)
         credentialRejectedInSession = false
+        credentialCleanupMessageInSession = null
         _connection.value = ConnectionState()
+    }
+
+    private companion object {
+        const val CREDENTIAL_CLEANUP_MESSAGE =
+            "配对凭据已失效，但无法清除本地凭据；请在连接设置中清除配置后重新配对"
     }
 }
 
@@ -294,6 +324,7 @@ data class ServerProfileView(
     val paired: Boolean,
     val deviceId: String = "",
     val connection: ConnectionState = ConnectionState(),
+    val message: String? = null,
 )
 
 enum class OnlineState { Unknown, Online, Offline }

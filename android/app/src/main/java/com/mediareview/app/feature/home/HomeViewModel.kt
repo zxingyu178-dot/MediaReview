@@ -50,6 +50,7 @@ class HomeViewModel @Inject constructor(
                     deviceId = restored.deviceId,
                     paired = restored.paired,
                     loading = false,
+                    error = restored.message,
                     connection = restored.connection,
                 )
             } catch (e: Exception) {

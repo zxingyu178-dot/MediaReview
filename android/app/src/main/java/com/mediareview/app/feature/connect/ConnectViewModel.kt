@@ -90,7 +90,9 @@ class ConnectViewModel @Inject constructor(
     /** 启动时恢复已保存服务器(已配对则直接进入已配对态)。 */
     private suspend fun restore() {
         val saved: ServerProfileView = repository.load()
-        _ui.update { it.copy(deviceId = saved.deviceId, connection = saved.connection) }
+        _ui.update {
+            it.copy(deviceId = saved.deviceId, connection = saved.connection, error = saved.message)
+        }
         if (saved.paired && saved.baseUrl.isNotBlank()) {
             _ui.update { it.copy(paired = true, selectedBaseUrl = saved.baseUrl) }
         } else if (saved.baseUrl.isNotBlank()) {

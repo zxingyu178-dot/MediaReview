@@ -1,7 +1,8 @@
 package com.mediareview.app.core.network
 
-import java.net.URI
 import java.io.ByteArrayOutputStream
+import java.net.InetAddress
+import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import javax.inject.Inject
@@ -28,16 +29,18 @@ class MediaUrlResolver @Inject constructor() {
         }
         rejectCredentials(input)
         val inputHost = input.host ?: throw IllegalArgumentException("媒体地址缺少主机")
-        val replaceHost = !authoritative && (
-            isLoopback(inputHost) ||
+        val replaceHost = isUnsafeClientDestination(inputHost) || (
+            !authoritative && (
                 (legacyServerOnlyHeuristics && isReservedServerOnlyHost(inputHost)) ||
-                serverOnlyHosts.any {
-                it.equals(inputHost, ignoreCase = true)
-            }
+                    serverOnlyHosts.any {
+                        it.equals(inputHost, ignoreCase = true)
+                    }
+            )
         )
         if (!replaceHost) return input.toASCIIString()
         val pairedHost = paired.host?.trim('[', ']')
             ?: throw IllegalArgumentException("配对服务器地址缺少主机")
+        require(!isUnsafeClientDestination(pairedHost)) { "配对服务器地址不能指向本机或组播地址" }
         return URI(
             input.scheme,
             null,
@@ -107,10 +110,13 @@ class MediaUrlResolver @Inject constructor() {
         }
     }
 
-    private fun isLoopback(host: String): Boolean {
-        val normalized = host.trim('[', ']').lowercase()
-        return normalized == "localhost" || normalized == "::1" ||
-            normalized.startsWith("127.") || normalized == "0.0.0.0" || normalized == "::"
+    private fun isUnsafeClientDestination(host: String): Boolean {
+        val normalized = host.trim('[', ']').lowercase().trimEnd('.')
+        if (normalized == "localhost") return true
+        val isIpLiteral = ':' in normalized || normalized.all { it.isDigit() || it == '.' }
+        if (!isIpLiteral) return false
+        val address = runCatching { InetAddress.getByName(normalized) }.getOrNull() ?: return true
+        return address.isAnyLocalAddress || address.isLoopbackAddress || address.isMulticastAddress
     }
 
     private fun isReservedServerOnlyHost(host: String): Boolean {

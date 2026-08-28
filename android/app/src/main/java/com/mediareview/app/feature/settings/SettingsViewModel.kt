@@ -46,6 +46,7 @@ class SettingsViewModel @Inject constructor(
                 baseUrl = restored.baseUrl,
                 deviceId = restored.deviceId,
                 paired = restored.paired,
+                checkMessage = restored.message,
                 connection = restored.connection,
             )
         }

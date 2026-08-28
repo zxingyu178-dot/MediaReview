@@ -190,3 +190,53 @@ Offline，以及 401 后持久密文复活四项问题。
 
 第二轮自动化合同已关闭。仍未执行真实 LAN/UDP、反向代理、物理 Android、真实 Jellyfin
 或 Keystore instrumentation，因此阶段只能在自动化范围内验收。
+
+## 第三轮最终审查 I1–I2 返修（2026-08-28）
+
+审查源：`.superpowers/sdd/task-3-final-review.md`。本轮只处理 authoritative URL 的最终地址
+安全边界，以及同一 `PairingRepository` 内 401 Rejected 生命周期/credential invalidation 失败；
+未改变 Server 播放代理、server-key、视频代理或后续阶段合同。
+
+### RED 证据
+
+- 首次新增测试在 `ServerProfileView` 尚无可操作错误字段时稳定 Kotlin 编译失败；加入最小返回字段后，
+  focused Android 运行稳定为 `15 tests completed, 4 failed`：authoritative loopback/multicast 原样通过，
+  同实例第二次 `load()` 将 Rejected 降为 Unpaired，无效重配清除 latch，且持久 invalidation 异常被吞掉。
+- paired host 自身安全自审另以 `MediaUrlResolverTest` 稳定 `11 tests completed, 1 failed`，证明仅做 host
+  replacement 时仍可能把危险地址替换为同样危险的 paired host。
+
+### GREEN 与合同关闭
+
+- I1：`authoritative` 现在只关闭单标签/`.internal/.local/.lan` 等 server-only hostname 猜测；
+  loopback、unspecified、IPv4/IPv6 multicast 检测无条件执行。参数覆盖 `127.0.0.1`、`localhost`、
+  `::1`、`0.0.0.0`、`224.0.0.1`、`ff02::1`，均改写到安全 paired host；paired host 若同样危险则
+  fail closed。scheme/userinfo/credential query 检查仍先于 provenance/rewrite。
+- I2：session Rejected latch 采用单调恢复，不再被后续 `load()` 的持久空标志覆盖；同实例多次 load、
+  Connect/Home/Settings 共享的唯一 StateFlow 均保持 Rejected，直到成功重新配对或显式 clear。
+  无效/过期配对及异常路径不会清 latch。401 先清内存 token，再持久 invalidation；持久清除失败返回
+  固定、无异常原文的可操作提示，并阻止同实例后续 load 重新装载/发送旧密文。该提示由
+  Connect/Home/Settings 显示；正常持久清除成功后，新 Repository/进程恢复为 Unpaired 且不重发旧 token。
+
+### 第三轮最终验证
+
+- Android focused：`MediaUrlResolverTest` + `PairingRepositoryLifecycleTest` 共 `16 tests`，0 failure，
+  `BUILD SUCCESSFUL`。
+- Android fresh full/assemble：`:app:testDebugUnitTest :app:assembleDebug --rerun-tasks` 为
+  `BUILD SUCCESSFUL`，51 tasks executed；XML 汇总 `73 tests`、0 failure/0 error/0 skipped。仅既有
+  `PlayerViewModel.kt` delicate API warning。
+- Server necessary focused：`tests/test_connection_identity_11.py` 为 `20 passed`；Server full 当前
+  collect 为 `258 tests` 且 full pytest exit 0，仅既有 Starlette/httpx deprecation warning。
+- Server quality：`ruff check .` 为 `All checks passed!`；`ruff format --check .` 为
+  `85 files already formatted`；`git diff --check` exit 0。
+- 测试数据仅位于 `E:\aihome\codex\temp\mediareview-task3-finalfix`；使用 worktree `.venv`、既有
+  JDK 21/Gradle/Android SDK 缓存。未访问真实 LAN/服务/设备、`C:\ProgramData`、运行中 0.8.1
+  服务、真实配置或密钥。
+
+### 剩余验收边界 / concerns
+
+1. 未执行真实 UDP/LAN、反向代理、物理 Android、真实 Jellyfin 或 Keystore instrumentation；自动化
+   结果不能替代真实网络与真机验收。
+2. 持久 invalidation 失败时旧密文可能仍存在于底层存储，但当前单例会 fail closed、保持 Rejected、
+   不再重发并要求用户显式清除；若底层存储持续不可写，用户操作仍需先解决设备存储/Keystore 故障。
+
+第三轮最终审查的两个 Important 已在自动化合同范围内关闭。

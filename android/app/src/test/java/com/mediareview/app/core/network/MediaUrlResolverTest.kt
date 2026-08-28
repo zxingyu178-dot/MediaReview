@@ -95,6 +95,39 @@ class MediaUrlResolverTest {
     }
 
     @Test
+    fun `authoritative url 仍无条件改写本机未指定与组播地址`() {
+        for (host in listOf(
+            "127.0.0.1",
+            "localhost",
+            "[::1]",
+            "0.0.0.0",
+            "224.0.0.1",
+            "[ff02::1]",
+        )) {
+            assertEquals(
+                "http://192.168.31.20:8096/Videos/a/stream?static=true",
+                resolver.resolve(
+                    "http://$host:8096/Videos/a/stream?static=true",
+                    "http://192.168.31.20:8766",
+                    authoritative = true,
+                    legacyServerOnlyHeuristics = false,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `危险 authoritative url 不能改写到同样危险的 paired host`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            resolver.resolve(
+                "http://127.0.0.1:8096/Videos/a/stream",
+                "http://127.0.0.1:8766",
+                authoritative = true,
+            )
+        }
+    }
+
+    @Test
     fun `authoritative url 仍拒绝 userinfo 与 credential query`() {
         for (url in listOf(
             "http://user:pass@jellyfin.internal/file",
