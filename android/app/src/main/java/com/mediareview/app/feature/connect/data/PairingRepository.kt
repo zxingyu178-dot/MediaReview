@@ -215,8 +215,8 @@ class PairingRepository internal constructor(
             )
             val data = resp.data
             if (resp.success && data != null && data.paired && data.token.isNotBlank()) {
-                store.saveBaseUrl(baseUrl)
                 try {
+                    store.saveBaseUrl(baseUrl)
                     store.savePairing(data.token)
                 } catch (error: Exception) {
                     tokenProvider.clear()

@@ -286,3 +286,41 @@ Offline，以及 401 后持久密文复活四项问题。
    Rejected 且不重发，但用户仍须修复存储/Keystore 后执行显式清除或重新配对。
 
 Release gate 两个 Important 已在自动化合同范围内关闭。
+
+## Clean gate I1 返修（2026-08-28）
+
+审查源：`.superpowers/sdd/task-3-clean-gate.md`。唯一 Important 是 `saveBaseUrl()` 位于上一轮
+统一持久化失败边界之外；本轮未修改 Server 或其他 Task 3 合同。
+
+### RED → GREEN
+
+- 新增 `saveBaseUrl` 单失败及 `saveBaseUrl + invalidateCredential` 双失败 repository JVM 测试后，
+  `PairingRepositoryLifecycleTest` 稳定为 `9 tests completed, 2 failed`：两条路径均绕到外层 catch，
+  将本地存储错误误报为 Offline，且没有先清内存 token/设置 session Rejected。
+- GREEN 只把 `store.saveBaseUrl(baseUrl)` 移入与 `store.savePairing(token)` 相同的持久化 try/catch。
+  任一步骤失败都会先清 `TokenProvider`、设置 session Rejected，再独立尝试 invalidation；清除失败
+  返回固定可操作存储错误，清除成功返回固定保存错误，MediaReview 均保持 Online。
+- 单失败测试确认旧持久 token 被删除；双失败测试确认底层旧密文虽保留，但同实例后续 load/probe
+  不会恢复或发送 authenticated call，且共享状态保持 Rejected。
+
+### Clean gate 最终验证
+
+- Android focused：`PairingRepositoryLifecycleTest` `9/9`，`BUILD SUCCESSFUL`。
+- Android fresh full/assemble：`:app:testDebugUnitTest :app:assembleDebug --rerun-tasks --offline`
+  使用 Kotlin in-process compiler 后 `BUILD SUCCESSFUL`，51 tasks executed；XML 汇总 `77 tests`、
+  0 failure/0 error/0 skipped，仅既有 `PlayerViewModel.kt` delicate API warning。
+- 首次 focused 编译遇到一次 Kotlin daemon `Unknown or invalid session 3`，Gradle fallback 后正确执行并
+  得到产品 RED；后续以 in-process compiler 的 focused/full 均成功，因此该 daemon 消息不属于产品失败。
+- Server 必要回归：`tests/test_connection_identity_11.py` 与
+  `tests/test_deployment_diagnostics_contract.py` 共 `22 passed`；仅既有 Starlette/httpx warning。
+- Server quality：`ruff check .` 为 `All checks passed!`；`ruff format --check .` 为
+  `85 files already formatted`；`git diff --check` exit 0。
+- 隔离路径为 `E:\aihome\codex\temp\mediareview-task3-cleangate`；未访问真实 LAN/服务/设备、
+  `C:\ProgramData`、运行中 0.8.1 服务、真实配置或密钥。
+
+### 剩余验收边界 / concerns
+
+仍未执行真实 UDP/LAN、反向代理、物理 Android、真实 Jellyfin 或 Keystore instrumentation；若底层
+存储持续不可写，旧密文仍可能跨进程保留，但当前 Repository 实例会 fail closed 且不重发。
+
+Clean gate 的最后一个 Important 已在自动化合同范围内关闭。

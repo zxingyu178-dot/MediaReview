@@ -180,6 +180,66 @@ class PairingRepositoryLifecycleTest {
         assertEquals(0, api.protectedCalls)
     }
 
+    @Test
+    fun `save base url 失败纳入 fail closed 边界`() = runBlocking {
+        val baseUrl = "http://server.example:8766"
+        val store = FakePairingStore(
+            profile = ServerProfile(baseUrl, "stale"),
+            saveBaseUrlFailure = IOException("base write failed"),
+        )
+        val api = successfulPairingApi()
+        val tokenProvider = TokenProvider().also { it.set("stale", baseUrl) }
+        val repository = PairingRepository(store, tokenProvider, FakePairingApiFactory(api))
+
+        val failed = repository.verifyAndPair(baseUrl, "123456") as PairingRepository.Result.Failure
+
+        assertEquals(OnlineState.Online, failed.connection.mediaReview)
+        assertEquals(AuthenticationState.Rejected, failed.connection.authentication)
+        assertEquals("安全凭据无法保存", failed.message)
+        assertEquals("", tokenProvider.token)
+        assertEquals("", store.profile.token)
+        assertEquals(1, store.invalidations)
+
+        repository.load()
+        assertEquals(AuthenticationState.Rejected, repository.connection.value.authentication)
+        assertEquals(0, api.protectedCalls)
+    }
+
+    @Test
+    fun `save base url 与 invalidate 双失败固定报错且不重发旧 token`() = runBlocking {
+        val baseUrl = "http://server.example:8766"
+        val store = FakePairingStore(
+            profile = ServerProfile(baseUrl, "stale"),
+            saveBaseUrlFailure = IOException("base write failed"),
+            invalidationFailure = IOException("delete failed"),
+        )
+        val api = successfulPairingApi()
+        val tokenProvider = TokenProvider().also { it.set("stale", baseUrl) }
+        val repository = PairingRepository(store, tokenProvider, FakePairingApiFactory(api))
+
+        val failed = repository.verifyAndPair(baseUrl, "123456") as PairingRepository.Result.Failure
+
+        assertEquals(OnlineState.Online, failed.connection.mediaReview)
+        assertEquals(AuthenticationState.Rejected, failed.connection.authentication)
+        assertTrue(failed.message.contains("清除"))
+        assertEquals("", tokenProvider.token)
+        assertEquals("stale", store.profile.token)
+        assertEquals(1, store.invalidations)
+
+        repository.load()
+        repository.checkHealthy(baseUrl)
+        assertEquals(AuthenticationState.Rejected, repository.connection.value.authentication)
+        assertEquals("", tokenProvider.token)
+        assertEquals(0, api.protectedCalls)
+    }
+
+    private fun successfulPairingApi() = FakePairingApi(
+        verifyResult = Envelope(
+            success = true,
+            data = VerifyOut(paired = true, token = "replacement"),
+        ),
+    )
+
     private fun unauthorized(): HttpException = HttpException(
         Response.error<Unit>(
             401,
@@ -190,12 +250,16 @@ class PairingRepositoryLifecycleTest {
 
 private class FakePairingStore(
     var profile: ServerProfile = ServerProfile("http://server.example:8766"),
+    private val saveBaseUrlFailure: Exception? = null,
     private val savePairingFailure: Exception? = null,
     private val invalidationFailure: Exception? = null,
 ) : PairingStore {
     var invalidations = 0
     override suspend fun current(): ServerProfile = profile
-    override suspend fun saveBaseUrl(baseUrl: String) { profile = profile.copy(baseUrl = baseUrl) }
+    override suspend fun saveBaseUrl(baseUrl: String) {
+        saveBaseUrlFailure?.let { throw it }
+        profile = profile.copy(baseUrl = baseUrl)
+    }
     override suspend fun savePairing(token: String) {
         savePairingFailure?.let { throw it }
         profile = profile.copy(token = token)
