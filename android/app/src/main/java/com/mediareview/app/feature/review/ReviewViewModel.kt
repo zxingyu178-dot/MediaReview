@@ -7,6 +7,7 @@ import com.mediareview.app.core.media.PlayerCore
 import com.mediareview.app.core.media.ReviewPlayable
 import com.mediareview.app.core.media.ReviewQueueWindow
 import com.mediareview.app.core.model.ReviewQueueItemDto
+import com.mediareview.app.core.ui.InitialLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -65,6 +66,7 @@ class ReviewViewModel @Inject constructor(
     private val repository: MediaRepository,
     val core: PlayerCore,
 ) : ViewModel() {
+    private val initialLoad = InitialLoadGate()
 
     private val _ui = MutableStateFlow(ReviewUiState())
     val ui: StateFlow<ReviewUiState> = _ui.asStateFlow()
@@ -94,6 +96,10 @@ class ReviewViewModel @Inject constructor(
                 runCatching { repository.setReviewPosition(sessionId, index) }
             }
         }
+    }
+
+    fun loadIfNeeded() {
+        if (initialLoad.claim()) load()
     }
 
     fun load() {

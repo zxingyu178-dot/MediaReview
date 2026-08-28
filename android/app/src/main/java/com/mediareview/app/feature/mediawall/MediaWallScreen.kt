@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -40,7 +42,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +56,12 @@ import com.mediareview.app.feature.home.data.SortField
 import com.mediareview.app.feature.home.data.SortOrder
 import com.mediareview.app.feature.player.PlayerDestinations
 import com.mediareview.app.feature.viewer.ImageViewerDestinations
+import com.mediareview.app.ui.components.LoadingSkeleton
+import com.mediareview.app.ui.components.MediaEmptyState
+import com.mediareview.app.ui.components.MediaOfflineState
+import com.mediareview.app.ui.theme.MediaSpacing
+import com.mediareview.app.ui.theme.MediaControlScrim
+import com.mediareview.app.ui.theme.MediaOnImmersive
 
 /** 媒体墙导航路由。 */
 object MediaWallDestinations {
@@ -81,11 +88,13 @@ fun NavGraphBuilder.mediaWallGraph(navController: NavController) {
 /**
  * 媒体墙:封面网格 + 封面大小调节 + 排序/类型/媒体库筛选 + 搜索 + 自动加载。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MediaWallScreen(
     viewModel: MediaWallViewModel = hiltViewModel(),
     onBack: () -> Unit,
     onItemClick: (MediaSummary) -> Unit,
+    showHeader: Boolean = true,
 ) {
     val ui by viewModel.ui.collectAsState()
     val spriteViewModel: SpriteViewModel = hiltViewModel()
@@ -113,14 +122,15 @@ fun MediaWallScreen(
                 .fillMaxSize()
                 .padding(horizontal = 12.dp),
         ) {
-            // 顶栏
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("媒体墙", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onBack) { Text("返回") }
+            if (showHeader) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("媒体", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onBack) { Text("返回") }
+                }
             }
 
             OutlinedTextField(
@@ -132,25 +142,25 @@ fun MediaWallScreen(
             )
             Spacer(Modifier.height(8.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                maxItemsInEachRow = 2,
+            ) {
                 SortMenu(ui.sortBy, ui.sortOrder, viewModel::setSort)
-                Spacer(Modifier.width(8.dp))
                 TypeFilterMenu(ui.type, viewModel::setType)
-                Spacer(Modifier.width(8.dp))
                 LibraryFilterMenu(
                     libraries = ui.libraries,
                     selectedId = ui.libraryId,
                     onSelect = viewModel::onLibrarySelected,
                     onAll = viewModel::onLibraryAll,
                 )
-                Spacer(Modifier.width(8.dp))
-                // 未点赞筛选开关
                 OutlinedButton(onClick = { viewModel.setExcludeFavorites(!ui.excludeFavorites) }) {
                     Text(if (ui.excludeFavorites) "未点赞 ✓" else "未点赞")
                 }
-                Spacer(Modifier.weight(1f))
-                Text("${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
             }
+            Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
             Slider(
                 value = ui.gridColumns.toFloat(),
                 onValueChange = { viewModel.setGridColumns(it.toInt()) },
@@ -160,17 +170,21 @@ fun MediaWallScreen(
 
             Box(Modifier.weight(1f)) {
                 when {
-                    ui.loading && ui.items.isEmpty() -> Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator() }
+                    ui.loading && ui.items.isEmpty() -> LoadingSkeleton(
+                        Modifier.align(Alignment.Center).padding(MediaSpacing.Large),
+                    )
 
-                    ui.error != null && ui.items.isEmpty() -> ErrorBox(ui.error!!, viewModel::onRetry)
+                    ui.error != null && ui.items.isEmpty() -> MediaOfflineState(
+                        message = ui.error!!,
+                        onRetry = viewModel::onRetry,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
 
-                    ui.items.isEmpty() -> Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("暂无媒体,请先进行媒体库选择") }
+                    ui.items.isEmpty() -> MediaEmptyState(
+                        title = "暂无媒体",
+                        message = "请先在整理中选择媒体库",
+                        modifier = Modifier.align(Alignment.Center),
+                    )
 
                     else -> LazyVerticalGrid(
                         columns = GridCells.Fixed(ui.gridColumns),
@@ -211,7 +225,7 @@ private fun SortMenu(
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }) {
-            Text("排序:${by.label} ${if (order == SortOrder.Asc) "↑" else "↓"}")
+            Text("排序:${by.label} ${if (order == SortOrder.Asc) "升序" else "降序"}")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             SortField.entries.forEach { f ->
@@ -303,11 +317,11 @@ private fun MediaCell(
                 Text(
                     text = formatDuration(item.duration_ms),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
+                    color = MediaOnImmersive,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(6.dp)
-                        .background(Color(0x88000000)),
+                        .background(MediaControlScrim),
                 )
                 SpritePreviewOverlay(
                     state = spriteState,

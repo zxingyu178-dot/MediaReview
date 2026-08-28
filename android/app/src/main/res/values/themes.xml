@@ -1,5 +1,7 @@
 <resources>
-    <style name="Theme.MediaReview" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.MediaReview" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@color/ic_launcher_background</item>
+        <item name="android:navigationBarColor">@color/ic_launcher_background</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

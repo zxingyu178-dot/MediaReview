@@ -24,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -39,6 +38,9 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
+import com.mediareview.app.ui.theme.MediaControlScrim
+import com.mediareview.app.ui.theme.MediaImmersiveBackground
+import com.mediareview.app.ui.theme.MediaOnImmersive
 
 /** 图片查看器导航路由:只传 mediaId,详情由页面自行获取。 */
 object ImageViewerDestinations {
@@ -81,7 +83,7 @@ fun ImageViewerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MediaImmersiveBackground)
             .onSizeChanged { container = it }
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
@@ -110,13 +112,13 @@ fun ImageViewerScreen(
     ) {
         when {
             ui.loading -> CircularProgressIndicator(
-                color = Color.White,
+                color = MediaOnImmersive,
                 modifier = Modifier.align(Alignment.Center),
             )
 
             ui.error != null || ui.imageUrl.isNullOrBlank() -> Text(
                 text = ui.error ?: "图片地址缺失",
-                color = Color.White,
+                color = MediaOnImmersive,
                 modifier = Modifier.align(Alignment.Center),
             )
 
@@ -140,16 +142,16 @@ fun ImageViewerScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .background(Color(0x88000000))
+                .background(MediaControlScrim)
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onBack) { Text("返回", color = Color.White) }
+            TextButton(onClick = onBack) { Text("返回", color = MediaOnImmersive) }
             Spacer(Modifier.weight(1f))
             Text(
                 text = ui.media?.name ?: "",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.White,
+                color = MediaOnImmersive,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 12.dp),

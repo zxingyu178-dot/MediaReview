@@ -112,6 +112,17 @@
 - [x] repository/view-model 分离 MediaReview、Jellyfin、sync、authentication 状态
 - [x] 保持 Task 2 图片代理、server-key 排除、禁视频代理与 Task 6 认证过渡合同
 
+## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
+
+- [x] 固定深色 Compose token：核心色、四级排版、4/8 间距、圆角、阴影、动效、状态色与 48dp 触控门槛
+- [x] code-native adaptive launcher：standard、round、Android 13 monochrome，深色底与青色房屋/播放标志
+- [x] 单一 `main_shell` 与 `媒体 / 批阅 / 收藏 / 整理` 四入口；根切换保留状态且不复制 back stack
+- [x] 媒体默认直达内容；批阅/收藏复用真实流；整理显示媒体库、待删除、重复文件既有计数
+- [x] 设置、播放器、图片查看器独立全屏；URL/installation ID 仅设置可见
+- [x] 共享 top/bottom bar、卡片、骨架屏、空态、离线重试、连接/同步 banner、Snackbar host
+- [x] 可见符号控制替换为 Material Icons + 中文语义；播放器文字菜单达到 48dp
+- [x] Task 4 JVM/source contract 与 Compose instrumentation 行为测试已构建；未做真机/模拟器运行
+
 ## Server
 - [x] 配置
 - [x] 日志

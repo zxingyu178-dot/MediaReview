@@ -3,6 +3,7 @@ package com.mediareview.app.feature.deletequeue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.DeleteQueueItemDto
+import com.mediareview.app.core.ui.InitialLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -28,9 +29,14 @@ data class DeleteQueueUiState(
 class DeleteQueueViewModel @Inject constructor(
     private val repository: MediaRepository,
 ) : ViewModel() {
+    private val initialLoad = InitialLoadGate()
 
     private val _ui = MutableStateFlow(DeleteQueueUiState())
     val ui: StateFlow<DeleteQueueUiState> = _ui.asStateFlow()
+
+    fun loadIfNeeded() {
+        if (initialLoad.claim()) load()
+    }
 
     fun load() {
         viewModelScope.launch {

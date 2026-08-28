@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.mediareview.app.feature.review
 
 import android.view.ViewGroup
@@ -14,11 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +55,22 @@ import androidx.navigation.compose.composable
 import coil.compose.AsyncImage
 import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.core.model.ReviewQueueItemDto
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.mediareview.app.ui.theme.MediaAccent
+import com.mediareview.app.ui.theme.MediaDanger
+import com.mediareview.app.ui.theme.MediaDimensions
+import com.mediareview.app.ui.theme.MediaSpacing
+import com.mediareview.app.ui.theme.MediaControlScrim
+import com.mediareview.app.ui.theme.MediaControlScrimSoft
+import com.mediareview.app.ui.theme.MediaControlSurface
+import com.mediareview.app.ui.theme.MediaImmersiveBackground
+import com.mediareview.app.ui.theme.MediaOnImmersive
 
 /** 批阅模式导航路由。 */
 object ReviewDestinations {
@@ -72,11 +92,12 @@ fun NavGraphBuilder.reviewGraph(navController: NavController) {
 fun ReviewScreen(
     onBack: () -> Unit,
     viewModel: ReviewViewModel = hiltViewModel(),
+    showHeader: Boolean = true,
 ) {
     val ui by viewModel.ui.collectAsState()
     val activeIsPreload by viewModel.core.activeIsPreload.collectAsState()
 
-    LaunchedEffect(Unit) { viewModel.load() }
+    LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
     // 页数 = 已加载数量(而非 total),快速滑动不会越界出现空白页
     val pagerState = rememberPagerState(initialPage = 0) { ui.items.size }
@@ -143,10 +164,10 @@ fun ReviewScreen(
 
     var moreMedia by remember { mutableStateOf<MediaSummary?>(null) }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(MediaImmersiveBackground)) {
         when {
             ui.loading -> CircularProgressIndicator(
-                color = Color.White,
+                color = MediaOnImmersive,
                 modifier = Modifier.align(Alignment.Center),
             )
 
@@ -154,14 +175,14 @@ fun ReviewScreen(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(ui.error ?: "加载失败", color = Color.White)
+                Text(ui.error ?: "加载失败", color = MediaOnImmersive)
                 Spacer(Modifier.padding(8.dp))
                 Button(onClick = { viewModel.load() }) { Text("重试") }
             }
 
             ui.items.isEmpty() -> Text(
                 "暂无媒体可批阅",
-                color = Color.White,
+                color = MediaOnImmersive,
                 modifier = Modifier.align(Alignment.Center),
             )
 
@@ -178,28 +199,31 @@ fun ReviewScreen(
             }
         }
 
-        // 顶栏
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .background(Color(0x88000000))
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onBack) { Text("返回", color = Color.White) }
-            if (ui.resumed) {
-                TextButton(onClick = { viewModel.startNew() }) { Text("新批阅", color = Color(0xFFFFB3C1)) }
-            }
-            Spacer(Modifier.weight(1f))
-            if (ui.total > 0) {
-                val absolute = ui.baseIndex + settled
-                Text(
-                    text = "批阅 ${(absolute + 1).coerceIn(1, ui.total)}/${ui.total}",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(end = 12.dp),
-                )
+        if (showHeader) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .background(MediaControlScrim)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onBack) { Text("返回", color = MediaOnImmersive) }
+                if (ui.resumed) {
+                    TextButton(onClick = { viewModel.startNew() }) {
+                        Text("新批阅", color = MediaAccent)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                if (ui.total > 0) {
+                    val absolute = ui.baseIndex + settled
+                    Text(
+                        text = "批阅 ${(absolute + 1).coerceIn(1, ui.total)}/${ui.total}",
+                        color = MediaOnImmersive,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(end = 12.dp),
+                    )
+                }
             }
         }
 
@@ -225,14 +249,14 @@ fun ReviewScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp)
-                    .background(Color(0xEE333333))
+                    .background(MediaControlSurface)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("已加入待删除", color = Color.White)
+                Text("已加入待删除", color = MediaOnImmersive)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { viewModel.undoDelete() }) { Text("撤销", color = Color(0xFFFFB3C1)) }
-                TextButton(onClick = { viewModel.clearSnackbar() }) { Text("知道了", color = Color.White) }
+                TextButton(onClick = { viewModel.undoDelete() }) { Text("撤销", color = MediaAccent) }
+                TextButton(onClick = { viewModel.clearSnackbar() }) { Text("知道了", color = MediaOnImmersive) }
             }
         }
     }
@@ -263,7 +287,7 @@ private fun ReviewPage(
     activePlayer: Player,
 ) {
     val media = item?.media
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(MediaImmersiveBackground)) {
         when {
             media == null -> Unit
             media.isVideo && isCurrentVideo -> {
@@ -290,11 +314,11 @@ private fun ReviewPage(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
-                Text(
-                    text = "▶",
-                    color = Color.White,
-                    fontSize = 40.sp,
-                    modifier = Modifier.align(Alignment.Center),
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "播放视频",
+                    tint = MediaOnImmersive,
+                    modifier = Modifier.align(Alignment.Center).size(48.dp),
                 )
             }
 
@@ -323,8 +347,16 @@ private fun RightActionBar(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         LikeHeart(liked = liked, onClick = onLike)
-        ActionItem(text = "🗑", onClick = onDelete)
-        ActionItem(text = "⋯", onClick = onMore)
+        ActionItem(
+            icon = Icons.Outlined.DeleteOutline,
+            contentDescription = "加入待删除",
+            onClick = onDelete,
+        )
+        ActionItem(
+            icon = Icons.Outlined.MoreVert,
+            contentDescription = "更多操作",
+            onClick = onMore,
+        )
     }
 }
 
@@ -336,34 +368,41 @@ private fun LikeHeart(liked: Boolean, onClick: () -> Unit) {
         scale.snapTo(if (liked) 0.6f else 1f)
         scale.animateTo(1f, animationSpec = spring(dampingRatio = 0.35f, stiffness = 500f))
     }
-    Text(
-        text = if (liked) "❤️" else "🤍",
-        fontSize = 30.sp,
-        fontWeight = FontWeight.Bold,
-        color = if (liked) Color(0xFFFF5C7A) else Color.White,
+    IconButton(
+        onClick = onClick,
         modifier = Modifier
             .scale(scale.value)
-            .background(Color(0x55000000), MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-    )
+            .background(MediaControlScrimSoft, MaterialTheme.shapes.medium)
+            .sizeIn(
+                minWidth = MediaDimensions.MinimumTouchTarget,
+                minHeight = MediaDimensions.MinimumTouchTarget,
+            ),
+    ) {
+        Icon(
+            imageVector = if (liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            contentDescription = if (liked) "取消收藏" else "收藏",
+            tint = if (liked) MediaDanger else MediaOnImmersive,
+        )
+    }
 }
 
 @Composable
 private fun ActionItem(
-    text: String,
+    icon: ImageVector,
+    contentDescription: String,
     onClick: () -> Unit,
 ) {
-    Text(
-        text = text,
-        fontSize = 30.sp,
-        fontWeight = FontWeight.Bold,
-        color = Color.White,
+    IconButton(
+        onClick = onClick,
         modifier = Modifier
-            .background(Color(0x55000000), MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-    )
+            .background(MediaControlScrimSoft, MaterialTheme.shapes.medium)
+            .sizeIn(
+                minWidth = MediaDimensions.MinimumTouchTarget,
+                minHeight = MediaDimensions.MinimumTouchTarget,
+            ),
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = MediaOnImmersive)
+    }
 }
 
 private fun fmtMs(ms: Long): String {

@@ -28,7 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.mediareview.app.feature.connect.discovery.DiscoveredServer
-import com.mediareview.app.feature.home.HomeDestinations
+import com.mediareview.app.ui.shell.MainShellDestinations
 
 /** 连接功能导航目的路由。 */
 object ConnectDestinations {
@@ -42,17 +42,20 @@ internal fun continueWhenPaired(
     if (paired) onContinue()
 }
 
+fun androidx.navigation.NavController.replaceConnectWithMainShell() {
+    navigate(MainShellDestinations.ROUTE) {
+        popUpTo(ConnectDestinations.CONNECT) { inclusive = true }
+        launchSingleTop = true
+    }
+}
+
 /** 注册连接相关目的地;配对成功后跳转到首页。 */
 fun NavGraphBuilder.connectGraph(
     navController: androidx.navigation.NavController,
 ) {
     composable(ConnectDestinations.CONNECT) {
         ConnectScreen(
-            onContinue = {
-                navController.navigate(HomeDestinations.HOME) {
-                    popUpTo(ConnectDestinations.CONNECT) { inclusive = true }
-                }
-            },
+            onContinue = navController::replaceConnectWithMainShell,
         )
     }
 }

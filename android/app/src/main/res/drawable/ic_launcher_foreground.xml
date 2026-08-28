@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/ic_launcher_art"
-    android:inset="18%" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#47D7E8"
+        android:pathData="M20,49 L54,21 L88,49 L80,59 L54,38 L28,59 Z" />
+    <path
+        android:fillColor="#47D7E8"
+        android:pathData="M29,53 L79,53 L79,85 L29,85 Z" />
+    <path
+        android:fillColor="#0B1118"
+        android:pathData="M47,57 L69,69 L47,81 Z" />
+</vector>

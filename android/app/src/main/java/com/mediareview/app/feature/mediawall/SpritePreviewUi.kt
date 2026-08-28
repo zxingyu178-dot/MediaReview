@@ -14,13 +14,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import com.mediareview.app.ui.theme.MediaControlScrim
+import com.mediareview.app.ui.theme.MediaImmersiveBackground
+import com.mediareview.app.ui.theme.MediaOnImmersive
 
 /** 长按进入横向滑动预览的最小按住时长(毫秒)。 */
 private const val LONG_PRESS_MS = 500L
@@ -113,7 +115,7 @@ fun SpriteTile(
 @Composable
 fun SpritePreviewOverlay(state: SpriteScrubState, modifier: Modifier = Modifier) {
     if (!state.scrubbing) return
-    Box(modifier.background(Color.Black)) {
+    Box(modifier.background(MediaImmersiveBackground)) {
         when {
             state.showScrub -> {
                 val manifest = state.manifest!!
@@ -132,11 +134,11 @@ fun SpritePreviewOverlay(state: SpriteScrubState, modifier: Modifier = Modifier)
                 )
                 Text(
                     text = formatPosition(manifest.total_duration_ms, state.fraction),
-                    color = Color.White,
+                    color = MediaOnImmersive,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 28.dp)
-                        .background(Color(0x88000000))
+                        .background(MediaControlScrim)
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
@@ -144,7 +146,7 @@ fun SpritePreviewOverlay(state: SpriteScrubState, modifier: Modifier = Modifier)
             state.showWaiting -> {
                 Text(
                     text = if (state.pending) "雪碧图生成中,请稍后再试" else "雪碧图加载中…",
-                    color = Color.White,
+                    color = MediaOnImmersive,
                     modifier = Modifier.align(Alignment.Center),
                 )
             }

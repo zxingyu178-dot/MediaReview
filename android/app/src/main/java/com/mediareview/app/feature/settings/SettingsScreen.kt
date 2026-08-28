@@ -28,10 +28,18 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import androidx.navigation.NavController
 import com.mediareview.app.feature.connect.ConnectDestinations
+import com.mediareview.app.ui.shell.MainShellDestinations
 
 /** 设置页导航路由。 */
 object SettingsDestinations {
     const val ROUTE = "settings"
+}
+
+fun NavController.replaceShellWithConnect() {
+    navigate(ConnectDestinations.CONNECT) {
+        popUpTo(MainShellDestinations.ROUTE) { inclusive = true }
+        launchSingleTop = true
+    }
 }
 
 /** 注册设置页目的地。 */
@@ -39,11 +47,7 @@ fun NavGraphBuilder.settingsGraph(navController: NavController) {
     composable(SettingsDestinations.ROUTE) {
         SettingsScreen(
             onBack = { navController.popBackStack() },
-            onReconnect = {
-                navController.navigate(ConnectDestinations.CONNECT) {
-                    popUpTo(SettingsDestinations.ROUTE) { inclusive = true }
-                }
-            },
+            onReconnect = navController::replaceShellWithConnect,
         )
     }
 }

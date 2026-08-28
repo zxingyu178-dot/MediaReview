@@ -3,6 +3,7 @@ package com.mediareview.app.feature.favorites
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.FavoriteItemDto
+import com.mediareview.app.core.ui.InitialLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -22,9 +23,14 @@ data class FavoritesUiState(
 class FavoritesViewModel @Inject constructor(
     private val repository: MediaRepository,
 ) : ViewModel() {
+    private val initialLoad = InitialLoadGate()
 
     private val _ui = MutableStateFlow(FavoritesUiState())
     val ui: StateFlow<FavoritesUiState> = _ui.asStateFlow()
+
+    fun loadIfNeeded() {
+        if (initialLoad.claim()) load()
+    }
 
     fun load() {
         viewModelScope.launch {

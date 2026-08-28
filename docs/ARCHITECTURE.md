@@ -227,6 +227,24 @@ android/
     settings/
 ```
 
+### 4.1 深色设计系统与主壳
+
+- `ui/theme` 是 Compose 视觉 token 的单一来源：固定深色核心色、四级中文系统无衬线排版、
+  4/8 间距、圆角、阴影、动效与 48dp 最小触控尺寸。应用不启用动态色或浅色回退。
+- 配对成功后导航以单一 `main_shell` 为根；壳内四个状态保存入口严格为
+  `媒体 / 批阅 / 收藏 / 整理`。同一根重复点击不产生新状态或 back-stack entry，重新配对流程会
+  原子替换旧主壳，Android Back 从根遵循系统退出行为。
+- `媒体` 直接复用媒体墙；`批阅`、`收藏` 复用既有 ViewModel 和业务流；`整理` 只组合媒体库、
+  待删除和重复文件的既有状态/计数，不复制 repository 逻辑。各根使用幂等首次加载门，切回不会
+  重复触发网络加载，显式重试与刷新仍可调用原 `load()`。
+- 主壳统一拥有 top bar、bottom bar、Snackbar host 和 Task 3 四部分连接状态 banner。设置、播放器、
+  图片查看器保持独立全屏 route，因此不渲染主壳 chrome；技术 URL/installation ID 只属于设置页。
+- `ui/components` 提供媒体卡、骨架屏、空态、离线/重试、同步和静态连接状态。图标控制采用
+  Material Icons + 中文 content description；launcher 采用标准、圆形与 monochrome adaptive vector。
+
+Task 4 仅改变 Android 呈现和导航组合，不改变 Task 3 URL/凭据/Keystore 合同，也不进入
+Task 5 分页查询重写、Task 6 播放认证状态机或删除/重复文件服务端行为。
+
 ## 5. API 规范
 
 统一前缀：

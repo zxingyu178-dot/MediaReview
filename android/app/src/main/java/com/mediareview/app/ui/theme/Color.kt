@@ -2,14 +2,20 @@ package com.mediareview.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// —— 配色:柔和治愈风(奶油 + 粉 + 棕),契合项目"噜噜"柔和风格 ——
-val White = Color(0xFFFFFFFF)
-val Cream = Color(0xFFFFF7F0)
-val CreamDeep = Color(0xFFFFE8D6)
-val Blush = Color(0xFFFF8FAB)
-val BlushDark = Color(0xFFB5838D)
-val Cocoa = Color(0xFF6D597A)
-val TextMain = Color(0xFF4A3F3A)
-val TextSoft = Color(0xFF9C8F88)
-val Success = Color(0xFF9BBFA0)
-val Danger = Color(0xFFE07A5F)
+val MediaBackground = Color(0xFF0B1118)
+val MediaSurface = Color(0xFF141D27)
+val MediaAccent = Color(0xFF47D7E8)
+val MediaTextPrimary = Color(0xFFF4F7FA)
+val MediaTextSecondary = Color(0xFFA9B4C0)
+val MediaSuccess = Color(0xFF39D98A)
+val MediaDanger = Color(0xFFFF6B6B)
+
+val MediaSurfaceRaised = Color(0xFF1B2835)
+val MediaOutline = Color(0xFF344554)
+val MediaOverlay = Color(0xCC0B1118)
+val MediaImmersiveBackground = Color(0xFF000000)
+val MediaOnImmersive = Color(0xFFFFFFFF)
+val MediaControlScrim = Color(0x88000000)
+val MediaControlScrimMedium = Color(0x66000000)
+val MediaControlScrimSoft = Color(0x55000000)
+val MediaControlSurface = Color(0xEE333333)

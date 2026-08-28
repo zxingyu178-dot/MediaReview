@@ -62,7 +62,7 @@ fun DeleteQueueScreen(
     val ui by viewModel.ui.collectAsState()
     var showConfirm by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { viewModel.load() }
+    LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(

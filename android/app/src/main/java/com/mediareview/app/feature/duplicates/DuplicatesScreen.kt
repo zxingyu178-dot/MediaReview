@@ -48,7 +48,7 @@ fun DuplicatesScreen(
     viewModel: DuplicatesViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
-    LaunchedEffect(Unit) { viewModel.load() }
+    LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(

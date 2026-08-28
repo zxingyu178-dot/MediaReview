@@ -2,6 +2,34 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-08-29 — MediaReview 1.1 Task 4 · 深色设计系统、品牌与主导航
+
+完成：
+
+- Android 升级到 `1.1.0-alpha2`/versionCode 5，建立固定深色 token 和 code-native adaptive launcher。
+- 配对后进入单一四入口主壳；媒体直达媒体墙，批阅/收藏复用真实流，整理复用既有状态并显示计数。
+- 设置、播放器和图片查看器保持独立全屏；四部分连接状态以同步或静态 attention banner 呈现。
+- 根页面使用保存状态与幂等首次加载门；重新配对替换旧主壳，避免重复 back stack。
+- 清除生产 Compose 的 emoji/符号控制和散落颜色值；Material Icons 均具中文语义，播放器文字菜单达到 48dp。
+
+TDD 与验证：
+
+- 首轮 RED：JVM 因缺少主壳 API 稳定失败；instrumentation 因缺少底栏/共享状态组件稳定失败。
+- 审查修复 RED：幂等加载门 JVM 测试和真实 root/chrome/back-stack/48dp instrumentation 合同先失败；
+  实现后 focused JVM 与 instrumentation 编译通过。
+- 最终 JVM、debug APK、test APK、lint 和 diff-check 证据见 `.superpowers/sdd/task-4-report.md`。
+
+遗留：
+
+- instrumentation 已构建但未在模拟器/真机运行；360x740、390x844、横屏、font scale 1.3 与 TalkBack
+  仍需设备验收。未访问真实 MediaReview/Jellyfin/LAN，也未改变 Task 5/6 或服务端业务。
+
+提交：
+
+- `feat(android): add dark media shell`（本任务单一 focused commit）
+
+---
+
 ## 模板
 
 ### YYYY-MM-DD — 阶段 X

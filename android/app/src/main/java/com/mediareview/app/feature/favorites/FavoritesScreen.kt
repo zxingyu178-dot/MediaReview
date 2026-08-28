@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,6 +42,13 @@ import coil.compose.AsyncImage
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.feature.player.PlayerDestinations
 import com.mediareview.app.feature.viewer.ImageViewerDestinations
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import com.mediareview.app.ui.components.LoadingSkeleton
+import com.mediareview.app.ui.components.MediaEmptyState
+import com.mediareview.app.ui.components.MediaOfflineState
+import com.mediareview.app.ui.theme.MediaDimensions
+import com.mediareview.app.ui.theme.MediaSpacing
 
 /** 喜欢页导航路由。 */
 object FavoritesDestinations {
@@ -67,32 +77,35 @@ fun FavoritesScreen(
     onBack: () -> Unit,
     onOpenMedia: (com.mediareview.app.core.model.MediaSummary) -> Unit,
     viewModel: FavoritesViewModel = hiltViewModel(),
+    showHeader: Boolean = true,
 ) {
     val ui by viewModel.ui.collectAsState()
-    LaunchedEffect(Unit) { viewModel.load() }
+    LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("喜欢", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onBack) { Text("返回") }
+            if (showHeader) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("收藏", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onBack) { Text("返回") }
+                }
             }
             when {
-                ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                ui.loading -> LoadingSkeleton(Modifier.padding(MediaSpacing.Large))
 
-                ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(ui.error!!)
-                }
+                ui.error != null -> MediaOfflineState(
+                    message = ui.error!!,
+                    onRetry = { viewModel.load() },
+                )
 
-                ui.items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("还没有喜欢的内容")
-                }
+                ui.items.isEmpty() -> MediaEmptyState(
+                    title = "还没有收藏",
+                    message = "在媒体或批阅中收藏的内容会显示在这里",
+                )
 
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(ui.items, key = { it.media_id }) { fav -> FavoriteRow(fav, onOpenMedia, viewModel::remove) }
@@ -138,13 +151,18 @@ private fun FavoriteRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = "♥",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier
-                .clickable { onRemove(fav.media_id) }
-                .padding(8.dp),
-        )
+        IconButton(
+            onClick = { onRemove(fav.media_id) },
+            modifier = Modifier.sizeIn(
+                minWidth = MediaDimensions.MinimumTouchTarget,
+                minHeight = MediaDimensions.MinimumTouchTarget,
+            ),
+        ) {
+            Icon(
+                Icons.Filled.Favorite,
+                contentDescription = "取消收藏",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }

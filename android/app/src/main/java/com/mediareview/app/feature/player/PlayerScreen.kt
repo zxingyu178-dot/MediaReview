@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.mediareview.app.feature.player
 
 import android.app.Activity
@@ -21,10 +23,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.VolumeOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.LockOpen
+import androidx.compose.material.icons.outlined.ScreenRotation
+import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -42,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -59,10 +72,17 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import com.mediareview.app.ui.theme.MediaControlScrim
+import com.mediareview.app.ui.theme.MediaControlScrimMedium
+import com.mediareview.app.ui.theme.MediaImmersiveBackground
+import com.mediareview.app.ui.theme.MediaOnImmersive
 import androidx.navigation.navArgument
 import com.mediareview.app.core.media.PlaybackPhase
 import com.mediareview.app.core.media.PlaybackStatus
 import com.mediareview.app.core.media.PlayerCore
+import com.mediareview.app.ui.theme.MediaAccent
+import com.mediareview.app.ui.theme.MediaDimensions
+import com.mediareview.app.ui.theme.MediaSpacing
 import kotlinx.coroutines.delay
 
 /** 普通播放器导航路由:只传 mediaId。 */
@@ -136,12 +156,12 @@ fun PlayerScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MediaImmersiveBackground)
             .onSizeChanged { boxWidth = it.width; boxHeight = it.height },
     ) {
         if (ui.loading) {
             CircularProgressIndicator(
-                color = Color.White,
+                color = MediaOnImmersive,
                 modifier = Modifier.align(Alignment.Center),
             )
         } else if (errorText != null) {
@@ -149,9 +169,9 @@ fun PlayerScreen(
                 modifier = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(errorText, color = Color.White)
+                Text(errorText, color = MediaOnImmersive)
                 Spacer(Modifier.padding(8.dp))
-                TextButton(onClick = { viewModel.load(mediaId) }) { Text("重试", color = Color.White) }
+                TextButton(onClick = { viewModel.load(mediaId) }) { Text("重试", color = MediaOnImmersive) }
             }
         } else {
             AndroidView(
@@ -214,28 +234,29 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .background(Color(0x88000000))
+                    .background(MediaControlScrim)
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onBack) { Text("返回", color = Color.White) }
+                TextButton(onClick = onBack) { Text("返回", color = MediaOnImmersive) }
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = ui.title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White,
+                    color = MediaOnImmersive,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 12.dp),
                 )
-                Text(
-                    text = "🔓",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    modifier = Modifier
-                        .clickable { locked = true }
-                        .padding(6.dp),
-                )
+                IconButton(
+                    onClick = { locked = true },
+                    modifier = Modifier.sizeIn(
+                        minWidth = MediaDimensions.MinimumTouchTarget,
+                        minHeight = MediaDimensions.MinimumTouchTarget,
+                    ),
+                ) {
+                    Icon(Icons.Outlined.LockOpen, contentDescription = "锁定控制", tint = MediaOnImmersive)
+                }
             }
         }
 
@@ -259,17 +280,19 @@ fun PlayerScreen(
 
         // 锁定后常驻解锁入口(小锁图标,点击解锁)
         if (locked) {
-            Text(
-                text = "🔒",
-                fontSize = 22.sp,
-                color = Color.White,
+            IconButton(
+                onClick = { locked = false },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp)
-                    .background(Color(0x66000000), MaterialTheme.shapes.medium)
-                    .clickable { locked = false }
-                    .padding(8.dp),
-            )
+                    .background(MediaControlScrimMedium, MaterialTheme.shapes.medium)
+                    .sizeIn(
+                        minWidth = MediaDimensions.MinimumTouchTarget,
+                        minHeight = MediaDimensions.MinimumTouchTarget,
+                    ),
+            ) {
+                Icon(Icons.Filled.Lock, contentDescription = "解锁控制", tint = MediaOnImmersive)
+            }
         }
     }
 }
@@ -357,19 +380,18 @@ private fun BottomControls(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(Color(0x88000000))
+            .background(MediaControlScrim)
             .padding(8.dp),
     ) {
         // 第一行:播放/暂停 + 进度 + 时间
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (playing) "⏸" else "▶",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
-                modifier = Modifier
-                    .clickable(onClick = onTogglePlay)
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-            )
+            IconButton(onClick = onTogglePlay) {
+                Icon(
+                    imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "暂停" else "播放",
+                    tint = MediaOnImmersive,
+                )
+            }
             val duration = core.player.duration.coerceAtLeast(0L)
             Slider(
                 value = sliderPos.toFloat(),
@@ -387,7 +409,7 @@ private fun BottomControls(
             Text(
                 text = "${fmt(positionMs)} / ${fmt(duration)}",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
+                color = MediaOnImmersive,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
@@ -402,45 +424,33 @@ private fun BottomControls(
                 speed = s
                 onSpeed(s)
             }
-            Text(
-                text = if (muted) "🔇" else "🔊",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                modifier = Modifier
-                    .clickable {
-                        muted = !muted
-                        onVolume(if (muted) 0f else 1f)
-                    }
-                    .padding(6.dp),
-            )
+            IconButton(onClick = {
+                muted = !muted
+                onVolume(if (muted) 0f else 1f)
+            }) {
+                Icon(
+                    imageVector = if (muted) {
+                        Icons.AutoMirrored.Outlined.VolumeOff
+                    } else {
+                        Icons.AutoMirrored.Outlined.VolumeUp
+                    },
+                    contentDescription = if (muted) "取消静音" else "静音",
+                    tint = MediaOnImmersive,
+                )
+            }
             AspectMenu(resizeMode) { m ->
                 resizeMode = m
                 playerViewRef?.resizeMode = m
             }
-            Text(
-                text = "🎞",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                modifier = Modifier
-                    .clickable { showTracks = true }
-                    .padding(6.dp),
-            )
-            Text(
-                text = "🔄",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                modifier = Modifier
-                    .clickable { appContext.toggleOrientation() }
-                    .padding(6.dp),
-            )
-            Text(
-                text = "🔒",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                modifier = Modifier
-                    .clickable(onClick = onLock)
-                    .padding(6.dp),
-            )
+            IconButton(onClick = { showTracks = true }) {
+                Icon(Icons.Outlined.Subtitles, contentDescription = "音轨与字幕", tint = MediaOnImmersive)
+            }
+            IconButton(onClick = { appContext.toggleOrientation() }) {
+                Icon(Icons.Outlined.ScreenRotation, contentDescription = "切换屏幕方向", tint = MediaOnImmersive)
+            }
+            IconButton(onClick = onLock) {
+                Icon(Icons.Filled.Lock, contentDescription = "锁定控制", tint = MediaOnImmersive)
+            }
         }
     }
 
@@ -485,11 +495,13 @@ private fun TrackDialog(
                             Text(
                                 text = label,
                                 fontSize = 14.sp,
-                                color = if (g.isTrackSelected(ti)) Color(0xFFE06C85)
-                                else Color.Unspecified,
+                                color = if (g.isTrackSelected(ti)) MediaAccent
+                                else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
+                                    .fillMaxWidth()
+                                    .sizeIn(minHeight = MediaDimensions.MinimumTouchTarget)
                                     .clickable { onSelect(gi, ti); onDismiss() }
-                                    .padding(vertical = 2.dp),
+                                    .padding(vertical = MediaSpacing.Small),
                             )
                         }
                     }
@@ -503,11 +515,13 @@ private fun TrackDialog(
                             Text(
                                 text = label,
                                 fontSize = 14.sp,
-                                color = if (g.isTrackSelected(ti)) Color(0xFFE06C85)
-                                else Color.Unspecified,
+                                color = if (g.isTrackSelected(ti)) MediaAccent
+                                else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
+                                    .fillMaxWidth()
+                                    .sizeIn(minHeight = MediaDimensions.MinimumTouchTarget)
                                     .clickable { onSelect(gi, ti); onDismiss() }
-                                    .padding(vertical = 2.dp),
+                                    .padding(vertical = MediaSpacing.Small),
                             )
                         }
                     }
@@ -536,12 +550,7 @@ private fun fmt(ms: Long): String {
 private fun SpeedMenu(current: Float, onSelect: (Float) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        Text(
-            text = "${current}x",
-            color = Color.White,
-            fontSize = 14.sp,
-            modifier = Modifier.clickable { expanded = true }.padding(6.dp),
-        )
+        PlayerTextMenuButton(label = "${current}x", onClick = { expanded = true })
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { s ->
                 DropdownMenuItem(text = { Text("${s}x") }, onClick = { onSelect(s); expanded = false })
@@ -560,12 +569,7 @@ private fun AspectMenu(current: Int, onSelect: (Int) -> Unit) {
         else -> "适应"
     }
     Box {
-        Text(
-            text = label,
-            color = Color.White,
-            fontSize = 14.sp,
-            modifier = Modifier.clickable { expanded = true }.padding(6.dp),
-        )
+        PlayerTextMenuButton(label = label, onClick = { expanded = true })
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             listOf(
                 AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -580,6 +584,22 @@ private fun AspectMenu(current: Int, onSelect: (Int) -> Unit) {
                 DropdownMenuItem(text = { Text(l) }, onClick = { onSelect(m); expanded = false })
             }
         }
+    }
+}
+
+@Composable
+internal fun PlayerTextMenuButton(
+    label: String,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.sizeIn(
+            minWidth = MediaDimensions.MinimumTouchTarget,
+            minHeight = MediaDimensions.MinimumTouchTarget,
+        ),
+    ) {
+        Text(text = label, color = MediaOnImmersive, fontSize = 14.sp)
     }
 }
 
