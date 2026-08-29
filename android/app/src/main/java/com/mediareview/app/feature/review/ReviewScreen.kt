@@ -93,7 +93,8 @@ fun ReviewScreen(
     showHeader: Boolean = true,
 ) {
     val ui by viewModel.ui.collectAsState()
-    val activeIsPreload by viewModel.core.activeIsPreload.collectAsState()
+    val playerCore = requireNotNull(viewModel.core) { "ReviewScreen 需要生产 PlayerCore" }
+    val activeIsPreload by playerCore.activeIsPreload.collectAsState()
 
     LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
@@ -158,7 +159,7 @@ fun ReviewScreen(
         }
     }
 
-    val activePlayer = if (activeIsPreload) viewModel.core.preload else viewModel.core.player
+    val activePlayer = if (activeIsPreload) playerCore.preload else playerCore.player
 
     var moreMedia by remember { mutableStateOf<MediaSummary?>(null) }
 

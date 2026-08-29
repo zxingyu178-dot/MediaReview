@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.ContentMutation
 import com.mediareview.app.core.ui.RevisionLoadGate
+import com.mediareview.app.feature.home.data.MediaDataSource
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -28,10 +30,19 @@ data class DeleteQueueUiState(
 
 /** 待删除页:列表 + 预计释放空间 + 单项恢复 + 最终删除确认。 */
 @HiltViewModel
-class DeleteQueueViewModel @Inject constructor(
-    private val repository: MediaRepository,
+class DeleteQueueViewModel private constructor(
+    private val repository: MediaDataSource,
     private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    @Inject
+    constructor(repository: MediaRepository, invalidations: ContentInvalidationStore) :
+        this(repository as MediaDataSource, invalidations)
+
+    internal constructor(
+        repository: MediaDataSource,
+        invalidations: ContentInvalidationStore,
+        testSeam: Unit = Unit,
+    ) : this(repository, invalidations)
     private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(DeleteQueueUiState())
@@ -57,7 +68,7 @@ class DeleteQueueViewModel @Inject constructor(
     fun restore(mediaId: String) {
         viewModelScope.launch {
             if (repository.dequeueDelete(mediaId)) {
-                invalidations.invalidate(ContentArea.DeleteQueue)
+                invalidations.invalidate(ContentMutation.DeleteQueue)
             }
             load()
         }
@@ -73,7 +84,10 @@ class DeleteQueueViewModel @Inject constructor(
                 "删除成功 $ok 项,失败 $failed 项"
             } ?: "删除完成"
             _ui.update { it.copy(commitResult = summary) }
-            if (result != null) invalidations.invalidate(ContentArea.DeleteQueue)
+            val changed = result?.outcome?.values?.any {
+                it.equals("deleted", ignoreCase = true) || it.equals("missing", ignoreCase = true)
+            } == true
+            if (changed) invalidations.invalidate(ContentMutation.FinalDelete)
             load()
         }
     }

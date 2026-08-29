@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.LibraryItem
 import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.ContentMutation
 import com.mediareview.app.core.ui.RevisionLoadGate
+import com.mediareview.app.feature.home.data.MediaDataSource
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -25,11 +27,21 @@ data class LibraryUiState(
 )
 
 @HiltViewModel
-class LibraryViewModel @Inject constructor(
-    private val repository: MediaRepository,
+class LibraryViewModel private constructor(
+    private val repository: MediaDataSource,
     private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    @Inject
+    constructor(repository: MediaRepository, invalidations: ContentInvalidationStore) :
+        this(repository as MediaDataSource, invalidations)
+
+    internal constructor(
+        repository: MediaDataSource,
+        invalidations: ContentInvalidationStore,
+        testSeam: Unit = Unit,
+    ) : this(repository, invalidations)
     private val loadGate = RevisionLoadGate()
+    private var persistedSelectedIds: Set<String> = emptySet()
 
     private val _ui = MutableStateFlow(LibraryUiState())
     val ui: StateFlow<LibraryUiState> = _ui.asStateFlow()
@@ -47,6 +59,8 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repository.loadLibraries() }
                 .onSuccess { list ->
+                    persistedSelectedIds = list.filter(LibraryItem::selected)
+                        .map(LibraryItem::jellyfin_id).toSet()
                     _ui.update {
                         it.copy(
                             loading = false,
@@ -71,12 +85,17 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun save() {
+        if (_ui.value.selectedIds == persistedSelectedIds) {
+            _ui.update { it.copy(saving = false, error = null, saved = true) }
+            return
+        }
         _ui.update { it.copy(saving = true, error = null, saved = false) }
         viewModelScope.launch {
             runCatching { repository.saveSelection(_ui.value.selectedIds.toList()) }
-                .onSuccess {
+                .onSuccess { list ->
+                    persistedSelectedIds = _ui.value.selectedIds
                     _ui.update { st -> st.copy(saving = false, saved = true) }
-                    invalidations.invalidate(ContentArea.Libraries)
+                    invalidations.invalidate(ContentMutation.LibrarySelection)
                 }
                 .onFailure { e ->
                     _ui.update { it.copy(saving = false, error = e.message) }

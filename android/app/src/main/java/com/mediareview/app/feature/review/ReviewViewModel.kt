@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.media.LatestWinsScheduler
 import com.mediareview.app.core.media.PlayerCore
 import com.mediareview.app.core.media.ReviewPlayable
+import com.mediareview.app.core.media.ReviewPlaybackController
 import com.mediareview.app.core.media.ReviewQueueWindow
 import com.mediareview.app.core.model.ReviewQueueItemDto
 import com.mediareview.app.core.ui.InitialLoadGate
-import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.ContentMutation
+import com.mediareview.app.feature.home.data.MediaDataSource
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -64,11 +66,24 @@ private const val PAGE_SIZE = 40
  * - 向前分页:向上滑到顶部时加载更早分页并保持定位;结束判断 baseIndex+items.size >= total
  */
 @HiltViewModel
-class ReviewViewModel @Inject constructor(
-    private val repository: MediaRepository,
-    val core: PlayerCore,
+class ReviewViewModel private constructor(
+    private val repository: MediaDataSource,
+    private val playback: ReviewPlaybackController,
+    val core: PlayerCore?,
     private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    @Inject
+    constructor(
+        repository: MediaRepository,
+        core: PlayerCore,
+        invalidations: ContentInvalidationStore,
+    ) : this(repository, core, core, invalidations)
+
+    internal constructor(
+        repository: MediaDataSource,
+        playback: ReviewPlaybackController,
+        invalidations: ContentInvalidationStore,
+    ) : this(repository, playback, null, invalidations)
     private val initialLoad = InitialLoadGate()
 
     private val _ui = MutableStateFlow(ReviewUiState())
@@ -269,19 +284,19 @@ class ReviewViewModel @Inject constructor(
             // 立即切换当前视频:只解析当前项 URL(绝对索引),不等待"下一条的下一条"
             val current = resolvePlayable(st.items, localIndex)
             if (!settleScheduler.isValid(token)) return@launch // 已被更新的滑动取代
-            core.settle(current.index, current)
+            playback.settle(current.index, current)
             currentMediaId = mediaId
             // P1 后台:获取下一条 URL + prepare(绝对索引),不阻塞当前播放
             val nextIndex = localIndex + 1
             val next = resolvePlayable(st.items, nextIndex)
             if (!settleScheduler.isValid(token)) return@launch
-            core.prepareNext(current.index + 1, next)
+            playback.prepareNext(current.index + 1, next)
         }
     }
 
     /** 滑动中:播放交给 settle,这里不切换。 */
     fun onSwipeStarted() {
-        core.onSwipeStarted()
+        playback.onSwipeStarted()
     }
 
     /** 点赞/取消点赞(只写本项目数据库,成功才更新 UI)。 */
@@ -293,12 +308,12 @@ class ReviewViewModel @Inject constructor(
             if (id in st.likedSet) {
                 if (repository.removeFavorite(id)) {
                     _ui.update { it.copy(likedSet = it.likedSet - id) }
-                    invalidations.invalidate(ContentArea.Favorites)
+                    invalidations.invalidate(ContentMutation.Favorite)
                 }
             } else {
                 if (repository.addFavorite(id)) {
                     _ui.update { it.copy(likedSet = it.likedSet + id) }
-                    invalidations.invalidate(ContentArea.Favorites)
+                    invalidations.invalidate(ContentMutation.Favorite)
                 }
             }
         }
@@ -321,7 +336,7 @@ class ReviewViewModel @Inject constructor(
                     )
                 }
                 _events.tryEmit(ReviewEvent.DeleteSucceeded)
-                invalidations.invalidate(ContentArea.DeleteQueue)
+                invalidations.invalidate(ContentMutation.DeleteQueue)
             }
         }
     }
@@ -337,7 +352,7 @@ class ReviewViewModel @Inject constructor(
                         lastDeletedMediaId = null,
                     )
                 }
-                invalidations.invalidate(ContentArea.DeleteQueue)
+                invalidations.invalidate(ContentMutation.DeleteQueue)
             }
         }
     }
@@ -351,23 +366,24 @@ class ReviewViewModel @Inject constructor(
      */
     fun reportPosition(mediaId: String) {
         if (mediaId.isBlank()) return
-        val snap = core.snapshotFor(mediaId) ?: return
+        val snap = playback.snapshotFor(mediaId) ?: return
         viewModelScope.launch {
             repository.reportProgress(mediaId, snap.positionMs, !snap.isPlaying)
         }
     }
 
     /** 供批阅页获取当前视频要显示哪个播放器实例。 */
-    fun activePlayer() = core.activePlayer()
+    fun activePlayer() = requireNotNull(core).activePlayer()
 
     /** 主壳切离批阅根时停止不可见页面的声音，同时取消尚未落地的 settle。 */
     fun onRootDeactivated() {
+        settleScheduler.reset()
         settleJob?.cancel()
-        core.deactivateReview()
+        playback.deactivateReview()
     }
 
     private suspend fun snapshotAndReport(mediaId: String) {
-        val snap = core.snapshotFor(mediaId) ?: return
+        val snap = playback.snapshotFor(mediaId) ?: return
         runCatching {
             repository.reportProgress(mediaId, snap.positionMs, !snap.isPlaying)
         }
@@ -389,8 +405,9 @@ class ReviewViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        settleScheduler.reset()
         settleJob?.cancel()
-        core.release()
+        core?.release()
         super.onCleared()
     }
 }

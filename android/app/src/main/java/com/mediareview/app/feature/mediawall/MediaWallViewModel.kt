@@ -3,9 +3,14 @@ package com.mediareview.app.feature.mediawall
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.datastore.MediaWallSettings
+import com.mediareview.app.core.datastore.MediaWallSettingsDataSource
 import com.mediareview.app.core.datastore.MediaWallSettingsStore
 import com.mediareview.app.core.model.LibraryItem
 import com.mediareview.app.core.model.MediaSummary
+import com.mediareview.app.core.ui.ContentArea
+import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.RevisionLoadGate
+import com.mediareview.app.feature.home.data.MediaDataSource
 import com.mediareview.app.feature.home.data.MediaRepository
 import com.mediareview.app.feature.home.data.MediaTypeFilter
 import com.mediareview.app.feature.home.data.SortField
@@ -19,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -42,10 +48,28 @@ data class MediaWallUiState(
 
 @OptIn(FlowPreview::class)
 @HiltViewModel
-class MediaWallViewModel @Inject constructor(
-    private val repository: MediaRepository,
-    private val settingsStore: MediaWallSettingsStore,
+class MediaWallViewModel private constructor(
+    private val repository: MediaDataSource,
+    private val settingsStore: MediaWallSettingsDataSource,
+    private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    @Inject
+    constructor(
+        repository: MediaRepository,
+        settingsStore: MediaWallSettingsStore,
+        invalidations: ContentInvalidationStore,
+    ) : this(
+        repository as MediaDataSource,
+        settingsStore as MediaWallSettingsDataSource,
+        invalidations,
+    )
+
+    internal constructor(
+        repository: MediaDataSource,
+        settingsStore: MediaWallSettingsDataSource,
+        invalidations: ContentInvalidationStore,
+        testSeam: Unit = Unit,
+    ) : this(repository, settingsStore, invalidations)
 
     private val _ui = MutableStateFlow(MediaWallUiState())
     val ui: StateFlow<MediaWallUiState> = _ui.asStateFlow()
@@ -56,6 +80,9 @@ class MediaWallViewModel @Inject constructor(
     private var generation = 0
     private var loadJob: Job? = null
     private var initialized = false
+    private val loadGate = RevisionLoadGate().apply {
+        claim(invalidations.revision(ContentArea.Media))
+    }
 
     init {
         viewModelScope.launch {
@@ -73,12 +100,22 @@ class MediaWallViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _search
+                .drop(1)
                 .debounce(400)
                 .distinctUntilChanged()
                 .collect { q ->
                     _ui.update { st -> st.copy(search = q) }
                     reload(1)
                 }
+        }
+    }
+
+    /** 主壳每次激活媒体根时调用；同一 revision 不重复加载。 */
+    fun loadIfNeeded() {
+        if (!loadGate.claim(invalidations.revision(ContentArea.Media))) return
+        viewModelScope.launch {
+            loadLibraries()
+            reload(1)
         }
     }
 

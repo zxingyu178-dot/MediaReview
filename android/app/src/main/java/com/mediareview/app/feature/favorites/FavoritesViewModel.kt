@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.ContentMutation
 import com.mediareview.app.core.ui.RevisionLoadGate
+import com.mediareview.app.feature.home.data.MediaDataSource
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -22,10 +24,19 @@ data class FavoritesUiState(
 
 /** 喜欢页:独立媒体墙,可取消喜欢,原文件不变化。 */
 @HiltViewModel
-class FavoritesViewModel @Inject constructor(
-    private val repository: MediaRepository,
+class FavoritesViewModel private constructor(
+    private val repository: MediaDataSource,
     private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    @Inject
+    constructor(repository: MediaRepository, invalidations: ContentInvalidationStore) :
+        this(repository as MediaDataSource, invalidations)
+
+    internal constructor(
+        repository: MediaDataSource,
+        invalidations: ContentInvalidationStore,
+        testSeam: Unit = Unit,
+    ) : this(repository, invalidations)
     private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(FavoritesUiState())
@@ -48,7 +59,7 @@ class FavoritesViewModel @Inject constructor(
         viewModelScope.launch {
             if (repository.removeFavorite(mediaId)) {
                 _ui.value = _ui.value.copy(items = _ui.value.items.filterNot { it.media_id == mediaId })
-                invalidations.invalidate(ContentArea.Favorites)
+                invalidations.invalidate(ContentMutation.Favorite)
             }
         }
     }

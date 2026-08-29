@@ -21,6 +21,11 @@ data class MediaWallSettings(
     val type: MediaTypeFilter = MediaTypeFilter.All,
 )
 
+interface MediaWallSettingsDataSource {
+    suspend fun current(): MediaWallSettings
+    suspend fun save(value: MediaWallSettings)
+}
+
 object MediaWallSettingsCodec {
     fun sortField(value: String?): SortField =
         SortField.entries.firstOrNull { it.wire == value } ?: SortField.Name
@@ -31,7 +36,7 @@ object MediaWallSettingsCodec {
     fun mediaType(value: String?): MediaTypeFilter = MediaTypeFilter.fromWire(value)
 }
 
-class MediaWallSettingsStore(private val context: Context) {
+class MediaWallSettingsStore(private val context: Context) : MediaWallSettingsDataSource {
     private val keyGridColumns = intPreferencesKey("grid_columns")
     private val keySortBy = stringPreferencesKey("sort_by")
     private val keySortOrder = stringPreferencesKey("sort_order")
@@ -46,9 +51,9 @@ class MediaWallSettingsStore(private val context: Context) {
         )
     }
 
-    suspend fun current(): MediaWallSettings = settings.first()
+    override suspend fun current(): MediaWallSettings = settings.first()
 
-    suspend fun save(value: MediaWallSettings) {
+    override suspend fun save(value: MediaWallSettings) {
         context.mediaWallDataStore.edit { prefs ->
             prefs[keyGridColumns] = value.gridColumns.coerceIn(2, 5)
             prefs[keySortBy] = value.sortBy.wire

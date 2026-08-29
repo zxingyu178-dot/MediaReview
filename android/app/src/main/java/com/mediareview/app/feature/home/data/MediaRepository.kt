@@ -8,6 +8,15 @@ import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.MediaUrlResolver
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+
+internal inline fun <T> runSuspendCatching(block: () -> T): Result<T> = try {
+    Result.success(block())
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Throwable) {
+    Result.failure(failure)
+}
 
 /** 枚举:类型筛选。 */
 enum class MediaTypeFilter(val wire: String?, val label: String) {
@@ -46,7 +55,7 @@ class MediaRepository @Inject constructor(
     private val store: ServerProfileStore,
     private val apiFactory: ApiFactory,
     private val mediaUrlResolver: MediaUrlResolver,
-) {
+) : MediaDataSource {
     private val controlledServerOnlyHosts = setOf("localhost")
 
     private suspend fun pairedBaseUrl(): String = store.current().baseUrl
@@ -75,25 +84,25 @@ class MediaRepository @Inject constructor(
         return resp.data
     }
 
-    suspend fun loadLibraries(): List<LibraryItem> =
+    override suspend fun loadLibraries(): List<LibraryItem> =
         unwrap(api().libraries()) ?: emptyList()
 
-    suspend fun saveSelection(selectedIds: List<String>): List<LibraryItem> =
+    override suspend fun saveSelection(selectedIds: List<String>): List<LibraryItem> =
         unwrap(
             api().saveLibrariesSelection(
                 com.mediareview.app.core.network.SelectionRequest(selected = selectedIds)
             )
         ) ?: emptyList()
 
-    suspend fun loadMedia(
-        libraryId: String? = null,
-        type: MediaTypeFilter = MediaTypeFilter.All,
-        sortBy: SortField = SortField.Name,
-        sortOrder: SortOrder = SortOrder.Asc,
-        page: Int = 1,
-        pageSize: Int = 50,
-        search: String? = null,
-        excludeFavorites: Boolean = false,
+    override suspend fun loadMedia(
+        libraryId: String?,
+        type: MediaTypeFilter,
+        sortBy: SortField,
+        sortOrder: SortOrder,
+        page: Int,
+        pageSize: Int,
+        search: String?,
+        excludeFavorites: Boolean,
     ): MediaPage {
         val result = unwrap(
             api().media(
@@ -111,7 +120,7 @@ class MediaRepository @Inject constructor(
         return result.copy(items = result.items.map { resolveMedia(it, baseUrl) })
     }
 
-    suspend fun loadDetail(mediaId: String): MediaSummary? = runCatching {
+    suspend fun loadDetail(mediaId: String): MediaSummary? = runSuspendCatching {
         unwrap(api().mediaDetail(mediaId))?.let { resolveMedia(it, pairedBaseUrl()) }
     }.getOrNull()
 
@@ -128,12 +137,12 @@ class MediaRepository @Inject constructor(
 
     /** 触发雪碧图后台生成(服务端幂等,已就绪则直返)。 */
     suspend fun ensureSprite(mediaId: String) {
-        runCatching { unwrap(api().ensureSprite(mediaId)) }
+        runSuspendCatching { unwrap(api().ensureSprite(mediaId)) }
     }
 
     /** 获取播放信息(Jellyfin 直连流地址)。 */
-    suspend fun loadPlayback(mediaId: String): com.mediareview.app.core.model.PlaybackInfoDto? =
-        runCatching {
+    override suspend fun loadPlayback(mediaId: String): com.mediareview.app.core.model.PlaybackInfoDto? =
+        runSuspendCatching {
             unwrap(api().playback(mediaId))?.let { playback ->
                 playback.copy(
                     stream_url = mediaUrlResolver.resolve(
@@ -148,21 +157,21 @@ class MediaRepository @Inject constructor(
         }.getOrNull()
 
     /** 创建批阅会话:只提交 source(筛选/排序),队列由服务端按已选媒体库构建。 */
-    suspend fun createReviewSession(): com.mediareview.app.core.model.ReviewSessionDto? =
-        runCatching {
+    override suspend fun createReviewSession(): com.mediareview.app.core.model.ReviewSessionDto? =
+        runSuspendCatching {
             unwrap(api().createReviewSession(com.mediareview.app.core.model.ReviewCreateRequest()))
         }.getOrNull()
 
     /** 最近活动的批阅会话(断点恢复)。 */
-    suspend fun latestReviewSession(): com.mediareview.app.core.model.ReviewSessionDto? =
-        runCatching { unwrap(api().latestReviewSession()) }.getOrNull()
+    override suspend fun latestReviewSession(): com.mediareview.app.core.model.ReviewSessionDto? =
+        runSuspendCatching { unwrap(api().latestReviewSession()) }.getOrNull()
 
     /** 批阅队列分页(按会话顺序,含媒体摘要)。 */
-    suspend fun reviewQueue(
+    override suspend fun reviewQueue(
         sessionId: String,
-        page: Int = 1,
-        pageSize: Int = 50,
-    ): com.mediareview.app.core.model.ReviewQueuePageDto = runCatching {
+        page: Int,
+        pageSize: Int,
+    ): com.mediareview.app.core.model.ReviewQueuePageDto = runSuspendCatching {
         val result = unwrap(api().reviewQueue(sessionId, page, pageSize))
             ?: com.mediareview.app.core.model.ReviewQueuePageDto()
         val baseUrl = pairedBaseUrl()
@@ -174,31 +183,31 @@ class MediaRepository @Inject constructor(
     }.getOrDefault(com.mediareview.app.core.model.ReviewQueuePageDto())
 
     /** 标记当前会话中某媒体已看(什么都不操作也记录 session_seen)。 */
-    suspend fun markSeen(sessionId: String, mediaId: String) {
-        runCatching {
+    override suspend fun markSeen(sessionId: String, mediaId: String) {
+        runSuspendCatching {
             unwrap(api().markSeen(sessionId, com.mediareview.app.core.model.ReviewSeenRequest(media_id = mediaId)))
         }
     }
 
     /** 点赞(只写本项目 SQLite,不改原文件)。成功才返回 true。 */
-    suspend fun addFavorite(mediaId: String): Boolean =
-        runCatching { unwrap(api().addFavorite(mediaId)) != null }.getOrDefault(false)
+    override suspend fun addFavorite(mediaId: String): Boolean =
+        runSuspendCatching { unwrap(api().addFavorite(mediaId)) != null }.getOrDefault(false)
 
     /** 取消点赞。成功才返回 true。 */
-    suspend fun removeFavorite(mediaId: String): Boolean =
-        runCatching { unwrap(api().removeFavorite(mediaId)) != null }.getOrDefault(false)
+    override suspend fun removeFavorite(mediaId: String): Boolean =
+        runSuspendCatching { unwrap(api().removeFavorite(mediaId)) != null }.getOrDefault(false)
 
     /** 加入待删除队列(可撤销,不立即删除)。 */
-    suspend fun enqueueDelete(mediaId: String): Boolean =
-        runCatching { unwrap(api().enqueueDelete(mediaId)) != null }.getOrDefault(false)
+    override suspend fun enqueueDelete(mediaId: String): Boolean =
+        runSuspendCatching { unwrap(api().enqueueDelete(mediaId)) != null }.getOrDefault(false)
 
     /** 从待删除队列撤销。服务器成功才返回 true。 */
-    suspend fun dequeueDelete(mediaId: String): Boolean =
-        runCatching { unwrap(api().dequeueDelete(mediaId)) != null }.getOrDefault(false)
+    override suspend fun dequeueDelete(mediaId: String): Boolean =
+        runSuspendCatching { unwrap(api().dequeueDelete(mediaId)) != null }.getOrDefault(false)
 
     /** 随批阅位置移动更新 current_index(断点恢复依据)。 */
-    suspend fun setReviewPosition(sessionId: String, index: Int) {
-        runCatching {
+    override suspend fun setReviewPosition(sessionId: String, index: Int) {
+        runSuspendCatching {
             unwrap(
                 api().setReviewPosition(
                     sessionId,
@@ -209,7 +218,7 @@ class MediaRepository @Inject constructor(
     }
 
     /** 收藏列表(供喜欢页/批阅启动恢复)。 */
-    suspend fun listFavorites(): List<com.mediareview.app.core.model.FavoriteItemDto> = runCatching {
+    override suspend fun listFavorites(): List<com.mediareview.app.core.model.FavoriteItemDto> = runSuspendCatching {
         val baseUrl = pairedBaseUrl()
         (unwrap(api().listFavorites()) ?: emptyList()).map { item ->
             item.copy(media = item.media?.let { resolveMedia(it, baseUrl) })
@@ -217,8 +226,8 @@ class MediaRepository @Inject constructor(
     }.getOrDefault(emptyList())
 
     /** 待删除队列(供待删除页/批阅启动恢复)。 */
-    suspend fun listDeleteQueue(): List<com.mediareview.app.core.model.DeleteQueueItemDto> =
-        runCatching {
+    override suspend fun listDeleteQueue(): List<com.mediareview.app.core.model.DeleteQueueItemDto> =
+        runSuspendCatching {
             val baseUrl = pairedBaseUrl()
             (unwrap(api().listDeleteQueue()) ?: emptyList()).map { item ->
                 item.copy(media = item.media?.let { resolveMedia(it, baseUrl) })
@@ -226,20 +235,20 @@ class MediaRepository @Inject constructor(
         }.getOrDefault(emptyList())
 
     /** 最终确认删除待删除队列(两阶段删除的最后一步)。 */
-    suspend fun commitDeleteQueue(): com.mediareview.app.core.model.CommitResultDto? =
-        runCatching { unwrap(api().commitDeleteQueue()) }.getOrNull()
+    override suspend fun commitDeleteQueue(): com.mediareview.app.core.model.CommitResultDto? =
+        runSuspendCatching { unwrap(api().commitDeleteQueue()) }.getOrNull()
 
     /** 完全重复分组。 */
-    suspend fun loadDuplicatesExact(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
-        runCatching { unwrap(api().duplicatesExact()) }.getOrNull() ?: emptyList()
+    override suspend fun loadDuplicatesExact(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
+        runSuspendCatching { unwrap(api().duplicatesExact()) }.getOrNull() ?: emptyList()
 
     /** 疑似重复分组。 */
-    suspend fun loadDuplicatesSimilar(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
-        runCatching { unwrap(api().duplicatesSimilar()) }.getOrNull() ?: emptyList()
+    override suspend fun loadDuplicatesSimilar(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
+        runSuspendCatching { unwrap(api().duplicatesSimilar()) }.getOrNull() ?: emptyList()
 
     /** 回传播放进度到 Jellyfin(普通播放器/批阅播放器周期性调用)。 */
-    suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean) {
-        runCatching {
+    override suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean) {
+        runSuspendCatching {
             unwrap(
                 api().reportProgress(
                     mediaId,

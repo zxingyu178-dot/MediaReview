@@ -121,10 +121,10 @@
 - [x] 设置、播放器、图片查看器独立全屏；URL/installation ID 仅设置可见
 - [x] 共享 top/bottom bar、卡片、骨架屏、空态、离线重试、连接/同步 banner、Snackbar host
 - [x] 可见符号控制替换为 Material Icons + 中文语义；播放器文字菜单达到 48dp
-- [x] 接受审查 I1/I2：批阅根失活暂停 P0/P1；收藏与整理计数使用业务 revision 精确刷新
+- [x] 最终修复 F1/F2：批阅失活先使 settle token 失效且保留取消；Media/Favorites/Libraries/DeleteQueue/Duplicates 按成功 mutation 精确失效
 - [x] 接受审查 I3/I4/M1：740x360/font 1.3 响应式媒体墙、token 单一来源、`✓` 符号回归
-- [x] 接受审查 I5：生产 root lifecycle/invalidation integration harness，报告收窄到实际证据
-- [x] Task 4 JVM/source contract 与 Compose instrumentation 行为测试已构建；未做真机/模拟器运行
+- [x] 最终修复 F3：生产 `MainShellScreen` 注入真实 ViewModel 的 root lifecycle/revision integration test 已构建
+- [x] Task 4 JVM 100 tests 全通过；Compose instrumentation APK 已构建，当前无设备故未执行
 
 ## Server
 - [x] 配置

@@ -1,0 +1,43 @@
+package com.mediareview.app.feature.home.data
+
+import com.mediareview.app.core.model.CommitResultDto
+import com.mediareview.app.core.model.DeleteQueueItemDto
+import com.mediareview.app.core.model.DuplicateGroupDto
+import com.mediareview.app.core.model.FavoriteItemDto
+import com.mediareview.app.core.model.LibraryItem
+import com.mediareview.app.core.model.MediaPage
+import com.mediareview.app.core.model.PlaybackInfoDto
+import com.mediareview.app.core.model.ReviewQueuePageDto
+import com.mediareview.app.core.model.ReviewSessionDto
+
+/** ViewModel 使用的媒体业务边界；生产实现为 [MediaRepository]，测试可使用受控 fake。 */
+interface MediaDataSource {
+    suspend fun loadLibraries(): List<LibraryItem>
+    suspend fun saveSelection(selectedIds: List<String>): List<LibraryItem>
+    suspend fun loadMedia(
+        libraryId: String? = null,
+        type: MediaTypeFilter = MediaTypeFilter.All,
+        sortBy: SortField = SortField.Name,
+        sortOrder: SortOrder = SortOrder.Asc,
+        page: Int = 1,
+        pageSize: Int = 50,
+        search: String? = null,
+        excludeFavorites: Boolean = false,
+    ): MediaPage
+    suspend fun loadPlayback(mediaId: String): PlaybackInfoDto?
+    suspend fun createReviewSession(): ReviewSessionDto?
+    suspend fun latestReviewSession(): ReviewSessionDto?
+    suspend fun reviewQueue(sessionId: String, page: Int = 1, pageSize: Int = 50): ReviewQueuePageDto
+    suspend fun markSeen(sessionId: String, mediaId: String)
+    suspend fun addFavorite(mediaId: String): Boolean
+    suspend fun removeFavorite(mediaId: String): Boolean
+    suspend fun enqueueDelete(mediaId: String): Boolean
+    suspend fun dequeueDelete(mediaId: String): Boolean
+    suspend fun setReviewPosition(sessionId: String, index: Int)
+    suspend fun listFavorites(): List<FavoriteItemDto>
+    suspend fun listDeleteQueue(): List<DeleteQueueItemDto>
+    suspend fun commitDeleteQueue(): CommitResultDto?
+    suspend fun loadDuplicatesExact(): List<DuplicateGroupDto>
+    suspend fun loadDuplicatesSimilar(): List<DuplicateGroupDto>
+    suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean)
+}

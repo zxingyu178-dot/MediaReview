@@ -58,7 +58,7 @@ data class ReviewPlayable(
 @Singleton
 class PlayerCore @Inject constructor(
     @ApplicationContext context: Context,
-) {
+) : ReviewPlaybackController {
     val player: ExoPlayer by lazy { ExoPlayer.Builder(context).build() }
     val preload: ExoPlayer by lazy { ExoPlayer.Builder(context).build() }
 
@@ -101,7 +101,7 @@ class PlayerCore @Inject constructor(
     fun seekTo(positionMs: Long) = player.seekTo(positionMs)
 
     /** 批阅根失活时暂停两个槽，防止当前槽恰为 preload 时继续在后台播放。 */
-    fun deactivateReview() {
+    override fun deactivateReview() {
         player.pause()
         preload.pause()
         refreshStatus()
@@ -138,7 +138,7 @@ class PlayerCore @Inject constructor(
      * 本方法不等待"下一条的下一条"——P1 由 [prepareNext] 在后台完成。
      * 优先复用已就绪的 P1 槽位,已就绪时立即出声。
      */
-    fun settle(index: Int, current: ReviewPlayable) {
+    override fun settle(index: Int, current: ReviewPlayable) {
         currentIndex = index
         throttled = false
         ensureListeners()
@@ -170,7 +170,7 @@ class PlayerCore @Inject constructor(
     }
 
     /** 后台预加载 [item] 到非活动槽(P1);item 为空/非视频/无 URL 时清空该槽。 */
-    fun prepareNext(index: Int, item: ReviewPlayable?) {
+    override fun prepareNext(index: Int, item: ReviewPlayable?) {
         nextItem = item
         val slotB = !slots.activeIsB
         val p = slotPlayer(slotB)
@@ -190,7 +190,7 @@ class PlayerCore @Inject constructor(
      * 媒体已切换(该 mediaId 已不在两个槽位上)返回 null——调用方必须跳过上报,
      * 防止拿新的 activePlayer 给旧 mediaId 上报造成串片。
      */
-    fun snapshotFor(mediaId: String): ProgressSnapshot? {
+    override fun snapshotFor(mediaId: String): ProgressSnapshot? {
         if (mediaId.isBlank()) return null
         val slotB = when {
             slotMediaId[1] == mediaId -> true
@@ -206,7 +206,7 @@ class PlayerCore @Inject constructor(
     }
 
     /** 页面开始滑动/离开当前项:保持停稳前不切换播放(不做动作,播放交给 settle)。 */
-    fun onSwipeStarted() {
+    override fun onSwipeStarted() {
         // 滑动中不播放下一条的声音:当前播放器保持现状,等 settle 统一切换。
     }
 

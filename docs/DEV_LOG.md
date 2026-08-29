@@ -40,6 +40,35 @@ TDD 与验证：
 
 ---
 
+### 2026-08-30 — MediaReview 1.1 Task 4 最终修复（F1/F2/F3）
+
+完成：
+
+- Review root 失活先 `reset()` latest-wins scheduler，再取消 job、暂停 P0/P1；repository suspend
+  failure boundary 对 `CancellationException` 重新抛出，旧 settle 即使从不可取消 fake 恢复也不能落地。
+- 新增 `Media` content area 与显式 mutation 依赖矩阵。媒体库选择、收藏变更、待删除入/出队和
+  最终删除只在确认成功且确有变化后推进相关 revision；部分删除含 `deleted`/`missing` 即刷新
+  DeleteQueue/Media/Favorites/Duplicates，全失败或空结果不失效。
+- 生产主壳把持久化的 `MediaWallViewModel` 传入 `MediaWallScreen`，Media root 激活按 revision
+  刷新媒体库与当前 query/filter，不重建 ViewModel；搜索流跳过初始空值，避免初始化重复查询。
+- 新增 `MediaDataSource`、`ReviewPlaybackController` 与 settings 窄测试 seam；生产 Hilt 仍注入
+  原 `MediaRepository`、`PlayerCore`、`MediaWallSettingsStore`，未改变 server/API/Task 5/6。
+- 新增生产 `MainShellScreen` Compose integration test：真实 ViewModel + 受控 fake，点击生产导航，
+  覆盖 Review 停用、成功收藏 mutation 后 Media 恰好一次重载、无关切换不重载。
+- 删除 mutation/lifecycle 的源码字符串断言；源码合同只保留纯视觉/资源规则。
+
+TDD 与验证：
+
+- RED：首个 Media area 测试 `1 failed`；可测 seam 后 F1/F2 focused `5 tests, 5 failed`；
+  repository 旧取消吞噬实现反证 `1 test, 1 failed`；Media 初载精确一次测试发现实际加载 2 次。
+- GREEN：F1/F2/Media focused `11 tests, 0 failures`；JVM 全量 `100 tests, 0 failures`（26 suites）。
+- fresh Android：brief 指定四目标命令 `BUILD SUCCESSFUL in 2m 5s`，91 actionable tasks 全执行；
+  debug APK 22,344,728 bytes，androidTest APK 1,019,345 bytes，lint 0 errors / 47 warnings。
+
+限制：ADB 无连接设备，Compose instrumentation 仅构建未执行；未验证真机/模拟器视觉、交互或物理设备行为。
+
+---
+
 ## 模板
 
 ### YYYY-MM-DD — 阶段 X

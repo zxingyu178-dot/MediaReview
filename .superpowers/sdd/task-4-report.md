@@ -119,5 +119,30 @@ lint warnings 均未阻断构建：大部分为既有依赖可更新提示、Nav
 模拟器/真机执行。因此 360x740、390x844、横屏、font scale 1.3、TalkBack traversal，以及 launcher
 在不同 OEM circular/squircle mask 下的光学校准仍属于设备侧验收，不能由 JVM/构建证据替代。
 
-`task-4-acceptance-review.md` 的 I1–I5/M1 均已进入对应 regression contract。本报告只陈述已运行的
-自动化/构建证据，不把合成 harness 称为真实业务页面，也不声称获得独立二次 CLEAN 结论。
+上述结论后来被 `task-4-final-review.md` 的 F1/F2/F3 缺口复核取代；最终修复见下节。本报告只陈述
+已运行的自动化/构建证据，不把 build-only instrumentation 称为设备执行，也不声称获得独立 CLEAN 结论。
+
+## `c4a7d3a` 最终修复（F1/F2/F3）
+
+- F1：Review root 失活先原子失效 settle token，再 cancel job、暂停两个播放器；所有 MediaRepository
+  suspend `runCatching` 边界改为保留 `CancellationException`。受控挂起 fake 的真实 ReviewViewModel
+  测试证明旧任务恢复不 settle，新 token 可正常 settle。
+- F2：`ContentArea.Media` 与显式 mutation matrix 覆盖 LibrarySelection/Favorite/DeleteQueue/
+  FinalDelete。真实 Library/Review/Favorites/DeleteQueue/MediaWall ViewModel 测试覆盖成功、失败、no-op、
+  enqueue/dequeue、partial commit 的 revision 与 Media 原实例精确刷新。
+- F3：`MainShellProductionIntegrationTest` 直接组合生产 `MainShellScreen`，点击生产导航，注入真实
+  production ViewModel 与受控 fake；生产 Media 分支显式把传入 `MediaWallViewModel` 交给
+  `MediaWallScreen`。当前 ADB 无设备，因此该 test APK 只完成构建，未执行 instrumentation。
+- 行为回归不再依赖源码字符串；`Task4SourceContractTest` 仅保留视觉 token、资源与可见符号静态合同。
+
+Fresh full command：
+
+```powershell
+.\gradlew.bat --offline --no-daemon `
+  :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:lintDebug `
+  --rerun-tasks
+```
+
+结果：`BUILD SUCCESSFUL in 2m 5s`，91 actionable tasks 全执行；JVM 100 tests / 0 failures /
+0 errors / 0 skipped（26 suites）；debug APK 22,344,728 bytes；androidTest APK 1,019,345 bytes；
+lint 0 errors / 47 warnings。未访问真实服务、用户数据、server/deployment，也未进入 Task 5/6。

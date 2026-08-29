@@ -6,6 +6,7 @@ import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
 import com.mediareview.app.core.ui.RevisionLoadGate
+import com.mediareview.app.feature.home.data.MediaDataSource
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -24,10 +25,19 @@ data class DuplicatesUiState(
 
 /** 重复文件页:完全重复 + 疑似重复(只读展示,绝不自动删除)。 */
 @HiltViewModel
-class DuplicatesViewModel @Inject constructor(
-    private val repository: MediaRepository,
+class DuplicatesViewModel private constructor(
+    private val repository: MediaDataSource,
     private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    @Inject
+    constructor(repository: MediaRepository, invalidations: ContentInvalidationStore) :
+        this(repository as MediaDataSource, invalidations)
+
+    internal constructor(
+        repository: MediaDataSource,
+        invalidations: ContentInvalidationStore,
+        testSeam: Unit = Unit,
+    ) : this(repository, invalidations)
     private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(DuplicatesUiState())

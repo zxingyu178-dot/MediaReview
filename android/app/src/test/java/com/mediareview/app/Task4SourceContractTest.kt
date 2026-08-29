@@ -102,43 +102,4 @@ class Task4SourceContractTest {
         assertEquals("仍有 token-equivalent 尺寸字面量: $hits", emptyList<String>(), hits)
     }
 
-    @Test
-    fun successfulMutationsInvalidateOnlyTheirRelatedRootContent() {
-        val review = projectFile(
-            "src/main/java/com/mediareview/app/feature/review/ReviewViewModel.kt",
-        ).readText()
-        val favorites = projectFile(
-            "src/main/java/com/mediareview/app/feature/favorites/FavoritesViewModel.kt",
-        ).readText()
-        val libraries = projectFile(
-            "src/main/java/com/mediareview/app/feature/library/LibraryViewModel.kt",
-        ).readText()
-        val deleteQueue = projectFile(
-            "src/main/java/com/mediareview/app/feature/deletequeue/DeleteQueueViewModel.kt",
-        ).readText()
-
-        assertTrue(review.contains("invalidate(ContentArea.Favorites)"))
-        assertTrue(review.contains("invalidate(ContentArea.DeleteQueue)"))
-        assertTrue(favorites.contains("invalidate(ContentArea.Favorites)"))
-        assertTrue(libraries.contains("invalidate(ContentArea.Libraries)"))
-        assertTrue(deleteQueue.contains("invalidate(ContentArea.DeleteQueue)"))
-    }
-
-    @Test
-    fun reviewRootDeactivationIsWiredToBothPlayers() {
-        val shell = projectFile("src/main/java/com/mediareview/app/ui/shell/MainShell.kt").readText()
-        val review = projectFile(
-            "src/main/java/com/mediareview/app/feature/review/ReviewViewModel.kt",
-        ).readText()
-        val core = projectFile("src/main/java/com/mediareview/app/core/media/PlayerCore.kt").readText()
-
-        assertTrue(shell.contains("onReviewDeactivated = reviewViewModel::onRootDeactivated"))
-        assertTrue(review.contains("fun onRootDeactivated()"))
-        assertTrue(
-            Regex(
-                "fun deactivateReview\\(\\)\\s*\\{[^}]*player\\.pause\\(\\)[^}]*preload\\.pause\\(\\)",
-                RegexOption.DOT_MATCHES_ALL,
-            ).containsMatchIn(core),
-        )
-    }
 }

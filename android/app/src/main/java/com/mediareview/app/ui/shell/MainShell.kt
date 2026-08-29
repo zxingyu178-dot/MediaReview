@@ -62,6 +62,7 @@ import com.mediareview.app.feature.home.HomeViewModel
 import com.mediareview.app.feature.library.LibraryDestinations
 import com.mediareview.app.feature.library.LibraryViewModel
 import com.mediareview.app.feature.mediawall.MediaWallScreen
+import com.mediareview.app.feature.mediawall.MediaWallViewModel
 import com.mediareview.app.feature.player.PlayerDestinations
 import com.mediareview.app.feature.review.ReviewScreen
 import com.mediareview.app.feature.review.ReviewViewModel
@@ -119,17 +120,26 @@ fun MainShellScreen(
     onOpenDeleteQueue: () -> Unit,
     onOpenDuplicates: () -> Unit,
     onOpenMedia: (MediaSummary) -> Unit,
-    viewModel: HomeViewModel = hiltViewModel(),
+    viewModel: HomeViewModel? = null,
+    connectionOverride: ConnectionState? = null,
+    mediaWallViewModel: MediaWallViewModel = hiltViewModel(),
     reviewViewModel: ReviewViewModel = hiltViewModel(),
     favoritesViewModel: FavoritesViewModel = hiltViewModel(),
     libraryViewModel: LibraryViewModel = hiltViewModel(),
     deleteQueueViewModel: DeleteQueueViewModel = hiltViewModel(),
     duplicatesViewModel: DuplicatesViewModel = hiltViewModel(),
+    rootContentOverride: (@Composable (MainRoot) -> Unit)? = null,
 ) {
-    val ui by viewModel.ui.collectAsState()
+    val connection = if (connectionOverride != null) {
+        connectionOverride
+    } else {
+        val resolvedViewModel = viewModel ?: hiltViewModel<HomeViewModel>()
+        val ui by resolvedViewModel.ui.collectAsState()
+        ui.connection
+    }
     var selectedName by rememberSaveable { mutableStateOf(DEFAULT_MAIN_ROOT.name) }
     val selected = MainRoot.valueOf(selectedName)
-    val banner = shellBanner(ui.connection)
+    val banner = shellBanner(connection)
 
     MainShellScaffold(
         selectedRoot = selected,
@@ -144,7 +154,7 @@ fun MainShellScreen(
             selectedRoot = selected,
             onRootActivated = { root ->
                 when (root) {
-                    MainRoot.Media -> Unit
+                    MainRoot.Media -> mediaWallViewModel.loadIfNeeded()
                     MainRoot.Review -> reviewViewModel.loadIfNeeded()
                     MainRoot.Favorites -> favoritesViewModel.loadIfNeeded()
                     MainRoot.Organizer -> {
@@ -156,8 +166,11 @@ fun MainShellScreen(
             },
             onReviewDeactivated = reviewViewModel::onRootDeactivated,
         ) { root ->
-            when (root) {
+            if (rootContentOverride != null) {
+                rootContentOverride(root)
+            } else when (root) {
                 MainRoot.Media -> MediaWallScreen(
+                    viewModel = mediaWallViewModel,
                     onBack = {},
                     onItemClick = onOpenMedia,
                     showHeader = false,

@@ -7,6 +7,11 @@ import org.junit.Test
 
 class ContentInvalidationStoreTest {
     @Test
+    fun mediaIsARevisionedContentArea() {
+        assertTrue(ContentArea.entries.any { it.name == "Media" })
+    }
+
+    @Test
     fun unchangedRevisionDoesNotReloadButRelevantInvalidationDoes() {
         val store = ContentInvalidationStore()
         val gate = RevisionLoadGate()

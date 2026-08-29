@@ -5,7 +5,14 @@ import java.util.concurrent.atomic.AtomicLongArray
 import javax.inject.Inject
 import javax.inject.Singleton
 
-enum class ContentArea { Favorites, Libraries, DeleteQueue, Duplicates }
+enum class ContentArea { Media, Favorites, Libraries, DeleteQueue, Duplicates }
+
+enum class ContentMutation(val affectedAreas: Set<ContentArea>) {
+    LibrarySelection(setOf(ContentArea.Libraries, ContentArea.Media)),
+    Favorite(setOf(ContentArea.Favorites, ContentArea.Media)),
+    DeleteQueue(setOf(ContentArea.DeleteQueue)),
+    FinalDelete(setOf(ContentArea.DeleteQueue, ContentArea.Media, ContentArea.Favorites, ContentArea.Duplicates)),
+}
 
 /** 只记录相关业务成功变更的版本；普通根切换不会改变版本。 */
 @Singleton
@@ -15,6 +22,10 @@ class ContentInvalidationStore @Inject constructor() {
     fun revision(area: ContentArea): Long = revisions.get(area.ordinal)
 
     fun invalidate(area: ContentArea): Long = revisions.incrementAndGet(area.ordinal)
+
+    fun invalidate(mutation: ContentMutation) {
+        mutation.affectedAreas.forEach(::invalidate)
+    }
 }
 
 /** 同一版本只允许一次自动加载，业务版本递增后允许精确刷新。 */
