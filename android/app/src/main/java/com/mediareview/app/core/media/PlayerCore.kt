@@ -100,6 +100,13 @@ class PlayerCore @Inject constructor(
     fun resume() = player.play()
     fun seekTo(positionMs: Long) = player.seekTo(positionMs)
 
+    /** 批阅根失活时暂停两个槽，防止当前槽恰为 preload 时继续在后台播放。 */
+    fun deactivateReview() {
+        player.pause()
+        preload.pause()
+        refreshStatus()
+    }
+
     /** 倍速播放。 */
     fun setPlaybackSpeed(speed: Float) {
         player.playbackParameters = PlaybackParameters(speed.coerceIn(0.25f, 3f))

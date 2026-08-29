@@ -3,7 +3,9 @@ package com.mediareview.app.feature.favorites
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.FavoriteItemDto
-import com.mediareview.app.core.ui.InitialLoadGate
+import com.mediareview.app.core.ui.ContentArea
+import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.RevisionLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -22,14 +24,15 @@ data class FavoritesUiState(
 @HiltViewModel
 class FavoritesViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
-    private val initialLoad = InitialLoadGate()
+    private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(FavoritesUiState())
     val ui: StateFlow<FavoritesUiState> = _ui.asStateFlow()
 
     fun loadIfNeeded() {
-        if (initialLoad.claim()) load()
+        if (loadGate.claim(invalidations.revision(ContentArea.Favorites))) load()
     }
 
     fun load() {
@@ -45,6 +48,7 @@ class FavoritesViewModel @Inject constructor(
         viewModelScope.launch {
             if (repository.removeFavorite(mediaId)) {
                 _ui.value = _ui.value.copy(items = _ui.value.items.filterNot { it.media_id == mediaId })
+                invalidations.invalidate(ContentArea.Favorites)
             }
         }
     }

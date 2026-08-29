@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -33,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavController
@@ -47,8 +45,8 @@ import androidx.compose.material.icons.filled.Favorite
 import com.mediareview.app.ui.components.LoadingSkeleton
 import com.mediareview.app.ui.components.MediaEmptyState
 import com.mediareview.app.ui.components.MediaOfflineState
-import com.mediareview.app.ui.theme.MediaDimensions
 import com.mediareview.app.ui.theme.MediaSpacing
+import com.mediareview.app.ui.theme.MediaDimensions
 
 /** 喜欢页导航路由。 */
 object FavoritesDestinations {
@@ -86,7 +84,12 @@ fun FavoritesScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (showHeader) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = MediaSpacing.Regular,
+                            vertical = MediaSpacing.Small,
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("收藏", style = MaterialTheme.typography.titleLarge)
@@ -107,7 +110,9 @@ fun FavoritesScreen(
                     message = "在媒体或批阅中收藏的内容会显示在这里",
                 )
 
-                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                else -> LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                ) {
                     items(ui.items, key = { it.media_id }) { fav -> FavoriteRow(fav, onOpenMedia, viewModel::remove) }
                 }
             }
@@ -125,20 +130,22 @@ private fun FavoriteRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = MediaSpacing.Regular)
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable { if (media != null) onOpen(media) }
-            .padding(8.dp),
+            .padding(MediaSpacing.Small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(
             model = media?.cover_url,
             contentDescription = media?.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier
+                .size(MediaDimensions.FavoriteThumbnail)
+                .clip(MaterialTheme.shapes.small),
         )
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+        Column(Modifier.weight(1f).padding(horizontal = MediaSpacing.Regular)) {
             Text(
                 text = media?.name ?: fav.media_id,
                 style = MaterialTheme.typography.bodyMedium,

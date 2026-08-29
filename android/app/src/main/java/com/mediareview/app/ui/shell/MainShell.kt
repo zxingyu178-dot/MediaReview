@@ -31,6 +31,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,12 +57,14 @@ import com.mediareview.app.feature.deletequeue.DeleteQueueViewModel
 import com.mediareview.app.feature.duplicates.DuplicatesDestinations
 import com.mediareview.app.feature.duplicates.DuplicatesViewModel
 import com.mediareview.app.feature.favorites.FavoritesScreen
+import com.mediareview.app.feature.favorites.FavoritesViewModel
 import com.mediareview.app.feature.home.HomeViewModel
 import com.mediareview.app.feature.library.LibraryDestinations
 import com.mediareview.app.feature.library.LibraryViewModel
 import com.mediareview.app.feature.mediawall.MediaWallScreen
 import com.mediareview.app.feature.player.PlayerDestinations
 import com.mediareview.app.feature.review.ReviewScreen
+import com.mediareview.app.feature.review.ReviewViewModel
 import com.mediareview.app.feature.settings.SettingsDestinations
 import com.mediareview.app.feature.viewer.ImageViewerDestinations
 import com.mediareview.app.ui.components.MediaCard
@@ -116,6 +120,11 @@ fun MainShellScreen(
     onOpenDuplicates: () -> Unit,
     onOpenMedia: (MediaSummary) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
+    reviewViewModel: ReviewViewModel = hiltViewModel(),
+    favoritesViewModel: FavoritesViewModel = hiltViewModel(),
+    libraryViewModel: LibraryViewModel = hiltViewModel(),
+    deleteQueueViewModel: DeleteQueueViewModel = hiltViewModel(),
+    duplicatesViewModel: DuplicatesViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsState()
     var selectedName by rememberSaveable { mutableStateOf(DEFAULT_MAIN_ROOT.name) }
@@ -131,23 +140,46 @@ fun MainShellScreen(
         },
         onOpenSettings = onOpenSettings,
     ) {
-        MainRootStateHost(selected) { root ->
+        MainRootStateHost(
+            selectedRoot = selected,
+            onRootActivated = { root ->
+                when (root) {
+                    MainRoot.Media -> Unit
+                    MainRoot.Review -> reviewViewModel.loadIfNeeded()
+                    MainRoot.Favorites -> favoritesViewModel.loadIfNeeded()
+                    MainRoot.Organizer -> {
+                        libraryViewModel.loadIfNeeded()
+                        deleteQueueViewModel.loadIfNeeded()
+                        duplicatesViewModel.loadIfNeeded()
+                    }
+                }
+            },
+            onReviewDeactivated = reviewViewModel::onRootDeactivated,
+        ) { root ->
             when (root) {
                 MainRoot.Media -> MediaWallScreen(
                     onBack = {},
                     onItemClick = onOpenMedia,
                     showHeader = false,
                 )
-                MainRoot.Review -> ReviewScreen(onBack = {}, showHeader = false)
+                MainRoot.Review -> ReviewScreen(
+                    onBack = {},
+                    showHeader = false,
+                    viewModel = reviewViewModel,
+                )
                 MainRoot.Favorites -> FavoritesScreen(
                     onBack = {},
                     onOpenMedia = onOpenMedia,
                     showHeader = false,
+                    viewModel = favoritesViewModel,
                 )
                 MainRoot.Organizer -> OrganizerOverview(
                     onOpenLibrary = onOpenLibrary,
                     onOpenDeleteQueue = onOpenDeleteQueue,
                     onOpenDuplicates = onOpenDuplicates,
+                    libraryViewModel = libraryViewModel,
+                    deleteQueueViewModel = deleteQueueViewModel,
+                    duplicatesViewModel = duplicatesViewModel,
                 )
             }
         }
@@ -193,9 +225,17 @@ fun MainShellScaffold(
 @Composable
 fun MainRootStateHost(
     selectedRoot: MainRoot,
+    onRootActivated: (MainRoot) -> Unit,
+    onReviewDeactivated: () -> Unit,
     content: @Composable (MainRoot) -> Unit,
 ) {
     val stateHolder = rememberSaveableStateHolder()
+    LaunchedEffect(selectedRoot) { onRootActivated(selectedRoot) }
+    DisposableEffect(selectedRoot) {
+        onDispose {
+            if (selectedRoot == MainRoot.Review) onReviewDeactivated()
+        }
+    }
     stateHolder.SaveableStateProvider(selectedRoot.name) { content(selectedRoot) }
 }
 
@@ -227,17 +267,13 @@ private fun OrganizerOverview(
     onOpenLibrary: () -> Unit,
     onOpenDeleteQueue: () -> Unit,
     onOpenDuplicates: () -> Unit,
-    libraryViewModel: LibraryViewModel = hiltViewModel(),
-    deleteQueueViewModel: DeleteQueueViewModel = hiltViewModel(),
-    duplicatesViewModel: DuplicatesViewModel = hiltViewModel(),
+    libraryViewModel: LibraryViewModel,
+    deleteQueueViewModel: DeleteQueueViewModel,
+    duplicatesViewModel: DuplicatesViewModel,
 ) {
     val libraries by libraryViewModel.ui.collectAsState()
     val deleteQueue by deleteQueueViewModel.ui.collectAsState()
     val duplicates by duplicatesViewModel.ui.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(deleteQueueViewModel, duplicatesViewModel) {
-        deleteQueueViewModel.loadIfNeeded()
-        duplicatesViewModel.loadIfNeeded()
-    }
     val statuses = organizerStatuses(
         selectedLibraries = libraries.selectedIds.size,
         pendingDeletes = deleteQueue.pendingCount,

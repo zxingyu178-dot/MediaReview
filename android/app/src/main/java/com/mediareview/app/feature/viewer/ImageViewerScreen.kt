@@ -30,7 +30,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavController
@@ -41,6 +40,7 @@ import coil.compose.AsyncImage
 import com.mediareview.app.ui.theme.MediaControlScrim
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaOnImmersive
+import com.mediareview.app.ui.theme.MediaSpacing
 
 /** 图片查看器导航路由:只传 mediaId,详情由页面自行获取。 */
 object ImageViewerDestinations {
@@ -143,7 +143,7 @@ fun ImageViewerScreen(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .background(MediaControlScrim)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
+                .padding(horizontal = MediaSpacing.XSmall, vertical = MediaSpacing.XSmall),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onBack) { Text("返回", color = MediaOnImmersive) }
@@ -154,7 +154,7 @@ fun ImageViewerScreen(
                 color = MediaOnImmersive,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 12.dp),
+                modifier = Modifier.padding(end = MediaSpacing.Regular),
             )
         }
     }

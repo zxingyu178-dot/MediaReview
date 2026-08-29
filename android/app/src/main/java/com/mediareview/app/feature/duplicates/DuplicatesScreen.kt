@@ -22,12 +22,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavController
 import androidx.navigation.compose.composable
 import com.mediareview.app.core.model.DuplicateGroupDto
+import com.mediareview.app.ui.theme.MediaSpacing
 
 /** 重复文件页导航路由。 */
 object DuplicatesDestinations {
@@ -50,14 +50,14 @@ fun DuplicatesScreen(
     val ui by viewModel.ui.collectAsState()
     LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = MediaSpacing.Regular)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = MediaSpacing.Small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("重复文件", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { viewModel.load() }) { Text("刷新") }
+            TextButton(onClick = viewModel::refresh) { Text("刷新") }
             TextButton(onClick = onBack) { Text("返回") }
         }
 
@@ -75,7 +75,7 @@ fun DuplicatesScreen(
                 contentAlignment = Alignment.Center,
             ) { Text("暂无重复文件") }
 
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
                 if (ui.exact.isNotEmpty()) {
                     item { SectionHeader("完全重复(${ui.exact.size} 组)") }
                     items(ui.exact, key = { it.group_id }) { DuplicateGroupRow(it) }
@@ -94,7 +94,7 @@ private fun SectionHeader(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = 8.dp),
+        modifier = Modifier.padding(top = MediaSpacing.Small),
     )
 }
 
@@ -104,7 +104,7 @@ private fun DuplicateGroupRow(group: DuplicateGroupDto) {
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
-            .padding(12.dp),
+            .padding(MediaSpacing.Regular),
     ) {
         Text(
             text = "${group.count} 个文件 · ${fmtBytes(group.size_bytes)}",

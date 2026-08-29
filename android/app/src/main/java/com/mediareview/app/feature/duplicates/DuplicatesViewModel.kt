@@ -3,7 +3,9 @@ package com.mediareview.app.feature.duplicates
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.DuplicateGroupDto
-import com.mediareview.app.core.ui.InitialLoadGate
+import com.mediareview.app.core.ui.ContentArea
+import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.RevisionLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -24,17 +26,18 @@ data class DuplicatesUiState(
 @HiltViewModel
 class DuplicatesViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
-    private val initialLoad = InitialLoadGate()
+    private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(DuplicatesUiState())
     val ui: StateFlow<DuplicatesUiState> = _ui.asStateFlow()
 
     fun loadIfNeeded() {
-        if (initialLoad.claim()) load()
+        if (loadGate.claim(invalidations.revision(ContentArea.Duplicates))) load()
     }
 
-    fun load() {
+    fun load(invalidateOnSuccess: Boolean = false) {
         viewModelScope.launch {
             _ui.update { it.copy(loading = true, error = null) }
             val exact = repository.loadDuplicatesExact()
@@ -44,6 +47,9 @@ class DuplicatesViewModel @Inject constructor(
                 exact = exact,
                 similar = similar,
             )
+            if (invalidateOnSuccess) invalidations.invalidate(ContentArea.Duplicates)
         }
     }
+
+    fun refresh() = load(invalidateOnSuccess = true)
 }

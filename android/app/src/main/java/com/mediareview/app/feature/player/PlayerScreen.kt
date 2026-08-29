@@ -60,8 +60,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.C
@@ -170,7 +168,7 @@ fun PlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(errorText, color = MediaOnImmersive)
-                Spacer(Modifier.padding(8.dp))
+                Spacer(Modifier.padding(MediaSpacing.Small))
                 TextButton(onClick = { viewModel.load(mediaId) }) { Text("重试", color = MediaOnImmersive) }
             }
         } else {
@@ -235,7 +233,7 @@ fun PlayerScreen(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .background(MediaControlScrim)
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = MediaSpacing.XSmall, vertical = MediaSpacing.XSmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onBack) { Text("返回", color = MediaOnImmersive) }
@@ -246,7 +244,7 @@ fun PlayerScreen(
                     color = MediaOnImmersive,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.padding(end = MediaSpacing.Regular),
                 )
                 IconButton(
                     onClick = { locked = true },
@@ -284,7 +282,7 @@ fun PlayerScreen(
                 onClick = { locked = false },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(12.dp)
+                    .padding(MediaSpacing.Regular)
                     .background(MediaControlScrimMedium, MaterialTheme.shapes.medium)
                     .sizeIn(
                         minWidth = MediaDimensions.MinimumTouchTarget,
@@ -381,7 +379,7 @@ private fun BottomControls(
         Modifier
             .fillMaxWidth()
             .background(MediaControlScrim)
-            .padding(8.dp),
+            .padding(MediaSpacing.Small),
     ) {
         // 第一行:播放/暂停 + 进度 + 时间
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -410,13 +408,13 @@ private fun BottomControls(
                 text = "${fmt(positionMs)} / ${fmt(duration)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MediaOnImmersive,
-                modifier = Modifier.padding(start = 8.dp),
+                modifier = Modifier.padding(start = MediaSpacing.Small),
             )
         }
 
         // 第二行:倍速 / 静音 / 画面比例 / 音轨字幕 / 横竖屏 / 锁定
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = MediaSpacing.XSmall),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -482,7 +480,7 @@ private fun TrackDialog(
         onDismissRequest = onDismiss,
         title = { Text("音轨 / 字幕") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
                 if (audioGroups.isEmpty() && textGroups.isEmpty()) {
                     Text("当前媒体没有可切换的附加轨道")
                 }
@@ -494,7 +492,7 @@ private fun TrackDialog(
                                 ?: "音轨 ${ti + 1}"
                             Text(
                                 text = label,
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = if (g.isTrackSelected(ti)) MediaAccent
                                 else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
@@ -514,7 +512,7 @@ private fun TrackDialog(
                                 ?: "字幕 ${ti + 1}"
                             Text(
                                 text = label,
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = if (g.isTrackSelected(ti)) MediaAccent
                                 else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
@@ -599,7 +597,11 @@ internal fun PlayerTextMenuButton(
             minHeight = MediaDimensions.MinimumTouchTarget,
         ),
     ) {
-        Text(text = label, color = MediaOnImmersive, fontSize = 14.sp)
+        Text(
+            text = label,
+            color = MediaOnImmersive,
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

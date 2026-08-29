@@ -8,6 +8,8 @@ import com.mediareview.app.core.media.ReviewPlayable
 import com.mediareview.app.core.media.ReviewQueueWindow
 import com.mediareview.app.core.model.ReviewQueueItemDto
 import com.mediareview.app.core.ui.InitialLoadGate
+import com.mediareview.app.core.ui.ContentArea
+import com.mediareview.app.core.ui.ContentInvalidationStore
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -65,6 +67,7 @@ private const val PAGE_SIZE = 40
 class ReviewViewModel @Inject constructor(
     private val repository: MediaRepository,
     val core: PlayerCore,
+    private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
     private val initialLoad = InitialLoadGate()
 
@@ -290,10 +293,12 @@ class ReviewViewModel @Inject constructor(
             if (id in st.likedSet) {
                 if (repository.removeFavorite(id)) {
                     _ui.update { it.copy(likedSet = it.likedSet - id) }
+                    invalidations.invalidate(ContentArea.Favorites)
                 }
             } else {
                 if (repository.addFavorite(id)) {
                     _ui.update { it.copy(likedSet = it.likedSet + id) }
+                    invalidations.invalidate(ContentArea.Favorites)
                 }
             }
         }
@@ -316,6 +321,7 @@ class ReviewViewModel @Inject constructor(
                     )
                 }
                 _events.tryEmit(ReviewEvent.DeleteSucceeded)
+                invalidations.invalidate(ContentArea.DeleteQueue)
             }
         }
     }
@@ -331,6 +337,7 @@ class ReviewViewModel @Inject constructor(
                         lastDeletedMediaId = null,
                     )
                 }
+                invalidations.invalidate(ContentArea.DeleteQueue)
             }
         }
     }
@@ -352,6 +359,12 @@ class ReviewViewModel @Inject constructor(
 
     /** 供批阅页获取当前视频要显示哪个播放器实例。 */
     fun activePlayer() = core.activePlayer()
+
+    /** 主壳切离批阅根时停止不可见页面的声音，同时取消尚未落地的 settle。 */
+    fun onRootDeactivated() {
+        settleJob?.cancel()
+        core.deactivateReview()
+    }
 
     private suspend fun snapshotAndReport(mediaId: String) {
         val snap = core.snapshotFor(mediaId) ?: return

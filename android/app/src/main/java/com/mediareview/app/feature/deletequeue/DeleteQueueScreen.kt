@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,13 +32,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavController
 import androidx.navigation.compose.composable
 import coil.compose.AsyncImage
 import com.mediareview.app.core.model.DeleteQueueItemDto
+import com.mediareview.app.ui.theme.MediaSpacing
+import com.mediareview.app.ui.theme.MediaDimensions
 
 /** 待删除页导航路由。 */
 object DeleteQueueDestinations {
@@ -64,9 +64,9 @@ fun DeleteQueueScreen(
 
     LaunchedEffect(viewModel) { viewModel.loadIfNeeded() }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = MediaSpacing.Regular)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = MediaSpacing.Small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("待删除", style = MaterialTheme.typography.titleLarge)
@@ -86,7 +86,7 @@ fun DeleteQueueScreen(
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.medium)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(12.dp),
+                        .padding(MediaSpacing.Regular),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
@@ -106,8 +106,8 @@ fun DeleteQueueScreen(
                     }
                 } else {
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize().padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                        modifier = Modifier.fillMaxSize().padding(top = MediaSpacing.Small),
                     ) {
                         items(ui.items, key = { it.media_id }) { item ->
                             DeleteQueueRow(item, viewModel::restore)
@@ -162,16 +162,18 @@ private fun DeleteQueueRow(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(8.dp),
+            .padding(MediaSpacing.Small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AsyncImage(
             model = media?.cover_url,
             contentDescription = media?.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier
+                .size(MediaDimensions.DeleteThumbnail)
+                .clip(MaterialTheme.shapes.small),
         )
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+        Column(Modifier.weight(1f).padding(horizontal = MediaSpacing.Regular)) {
             Text(
                 text = media?.name ?: item.media_id,
                 style = MaterialTheme.typography.bodyMedium,

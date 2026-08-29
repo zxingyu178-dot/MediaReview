@@ -42,8 +42,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
@@ -176,7 +174,7 @@ fun ReviewScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(ui.error ?: "加载失败", color = MediaOnImmersive)
-                Spacer(Modifier.padding(8.dp))
+                Spacer(Modifier.padding(MediaSpacing.Small))
                 Button(onClick = { viewModel.load() }) { Text("重试") }
             }
 
@@ -205,7 +203,7 @@ fun ReviewScreen(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .background(MediaControlScrim)
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = MediaSpacing.XSmall, vertical = MediaSpacing.XSmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onBack) { Text("返回", color = MediaOnImmersive) }
@@ -221,7 +219,7 @@ fun ReviewScreen(
                         text = "批阅 ${(absolute + 1).coerceIn(1, ui.total)}/${ui.total}",
                         color = MediaOnImmersive,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(end = 12.dp),
+                        modifier = Modifier.padding(end = MediaSpacing.Regular),
                     )
                 }
             }
@@ -239,7 +237,7 @@ fun ReviewScreen(
                 onMore = { moreMedia = cur },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 12.dp),
+                    .padding(end = MediaSpacing.Regular),
             )
         }
 
@@ -248,9 +246,9 @@ fun ReviewScreen(
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
+                    .padding(bottom = MediaSpacing.Large)
                     .background(MediaControlSurface)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = MediaSpacing.Medium, vertical = MediaSpacing.Small),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("已加入待删除", color = MediaOnImmersive)
@@ -267,7 +265,7 @@ fun ReviewScreen(
             onDismissRequest = { moreMedia = null },
             title = { Text(m.name) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(MediaSpacing.XSmall)) {
                     Text("类型:${if (m.isVideo) "视频" else "图片"}")
                     m.duration_ms?.let { Text("时长:${fmtMs(it)}") }
                     m.size_bytes?.let { Text("大小:${fmtBytes(it)}") }
@@ -318,7 +316,9 @@ private fun ReviewPage(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = "播放视频",
                     tint = MediaOnImmersive,
-                    modifier = Modifier.align(Alignment.Center).size(48.dp),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(MediaDimensions.MinimumTouchTarget),
                 )
             }
 
@@ -344,7 +344,7 @@ private fun RightActionBar(
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(MediaDimensions.ReviewActionGap),
     ) {
         LikeHeart(liked = liked, onClick = onLike)
         ActionItem(

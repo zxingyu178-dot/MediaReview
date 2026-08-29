@@ -3,6 +3,9 @@ package com.mediareview.app.feature.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.LibraryItem
+import com.mediareview.app.core.ui.ContentArea
+import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.RevisionLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -24,13 +27,19 @@ data class LibraryUiState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
+    private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(LibraryUiState())
     val ui: StateFlow<LibraryUiState> = _ui.asStateFlow()
 
     init {
-        refresh()
+        loadIfNeeded()
+    }
+
+    fun loadIfNeeded() {
+        if (loadGate.claim(invalidations.revision(ContentArea.Libraries))) refresh()
     }
 
     fun refresh() {
@@ -67,6 +76,7 @@ class LibraryViewModel @Inject constructor(
             runCatching { repository.saveSelection(_ui.value.selectedIds.toList()) }
                 .onSuccess {
                     _ui.update { st -> st.copy(saving = false, saved = true) }
+                    invalidations.invalidate(ContentArea.Libraries)
                 }
                 .onFailure { e ->
                     _ui.update { it.copy(saving = false, error = e.message) }

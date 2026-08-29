@@ -22,13 +22,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import androidx.navigation.NavController
 import com.mediareview.app.feature.connect.ConnectDestinations
 import com.mediareview.app.ui.shell.MainShellDestinations
+import com.mediareview.app.ui.theme.MediaSpacing
 
 /** 设置页导航路由。 */
 object SettingsDestinations {
@@ -67,7 +67,7 @@ fun SettingsScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(MediaSpacing.Large),
         ) {
             androidx.compose.foundation.layout.Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -78,19 +78,19 @@ fun SettingsScreen(
                 Text("设置", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.weight(1f))
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(MediaSpacing.Medium))
 
             if (ui.loading) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
             } else {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
+                    Column(Modifier.padding(MediaSpacing.Medium)) {
                         Text("服务器地址", style = MaterialTheme.typography.labelMedium)
                         Text(ui.baseUrl.ifBlank { "未配置" }, style = MaterialTheme.typography.bodyLarge)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(MediaSpacing.Small))
                         Text("设备编号", style = MaterialTheme.typography.labelMedium)
                         Text(ui.deviceId.ifBlank { "未生成" }, style = MaterialTheme.typography.bodyLarge)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(MediaSpacing.Small))
                         Text(
                             text = if (ui.paired) "已配对" else "未配对",
                             style = MaterialTheme.typography.bodyMedium,
@@ -100,18 +100,18 @@ fun SettingsScreen(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(MediaSpacing.Medium))
 
                 if (ui.checking) {
                     CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
                 }
                 ui.checkMessage?.let {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(MediaSpacing.Small))
                     Text(it, style = MaterialTheme.typography.bodyMedium)
                 }
 
-                Spacer(Modifier.height(16.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Spacer(Modifier.height(MediaSpacing.Medium))
+                Column(verticalArrangement = Arrangement.spacedBy(MediaSpacing.Regular)) {
                     OutlinedButton(
                         onClick = { viewModel.checkConnection() },
                         modifier = Modifier.fillMaxWidth(),

@@ -18,11 +18,12 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import com.mediareview.app.ui.theme.MediaControlScrim
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaOnImmersive
+import com.mediareview.app.ui.theme.MediaSpacing
+import com.mediareview.app.ui.theme.MediaDimensions
 
 /** 长按进入横向滑动预览的最小按住时长(毫秒)。 */
 private const val LONG_PRESS_MS = 500L
@@ -137,9 +138,12 @@ fun SpritePreviewOverlay(state: SpriteScrubState, modifier: Modifier = Modifier)
                     color = MediaOnImmersive,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 28.dp)
+                        .padding(bottom = MediaDimensions.SpriteCaptionBottom)
                         .background(MediaControlScrim)
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .padding(
+                            horizontal = MediaSpacing.Small,
+                            vertical = MediaSpacing.XSmall,
+                        ),
                 )
             }
 

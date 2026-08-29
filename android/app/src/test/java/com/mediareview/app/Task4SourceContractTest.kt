@@ -49,6 +49,7 @@ class Task4SourceContractTest {
         val forbidden = listOf(
             "❤", "♥", "🗑", "⋯", "▶", "◀", "▲", "▼", "↑", "↓", "⏸",
             "🔒", "🔓", "🔇", "🔊", "🎞", "🔄", "🤍",
+            "✓",
         )
         val hits = sourceRoot.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
@@ -73,5 +74,71 @@ class Task4SourceContractTest {
         assertFalse(player.contains("Modifier.clickable { expanded = true }.padding(6.dp)"))
         assertTrue(Regex("PlayerTextMenuButton\\(").findAll(player).count() >= 3)
         assertTrue(player.contains("minHeight = MediaDimensions.MinimumTouchTarget"))
+    }
+
+    @Test
+    fun task4ComposeFilesUseSpacingAndTypographyTokensInsteadOfEquivalentLiterals() {
+        val files = listOf(
+            "feature/connect/ConnectScreen.kt",
+            "feature/deletequeue/DeleteQueueScreen.kt",
+            "feature/duplicates/DuplicatesScreen.kt",
+            "feature/favorites/FavoritesScreen.kt",
+            "feature/mediawall/MediaWallScreen.kt",
+            "feature/mediawall/SpritePreviewUi.kt",
+            "feature/player/PlayerScreen.kt",
+            "feature/review/ReviewScreen.kt",
+            "feature/settings/SettingsScreen.kt",
+            "feature/viewer/ImageViewerScreen.kt",
+            "ui/components/MediaComponents.kt",
+            "ui/shell/MainShell.kt",
+        )
+        val forbidden = Regex("(?<![A-Za-z0-9_])(?:4|8|12|16|24|32|48)\\.dp|14\\.sp")
+        val hits = files.flatMap { relative ->
+            forbidden.findAll(
+                projectFile("src/main/java/com/mediareview/app/$relative").readText(),
+            ).map { "$relative:${it.value}" }.toList()
+        }
+
+        assertEquals("仍有 token-equivalent 尺寸字面量: $hits", emptyList<String>(), hits)
+    }
+
+    @Test
+    fun successfulMutationsInvalidateOnlyTheirRelatedRootContent() {
+        val review = projectFile(
+            "src/main/java/com/mediareview/app/feature/review/ReviewViewModel.kt",
+        ).readText()
+        val favorites = projectFile(
+            "src/main/java/com/mediareview/app/feature/favorites/FavoritesViewModel.kt",
+        ).readText()
+        val libraries = projectFile(
+            "src/main/java/com/mediareview/app/feature/library/LibraryViewModel.kt",
+        ).readText()
+        val deleteQueue = projectFile(
+            "src/main/java/com/mediareview/app/feature/deletequeue/DeleteQueueViewModel.kt",
+        ).readText()
+
+        assertTrue(review.contains("invalidate(ContentArea.Favorites)"))
+        assertTrue(review.contains("invalidate(ContentArea.DeleteQueue)"))
+        assertTrue(favorites.contains("invalidate(ContentArea.Favorites)"))
+        assertTrue(libraries.contains("invalidate(ContentArea.Libraries)"))
+        assertTrue(deleteQueue.contains("invalidate(ContentArea.DeleteQueue)"))
+    }
+
+    @Test
+    fun reviewRootDeactivationIsWiredToBothPlayers() {
+        val shell = projectFile("src/main/java/com/mediareview/app/ui/shell/MainShell.kt").readText()
+        val review = projectFile(
+            "src/main/java/com/mediareview/app/feature/review/ReviewViewModel.kt",
+        ).readText()
+        val core = projectFile("src/main/java/com/mediareview/app/core/media/PlayerCore.kt").readText()
+
+        assertTrue(shell.contains("onReviewDeactivated = reviewViewModel::onRootDeactivated"))
+        assertTrue(review.contains("fun onRootDeactivated()"))
+        assertTrue(
+            Regex(
+                "fun deactivateReview\\(\\)\\s*\\{[^}]*player\\.pause\\(\\)[^}]*preload\\.pause\\(\\)",
+                RegexOption.DOT_MATCHES_ALL,
+            ).containsMatchIn(core),
+        )
     }
 }

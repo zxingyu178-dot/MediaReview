@@ -3,7 +3,9 @@ package com.mediareview.app.feature.deletequeue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.DeleteQueueItemDto
-import com.mediareview.app.core.ui.InitialLoadGate
+import com.mediareview.app.core.ui.ContentArea
+import com.mediareview.app.core.ui.ContentInvalidationStore
+import com.mediareview.app.core.ui.RevisionLoadGate
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -28,14 +30,15 @@ data class DeleteQueueUiState(
 @HiltViewModel
 class DeleteQueueViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val invalidations: ContentInvalidationStore,
 ) : ViewModel() {
-    private val initialLoad = InitialLoadGate()
+    private val loadGate = RevisionLoadGate()
 
     private val _ui = MutableStateFlow(DeleteQueueUiState())
     val ui: StateFlow<DeleteQueueUiState> = _ui.asStateFlow()
 
     fun loadIfNeeded() {
-        if (initialLoad.claim()) load()
+        if (loadGate.claim(invalidations.revision(ContentArea.DeleteQueue))) load()
     }
 
     fun load() {
@@ -53,7 +56,9 @@ class DeleteQueueViewModel @Inject constructor(
     /** 单项恢复。 */
     fun restore(mediaId: String) {
         viewModelScope.launch {
-            repository.dequeueDelete(mediaId)
+            if (repository.dequeueDelete(mediaId)) {
+                invalidations.invalidate(ContentArea.DeleteQueue)
+            }
             load()
         }
     }
@@ -68,6 +73,7 @@ class DeleteQueueViewModel @Inject constructor(
                 "删除成功 $ok 项,失败 $failed 项"
             } ?: "删除完成"
             _ui.update { it.copy(commitResult = summary) }
+            if (result != null) invalidations.invalidate(ContentArea.DeleteQueue)
             load()
         }
     }

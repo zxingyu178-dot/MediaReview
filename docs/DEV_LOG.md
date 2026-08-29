@@ -28,6 +28,16 @@ TDD 与验证：
 
 - `feat(android): add dark media shell`（本任务单一 focused commit）
 
+接受审查 remediation：
+
+- I1：真实主壳 root lifecycle 在批阅失活时取消 settle，并暂停 P0/P1 两个播放器。
+- I2：收藏、媒体库、待删除、重复文件改为业务 revision + load gate；普通切根不重载，相关成功变更后返回精确刷新。
+- I3：横屏媒体筛选改为单行横向滚动，Compose 合同覆盖 740x360、font scale 1.3 与主壳 chrome 后的网格高度。
+- I4/M1：Task 4 修改过的 Compose 文件不再使用已有 token 的 dp/sp 字面量；`✓` 已移除并加入符号回归。
+- I5：主壳测试使用生产 `MainRootStateHost` 验证 Review deactivation 与收藏 revision 刷新；报告不再把合成内容称为真实业务页面。
+- 第二轮 RED：focused JVM 因 revision API 缺失失败，instrumentation 因 lifecycle/responsive API 缺失失败；
+  focused GREEN 为 15 tests / 0 failures，instrumentation Kotlin 编译通过。最终 full 证据见 Task 4 report。
+
 ---
 
 ## 模板

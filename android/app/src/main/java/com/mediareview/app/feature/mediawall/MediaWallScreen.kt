@@ -2,8 +2,12 @@ package com.mediareview.app.feature.mediawall
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -43,8 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
@@ -62,6 +66,10 @@ import com.mediareview.app.ui.components.MediaOfflineState
 import com.mediareview.app.ui.theme.MediaSpacing
 import com.mediareview.app.ui.theme.MediaControlScrim
 import com.mediareview.app.ui.theme.MediaOnImmersive
+import com.mediareview.app.ui.theme.MediaDimensions
+
+const val COMPACT_MEDIA_FILTERS_TAG = "compact_media_filters"
+const val MEDIA_GRID_TAG = "media_grid"
 
 /** 媒体墙导航路由。 */
 object MediaWallDestinations {
@@ -120,7 +128,7 @@ fun MediaWallScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = MediaSpacing.Regular),
         ) {
             if (showHeader) {
                 Row(
@@ -133,42 +141,11 @@ fun MediaWallScreen(
                 }
             }
 
-            OutlinedTextField(
-                value = ui.search,
-                onValueChange = viewModel::onSearchChange,
-                label = { Text("搜索") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(8.dp))
-
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
-                verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
-                maxItemsInEachRow = 2,
+            ResponsiveMediaWallLayout(
+                modifier = Modifier.weight(1f),
+                compactFilters = { MediaWallFilters(ui, viewModel, compact = true) },
+                stackedFilters = { MediaWallFilters(ui, viewModel, compact = false) },
             ) {
-                SortMenu(ui.sortBy, ui.sortOrder, viewModel::setSort)
-                TypeFilterMenu(ui.type, viewModel::setType)
-                LibraryFilterMenu(
-                    libraries = ui.libraries,
-                    selectedId = ui.libraryId,
-                    onSelect = viewModel::onLibrarySelected,
-                    onAll = viewModel::onLibraryAll,
-                )
-                OutlinedButton(onClick = { viewModel.setExcludeFavorites(!ui.excludeFavorites) }) {
-                    Text(if (ui.excludeFavorites) "未点赞 ✓" else "未点赞")
-                }
-            }
-            Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
-            Slider(
-                value = ui.gridColumns.toFloat(),
-                onValueChange = { viewModel.setGridColumns(it.toInt()) },
-                valueRange = 2f..5f,
-                steps = 2,
-            )
-
-            Box(Modifier.weight(1f)) {
                 when {
                     ui.loading && ui.items.isEmpty() -> LoadingSkeleton(
                         Modifier.align(Alignment.Center).padding(MediaSpacing.Large),
@@ -190,8 +167,8 @@ fun MediaWallScreen(
                         columns = GridCells.Fixed(ui.gridColumns),
                         modifier = Modifier.fillMaxSize(),
                         state = gridState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                        horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
                     ) {
                         items(ui.items, key = { it.media_id }) { item ->
                             MediaCell(
@@ -204,7 +181,7 @@ fun MediaWallScreen(
                         item {
                             if (ui.loading) {
                                 Box(
-                                    Modifier.fillMaxWidth().padding(12.dp),
+                                    Modifier.fillMaxWidth().padding(MediaSpacing.Regular),
                                     contentAlignment = Alignment.Center,
                                 ) { CircularProgressIndicator() }
                             }
@@ -213,6 +190,105 @@ fun MediaWallScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ResponsiveMediaWallLayout(
+    modifier: Modifier = Modifier,
+    compactFilters: @Composable () -> Unit,
+    stackedFilters: @Composable () -> Unit,
+    grid: @Composable BoxScope.() -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val compact = maxWidth > maxHeight
+        Column(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (compact) Modifier.testTag(COMPACT_MEDIA_FILTERS_TAG) else Modifier),
+            ) {
+                if (compact) compactFilters() else stackedFilters()
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .testTag(MEDIA_GRID_TAG),
+                content = grid,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MediaWallFilters(
+    ui: MediaWallUiState,
+    viewModel: MediaWallViewModel,
+    compact: Boolean,
+) {
+    val controls: @Composable () -> Unit = {
+        SortMenu(ui.sortBy, ui.sortOrder, viewModel::setSort)
+        TypeFilterMenu(ui.type, viewModel::setType)
+        LibraryFilterMenu(
+            libraries = ui.libraries,
+            selectedId = ui.libraryId,
+            onSelect = viewModel::onLibrarySelected,
+            onAll = viewModel::onLibraryAll,
+        )
+        OutlinedButton(onClick = { viewModel.setExcludeFavorites(!ui.excludeFavorites) }) {
+            Text(if (ui.excludeFavorites) "仅看未点赞" else "筛选未点赞")
+        }
+    }
+
+    if (compact) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = ui.search,
+                onValueChange = viewModel::onSearchChange,
+                label = { Text("搜索") },
+                singleLine = true,
+                modifier = Modifier.width(MediaDimensions.CompactSearchWidth),
+            )
+            controls()
+            Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
+            Slider(
+                value = ui.gridColumns.toFloat(),
+                onValueChange = { viewModel.setGridColumns(it.toInt()) },
+                valueRange = 2f..5f,
+                steps = 2,
+                modifier = Modifier.width(MediaDimensions.CompactSliderWidth),
+            )
+        }
+    } else {
+        OutlinedTextField(
+            value = ui.search,
+            onValueChange = viewModel::onSearchChange,
+            label = { Text("搜索") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(MediaSpacing.Small))
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+            verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+            maxItemsInEachRow = 2,
+        ) { controls() }
+        Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
+        Slider(
+            value = ui.gridColumns.toFloat(),
+            onValueChange = { viewModel.setGridColumns(it.toInt()) },
+            valueRange = 2f..5f,
+            steps = 2,
+        )
     }
 }
 
@@ -320,7 +396,7 @@ private fun MediaCell(
                     color = MediaOnImmersive,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(6.dp)
+                        .padding(MediaSpacing.Small)
                         .background(MediaControlScrim),
                 )
                 SpritePreviewOverlay(
@@ -334,7 +410,7 @@ private fun MediaCell(
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(4.dp),
+            modifier = Modifier.padding(MediaSpacing.XSmall),
         )
     }
 }
@@ -342,12 +418,12 @@ private fun MediaCell(
 @Composable
 private fun ErrorBox(message: String, onRetry: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier.fillMaxSize().padding(MediaSpacing.Large),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Text(message, color = MaterialTheme.colorScheme.error)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(MediaSpacing.Medium))
         Button(onClick = onRetry) { Text("重试") }
     }
 }
