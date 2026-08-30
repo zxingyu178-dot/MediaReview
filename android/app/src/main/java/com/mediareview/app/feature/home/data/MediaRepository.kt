@@ -141,6 +141,14 @@ class MediaRepository @Inject constructor(
         unwrap(api().mediaDetail(mediaId))?.let { resolveMedia(it, pairedBaseUrl()) }
     }.getOrNull()
 
+    /** 后台任务状态(雪碧图生成进度等);失败返回 null 由调用方兜底。 */
+    suspend fun loadTask(taskId: String): com.mediareview.app.core.model.TaskStateDto? =
+        runSuspendCatching { unwrap(api().taskDetail(taskId)) }.getOrNull()
+
+    /** 协作取消后台任务;失败返回 null。 */
+    suspend fun cancelTask(taskId: String): com.mediareview.app.core.model.TaskStateDto? =
+        runSuspendCatching { unwrap(api().cancelTask(taskId)) }.getOrNull()
+
     /**
      * 读取雪碧图清单;url 为服务端相对路径,补全为绝对地址供 Coil 加载。
      * 未生成/未就绪时服务端返回 404,抛异常由调用方决定触发后台生成。
@@ -152,10 +160,9 @@ class MediaRepository @Inject constructor(
         return m.copy(url = mediaUrlResolver.resolve(m.url, pairedBaseUrl(), controlledServerOnlyHosts))
     }
 
-    /** 触发雪碧图后台生成(服务端幂等,已就绪则直返)。 */
-    suspend fun ensureSprite(mediaId: String) {
-        runSuspendCatching { unwrap(api().ensureSprite(mediaId)) }
-    }
+    /** 触发雪碧图后台生成(服务端幂等,已就绪则直返);返回任务引用供进度/取消。 */
+    suspend fun ensureSprite(mediaId: String): com.mediareview.app.core.model.SpriteEnsureOut? =
+        runSuspendCatching { unwrap(api().ensureSprite(mediaId)) }.getOrNull()
 
     /** 获取播放信息(Jellyfin 直连流地址)。 */
     override suspend fun loadPlayback(mediaId: String): com.mediareview.app.core.model.PlaybackInfoDto? =

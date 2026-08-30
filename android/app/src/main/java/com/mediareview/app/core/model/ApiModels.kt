@@ -77,6 +77,17 @@ data class SpriteEnsureOut(
     val status: String = "",
 )
 
+/** 后台任务状态(GET /tasks/{task_id}):用于雪碧图生成进度与协作取消。 */
+@Serializable
+data class TaskStateDto(
+    val task_id: String = "",
+    val type: String = "",
+    val status: String = "",
+    val progress: Int = 0,
+    val media_id: String? = null,
+    val error: String? = null,
+)
+
 /** 播放信息(GET /media/{media_id}/playback):Jellyfin 直连流地址。 */
 @Serializable
 data class PlaybackInfoDto(

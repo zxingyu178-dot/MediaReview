@@ -517,31 +517,46 @@ def test_media_pagination_100k_no_rescan_and_responsive(data_root) -> None:
             )
         return httpx.Response(404, json={"error": "unexpected " + path})
 
-    client, calls = _make_counting_app(big_handler, data_root)
+    # 在 client 启动(lifespan + TaskManager 1s 轮询)之前完成迁移与插种,
+    # 轮询期间没有任何长写事务,从根上消除 SQLite 锁竞争 flake。
     total = 100_000
-    with client as c:
-        c.get("/api/v1/libraries")
-        c.put("/api/v1/libraries/selection", json={"selected": ["lib-100k"]})
-        for chunk_start in range(0, total, 20_000):
-            payload = [
-                {
-                    "media_id": compute_media_id(f"k-{i}"),
-                    "jellyfin_id": f"k-{i}",
-                    "library_id": "lib-100k",
-                    "name": f"movie{i:06d}.mp4",
-                    "media_type": "video",
-                    "size_bytes": 1000 + i,
-                    "duration_ms": 6000 + i,
-                    "width": 1920,
-                    "height": 1080,
-                    "fingerprint": f"fp-{i}",
-                    "is_available": True,
-                }
-                for i in range(chunk_start, min(chunk_start + 20_000, total))
-            ]
-            with c.app.state.database.engine.begin() as connection:
-                connection.execute(sa.insert(models.MediaCacheIndex), payload)
+    from app.db.migrate import run_migrations
+    from app.db.session import Database
 
+    db_path = data_root / "database" / "mediareview.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    run_migrations(f"sqlite:///{db_path}")
+    seed_db = Database(db_path)
+    with seed_db.session() as session:
+        session.add(
+            models.LibrarySelection(
+                jellyfin_id="lib-100k", name="十万库", collection_type="movies", selected=True
+            )
+        )
+        session.commit()
+    for chunk_start in range(0, total, 20_000):
+        payload = [
+            {
+                "media_id": compute_media_id(f"k-{i}"),
+                "jellyfin_id": f"k-{i}",
+                "library_id": "lib-100k",
+                "name": f"movie{i:06d}.mp4",
+                "media_type": "video",
+                "size_bytes": 1000 + i,
+                "duration_ms": 6000 + i,
+                "width": 1920,
+                "height": 1080,
+                "fingerprint": f"fp-{i}",
+                "is_available": True,
+            }
+            for i in range(chunk_start, min(chunk_start + 20_000, total))
+        ]
+        with seed_db.engine.begin() as connection:
+            connection.execute(sa.insert(models.MediaCacheIndex), payload)
+    seed_db.dispose()
+
+    client, calls = _make_counting_app(big_handler, data_root)
+    with client as c:
         durations: list[float] = []
         for page in (1, 2, 3):
             started = time.perf_counter()

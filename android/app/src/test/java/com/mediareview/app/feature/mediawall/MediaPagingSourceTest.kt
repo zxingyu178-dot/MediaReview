@@ -154,6 +154,15 @@ class MediaPagingSourceTest {
     }
 
     @Test
+    fun cancellationExceptionsPropagateWithoutWrapping() = runTest {
+        val repository = PagingRepository()
+        repository.error = kotlinx.coroutines.CancellationException("分页加载已取消")
+        val source = MediaPagingSource(repository, MediaQuery(), pageSize = 2)
+        val failure = runCatching { load(source, null) }.exceptionOrNull()
+        assertTrue("取消不得被包装成 LoadResult.Error", failure is kotlinx.coroutines.CancellationException)
+    }
+
+    @Test
     fun queryParametersPassThroughToDataSource() = runTest {
         val repository = PagingRepository()
         repository.pages[1] = mediaPage(listOf("a"), total = 1, page = 1)

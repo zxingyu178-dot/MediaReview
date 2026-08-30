@@ -119,6 +119,17 @@
 - [x] 缺少 REVIEW_SUMMARY/阶段结论/测试证据、无效或非祖先 base、ZIP 超限、git 不可用均 fail-closed
 - [x] 15 个端到端测试（临时 Git 仓库真实运行）；RED 12 failed → GREEN 15 passed；全量 273 passed；ruff check/format 全绿
 
+## MediaReview(1.1.0-alpha3 Task B: Paging 3 媒体墙、图片与雪碧图闭环) — 完成
+- [x] Paging 3 依赖 + 不可变 `MediaQuery` + `MediaPagingSource`（键=页码、错误包装、取消上抛）
+- [x] ViewModel `flatMapLatest` 新查询新 Pager + `cachedIn` 唯一页缓存 + revision 刷新门
+- [x] MediaWallScreen 换 LazyPagingItems：骨架/空态/离线重试/追加失败就地重试，2-5 列与全部筛选保留
+- [x] 文件夹辅助视图在媒体墙内（服务器 folder_id=SHA-256 前缀，响应无路径）；`GET /media/folders` + `folder_id` 筛选
+- [x] 图片查看器：详情重试、离开取消、Coil 按视口解码（≥1px 兜底）、平移钳制回归
+- [x] 雪碧图：ensure 202、进度里程碑 20/40/100、前后两处协作取消、终态 CAS、失败/取消中文文案与可重试
+- [x] 100k 无 Jellyfin 扫描门禁（预迁移+预插种解耦；连续 3 次全过；单页 0.03-0.08s）
+- [x] Server 282 passed + ruff 全绿；Android JVM 122/0 + 四目标 BUILD SUCCESSFUL（两轮）
+- [x] 独立审查：第一轮 NOT CLEAN（100k flake + _loop 无保护 + W605）→ 修复 → 第二轮 CLEAN（0C/0I/6M；M-A 平局打破键为基线既有，M-B..M-F 记录在案）
+
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 
 > 状态（2026-08-30，Task A 后）：**代码与独立审查门禁通过（CLEAN）**。Task A 关闭了最终删除

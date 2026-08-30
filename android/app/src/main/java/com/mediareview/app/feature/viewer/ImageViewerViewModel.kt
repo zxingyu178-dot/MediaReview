@@ -6,6 +6,7 @@ import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.feature.home.data.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,7 @@ data class ImageViewerUiState(
 
 /**
  * 图片查看器:只接收 mediaId,自行拉取详情(原图优先),不依赖路由里塞长 URL。
+ * 离开页面时 LaunchedEffect 取消协程;重复 load 会取消在途请求,防止旧详情晚到。
  */
 @HiltViewModel
 class ImageViewerViewModel @Inject constructor(
@@ -32,16 +34,32 @@ class ImageViewerViewModel @Inject constructor(
     private val _ui = MutableStateFlow(ImageViewerUiState())
     val ui: StateFlow<ImageViewerUiState> = _ui.asStateFlow()
 
+    private var loadJob: Job? = null
+    private var lastMediaId: String = ""
+
     fun load(mediaId: String) {
-        viewModelScope.launch {
+        lastMediaId = mediaId
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _ui.value = ImageViewerUiState(loading = true)
-            val media = repository.loadDetail(mediaId)
+            val media = runCatching { repository.loadDetail(mediaId) }.getOrNull()
             _ui.value = if (media != null) {
                 ImageViewerUiState(loading = false, media = media)
             } else {
                 ImageViewerUiState(loading = false, error = "无法加载图片详情")
             }
         }
+    }
+
+    /** 失败重试:重新拉取当前 mediaId 的详情。 */
+    fun retry() {
+        if (lastMediaId.isNotBlank()) load(lastMediaId)
+    }
+
+    /** 离开查看器:取消在途详情加载(位图随组合销毁由 Coil 自动取消)。 */
+    fun cancelDecoding() {
+        loadJob?.cancel()
+        loadJob = null
     }
 }
 

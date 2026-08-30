@@ -12,6 +12,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.db.models import BackgroundTask, SpriteManifest, utc_now
@@ -122,6 +123,8 @@ def _execute_sprite_generation(
             task.finished_at = utc_now()
             session.commit()
             return
+        task.progress = 20
+        session.commit()
 
     # 探测时长(在会话外,避免长 I/O 占用写锁)
     duration_ms = None
@@ -130,6 +133,15 @@ def _execute_sprite_generation(
             duration_ms = asyncio_run(executor.probe_duration(media_path))
         except Exception:  # noqa: BLE001 - 探测失败按 0 处理
             duration_ms = None
+
+    # 生成前检查协作取消:已被取消/失败的任务不再继续
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        if task is None or task.status in ("cancelled", "failed"):
+            return
+        task.progress = 40
+        session.commit()
+
     plan = build_sprite_plan(
         duration_ms or 0,
         video_width=media.width,
@@ -154,6 +166,16 @@ def _execute_sprite_generation(
 
     with database.session() as session:
         task = session.get(BackgroundTask, task_id)
+        if task is None:
+            return
+        # 生成期间被协作取消:丢弃产物,保持 cancelled/failed 状态,不复活任务
+        if task.status in ("cancelled", "failed"):
+            _drop_sprite_file(session, media_id, sprites_dir)
+            manifest = session.get(SpriteManifest, media_id)
+            if manifest is not None:
+                session.delete(manifest)
+            session.commit()
+            return
         manifest = session.get(SpriteManifest, media_id)
         if manifest is None:
             manifest = SpriteManifest(media_id=media_id)
@@ -172,11 +194,31 @@ def _execute_sprite_generation(
         manifest.video_height = media.height or 0
         manifest.error = None
         manifest.updated_at = utc_now()
-        if task is not None:
-            task.status = "succeeded"
-            task.progress = 100
-            task.result = json.dumps({"media_id": media_id})
-            task.finished_at = utc_now()
+        # CAS 抢占终态:仅 pending/running 可转为 succeeded;
+        # 读取状态与提交之间落库的取消不得被覆盖(TOCTOU)
+        won = session.execute(
+            sa.update(BackgroundTask)
+            .where(
+                BackgroundTask.task_id == task_id,
+                BackgroundTask.status.in_(("pending", "running")),
+            )
+            .values(
+                status="succeeded",
+                progress=100,
+                result=json.dumps({"media_id": media_id}),
+                finished_at=utc_now(),
+            )
+            .returning(BackgroundTask.task_id)
+            .execution_options(synchronize_session=False)
+        ).first()
+        if won is None:
+            session.rollback()
+            _drop_sprite_file(session, media_id, sprites_dir)
+            stale = session.get(SpriteManifest, media_id)
+            if stale is not None:
+                session.delete(stale)
+            session.commit()
+            return
         session.commit()
 
 

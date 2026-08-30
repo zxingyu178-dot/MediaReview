@@ -57,7 +57,12 @@ class TaskManager:
 
     async def _loop(self) -> None:
         while self._running:
-            await self._tick()
+            try:
+                await self._tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - 瞬时 DB 锁冲突不得杀死工作循环
+                logger.exception("后台任务轮询异常,继续下一轮")
             await asyncio.sleep(self.poll_interval)
 
     async def _tick(self) -> None:

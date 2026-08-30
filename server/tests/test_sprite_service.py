@@ -232,3 +232,103 @@ def test_invalidate_manifest_removes_file_and_row(tmp_path: Path) -> None:
     with db.session() as s:
         assert sprite.get_manifest(s, media_id) is None
     db.dispose()
+
+
+def test_generate_sprite_reports_progress_milestones(tmp_path: Path) -> None:
+    """生成过程中 progress 按里程碑推进(20 探测前 -> 40 生成前 -> 100 完成)。"""
+    from app.db.models import BackgroundTask, MediaCacheIndex
+
+    db = _make_db(tmp_path)
+    sprites_dir = tmp_path / "sprites"
+    media_id = "p" * 24
+    progress_at_generate: list[int] = []
+
+    class ProgressExecutor(FakeExecutor):
+        async def make_sprite(self, media_path: str, out_file: Path, plan) -> None:
+            with db.session() as s:
+                task = s.get(BackgroundTask, task_id)
+                progress_at_generate.append(task.progress)
+            await super().make_sprite(media_path, out_file, plan)
+
+    executor = ProgressExecutor()
+    with db.session() as s:
+        task = BackgroundTask(
+            task_id="t3",
+            type=sprite.TASK_TYPE_SPRITE,
+            status="running",
+            params=json.dumps({"media_id": media_id, "fingerprint": "fp-1"}),
+            media_id=media_id,
+        )
+        s.add(
+            MediaCacheIndex(
+                media_id=media_id,
+                jellyfin_id="j",
+                library_id="l",
+                name="clip.mp4",
+                media_type="video",
+                media_path=r"D:\Media\clip.mp4",
+                fingerprint="fp-1",
+            )
+        )
+        s.add(task)
+        s.commit()
+        task_id = task.task_id
+
+    sprite._execute_sprite_generation(db, task_id, executor, sprites_dir)
+
+    assert progress_at_generate == [40], "进入生成步骤前必须已推进到 40"
+    with db.session() as s:
+        task = s.get(BackgroundTask, task_id)
+        assert task.progress == 100 and task.status == "succeeded"
+    db.dispose()
+
+
+def test_generate_sprite_cancelled_during_generation_keeps_cancelled(tmp_path: Path) -> None:
+    """生成期间被协作取消:任务保持 cancelled,产物被丢弃,不得复活为 ready。"""
+    from app.db import models
+    from app.services import tasks as task_service
+
+    db = _make_db(tmp_path)
+    sprites_dir = tmp_path / "sprites"
+    media_id = "c" * 24
+
+    class CancellingExecutor(FakeExecutor):
+        async def make_sprite(self, media_path: str, out_file: Path, plan) -> None:
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_bytes(b"JPEG")
+            with db.session() as s:
+                task_service.cancel_task(s, s.get(models.BackgroundTask, task_id))
+                s.commit()
+
+    executor = CancellingExecutor()
+    with db.session() as s:
+        task = models.BackgroundTask(
+            task_id="t4",
+            type=sprite.TASK_TYPE_SPRITE,
+            status="running",
+            params=json.dumps({"media_id": media_id, "fingerprint": "fp-1"}),
+            media_id=media_id,
+        )
+        s.add(
+            models.MediaCacheIndex(
+                media_id=media_id,
+                jellyfin_id="j",
+                library_id="l",
+                name="clip.mp4",
+                media_type="video",
+                media_path=r"D:\Media\clip.mp4",
+                fingerprint="fp-1",
+            )
+        )
+        s.add(task)
+        s.commit()
+        task_id = task.task_id
+
+    sprite._execute_sprite_generation(db, task_id, executor, sprites_dir)
+
+    with db.session() as s:
+        task = s.get(models.BackgroundTask, task_id)
+        assert task.status == "cancelled"
+        assert sprite.get_manifest(s, media_id) is None
+    assert not (sprites_dir / f"{media_id}.jpg").exists()
+    db.dispose()

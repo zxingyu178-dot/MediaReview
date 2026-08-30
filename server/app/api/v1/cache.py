@@ -95,7 +95,7 @@ async def get_sprite_manifest(
     return ok(sprite.manifest_view(manifest))
 
 
-@router.post("/sprites/{media_id}", response_model=Envelope[dict])
+@router.post("/sprites/{media_id}", status_code=202, response_model=Envelope[dict])
 async def ensure_sprite(
     media_id: str,
     request: Request,

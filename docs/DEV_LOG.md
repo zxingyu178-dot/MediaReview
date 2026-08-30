@@ -2,6 +2,53 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-08-30 — MediaReview 1.1 Task B · Paging 3 媒体墙、图片与雪碧图闭环
+
+完成：
+
+- B1（`6577939 feat(android): page media wall`）：新增不可变 `MediaQuery` 与
+  `MediaPagingSource`（键=服务端页码；异常包装 LoadResult.Error、CancellationException
+  原样上抛；sync 回传）；`MediaWallViewModel` 改 `combine(query,refresh).flatMapLatest{Pager}`
+  + `cachedIn` 唯一页缓存；`MediaWallScreen` 换 LazyPagingItems（LoadState 驱动骨架/空态/
+  离线重试/追加失败就地重试）；Server 新增 `GET /media/folders`（父目录 SQL 聚合、
+  folder_id=SHA-256 前缀、响应无路径）与 `folder_id` 筛选；`MediaDataSource.loadMedia`
+  加 folderId、新增 loadMediaFolders（三个实现同步）。
+- B2（本提交）：图片查看器详情重试/重复 load 取消/离开 `cancelDecoding`/Coil 按视口解码；
+  雪碧图 ensure 202 {task_id,status}、处理器进度里程碑 20/40/100、前后两处协作取消、
+  终态 CAS 条件 UPDATE；Android 轮询任务进度、等待覆盖层"生成中 N%"+取消按钮、
+  失败/取消中文终态并复位可重试、`tileIndexFor` 纯函数化。
+- 审查驱动的生产修复：TaskManager._loop 增加异常保护（此前一次瞬时 SQLite 锁冲突即
+  永久杀死后台任务引擎——既有缺陷被本轮 100k 测试暴露，回归 test_task_manager.py）。
+
+TDD 与验证：
+
+- Server RED：文件夹/100k 测试初次 6 failed（路由捕获与未实现）；task_manager 回归
+  RED（异常逃逸）→ 修复后 GREEN。
+- Android RED：MediaPagingSourceTest 编译失败（三个符号未实现）→ 实现后 focused GREEN。
+- 首轮独立审查 **NOT CLEAN**：100k 测试与 1s 轮询争锁 flaky（database is locked）、
+  _loop 无异常保护、测试夹具 4×W605。修复：100k 预迁移+预插种与轮询彻底解耦
+  （连续 3 次 + 审查员 2 次全过）；_loop 异常保护；raw string；并顺手处理
+  终态 CAS、失败/取消文案、轮询耗尽复位、死代码 ErrorBox、取消上抛测试。
+- 第二轮独立复审（`.superpowers/sdd/task-b-independent-review.md`）：**CLEAN**
+  （0 Critical / 0 Important / 6 Minor）。审查员复现全部声称数字：Server 282 passed、
+  ruff 全绿、Android 122/0、四目标构建成功、100k 两次无 flake（durations 0.03-0.06s）。
+- 全量门禁：Server 282 passed + ruff check/format 全绿；Android JVM 122/0 +
+  四目标 --rerun-tasks BUILD SUCCESSFUL（91 tasks，修复前后各一次）；git diff --check 通过。
+
+遗留：
+
+- instrumentation 仍未设备执行（无设备）；M-A review 会话平局打破键为基线既有
+  偶发 flake（建议 Task C 前顺手修复）；M-B 终态文案 UI 不可达、M-C 取消按钮
+  空 taskId、M-D 异常路径无 CAS、M-E ready 直返也 202、M-F 查看器 runCatching
+  吞取消（瞬态）——均记录于复审报告，随下一阶段处理。
+- folders 100k 全库聚合 0.6-1.1s（超 1s 目标、远低于 2.0s 硬上限）；图片位图级
+  加载失败无重试 UI（详情级已闭环）。
+
+提交：
+
+- `feat(android): page media wall`（B1，基线 d542e08）
+- `feat(media): close image and sprite flows`（B2，基线 6577939）
+
 ### 2026-08-30 — MediaReview 1.1 Task A · 关闭 Task 4 两个 Important
 
 完成：

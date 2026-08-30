@@ -5,11 +5,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -114,7 +116,11 @@ fun SpriteTile(
 
 /** 视频卡片长按期间的雪碧图预览覆盖层。 */
 @Composable
-fun SpritePreviewOverlay(state: SpriteScrubState, modifier: Modifier = Modifier) {
+fun SpritePreviewOverlay(
+    state: SpriteScrubState,
+    modifier: Modifier = Modifier,
+    onCancelGenerate: () -> Unit = {},
+) {
     if (!state.scrubbing) return
     Box(modifier.background(MediaImmersiveBackground)) {
         when {
@@ -148,11 +154,27 @@ fun SpritePreviewOverlay(state: SpriteScrubState, modifier: Modifier = Modifier)
             }
 
             state.showWaiting -> {
-                Text(
-                    text = if (state.pending) "雪碧图生成中,请稍后再试" else "雪碧图加载中…",
-                    color = MediaOnImmersive,
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(MediaSpacing.Regular),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = if (state.pending) {
+                            spriteProgressLabel(state.progress, state.taskStatus)
+                        } else {
+                            "雪碧图加载中…"
+                        },
+                        color = MediaOnImmersive,
+                    )
+                    if (state.pending && state.taskId != null && state.taskStatus == null) {
+                        TextButton(onClick = onCancelGenerate) {
+                            Text("取消生成", color = MediaOnImmersive)
+                        }
+                    }
+                }
             }
         }
     }

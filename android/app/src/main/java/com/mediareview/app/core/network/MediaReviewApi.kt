@@ -21,6 +21,7 @@ import com.mediareview.app.core.model.ReviewSeenRequest
 import com.mediareview.app.core.model.ReviewSessionDto
 import com.mediareview.app.core.model.SpriteEnsureOut
 import com.mediareview.app.core.model.SpriteManifestDto
+import com.mediareview.app.core.model.TaskStateDto
 import com.mediareview.app.core.model.VerifyOut
 import kotlinx.serialization.Serializable
 import retrofit2.http.Body
@@ -84,6 +85,12 @@ interface MediaReviewApi {
 
     @POST("/api/v1/cache/sprites/{media_id}")
     suspend fun ensureSprite(@Path("media_id") mediaId: String): Envelope<SpriteEnsureOut>
+
+    @GET("/api/v1/tasks/{task_id}")
+    suspend fun taskDetail(@Path("task_id") taskId: String): Envelope<TaskStateDto>
+
+    @POST("/api/v1/tasks/{task_id}/cancel")
+    suspend fun cancelTask(@Path("task_id") taskId: String): Envelope<TaskStateDto>
 
     @GET("/api/v1/media/{media_id}/playback")
     suspend fun playback(@Path("media_id") mediaId: String): Envelope<PlaybackInfoDto>

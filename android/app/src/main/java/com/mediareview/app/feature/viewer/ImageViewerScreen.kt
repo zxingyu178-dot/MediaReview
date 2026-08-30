@@ -4,16 +4,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -37,6 +41,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.mediareview.app.ui.theme.MediaControlScrim
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaOnImmersive
@@ -65,6 +70,7 @@ fun NavGraphBuilder.imageViewerGraph(navController: NavController) {
 /**
  * 图片查看器:全屏大图(原图优先),支持双击缩放、双指缩放、拖动平移;
  * 平移受边界约束,缩回 1x 时自动归零,图片不会拖出屏幕。
+ * 解码尺寸按视口计算(Coil size),避免整幅原图解码;失败可重试。
  */
 @Composable
 fun ImageViewerScreen(
@@ -75,6 +81,9 @@ fun ImageViewerScreen(
     val ui by viewModel.ui.collectAsState()
 
     LaunchedEffect(mediaId) { viewModel.load(mediaId) }
+    DisposableEffect(ui.media?.media_id) {
+        onDispose { viewModel.cancelDecoding() }
+    }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -116,25 +125,44 @@ fun ImageViewerScreen(
                 modifier = Modifier.align(Alignment.Center),
             )
 
-            ui.error != null || ui.imageUrl.isNullOrBlank() -> Text(
-                text = ui.error ?: "图片地址缺失",
-                color = MediaOnImmersive,
+            ui.error != null || ui.imageUrl.isNullOrBlank() -> Column(
                 modifier = Modifier.align(Alignment.Center),
-            )
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = ui.error ?: "图片地址缺失",
+                    color = MediaOnImmersive,
+                )
+                Spacer(Modifier.height(MediaSpacing.Small))
+                TextButton(onClick = { viewModel.retry() }) { Text("重试", color = MediaOnImmersive) }
+            }
 
-            else -> AsyncImage(
-                model = ui.imageUrl,
-                contentDescription = ui.media?.name,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offset.x
-                        translationY = offset.y
-                    },
-            )
+            else -> {
+                val context = LocalContext.current
+                val request = remember(ui.imageUrl, container) {
+                    ImageRequest.Builder(context)
+                        .data(ui.imageUrl)
+                        // 按视口解码,超大原图不整幅载入内存;至少 1px 防止 size(0)
+                        .size(
+                            container.width.coerceAtLeast(1),
+                            container.height.coerceAtLeast(1),
+                        )
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
+                    contentDescription = ui.media?.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = offset.x
+                            translationY = offset.y
+                        },
+                )
+            }
         }
 
         // 顶栏:返回 + 文件名

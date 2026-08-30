@@ -209,7 +209,9 @@ def test_sprite_ready_manifest_and_file(app, client, tmp_path) -> None:
         )
         s.commit()
 
-    resp = client.post("/api/v1/cache/sprites/sp1").json()["data"]
+    ensure_resp = client.post("/api/v1/cache/sprites/sp1")
+    assert ensure_resp.status_code == 202, ensure_resp.text
+    resp = ensure_resp.json()["data"]
     assert resp["status"] == "ready"
     assert resp["url"].endswith("/api/v1/cache/sprites/sp1/file")
 

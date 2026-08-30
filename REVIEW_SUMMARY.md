@@ -1,124 +1,109 @@
-# REVIEW_SUMMARY — MediaReview 1.1 Task A：关闭 Task 4 两个 Important
+# REVIEW_SUMMARY — MediaReview 1.1 Task B：Paging 3 媒体墙、图片与雪碧图闭环
 
 ## 阶段编号与名称
 
-- 阶段 A（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
-- 名称：关闭 Task 4 两个 Important（最终删除协议 + 生产主壳 settle 竞态测试缺口）
-- 基线：`f0c797c`（Task 0A 之后；本阶段 diff = `git diff f0c797c` 基线到工作树，
-  冻结副本 `.superpowers/sdd/review-f0c797c-taska.diff`，4 文件 +311/-35）
+- 阶段 B（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
+- 名称：Paging 3 媒体墙、图片与雪碧图闭环
+- 提交拆分：B1 `6577939 feat(android): page media wall`（分页 + 文件夹视图，双端）；
+  B2 `feat(media): close image and sprite flows`（本 ZIP，基线 6577939）
+- 冻结 diff：`.superpowers/sdd/review-6577939-taskb.diff`（12 文件 +316/-54 → 修复后 846 行）
 
 ## 阶段目标
 
-使 Task 4 通过阶段门禁：I1 Android 最终删除必须使用服务端真实 `success/missing/failed`
-合同并正确推进下游 revision 与中文汇总；I2 生产主壳 instrumentation 必须能捕获旧 settle
-token 竞态（真实队列项 + 挂起 playback lookup + 真实切根失活 + RED 反证）；修复后须获得
-新的独立审查 CLEAN。
+媒体墙从"整列表 + 命令式翻页"迁移到 Paging 3 分页（新查询新 Pager、旧流取消、
+cachedIn 唯一缓存）；新增媒体墙内文件夹辅助视图（服务器 ID，不下发路径）；
+关闭图片查看器（视口解码/重试/离开取消）；关闭雪碧图任务闭环（202/进度/协作取消/
+指纹失效）；100k 分页不扫描 Jellyfin；双端全量门禁 + 独立审查 CLEAN。
 
 ## 实际完成内容
 
-- 新增共享解析器 `DeleteOutcomeStatus`（`core/model/ApiModels.kt`）：
-  Success(changed,successful)=T/T、Missing=T/F、Failed=F/F、Unknown=F/F，
-  `fromWire()` 大小写宽容、未知值 fail-closed；生产代码不再有字符串散判。
-- `DeleteQueueViewModel.commit()` 重写：按解析结果推进 `ContentMutation.FinalDelete`
-  （任一 changed=true 才推进），中文摘要按合同统计（success=成功、missing=缺失不计成功、
-  failed/Unknown=失败，空 outcome="删除完成"）。
-- 修复执行中发现的第三个真实缺陷：基线 `commit()` 的摘要被尾随 `load()` 整体状态替换
-  立即抹成 null（UI 从未显示过摘要）；`load()` 改用 `_ui.update` 保留 `commitResult`。
-  该缺陷由本阶段 RED 证据直接暴露（`expected:<删除成功 1 项> but was:<null>`）。
-- JVM 竞态测试 + 不可取消停车 fake（`MutationInvalidationViewModelTest.kt`）：
-  响应在取消后到达时旧 settle 必须被失效 token 拦截；重入后新 token 正常落位播放。
-- 生产壳 instrumentation 竞态测试（`MainShellProductionIntegrationTest.kt`）：
-  生产 `MainShellScreen` + 真实 `ReviewViewModel` + 真实底栏切根失活路径 + 真实队列项 +
-  Review 根触发真实 `onSettled(0)` + 断言 deactivate=1/旧 settle=0/旧 play=0 + 重入
-  新 token settle/play=1/1。
-- 表驱动删除合同测试 6 案例（全 success/全 failed/空/仅 missing/混合/unknown-wire）
-  与解析器直测（含 `deleted→Unknown` 反协议回归闸）。
-- 文档：`TASKS.md`、`docs/DEV_LOG.md`、`.superpowers/sdd/progress.md`、
-  `.superpowers/sdd/task-4-task-a-fix-report.md`、`.superpowers/sdd/task-4-task-a-independent-review.md`。
+- **B1 分页**：`MediaQuery`（不可变）、`MediaPagingSource`（键=页码；错误包装
+  LoadResult.Error、取消上抛、sync 回传）；ViewModel `combine(query,refresh).flatMapLatest{Pager}`
+  + `cachedIn(viewModelScope)`；`MediaWallScreen` 换 LazyPagingItems（骨架/空态/离线/
+  追加失败就地重试）；2-5 列、类型/库筛选、防抖搜索、六种排序、未点赞模式全部保留。
+- **B1 文件夹视图**：Server `GET /media/folders`（SQLite 父目录聚合，folder_id=SHA-256
+  前 16 hex，响应零路径）+ `GET /media?folder_id=`（筛选范围内反查，未知 404）；
+  Android `FolderFilterMenu` 在媒体墙内部；`MediaDataSource` 接口变更三实现同步。
+- **B2 图片查看器**：详情失败重试、重复 load 取消在途请求、离开 `cancelDecoding`、
+  Coil `ImageRequest.size(viewport)` 按视口解码（≥1px 兜底）。
+- **B2 雪碧图**：POST ensure 202 {task_id,status}；服务端进度里程碑 20/40/100 与
+  生成前/后协作取消检查、终态 **CAS 条件 UPDATE**（取消不可被复活）；Android 轮询
+  任务进度 + 等待覆盖层"生成中 N%"+ 取消按钮（`/tasks/{id}/cancel`）+ 失败/取消
+  中文终态 + 轮询耗尽复位可重试。
+- **审查驱动的生产修复**：`TaskManager._loop` 异常保护（此前一次瞬时 SQLite 锁冲突
+  即永久杀死后台任务引擎——既有缺陷，回归 `test_task_manager.py`）。
 
 ## 是否完整达到目标
 
-是。I1/I2 均关闭；新独立审查结论 **CLEAN（0 Critical / 0 Important / 4 Minor）**，
-Task 4 代码与独立审查门禁通过（设备级 instrumentation 与真机验收仍属 Task G，
-androidTest 仅构建未执行，如实记录）。
+是。第二轮独立复审 **CLEAN（0 Critical / 0 Important / 6 Minor）**；计划 Step 1-7
+验收矩阵全部 closed（M 级保留项见下）。
 
 ## 核心架构 / API / 数据库变化
 
-- 无架构、API、数据库变化。Android 单侧修复：新增一个纯解析枚举、重写
-  DeleteQueueViewModel 两处方法、扩展两个测试文件；Server 合同 `success/missing/failed`
-  未动（聚焦回归 13/13 确认）。
+- API：`GET /media/folders`（新增）、`GET /media` 增 `folder_id`、`POST /cache/sprites/{id}`
+  改 202、Android API 新增 `GET/POST /tasks/{task_id}(/cancel)` 调用。
+- 数据库：无迁移（迁移链头仍为 0012）。
+- Android 分页栈新增 Paging 3.3.5（runtime/compose/testing）。
 
 ## Android UI/交互变化
 
-- 最终删除确认后的中文摘要首次能真正显示并按真实结果统计；全部删除成功后返回主壳
-  媒体墙/收藏/整理不再显示已删除内容的旧快照（revision 正确推进）。
+- 媒体墙改为分页网格；文件夹下拉筛选；追加失败就地重试。
+- 长按雪碧图等待覆盖层显示生成进度与"取消生成"。
+- 图片查看器失败显示"重试"。
 
 ## 已执行测试与结果（真实命令）
 
 ```powershell
-# RED（实现前）
-.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest --tests "*MutationInvalidationViewModelTest"
-# => 5 tests, 1 failed: outcome={a=success} 摘要 expected:<删除成功 1 项> but was:<null>
-
-# GREEN（实现后，含解析器测试与 JVM 竞态测试）
-.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest --tests "*MutationInvalidationViewModelTest"
-# => 7 tests / 0 failures
-
-# RED 反证（临时移除 settleScheduler.reset()，已恢复）
-# => reviewRootDeactivationTokenGuardsInFlightSettleResumption FAILED:
-#    旧 settle 不得落地 expected:<0> but was:<1>
-
-# Server 删除协议聚焦
-server\.venv\Scripts\python.exe -m pytest tests/test_delete_fav_service.py tests/test_phase456_api.py
-# => 13 passed
-
-# Android 全量四目标
-.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:lintDebug --rerun-tasks
-# => BUILD SUCCESSFUL in 3m 54s（91 tasks）；JVM 102 tests / 0 failures / 0 errors；
-#    debug APK 22,344,728 B；androidTest APK 1,023,373 B；lint 0 errors
+# Server 全量（隔离数据根）
+server\.venv\Scripts\python.exe -m pytest tests            # => 282 passed (exit 0)
+# Server lint
+server\.venv\Scripts\python.exe -m ruff check .            # => All checks passed!
+server\.venv\Scripts\python.exe -m ruff format --check .   # => 87 files formatted
+# 100k flake 验证（修复后）
+# 连续 3 次 passed + 复审员 2 次全新临时目录 passed；单页 0.03-0.08s（目标 <1s）
+# Android 全量四目标（--rerun-tasks，修复前后各一轮）
+.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:lintDebug
+# => BUILD SUCCESSFUL（91 tasks）；JVM 122 tests / 0 failures；lint 0 errors
 ```
 
-## lint / format / type check 结果
+## 独立审查（两轮）
 
-- Server（本阶段未改 Server 代码）：`ruff check .` 与 `ruff format --check .` 全绿
-  （86 files，Task 0A 回合实测，见 review_meta/server_lint.txt）。
-- Android：`lintDebug` 0 errors（47 warnings 量级与基线一致）；Kotlin 编译含
-  androidTest 目标全部通过。项目未配置独立 Android 静态 type check。
+- 第一轮 **NOT CLEAN**：I-1 100k 测试与 TaskManager 轮询争锁 flaky + `_loop` 无异常
+  保护（生产缺陷）；I-2 测试夹具 4×W605。另有 M-1..M-8。
+- 修复：I-1 两半（生产 `_loop` 加固 + 测试预插种解耦）、I-2 raw string、M-1 终态 CAS、
+  M-2/M-3 终态文案与复位、M-5 死代码、M-7 取消测试。
+- 第二轮复审 **CLEAN**（`.superpowers/sdd/task-b-independent-review.md`）：I-1/I-2 均
+  CLOSED，全部声称数字独立复现。
 
-## 独立审查结论
+## 已知问题 / 遗留 TODO（复审 Minor，不阻塞）
 
-`.superpowers/sdd/task-4-task-a-independent-review.md`：**CLEAN**。审查员独立验证冻结
-diff 一致性、重跑 focused 7/7、全量 JVM 102/102（净增 2 与新增吻合）、androidTest 编译、
-Server 13/13，并沿 `onSettled/onRootDeactivated/LatestWinsScheduler` 推演确认 RED 反证
-确定性。I1/I2 closure matrix 均为 closed。
-
-## 已知问题 / 遗留 TODO（独立审查 Minor，不阻塞）
-
-- M1：commit 网络失败（repository 返回 null）时摘要仍显示"删除完成"且不设 error
-  （基线即有，非本轮回归）→ 下阶段改为失败文案并保留队列。
-- M2：Unknown 线协议值在摘要中与 failed 合并计"失败"→ 建议单列"未知 N 项"。
-- M3：androidTest 计数器统一 `@Volatile`（当前经 compose test rule 同步实际安全）。
-- M4：androidTest 未在设备执行（ADB 无设备、无模拟器）→ 设备级执行与真机验收属
-  Task G；本报告不以构建成功冒充执行证据。
+- M-A：review 会话平局打破键（session_id 随机后缀）在微秒碰撞时与创建顺序无关，
+  全量门禁偶发红——**基线既有**，建议 Task C 前修复为单调键。
+- M-B：雪碧图失败/取消终态文案在 UI 同帧合并后不可达（行为正确，文案死代码化）。
+- M-C：取消按钮显隐未过滤空字符串 taskId（点击只本地复位）。
+- M-D：sprite 生成异常路径终态无 CAS（cancelled 可能被覆盖为 failed，均为终态）。
+- M-E：ensure_sprite 的 ready 直返也返回 202（语义上应为 200，无破坏面）。
+- M-F：ImageViewerViewModel 外层 runCatching 瞬态吞取消（自愈）。
+- M-4/M-6/M-8（第一轮）：位图级加载失败无重试 UI；folders 100k 聚合 0.6-1.1s
+  （超 1s 目标、低于 2.0s 硬上限）；loadMediaFolders 失败静默保留旧列表。
 
 ## 是否建议进入下一阶段
 
-建议进入 Task B（Paging 3 媒体墙、图片与雪碧图闭环，`1.1.0-alpha2`→媒体墙闭环）。
-Task 4 已无 Critical/Important 阻塞项。
+建议进入 Task C（Direct Play 与单次 HLS 回退，`1.1.0-beta1`）。可先顺手修复 M-A
+（review 会话平局打破键）作为 Task C 前置小提交。
 
 ## Agent 自认为风险最高的 3 个点
 
-1. **instrumentation 设备缺口**：生产壳竞态测试的正确性目前依赖编译 + JVM 等价测试 +
-   审查推演；真实 looper/Compose 上的行为（尤其 resume 派发时序）要到 Task G 真机阶段
-   才有设备级证据。
-2. **M1 失败路径用户体验**：commit 网络失败仍显示"删除完成"，用户可能误以为删除成功
-   ——虽然是基线既有缺陷且审查判定不阻塞，但在修复前是真实的误导风险。
-3. **摘要文案与清除时序**：commitResult 现在跨 load 保留、靠模态对话框关闭清除；若后续
-   阶段改动 DeleteQueueScreen 的对话框结构，需保证 clearCommitResult 仍被可靠触发，
-   否则陈旧摘要可能复现。
+1. **文件夹视图的 SQL dirname 技巧**：依赖 replace/rtrim 表达式对路径分隔符的归一化，
+   已覆盖 \\、/、混合与盘根测试，但真实 Jellyfin 路径中的异常形态（UNC、挂载点、
+   非 ASCII 目录名）未经真实数据验证——Task G 真机阶段需用真实库复核。
+2. **100k 性能余量集中在 SQLite 单机**：单页 0.03-0.08s 是空载值；真实 5.6 万媒体 +
+   同步任务并发时的表现需 Task G 实测（门禁只在测试环境证明"不扫描 + 数量级达标"）。
+3. **instrumentation 设备缺口延续**：媒体墙 Compose 行为（分页占位、AppendState、
+   文件夹菜单在 360×740 与横屏）仅有编译与 JVM 逻辑证据，真机验收仍属 Task G。
 
 ## 敏感信息说明
 
-本阶段未接触任何密钥、Token、真实配置或生产数据；测试全部使用本地 fake。
+本阶段未接触任何密钥、Token、真实配置或生产数据；测试全部使用临时目录与 mock transport。
 
 阶段结论：合格

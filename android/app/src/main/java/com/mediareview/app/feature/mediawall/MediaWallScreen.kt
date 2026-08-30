@@ -433,6 +433,7 @@ private fun MediaCell(
                 SpritePreviewOverlay(
                     state = spriteState,
                     modifier = Modifier.fillMaxSize(),
+                    onCancelGenerate = { sprite.cancel(item.media_id) },
                 )
             }
         }
@@ -443,19 +444,6 @@ private fun MediaCell(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(MediaSpacing.XSmall),
         )
-    }
-}
-
-@Composable
-private fun ErrorBox(message: String, onRetry: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(MediaSpacing.Large),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(message, color = MaterialTheme.colorScheme.error)
-        Spacer(Modifier.height(MediaSpacing.Medium))
-        Button(onClick = onRetry) { Text("重试") }
     }
 }
 
