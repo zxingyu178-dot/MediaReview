@@ -112,6 +112,13 @@
 - [x] repository/view-model 分离 MediaReview、Jellyfin、sync、authentication 状态
 - [x] 保持 Task 2 图片代理、server-key 排除、禁视频代理与 Task 6 认证过渡合同
 
+## MediaReview(1.1.0 Task 0A: 可移植阶段验收工具) — 完成
+- [x] `scripts/build_review_handoff.py` 纯标准库构建器：`--stage/--name/--base`，输出 `review_handoff/MediaReview_Review_Stage-<id>_<timestamp>.zip`
+- [x] 打包范围 = `git diff --name-only <base>`（基线到工作树、仅已跟踪文件）+ 固定状态文档 + `review_meta/` 证据
+- [x] 只含已批准文本扩展名；禁止类别与超限文件排除并记录；`.env`/keystore 等疑似密钥路径非零失败
+- [x] 缺少 REVIEW_SUMMARY/阶段结论/测试证据、无效或非祖先 base、ZIP 超限、git 不可用均 fail-closed
+- [x] 15 个端到端测试（临时 Git 仓库真实运行）；RED 12 failed → GREEN 15 passed；全量 273 passed；ruff check/format 全绿
+
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 
 > 状态（2026-08-30）：**NOT CLEAN / 返修中**。下列 `[x]` 只表示实现已存在；最新独立审查

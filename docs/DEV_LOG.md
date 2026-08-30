@@ -2,6 +2,43 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-08-30 — MediaReview 1.1 Task 0A · 可移植阶段验收工具
+
+完成：
+
+- 新增 `scripts/build_review_handoff.py`（纯标准库 argparse/subprocess/pathlib/zipfile）：
+  打包范围为 `git diff --name-only <base>`（基线到工作树、仅已跟踪文件）+ 固定状态文档；
+  只含已批准文本扩展名；禁止类别（build/日志/DB/APK/EXE 等）与超限文件排除并逐条记录到
+  `review_meta/excluded_files.txt`；`.env`/keystore/`key.properties` 等疑似密钥路径、无效或
+  非祖先 base、缺少 `REVIEW_SUMMARY.md` 或"阶段结论"行、缺少测试证据、ZIP 超限一律非零退出
+  且不产出 ZIP。
+- 新增 `server/tests/test_review_handoff_builder.py` 15 个端到端测试：在临时 Git 仓库真实运行
+  构建器，覆盖必需条目、文件名格式、删除路径、未跟踪排除、密钥 fail-closed、禁止类别排除、
+  大小上限、`git` 不可用与非法参数。
+
+TDD 与验证：
+
+- RED：脚本缺失时 15 个测试中 12 failed / 3 passed（3 个为"不存在即非零"的空真通过）。
+- GREEN：实现后 15 passed（9.25s）。
+- 全量门禁：Server `pytest tests` 273 passed（258 旧 + 15 新，exit 0，隔离数据根）；
+  `ruff check .` 全部通过；`ruff format --check .` 86 files 全部通过。
+- 同回合环境验证（未计入本阶段改动）：全量 258 passed 复验、Android 四目标
+  `testDebugUnitTest/assembleDebug/assembleAndroidTest/lintDebug` BUILD SUCCESSFUL（100 JVM tests）。
+- 文档同步：`REVIEW_HANDOFF_RULES.md` 步骤 9、`docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md`
+  工具表与缺口章节、`TASKS.md` 新增 Task 0A 节、根 `REVIEW_SUMMARY.md` 重写为本阶段摘要。
+- 验收 ZIP：`review_handoff/MediaReview_Review_Stage-0A_*.zip`，已用 7z 列表 + 解包复核
+  无禁止条目。
+
+遗留：
+
+- 证据文件由 Agent 手工写入，"记录真实输出"依赖独立审查复核（构建器只强制存在性）。
+- 密钥检查是路径级而非内容级；内容级脱敏仍靠 `REVIEW_HANDOFF_RULES.md` §6 的人工/审查流程。
+- Android/部署/发布链路不在本阶段范围；Task A（关闭 Task 4 两个 Important）为下一阶段。
+
+提交：
+
+- `build(review): add portable handoff packager`（本阶段单一提交，基线 `fe4666b`）
+
 ### 2026-08-30 — 交接工具链与 Hermes 邮件规则审计
 
 - 新增 `docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md`，记录当前主机 uv/Python 3.12/JDK/Android SDK/ADB/apksigner/zipalign/Git/7-Zip/FFmpeg 路径、初始化命令和不可移植边界。

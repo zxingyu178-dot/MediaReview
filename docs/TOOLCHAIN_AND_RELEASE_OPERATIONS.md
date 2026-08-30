@@ -13,7 +13,7 @@
 | Server 依赖 | `server/pyproject.toml` | 开发依赖可用；未包含 PyInstaller |
 | Android 构建 | `android/gradlew.bat` | 可用，Gradle Wrapper 8.9 |
 | Server 部署构建 | `scripts/build_deploy.py` | **旧 0.8.1 脚本，不得用于 1.1 正式发布** |
-| 阶段验收 ZIP | `scripts/build_review_handoff.py` | **缺失；现有规则曾错误假设它存在** |
+| 阶段验收 ZIP | `scripts/build_review_handoff.py` | **已补齐**（Task 0A，端到端测试 `server/tests/test_review_handoff_builder.py` 覆盖） |
 | Hermes APK 邮件 | `docs/HERMES_APK_EMAIL_DELIVERY.md` | 流程已记录；Hermes 当前附件实现尚不支持 APK |
 
 ## 2. 当前主机已发现的工具
@@ -119,15 +119,26 @@ Get-FileHash '.\release\家庭媒体管家-1.1.0.apk' -Algorithm SHA256
 
 ## 5. 已知工具缺口
 
-### 阶段验收 ZIP 构建器缺失
+### 阶段验收 ZIP 构建器（Task 0A 已补齐）
 
-`AGENTS.md` 和 `REVIEW_HANDOFF_RULES.md` 原先要求执行 `scripts/build_review_handoff.py`，但仓库没有此文件。下一位 Agent 必须先按 takeover plan 的 Task 0A 用 TDD 补齐，才能声明新的阶段完成。
+`scripts/build_review_handoff.py` 已按 takeover plan Task 0A 用 TDD 实现（端到端测试位于
+`server/tests/test_review_handoff_builder.py`，覆盖必需条目、禁止项、密钥 fail-closed 与大小上限）。
+使用方式：
 
-当前主机 Codex 有一个只生成冻结 diff 的辅助工具：
+```powershell
+# 1) 先把真实测试/lint 输出写入 review_meta\（server_tests.txt、server_lint.txt、android_tests.txt、android_lint.txt）
+# 2) 确认根目录 REVIEW_SUMMARY.md 已按规则编写并含"阶段结论"行
+Set-Location D:\MediaReview_1.1_Handoff
+python scripts\build_review_handoff.py --stage 0A --name 阶段名 --base <上一阶段基线>
+```
 
-`C:\Users\30566\.codex\skills\subagent-driven-development\scripts\review-package`
+脚本行为：打包范围 = `git diff --name-only <base>`（基线到工作树，仅已跟踪文件）+ 固定状态文档；
+只含已批准文本扩展名；禁止类别/超限文件被排除并记录在 `review_meta/excluded_files.txt`；
+`.env`、keystore 等疑似密钥路径、无效 base、缺少摘要或证据、ZIP 超限均以非零退出且不产出 ZIP。
+`review_handoff/` 与 `review_meta/` 均被 Git 忽略。
 
-它不是完整验收 ZIP 构建器，也不保证在另一台电脑存在，只可作为实现参考。
+当前主机 Codex 的 `C:\Users\30566\.codex\skills\subagent-driven-development\scripts\review-package`
+只生成冻结 diff，不再是验收流程的一部分，仅作历史参考。
 
 最新 Task 4 审查引用的 diff 未随 D 盘副本携带，可由 Git 历史重建：
 
