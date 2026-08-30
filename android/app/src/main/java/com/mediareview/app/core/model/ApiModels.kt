@@ -88,7 +88,14 @@ data class TaskStateDto(
     val error: String? = null,
 )
 
-/** 播放信息(GET /media/{media_id}/playback):Jellyfin 直连流地址。 */
+/** 单个播放端点(Task C):URL + 认证 headers;设备级凭据只在 headers,绝不进 URL。 */
+@Serializable
+data class PlaybackEndpointDto(
+    val url: String = "",
+    val headers: Map<String, String> = emptyMap(),
+)
+
+/** 播放信息(GET /media/{media_id}/playback):Direct Play + 唯一一次 HLS 回退。 */
 @Serializable
 data class PlaybackInfoDto(
     val media_id: String = "",
@@ -102,6 +109,12 @@ data class PlaybackInfoDto(
     val width: Int? = null,
     val height: Int? = null,
     val container: String? = null,
+    /** Task C 合同:Direct Play 端点;缺失时回退 legacy stream_url(一版兼容)。 */
+    val direct: PlaybackEndpointDto? = null,
+    /** 唯一一次 HLS 回退端点。 */
+    val fallback_hls: PlaybackEndpointDto? = null,
+    /** 服务端续播位置(来自 Jellyfin UserData)。 */
+    val resume_position_ms: Long = 0,
 )
 
 /** 批阅会话概览(POST/GET /review/sessions)。 */

@@ -6,12 +6,16 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.common.PlaybackParameters
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -56,14 +60,33 @@ data class ReviewPlayable(
  * 媒体已切换后对旧 mediaId 返回 null,禁止拿新的 activePlayer 给旧 mediaId 上报。
  */
 @Singleton
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlayerCore @Inject constructor(
     @ApplicationContext context: Context,
 ) : ReviewPlaybackController {
-    val player: ExoPlayer by lazy { ExoPlayer.Builder(context).build() }
-    val preload: ExoPlayer by lazy { ExoPlayer.Builder(context).build() }
+    // 单例 HttpDataSource.Factory:设备级凭据(DefaultRequestProperties)对两个槽共用,
+    // setDefaultRequestProperties 在播放器构建之后调用依然生效(map 按引用共享)。
+    private val httpDataSourceFactory: DefaultHttpDataSource.Factory =
+        DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(8_000)
+            .setReadTimeoutMs(8_000)
+
+    private var currentHttpHeaders: Map<String, String> = emptyMap()
+
+    val player: ExoPlayer by lazy {
+        ExoPlayer.Builder(context, DefaultMediaSourceFactory(httpDataSourceFactory)).build()
+    }
+    val preload: ExoPlayer by lazy {
+        ExoPlayer.Builder(context, DefaultMediaSourceFactory(httpDataSourceFactory)).build()
+    }
 
     private val _status = MutableStateFlow(PlaybackStatus())
     val status: StateFlow<PlaybackStatus> = _status.asStateFlow()
+
+    /** 播放器错误事件(仅当前 active 播放器);普通播放器状态机据此触发回退。 */
+    private val _errors = MutableSharedFlow<PlaybackException>(extraBufferCapacity = 4)
+    val errors: SharedFlow<PlaybackException> = _errors
 
     /** 当前真正发声/显示的是否为预加载那台(供 UI 绑定 PlayerView)。 */
     private val _activeIsPreload = MutableStateFlow(false)
@@ -84,14 +107,30 @@ class PlayerCore @Inject constructor(
     private var nextItem: ReviewPlayable? = null
 
     /** 播放当前队列(普通播放器入口)。mediaId 记录到槽位,供进度上报快照定位。 */
-    fun playStream(mediaId: String?, streamUrl: String) {
+    fun playStream(
+        mediaId: String?,
+        streamUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        startPositionMs: Long = 0L,
+    ) {
         ensureListeners()
         active = player
         _activeIsPreload.value = false
         slotMediaId[0] = mediaId
         _status.value = PlaybackStatus(phase = PlaybackPhase.Loading)
         player.stop()
-        player.setMediaItem(MediaItem.fromUri(streamUrl))
+        // 设备级凭据注入共享 HttpDataSource.Factory(其 requestProperties 以引用共享,
+        // 构建播放器之后更新仍对后续请求生效);凭据不进入 URL。
+        if (headers != currentHttpHeaders) {
+            httpDataSourceFactory.setDefaultRequestProperties(headers)
+            currentHttpHeaders = headers
+        }
+        val item = MediaItem.fromUri(streamUrl)
+        if (startPositionMs > 0L) {
+            player.setMediaItem(item, startPositionMs)
+        } else {
+            player.setMediaItem(item)
+        }
         player.prepare()
         player.play()
     }
@@ -281,6 +320,7 @@ class PlayerCore @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             if (p !== active) return
             _status.value = PlaybackStatus(phase = PlaybackPhase.Error, error = error.message)
+            _errors.tryEmit(error)
         }
     }
 
