@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.db.session import Database
@@ -66,3 +67,22 @@ def test_complete_and_latest_active(tmp_path: Path) -> None:
         view = review.session_view(review.get_session(s, s1.session_id))
         assert view["status"] == "completed"
     db.dispose()
+
+
+FROZEN_NOW = datetime.now(UTC)
+
+
+def test_session_ids_strictly_monotonic_under_frozen_clock(tmp_path: Path) -> None:
+    """冻结时钟下连续生成的会话 ID 必须严格单调递增。
+
+    latest_active_session 用 session_id.desc() 做平局打破;随机后缀会让
+    同一时钟粒度内创建的两个会话以随机顺序胜出(全量门禁偶发红)。
+    """
+    original = review.utc_now
+    review.utc_now = lambda: FROZEN_NOW
+    try:
+        ids = [review._new_session_id() for _ in range(64)]
+    finally:
+        review.utc_now = original
+    for a, b in zip(ids, ids[1:], strict=False):
+        assert a < b, f"会话 ID 必须严格单调递增: {a} !< {b}"

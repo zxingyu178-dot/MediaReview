@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -17,9 +18,24 @@ from app.db.models import MediaCacheIndex, ReviewSession, ReviewSessionItem, utc
 from app.services import media_index
 from app.services.hash_contract import full_sha256_sql_predicate
 
+_session_id_lock = threading.Lock()
+_last_session_stamp: str | None = None
+
 
 def _new_session_id() -> str:
-    return utc_now().strftime("%Y%m%d%H%M%S") + secrets.token_hex(4)
+    """生成严格单调递增的会话 ID(秒+微秒时间戳 + 随机防碰撞后缀)。
+
+    latest_active_session 用 session_id 字典序做平局打破,因此 ID 必须随创建
+    顺序单调;Windows 时钟粒度可能让相邻两次 utc_now() 返回同一值,用进程内
+    守卫强制递增。随机后缀只防跨进程碰撞,不参与同进程内的排序。
+    """
+    global _last_session_stamp
+    with _session_id_lock:
+        stamp = utc_now().strftime("%Y%m%d%H%M%S%f")
+        if _last_session_stamp is not None and stamp <= _last_session_stamp:
+            stamp = str(int(_last_session_stamp) + 1)
+        _last_session_stamp = stamp
+    return stamp + secrets.token_hex(4)
 
 
 def create_session(
