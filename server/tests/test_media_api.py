@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 
 import httpx
@@ -354,3 +355,213 @@ def test_media_pagination_large_library_no_rescan(data_root) -> None:
         assert p2.status_code == 200 and p_sorted.status_code == 200
         assert p2.json()["data"]["items"][0]["name"] == "movie00050.mp4"
         assert calls["items"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Task B: 文件夹辅助视图(folder_id 是服务器派生 ID,绝不下发 Windows 路径)
+# ---------------------------------------------------------------------------
+
+
+def _folder_row(media_id: str, library_id: str, media_path: str | None) -> dict:
+    return {
+        "media_id": media_id,
+        "jellyfin_id": media_id,
+        "library_id": library_id,
+        "name": f"{media_id}.mp4",
+        "media_type": "video",
+        "size_bytes": 1000,
+        "duration_ms": 6000,
+        "width": 1920,
+        "height": 1080,
+        "fingerprint": f"fp-{media_id}",
+        "is_available": True,
+        "media_path": media_path,
+    }
+
+
+def _seed_folder_library(client: TestClient, library_id: str = "lib-folders") -> None:
+    backslash = chr(92)  # Windows 路径分隔符,显式构造避免转义歧义
+    rows = [
+        *(
+            _folder_row(
+                f"fa-{i}",
+                library_id,
+                "D:" + backslash + f"Media{backslash}MoviesA{backslash}file{i}.mp4",
+            )
+            for i in range(3)
+        ),
+        *(_folder_row(f"fb-{i}", library_id, f"D:/Media/MoviesB/file{i}.mp4") for i in range(2)),
+        _folder_row(
+            "root-in-media", library_id, "D:" + backslash + "Media" + backslash + "root.mp4"
+        ),
+        _folder_row("drive-root", library_id, "D:" + backslash + "top.mp4"),
+        _folder_row("no-path", library_id, None),
+    ]
+    with client.app.state.database.session() as session:
+        session.execute(sa.insert(models.MediaCacheIndex), rows)
+        session.commit()
+
+
+def _folder_view(resp) -> list[dict]:
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    return body["data"]
+
+
+def test_media_folders_group_by_parent_directory(jellyfin_api_client) -> None:
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-folders"})
+    )
+    by_name = {f["name"]: f for f in folders}
+    # 反斜杠与正斜杠两种分隔符都归一到同一父目录
+    assert by_name["MoviesA"]["count"] == 3
+    assert by_name["MoviesB"]["count"] == 2
+    assert by_name["Media"]["count"] == 1  # D:\Media\root.mp4 的直接父目录
+    assert by_name["(根目录)"]["count"] == 1  # D:\top.mp4 位于盘根
+    # folder_id 是不透明服务器 ID;响应任何字段都不含 Windows 路径
+    assert len(by_name["MoviesA"]["folder_id"]) == 16
+    int(by_name["MoviesA"]["folder_id"], 16)
+    for f in folders:
+        assert "\\" not in f["name"] and "\\" not in f["folder_id"]
+        assert ":/" not in f["name"] and ":/" not in f["folder_id"]
+
+
+def test_media_folders_respect_current_filters(jellyfin_api_client) -> None:
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+
+    folders = _folder_view(
+        client.get(
+            "/api/v1/media/folders",
+            params={"library_id": "lib-folders", "search": "fa-1"},
+        )
+    )
+    assert [f["name"] for f in folders] == ["MoviesA"]
+    assert folders[0]["count"] == 1
+
+    folders_type = _folder_view(
+        client.get(
+            "/api/v1/media/folders",
+            params={"library_id": "lib-folders", "media_type": "image"},
+        )
+    )
+    assert folders_type == []
+
+
+def test_media_list_filter_by_folder_id_keeps_paging(jellyfin_api_client) -> None:
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-folders"})
+    )
+    movies_a = next(f for f in folders if f["name"] == "MoviesA")
+
+    resp = client.get(
+        "/api/v1/media",
+        params={"library_id": "lib-folders", "folder_id": movies_a["folder_id"], "page_size": 2},
+    )
+    assert resp.status_code == 200
+    body = resp.json()["data"]
+    assert body["total"] == 3
+    assert [i["media_id"] for i in body["items"]] == ["fa-0", "fa-1"]
+
+    page2 = client.get(
+        "/api/v1/media",
+        params={
+            "library_id": "lib-folders",
+            "folder_id": movies_a["folder_id"],
+            "page": 2,
+            "page_size": 2,
+        },
+    )
+    assert [i["media_id"] for i in page2.json()["data"]["items"]] == ["fa-2"]
+
+
+def test_media_list_unknown_folder_id_rejected(jellyfin_api_client) -> None:
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+    resp = client.get(
+        "/api/v1/media",
+        params={"library_id": "lib-folders", "folder_id": "0" * 16},
+    )
+    assert resp.status_code == 404
+
+
+def test_media_folders_without_path_rows_excluded(jellyfin_api_client) -> None:
+    client, _transport = jellyfin_api_client
+    rows = [_folder_row("np-1", "lib-np", None)]
+    with client.app.state.database.session() as session:
+        session.execute(sa.insert(models.MediaCacheIndex), rows)
+        session.commit()
+    folders = _folder_view(client.get("/api/v1/media/folders", params={"library_id": "lib-np"}))
+    assert folders == []
+
+
+def test_media_pagination_100k_no_rescan_and_responsive(data_root) -> None:
+    """100k 索引连续翻页: Jellyfin 零调用,单页响应低于硬上限(目标 P95<1s)。"""
+
+    def big_handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/System/Info":
+            return httpx.Response(200, json={"ServerName": "Big", "Version": "10.9.11", "Id": "s1"})
+        if path == "/Users":
+            return httpx.Response(200, json=[{"Id": JELLYFIN_USER_ID, "Name": "jp"}])
+        if path == f"/Users/{JELLYFIN_USER_ID}/Views":
+            return httpx.Response(
+                200,
+                json={"Items": [{"Id": "lib-100k", "Name": "十万库", "CollectionType": "movies"}]},
+            )
+        return httpx.Response(404, json={"error": "unexpected " + path})
+
+    client, calls = _make_counting_app(big_handler, data_root)
+    total = 100_000
+    with client as c:
+        c.get("/api/v1/libraries")
+        c.put("/api/v1/libraries/selection", json={"selected": ["lib-100k"]})
+        for chunk_start in range(0, total, 20_000):
+            payload = [
+                {
+                    "media_id": compute_media_id(f"k-{i}"),
+                    "jellyfin_id": f"k-{i}",
+                    "library_id": "lib-100k",
+                    "name": f"movie{i:06d}.mp4",
+                    "media_type": "video",
+                    "size_bytes": 1000 + i,
+                    "duration_ms": 6000 + i,
+                    "width": 1920,
+                    "height": 1080,
+                    "fingerprint": f"fp-{i}",
+                    "is_available": True,
+                }
+                for i in range(chunk_start, min(chunk_start + 20_000, total))
+            ]
+            with c.app.state.database.engine.begin() as connection:
+                connection.execute(sa.insert(models.MediaCacheIndex), payload)
+
+        durations: list[float] = []
+        for page in (1, 2, 3):
+            started = time.perf_counter()
+            resp = c.get(
+                "/api/v1/media",
+                params={"library_id": "lib-100k", "page": page, "page_size": 50},
+            )
+            durations.append(time.perf_counter() - started)
+            assert resp.status_code == 200
+            body = resp.json()["data"]
+            assert body["total"] == total
+            assert len(body["items"]) == 50
+            assert calls["items"] == 0
+        # 目标是 P95<1s / DB<250ms;这里用宽松硬上限防慢机抖动,真实值打印留档
+        assert max(durations) < 2.0, f"page too slow: {durations}"
+        print(f"100k page durations: {[round(d, 3) for d in durations]}")
+
+        started = time.perf_counter()
+        folders_resp = c.get("/api/v1/media/folders", params={"library_id": "lib-100k"})
+        folder_elapsed = time.perf_counter() - started
+        assert folders_resp.status_code == 200
+        assert folder_elapsed < 2.0, f"folders too slow: {folder_elapsed}"
+        print(f"100k folders elapsed: {round(folder_elapsed, 3)}")

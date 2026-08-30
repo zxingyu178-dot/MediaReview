@@ -20,10 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -36,13 +33,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +48,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.feature.home.data.MediaTypeFilter
@@ -94,7 +92,8 @@ fun NavGraphBuilder.mediaWallGraph(navController: NavController) {
 }
 
 /**
- * 媒体墙:封面网格 + 封面大小调节 + 排序/类型/媒体库筛选 + 搜索 + 自动加载。
+ * 媒体墙:封面网格(Paging 3 分页) + 封面大小调节 + 排序/类型/媒体库/文件夹筛选 + 搜索。
+ * 首屏骨架/空态/离线重试由 LoadState 驱动;追加失败在网格尾部就地重试。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -107,21 +106,7 @@ fun MediaWallScreen(
     val ui by viewModel.ui.collectAsState()
     val spriteViewModel: SpriteViewModel = hiltViewModel()
     val spriteStates by spriteViewModel.states.collectAsState()
-    val gridState: LazyGridState = rememberLazyGridState()
-
-    // 接近底部自动加载
-    LaunchedEffect(gridState) {
-        snapshotFlow {
-            val info = gridState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val total = info.totalItemsCount
-            last to total
-        }.collect { (last, total) ->
-            if (total > 0 && last >= total - 6) {
-                viewModel.onScrollNearEnd()
-            }
-        }
-    }
+    val lazyItems = viewModel.pagingData.collectAsLazyPagingItems()
 
     Scaffold { padding ->
         Column(
@@ -146,18 +131,19 @@ fun MediaWallScreen(
                 compactFilters = { MediaWallFilters(ui, viewModel, compact = true) },
                 stackedFilters = { MediaWallFilters(ui, viewModel, compact = false) },
             ) {
+                val refreshState = lazyItems.loadState.refresh
                 when {
-                    ui.loading && ui.items.isEmpty() -> LoadingSkeleton(
+                    refreshState is LoadState.Loading && lazyItems.itemCount == 0 -> LoadingSkeleton(
                         Modifier.align(Alignment.Center).padding(MediaSpacing.Large),
                     )
 
-                    ui.error != null && ui.items.isEmpty() -> MediaOfflineState(
-                        message = ui.error!!,
-                        onRetry = viewModel::onRetry,
+                    refreshState is LoadState.Error && lazyItems.itemCount == 0 -> MediaOfflineState(
+                        message = "媒体墙加载失败,请检查服务器连接",
+                        onRetry = { lazyItems.retry() },
                         modifier = Modifier.align(Alignment.Center),
                     )
 
-                    ui.items.isEmpty() -> MediaEmptyState(
+                    lazyItems.itemCount == 0 && refreshState is LoadState.NotLoading -> MediaEmptyState(
                         title = "暂无媒体",
                         message = "请先在整理中选择媒体库",
                         modifier = Modifier.align(Alignment.Center),
@@ -166,11 +152,14 @@ fun MediaWallScreen(
                     else -> LazyVerticalGrid(
                         columns = GridCells.Fixed(ui.gridColumns),
                         modifier = Modifier.fillMaxSize(),
-                        state = gridState,
                         verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
                         horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
                     ) {
-                        items(ui.items, key = { it.media_id }) { item ->
+                        items(
+                            count = lazyItems.itemCount,
+                            key = lazyItems.itemKey { it.media_id },
+                        ) { index ->
+                            val item = lazyItems[index] ?: return@items
                             MediaCell(
                                 item = item,
                                 spriteState = spriteStates[item.media_id] ?: SpriteScrubState(),
@@ -178,12 +167,25 @@ fun MediaWallScreen(
                                 onClick = { onItemClick(item) },
                             )
                         }
-                        item {
-                            if (ui.loading) {
+                        if (lazyItems.loadState.append is LoadState.Loading) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                                 Box(
                                     Modifier.fillMaxWidth().padding(MediaSpacing.Regular),
                                     contentAlignment = Alignment.Center,
                                 ) { CircularProgressIndicator() }
+                            }
+                        }
+                        if (lazyItems.loadState.append is LoadState.Error) {
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(MediaSpacing.Regular),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("加载更多失败", style = MaterialTheme.typography.bodyMedium)
+                                    Spacer(Modifier.width(MediaSpacing.Small))
+                                    TextButton(onClick = { lazyItems.retry() }) { Text("重试") }
+                                }
                             }
                         }
                     }
@@ -236,6 +238,11 @@ private fun MediaWallFilters(
             selectedId = ui.libraryId,
             onSelect = viewModel::onLibrarySelected,
             onAll = viewModel::onLibraryAll,
+        )
+        FolderFilterMenu(
+            folders = ui.folders,
+            selectedId = ui.folderId,
+            onSelect = viewModel::setFolder,
         )
         OutlinedButton(onClick = { viewModel.setExcludeFavorites(!ui.excludeFavorites) }) {
             Text(if (ui.excludeFavorites) "仅看未点赞" else "筛选未点赞")
@@ -348,6 +355,30 @@ private fun LibraryFilterMenu(
                 DropdownMenuItem(
                     text = { Text(lib.name) },
                     onClick = { onSelect(lib.jellyfin_id); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderFilterMenu(
+    folders: List<com.mediareview.app.core.model.MediaFolderItem>,
+    selectedId: String?,
+    onSelect: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = folders.firstOrNull { it.folder_id == selectedId }?.name ?: "全部文件夹"
+    Box {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text("文件夹:$selectedName")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("全部文件夹") }, onClick = { onSelect(null); expanded = false })
+            folders.forEach { folder ->
+                DropdownMenuItem(
+                    text = { Text("${folder.name} (${folder.count})") },
+                    onClick = { onSelect(folder.folder_id); expanded = false },
                 )
             }
         }

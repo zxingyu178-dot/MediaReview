@@ -277,6 +277,127 @@ def _sort_expression(sort_by: str, random_seed: str | None):
     raise ValueError(f"不支持的媒体排序字段: {sort_by}")
 
 
+def _media_filter_conditions(
+    *,
+    library_ids: Iterable[str],
+    media_type: str | None = None,
+    search: str | None = None,
+    exclude_favorites: bool = False,
+) -> list:
+    """列表与文件夹视图共用的基础筛选条件。"""
+    conditions = [
+        MediaCacheIndex.is_available.is_(True),
+        MediaCacheIndex.library_id.in_(sorted(set(library_ids))),
+    ]
+    if media_type:
+        conditions.append(MediaCacheIndex.media_type == media_type)
+    if search and search.strip():
+        pattern = f"%{_escaped_like(search.strip().casefold())}%"
+        conditions.append(sa.func.lower(MediaCacheIndex.name).like(pattern, escape="\\"))
+    if exclude_favorites:
+        conditions.append(
+            ~sa.exists(sa.select(1).where(Favorite.media_id == MediaCacheIndex.media_id))
+        )
+    return conditions
+
+
+def _folder_dirname_expression():
+    """把 media_path 规范化为"父目录(以 / 结尾)"的 SQL 表达式。
+
+    先统一 \\ 与 / 两种分隔符(连续分隔符折叠为一个),再剥离最后一段文件名;
+    结果形如 "D:/Media/子目录/",盘根形如 "D:/"。NULL 输入保持 NULL。
+    该表达式只在服务器内部使用,绝不把结果下发客户端。
+    """
+    path = MediaCacheIndex.media_path
+    unified = sa.func.replace(sa.func.replace(path, "\\", "/"), "//", "/")
+    return sa.func.rtrim(unified, sa.func.replace(unified, "/", ""))
+
+
+def folder_id_for_dirname(dirname: str) -> str:
+    """文件夹的不透明服务器 ID(SHA-256 前 16 个十六进制字符)。"""
+    return hashlib.sha256(dirname.encode("utf-8")).hexdigest()[:16]
+
+
+def _folder_display_name(dirname: str) -> str:
+    stripped = dirname.rstrip("/")
+    if not stripped or stripped.endswith(":"):
+        return "(根目录)"
+    return stripped.rsplit("/", 1)[-1] or "(根目录)"
+
+
+def list_media_folder_groups(
+    session: Session,
+    *,
+    library_ids: Iterable[str],
+    media_type: str | None = None,
+    search: str | None = None,
+    exclude_favorites: bool = False,
+) -> list[tuple[str, int]]:
+    """按父目录聚合当前筛选范围内的媒体,返回 (目录名, 数量) 列表(按目录名排序)。"""
+    conditions = _media_filter_conditions(
+        library_ids=sorted(set(library_ids)),
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    )
+    dirname = _folder_dirname_expression()
+    rows = session.execute(
+        sa.select(dirname.label("dir"), sa.func.count().label("n"))
+        .where(*conditions, dirname.is_not(None), dirname != "")
+        .group_by(sa.literal_column("dir"))
+        .order_by(sa.literal_column("dir"))
+    ).all()
+    return [(str(row.dir), int(row.n)) for row in rows]
+
+
+def list_media_folders(
+    session: Session,
+    *,
+    library_ids: Iterable[str],
+    media_type: str | None = None,
+    search: str | None = None,
+    exclude_favorites: bool = False,
+) -> list[dict]:
+    """文件夹辅助视图: folder_id 是服务器派生的不透明 ID,绝不下发 Windows 路径。"""
+    groups = list_media_folder_groups(
+        session,
+        library_ids=library_ids,
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    )
+    return [
+        {
+            "folder_id": folder_id_for_dirname(dirname),
+            "name": _folder_display_name(dirname),
+            "count": count,
+        }
+        for dirname, count in groups
+    ]
+
+
+def resolve_folder_dirname(
+    session: Session,
+    *,
+    library_ids: Iterable[str],
+    media_type: str | None = None,
+    search: str | None = None,
+    exclude_favorites: bool = False,
+    folder_id: str,
+) -> str | None:
+    """在同一筛选范围内把 folder_id 反查为目录名;未知 folder_id 返回 None。"""
+    for dirname, _count in list_media_folder_groups(
+        session,
+        library_ids=library_ids,
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    ):
+        if folder_id_for_dirname(dirname) == folder_id:
+            return dirname
+    return None
+
+
 def list_cached_media(
     session: Session,
     *,
@@ -289,24 +410,20 @@ def list_cached_media(
     page: int = 1,
     page_size: int = 50,
     random_seed: str | None = None,
+    folder_dirname: str | None = None,
 ) -> tuple[list[MediaCacheIndex], int]:
     """在 SQLite 中完成 count、筛选、排序与分页，不把全表载入 Python。"""
     targets = sorted(set(library_ids))
     if not targets:
         return [], 0
-    conditions = [
-        MediaCacheIndex.is_available.is_(True),
-        MediaCacheIndex.library_id.in_(targets),
-    ]
-    if media_type:
-        conditions.append(MediaCacheIndex.media_type == media_type)
-    if search and search.strip():
-        pattern = f"%{_escaped_like(search.strip().casefold())}%"
-        conditions.append(sa.func.lower(MediaCacheIndex.name).like(pattern, escape="\\"))
-    if exclude_favorites:
-        conditions.append(
-            ~sa.exists(sa.select(1).where(Favorite.media_id == MediaCacheIndex.media_id))
-        )
+    conditions = _media_filter_conditions(
+        library_ids=targets,
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    )
+    if folder_dirname:
+        conditions.append(_folder_dirname_expression() == folder_dirname)
 
     total = int(
         session.scalar(sa.select(sa.func.count()).select_from(MediaCacheIndex).where(*conditions))
@@ -847,6 +964,10 @@ __all__ = [
     "invalidate_media_snapshots",
     "library_selection_rows",
     "list_cached_media",
+    "list_media_folder_groups",
+    "list_media_folders",
+    "folder_id_for_dirname",
+    "resolve_folder_dirname",
     "make_media_refresh_handler",
     "media_sync_view",
     "put_media_snapshot",

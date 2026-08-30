@@ -8,6 +8,7 @@ import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.HealthOut
 import com.mediareview.app.core.model.LibraryItem
 import com.mediareview.app.core.model.JellyfinStatusOut
+import com.mediareview.app.core.model.MediaFolderItem
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.core.model.PairingStatusOut
@@ -64,7 +65,16 @@ interface MediaReviewApi {
         @Query("page_size") pageSize: Int = 50,
         @Query("search") search: String? = null,
         @Query("exclude_favorites") excludeFavorites: Boolean = false,
+        @Query("folder_id") folderId: String? = null,
     ): Envelope<MediaPage>
+
+    @GET("/api/v1/media/folders")
+    suspend fun mediaFolders(
+        @Query("library_id") libraryId: String? = null,
+        @Query("media_type") mediaType: String? = null,
+        @Query("search") search: String? = null,
+        @Query("exclude_favorites") excludeFavorites: Boolean = false,
+    ): Envelope<List<MediaFolderItem>>
 
     @GET("/api/v1/media/{media_id}")
     suspend fun mediaDetail(@Path("media_id") mediaId: String): Envelope<MediaSummary>

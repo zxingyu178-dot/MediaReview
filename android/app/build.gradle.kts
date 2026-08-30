@@ -85,9 +85,14 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
 
+    // Paging 3
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
+
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.paging.testing)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.espresso)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -27,6 +27,14 @@ data class MediaSyncDto(
     val state: String = "unknown",
 )
 
+/** 文件夹辅助视图条目(GET /media/folders)。folder_id 是服务器派生的不透明 ID,不是文件路径。 */
+@Serializable
+data class MediaFolderItem(
+    val folder_id: String = "",
+    val name: String = "",
+    val count: Int = 0,
+)
+
 @Serializable
 data class MediaSummary(
     val media_id: String = "",

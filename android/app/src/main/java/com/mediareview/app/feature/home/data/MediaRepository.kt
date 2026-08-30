@@ -103,6 +103,7 @@ class MediaRepository @Inject constructor(
         pageSize: Int,
         search: String?,
         excludeFavorites: Boolean,
+        folderId: String?,
     ): MediaPage {
         val result = unwrap(
             api().media(
@@ -114,11 +115,27 @@ class MediaRepository @Inject constructor(
             pageSize = pageSize,
             search = search,
             excludeFavorites = excludeFavorites,
+            folderId = folderId,
             ),
         ) ?: MediaPage()
         val baseUrl = pairedBaseUrl()
         return result.copy(items = result.items.map { resolveMedia(it, baseUrl) })
     }
+
+    override suspend fun loadMediaFolders(
+        libraryId: String?,
+        type: MediaTypeFilter,
+        search: String?,
+        excludeFavorites: Boolean,
+    ): List<com.mediareview.app.core.model.MediaFolderItem> =
+        unwrap(
+            api().mediaFolders(
+                libraryId = libraryId,
+                mediaType = type.wire,
+                search = search,
+                excludeFavorites = excludeFavorites,
+            ),
+        ) ?: emptyList()
 
     suspend fun loadDetail(mediaId: String): MediaSummary? = runSuspendCatching {
         unwrap(api().mediaDetail(mediaId))?.let { resolveMedia(it, pairedBaseUrl()) }

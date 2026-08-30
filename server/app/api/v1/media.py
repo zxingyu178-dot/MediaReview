@@ -69,6 +69,14 @@ class MediaPage(BaseModel):
     sync: MediaSyncSummary
 
 
+class FolderSummary(BaseModel):
+    """文件夹辅助视图条目:folder_id 是服务器派生的不透明 ID,不下发任何文件路径。"""
+
+    folder_id: str
+    name: str
+    count: int
+
+
 class MediaRefreshBody(BaseModel):
     library_ids: list[str] | None = None
     force: bool = False
@@ -113,6 +121,35 @@ def _require_user_id(request: Request) -> str:
     return user_id
 
 
+@router.get("/folders", response_model=Envelope[list[FolderSummary]])
+async def list_media_folders(
+    request: Request,
+    library_id: str | None = Query(default=None, min_length=1),
+    media_type: MediaType | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=200),
+    exclude_favorites: bool = Query(default=False),
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[list[FolderSummary]]:
+    """文件夹辅助视图(媒体墙内使用,非独立导航):按父目录聚合当前筛选范围内的媒体。"""
+    _require_user_id(request)
+    selected = set(media_index.selected_library_ids(db))
+    if library_id:
+        targets = [library_id]
+    else:
+        targets = sorted(selected)
+        if not targets:
+            raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
+    folders = media_index.list_media_folders(
+        db,
+        library_ids=targets,
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    )
+    return ok([FolderSummary.model_validate(f) for f in folders])
+
+
 @router.get("", response_model=Envelope[MediaPage])
 async def list_media(
     request: Request,
@@ -125,6 +162,7 @@ async def list_media(
     search: str | None = Query(default=None, max_length=200),
     exclude_favorites: bool = Query(default=False, description="排除已点赞媒体(未点赞筛选)"),
     random_seed: str | None = Query(default=None, max_length=128),
+    folder_id: str | None = Query(default=None, max_length=32, description="文件夹辅助视图 ID"),
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[MediaPage]:
@@ -140,6 +178,19 @@ async def list_media(
         if not targets:
             raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
 
+    folder_dirname: str | None = None
+    if folder_id:
+        folder_dirname = media_index.resolve_folder_dirname(
+            db,
+            library_ids=targets,
+            media_type=media_type,
+            search=search,
+            exclude_favorites=exclude_favorites,
+            folder_id=folder_id,
+        )
+        if folder_dirname is None:
+            raise MediaNotFoundError()
+
     available_count = media_index.available_media_count(db, targets)
     if available_count == 0 and auto_refresh_allowed:
         media_index.schedule_media_refresh(db, targets)
@@ -154,6 +205,7 @@ async def list_media(
         page=page,
         page_size=page_size,
         random_seed=random_seed,
+        folder_dirname=folder_dirname,
     )
     sync = media_index.media_sync_view(db, targets, available_count=available_count)
     return ok(

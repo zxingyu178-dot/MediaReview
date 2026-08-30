@@ -16,6 +16,7 @@ import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.LibraryItem
+import com.mediareview.app.core.model.MediaFolderItem
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.core.model.PlaybackInfoDto
@@ -230,10 +231,17 @@ private class ShellRepository : MediaDataSource {
         pageSize: Int,
         search: String?,
         excludeFavorites: Boolean,
+        folderId: String?,
     ): MediaPage {
         mediaLoads += 1
         return MediaPage()
     }
+    override suspend fun loadMediaFolders(
+        libraryId: String?,
+        type: MediaTypeFilter,
+        search: String?,
+        excludeFavorites: Boolean,
+    ): List<MediaFolderItem> = emptyList()
     override suspend fun loadPlayback(mediaId: String): PlaybackInfoDto? {
         if (lookupImmediate) {
             return PlaybackInfoDto(media_id = mediaId, stream_url = "stream://$mediaId")

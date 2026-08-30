@@ -5,6 +5,7 @@ import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.LibraryItem
+import com.mediareview.app.core.model.MediaFolderItem
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ReviewQueuePageDto
@@ -23,7 +24,16 @@ interface MediaDataSource {
         pageSize: Int = 50,
         search: String? = null,
         excludeFavorites: Boolean = false,
+        folderId: String? = null,
     ): MediaPage
+
+    /** 文件夹辅助视图:与当前筛选一致的分目录聚合(folder_id 为服务器 ID,非路径)。 */
+    suspend fun loadMediaFolders(
+        libraryId: String? = null,
+        type: MediaTypeFilter = MediaTypeFilter.All,
+        search: String? = null,
+        excludeFavorites: Boolean = false,
+    ): List<MediaFolderItem>
     suspend fun loadPlayback(mediaId: String): PlaybackInfoDto?
     suspend fun createReviewSession(): ReviewSessionDto?
     suspend fun latestReviewSession(): ReviewSessionDto?

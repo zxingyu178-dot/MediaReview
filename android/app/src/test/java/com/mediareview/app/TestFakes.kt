@@ -5,6 +5,7 @@ import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.LibraryItem
+import com.mediareview.app.core.model.MediaFolderItem
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ReviewQueuePageDto
@@ -34,7 +35,14 @@ open class FakeMediaDataSource : MediaDataSource {
         pageSize: Int,
         search: String?,
         excludeFavorites: Boolean,
+        folderId: String?,
     ): MediaPage = MediaPage()
+    override suspend fun loadMediaFolders(
+        libraryId: String?,
+        type: MediaTypeFilter,
+        search: String?,
+        excludeFavorites: Boolean,
+    ): List<MediaFolderItem> = emptyList()
     override suspend fun loadPlayback(mediaId: String): PlaybackInfoDto? = null
     override suspend fun createReviewSession(): ReviewSessionDto? = null
     override suspend fun latestReviewSession(): ReviewSessionDto? = null
