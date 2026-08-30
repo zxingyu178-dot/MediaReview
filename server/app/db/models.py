@@ -432,6 +432,11 @@ class PairedDevice(Base):
     token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 设备级 Jellyfin 播放凭据(0013):服务端签发的命名 key,可撤销;
+    # value 只在播放响应 headers 中下发给该设备,不进入 URL/日志/诊断。
+    jellyfin_key_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    jellyfin_key_value: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    jellyfin_key_created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PairingCode(Base):

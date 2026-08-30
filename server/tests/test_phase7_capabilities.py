@@ -227,8 +227,12 @@ def test_playback_api_returns_stream_url(jellyfin_api_client) -> None:
     assert data["media_id"] == "play1"
     assert data["stream_url"].startswith("http://testserver:8096/Videos/jf-video-1/stream")
     assert "api_key" not in data["stream_url"].casefold()
-    assert data["requires_jellyfin_auth"] is True
-    assert "认证" in data["message"]
+    assert data["requires_jellyfin_auth"] is False
+    assert "凭据" in data["message"]
+    assert data["direct"]["url"] == data["stream_url"]
+    assert set(data["direct"]["headers"]) == {"X-Emby-Token"}
+    assert "master.m3u8" in data["fallback_hls"]["url"]
+    assert data["fallback_hls"]["headers"] == data["direct"]["headers"]
 
 
 def test_playback_full_json_uses_normalized_base_path_and_encoded_item_id(
@@ -258,11 +262,18 @@ def test_playback_full_json_uses_normalized_base_path_and_encoded_item_id(
         f"{name}: {value}" for name, value in response.headers.items()
     )
     data = response.json()["data"]
-    assert data["stream_url"] == (
+    expected_direct = (
         "https://testserver:9443/jellyfin%20home/"
         "Videos/folder%2Fvideo%20%3F%23%25/stream?static=true"
     )
-    assert data["requires_jellyfin_auth"] is True
+    assert data["stream_url"] == expected_direct
+    assert data["direct"]["url"] == expected_direct
+    assert data["fallback_hls"]["url"] == (
+        "https://testserver:9443/jellyfin%20home/"
+        "Videos/folder%2Fvideo%20%3F%23%25/master.m3u8"
+        "?MediaSourceId=folder%2Fvideo%20%3F%23%25&VideoCodec=h264&AudioCodec=aac"
+    )
+    assert data["requires_jellyfin_auth"] is False
 
 
 def test_playback_api_rejects_unknown_or_non_video(jellyfin_api_client) -> None:

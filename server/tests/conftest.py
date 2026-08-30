@@ -100,6 +100,18 @@ def make_jellyfin_mock_transport() -> httpx.MockTransport:
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if request.method in ("GET", "POST") and path.endswith("/Auth/Keys"):
+            return httpx.Response(
+                200,
+                json={
+                    "Items": [
+                        {
+                            "Name": "mediareview-shared-playback",
+                            "AccessToken": "device-jf-key-mock-1",
+                        }
+                    ]
+                },
+            )
         if path == "/System/Info":
             return httpx.Response(
                 200,

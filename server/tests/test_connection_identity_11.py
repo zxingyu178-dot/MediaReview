@@ -100,6 +100,27 @@ def test_derived_client_url_rejects_loopback_or_unspecified_request_host() -> No
             config.client_base_url(host)
 
 
+def _keys_serving_transport():
+    """Task C 播放合同:提供 /Auth/Keys 命名 key 的最小 mock。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method in ("GET", "POST") and request.url.path.endswith("/Auth/Keys"):
+            return httpx.Response(
+                200,
+                json={
+                    "Items": [
+                        {
+                            "Name": "mediareview-shared-playback",
+                            "AccessToken": "device-jf-key-legacy",
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
 def test_remote_playback_replaces_only_configured_loopback_host(tmp_path: Path) -> None:
     settings = AppConfig(
         jellyfin=JellyfinConfig(
@@ -114,7 +135,7 @@ def test_remote_playback_replaces_only_configured_loopback_host(tmp_path: Path) 
 
     async def override_client():
         async with JellyfinClient(
-            settings.jellyfin, transport=httpx.MockTransport(lambda _: httpx.Response(404))
+            settings.jellyfin, transport=httpx.MockTransport(_keys_serving_transport())
         ) as client:
             yield client
 
@@ -137,11 +158,15 @@ def test_remote_playback_replaces_only_configured_loopback_host(tmp_path: Path) 
 
     assert response.status_code == 200
     payload = response.json()["data"]
-    assert payload["stream_url"] == (
-        "http://192.168.31.20:8096/jellyfin/Videos/video%2Fone/stream?static=true"
-    )
-    assert payload["requires_jellyfin_auth"] is True
+    expected_direct = "http://192.168.31.20:8096/jellyfin/Videos/video%2Fone/stream?static=true"
+    assert payload["stream_url"] == expected_direct
+    assert payload["direct"]["url"] == expected_direct
+    assert payload["direct"]["headers"] == {"X-Emby-Token": "device-jf-key-legacy"}
+    assert "master.m3u8" in payload["fallback_hls"]["url"]
+    assert payload["requires_jellyfin_auth"] is False
     assert "test-server-key" not in response.text
+    assert "device-jf-key-legacy" not in payload["direct"]["url"]
+    assert "device-jf-key-legacy" not in payload["fallback_hls"]["url"]
     assert "127.0.0.1" not in response.text
 
 
@@ -160,7 +185,7 @@ def test_configured_client_url_wins_over_request_host(tmp_path: Path) -> None:
 
     async def override_client():
         async with JellyfinClient(
-            settings.jellyfin, transport=httpx.MockTransport(lambda _: httpx.Response(404))
+            settings.jellyfin, transport=httpx.MockTransport(_keys_serving_transport())
         ) as client:
             yield client
 
@@ -209,7 +234,7 @@ def test_allowlisted_client_url_is_authoritative_in_playback_contract(
 
     async def override_client():
         async with JellyfinClient(
-            settings.jellyfin, transport=httpx.MockTransport(lambda _: httpx.Response(404))
+            settings.jellyfin, transport=httpx.MockTransport(_keys_serving_transport())
         ) as mock_client:
             yield mock_client
 
@@ -251,7 +276,7 @@ def test_request_host_fallback_declares_non_authoritative_rewrite_contract(
 
     async def override_client():
         async with JellyfinClient(
-            settings.jellyfin, transport=httpx.MockTransport(lambda _: httpx.Response(404))
+            settings.jellyfin, transport=httpx.MockTransport(_keys_serving_transport())
         ) as mock_client:
             yield mock_client
 

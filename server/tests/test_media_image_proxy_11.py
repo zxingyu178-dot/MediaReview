@@ -24,8 +24,19 @@ MAX_IMAGE_BYTES = 25 * 1024 * 1024
 def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx.Request]]]:
     requests: list[httpx.Request] = []
 
+    known_keys: dict[str, str] = {"mediareview-shared-playback": "device-jf-key-secure-1"}
+
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.method == "GET" and request.url.path.endswith("/Auth/Keys"):
+            return httpx.Response(
+                200,
+                json={"Items": [{"Name": n, "AccessToken": v} for n, v in known_keys.items()]},
+            )
+        if request.method == "POST" and request.url.path.endswith("/Auth/Keys"):
+            name = request.url.params.get("Name", "")
+            known_keys.setdefault(name, f"device-jf-key-{name}")
+            return httpx.Response(200)
         if request.url.host in {"evil.example", "169.254.169.254"}:
             return httpx.Response(
                 200, content=b"redirected-image", headers={"Content-Type": "image/png"}
@@ -161,10 +172,16 @@ def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image
     assert detail.json()["data"]["cover_url"] == "/api/v1/media/img-ok/thumbnail"
     assert detail.json()["data"]["original_url"] == "/api/v1/media/img-ok/original"
     playback_data = playback.json()["data"]
-    assert playback_data["requires_jellyfin_auth"] is True
-    assert "认证" in playback_data["message"]
+    assert playback_data["requires_jellyfin_auth"] is False
+    assert "凭据" in playback_data["message"]
     assert "api_key" not in playback_data["stream_url"].casefold()
-    assert requests == []
+    device_token = playback_data["direct"]["headers"]["X-Emby-Token"]
+    assert device_token.startswith("device-jf-key-")
+    assert playback_data["fallback_hls"]["headers"] == {"X-Emby-Token": device_token}
+    assert device_token not in playback_data["direct"]["url"]
+    assert device_token not in playback_data["fallback_hls"]["url"]
+    # 中间层仍然不得代理视频流:上游调用只允许凭据签发与元数据,不允许 /Videos
+    assert all("/Videos/" not in r.url.path for r in requests)
 
 
 def test_playback_final_serialization_rejects_key_from_client_builder(
@@ -185,7 +202,8 @@ def test_playback_final_serialization_rejects_key_from_client_builder(
     assert SERVER_KEY not in "\n".join(
         f"{name}: {value}" for name, value in response.headers.items()
     )
-    assert requests == []
+    # 泄漏检查必须发生在任何 /Videos 上游调用之前
+    assert all("/Videos/" not in r.url.path for r in requests)
 
 
 def test_image_proxy_requires_pairing_and_keeps_server_key_upstream(secure_image_client) -> None:

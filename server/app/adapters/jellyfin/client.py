@@ -52,6 +52,18 @@ def item_stream_url(host: str, item_id: str) -> str:
     return f"{base_url}/Videos/{_path_segment(item_id)}/stream?static=true"
 
 
+def item_hls_url(host: str, item_id: str) -> str:
+    """构造不含凭据的 HLS 回退播放列表地址(Direct Play 失败时的唯一一次回退)。
+
+    H.264/AAC 转码参数保持最小集;认证由调用方通过 headers 携带设备级凭据。
+    """
+    base_url = normalize_jellyfin_base_url(host)
+    return (
+        f"{base_url}/Videos/{_path_segment(item_id)}/master.m3u8"
+        f"?MediaSourceId={_path_segment(item_id)}&VideoCodec=h264&AudioCodec=aac"
+    )
+
+
 class JellyfinAuthError(JellyfinError):
     code = "JELLYFIN_AUTH_FAILED"
     default_message = "Jellyfin 认证失败,请检查 API Key"
@@ -92,8 +104,13 @@ class JellyfinClient:
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return await self._request("GET", path, params=params)
 
-    async def _post(self, path: str, json_body: dict[str, Any] | None = None) -> Any:
-        return await self._request("POST", path, json_body=json_body)
+    async def _post(
+        self,
+        path: str,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        return await self._request("POST", path, params=params, json_body=json_body)
 
     async def _request(
         self,
@@ -240,6 +257,57 @@ class JellyfinClient:
         ensure_jellyfin_url_excludes_api_key(stream_url, self._api_key)
         return stream_url
 
+    def hls_stream_url(self, item_id: str, *, base_url: str | None = None) -> str:
+        ensure_jellyfin_url_excludes_api_key(self._base_url, self._api_key)
+        url = item_hls_url(base_url or self._base_url, item_id)
+        ensure_jellyfin_url_excludes_api_key(url, self._api_key)
+        return url
+
+    # ---- 设备级播放凭据(Task C) ----
+
+    async def ensure_device_stream_key(self, key_name: str) -> str:
+        """按名称读取/创建 Jellyfin 命名 key(幂等),返回 AccessToken。
+
+        - 已存在:直接返回其 AccessToken,不重复创建;
+        - 不存在:POST /Auth/Keys 创建后回读;
+        - 任何失败抛 JellyfinError,调用方必须 fail-closed。
+        密钥值只在内存与调用方持久化中流转,不写日志。
+        """
+        keys = await self._get("/Auth/Keys")
+        for item in (keys or {}).get("Items", []):
+            if item.get("Name") == key_name and item.get("AccessToken"):
+                return str(item["AccessToken"])
+        await self._post("/Auth/Keys", params={"Name": key_name})
+        keys = await self._get("/Auth/Keys")
+        for item in (keys or {}).get("Items", []):
+            if item.get("Name") == key_name and item.get("AccessToken"):
+                return str(item["AccessToken"])
+        raise JellyfinError("Jellyfin 已创建播放凭据但无法回读,请检查其版本与权限")
+
+    async def revoke_device_stream_key(self, key_name: str) -> bool:
+        """按名称撤销 Jellyfin 命名 key;不存在时返回 False(幂等)。"""
+        keys = await self._get("/Auth/Keys")
+        for item in (keys or {}).get("Items", []):
+            if item.get("Name") == key_name and item.get("AccessToken"):
+                token = str(item["AccessToken"])
+                await self._request("DELETE", f"/Auth/Keys/{_path_segment(token)}")
+                return True
+        return False
+
+    async def item_resume_position_ms(self, user_id: str, item_id: str) -> int:
+        """读取 Jellyfin 侧续播位置(毫秒);任何失败返回 0,不阻塞播放。"""
+        try:
+            item = await self._get(
+                f"/Users/{_path_segment(user_id)}/Items/{_path_segment(item_id)}"
+            )
+        except JellyfinError:
+            return 0
+        ticks = ((item or {}).get("UserData") or {}).get("PlaybackPositionTicks") or 0
+        try:
+            return max(0, int(ticks) // 10_000)
+        except (TypeError, ValueError):
+            return 0
+
     async def thumbnail_image(self, item_id: str, max_width: int = 480) -> tuple[bytes, str]:
         return await self._image_request(
             f"/Items/{_path_segment(item_id)}/Images/Primary",
@@ -266,5 +334,6 @@ class JellyfinClient:
 __all__ = [
     "JellyfinAuthError",
     "JellyfinClient",
+    "item_hls_url",
     "item_stream_url",
 ]

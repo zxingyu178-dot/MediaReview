@@ -16,13 +16,14 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.adapters.jellyfin.client import JellyfinClient
+from app.adapters.jellyfin.client import JellyfinClient, JellyfinError
 from app.adapters.jellyfin.models import MediaType
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
 from app.core.config import ensure_jellyfin_url_excludes_api_key
 from app.core.errors import ConfigError, MediaNotFoundError, ValidationFailedError
 from app.core.responses import Envelope, ok
+from app.db.models import utc_now
 from app.db.session import get_db
 from app.services import media_index
 from app.services import tasks as task_service
@@ -302,12 +303,30 @@ async def get_media_original(
     return _image_response(payload, content_type)
 
 
+class PlaybackEndpoint(BaseModel):
+    """单个播放端点:URL + 认证 headers。凭据只在 headers,绝不进入 URL。"""
+
+    url: str
+    headers: dict[str, str] = {}
+
+
 class PlaybackInfo(BaseModel):
+    """Task C 播放合同:Direct Play + 唯一一次 HLS 回退。
+
+    - direct: Jellyfin 原盘直连(static=true);
+    - fallback_hls: 唯一一次回退(master.m3u8 转码),Android 状态机不得二次回退;
+    - headers 携带设备级 X-Emby-Token(服务端按设备签发/复用的命名 key,可撤销),
+      它不等于服务端 API key,且绝不进入任何 URL;
+    - stream_url 为一版兼容字段,恒等于 direct.url;旧客户端可忽略新增字段。
+    """
+
     media_id: str
     title: str
+    direct: PlaybackEndpoint
+    fallback_hls: PlaybackEndpoint
+    resume_position_ms: int = 0
     stream_url: str
-    requires_jellyfin_auth: bool
-    # 新客户端依据 provenance 决定是否允许 host rewrite；旧客户端可忽略新增字段。
+    requires_jellyfin_auth: bool = False
     stream_url_authoritative: bool = False
     stream_url_source: Literal["configured_client_url", "request_host_fallback"] = (
         "request_host_fallback"
@@ -321,18 +340,47 @@ class PlaybackInfo(BaseModel):
     container: str | None = None
 
 
+PLAYBACK_KEY_PREFIX = "mediareview-"
+_PLAYBACK_SHARED_KEY_NAME = "mediareview-shared-playback"
+
+
+def _device_key_name(installation_id: str | None) -> str:
+    if not installation_id:
+        return _PLAYBACK_SHARED_KEY_NAME
+    return f"{PLAYBACK_KEY_PREFIX}{installation_id[:48]}"
+
+
+async def _resolve_stream_key(db: Session, device, client: JellyfinClient) -> str:
+    """解析设备级播放凭据:设备行持久化复用;开发模式用共享命名 key。
+
+    任何签发失败都抛 JellyfinError,由端点 fail-closed(不下发任何直连地址)。
+    """
+    if device is not None and device.jellyfin_key_value:
+        return device.jellyfin_key_value
+    name = _device_key_name(device.installation_id if device is not None else None)
+    key = await client.ensure_device_stream_key(name)
+    if device is not None:
+        device.jellyfin_key_name = name
+        device.jellyfin_key_value = key
+        device.jellyfin_key_created_at = utc_now()
+        db.commit()
+    return key
+
+
 @router.get("/{media_id}/playback", response_model=Envelope[PlaybackInfo])
 async def get_playback_info(
     media_id: str,
     request: Request,
-    _auth=Depends(require_auth),
+    device=Depends(require_auth),
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
 ) -> Envelope[PlaybackInfo]:
-    """获取媒体播放信息: 返回无凭据 Jellyfin 直连地址与视频元数据。
+    """获取媒体播放信息: Direct Play + 唯一一次 HLS 回退 + 设备级可撤销凭据。
 
-    当前尚无可撤销的客户端级 Jellyfin 凭据合同，因此明确标记为需要认证；
-    中间层不转发视频流。仅视频支持播放。
+    - 凭据: 服务端按设备签发/复用 Jellyfin 命名 key(可撤销),只放进
+      ``direct.headers``/``fallback_hls.headers`` 的 X-Emby-Token;
+    - 服务端自己的 API key 绝不出现在任何 URL/headers/序列化输出;
+    - 中间层不转发视频流;仅视频支持播放;签发失败 fail-closed。
     """
     row = media_index.get_cached_media(db, media_id)
     if row is None:
@@ -341,28 +389,42 @@ async def get_playback_info(
         raise ValidationFailedError("仅视频支持播放,该媒体非视频类型")
     jellyfin_settings = request.app.state.settings.jellyfin
     request_host = request.url.hostname or ""
-    stream_url = client.video_stream_url(
-        row.jellyfin_id,
-        base_url=jellyfin_settings.client_base_url(request_host),
-    )
+    client_base = jellyfin_settings.client_base_url(request_host)
     server_key = jellyfin_settings.api_key.get_secret_value()
     authoritative = bool(jellyfin_settings.client_url)
+
     try:
-        ensure_jellyfin_url_excludes_api_key(stream_url, server_key)
-    except ValueError:
-        raise ConfigError("Jellyfin 播放配置存在凭据泄漏风险") from None
+        stream_key = await _resolve_stream_key(db, device, client)
+    except JellyfinError as exc:
+        raise ConfigError("无法为设备签发 Jellyfin 播放凭据,请稍后重试") from exc
+
+    direct_url = client.video_stream_url(row.jellyfin_id, base_url=client_base)
+    hls_url = client.hls_stream_url(row.jellyfin_id, base_url=client_base)
+    for url in (direct_url, hls_url):
+        try:
+            ensure_jellyfin_url_excludes_api_key(url, server_key)
+        except ValueError:
+            raise ConfigError("Jellyfin 播放配置存在凭据泄漏风险") from None
+
+    stream_headers = {"X-Emby-Token": stream_key}
+    resume_position_ms = await client.item_resume_position_ms(
+        jellyfin_settings.user_id or "", row.jellyfin_id
+    )
     return ok(
         PlaybackInfo(
             media_id=row.media_id,
             title=row.name,
-            stream_url=stream_url,
-            requires_jellyfin_auth=True,
+            direct=PlaybackEndpoint(url=direct_url, headers=stream_headers),
+            fallback_hls=PlaybackEndpoint(url=hls_url, headers=dict(stream_headers)),
+            resume_position_ms=resume_position_ms,
+            stream_url=direct_url,
+            requires_jellyfin_auth=False,
             stream_url_authoritative=authoritative,
             stream_url_source=(
                 "configured_client_url" if authoritative else "request_host_fallback"
             ),
             stream_url_rewrite_hosts=[],
-            message="需要为此设备配置 Jellyfin 客户端认证后才能播放；当前不会下发服务器 API Key",
+            message="已附带设备级 Jellyfin 播放凭据(可撤销);凭据只在 headers 中传递",
             media_type=row.media_type,
             duration_ms=row.duration_ms,
             width=row.width,
