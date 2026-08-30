@@ -17,17 +17,20 @@
 
 开始开发前，必须完整阅读：
 
-1. `AGENTS.md`
-2. `docs/PRODUCT_SPEC.md`
-3. `docs/ARCHITECTURE.md`
-4. `docs/DEVELOPMENT_PLAN.md`
-5. `docs/ACCEPTANCE.md`
+1. `TAKEOVER_READ_FIRST.md`
+2. `AGENTS.md`
+3. `docs/HANDOFF_STATUS_2026-08-30.md`
+4. `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`
+5. `.superpowers/sdd/task-4-post-fix-review.md`
+6. `REVIEW_HANDOFF_RULES.md`
+7. `docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md`
+8. `docs/HERMES_APK_EMAIL_DELIVERY.md`
 
 未完成阅读前，不允许开始写核心业务代码。
 
 ## 项目原则
 
-- 从零开发，不复用旧项目代码。
+- 保留并复用已取得独立 CLEAN 的 Task 0–3，以及当前 Task 4 候选实现；不要推倒重写。外部旧项目代码只有在许可证、兼容性和安全边界审查通过后才可复用。
 - 所有用户界面与用户可见文案默认中文。
 - 原始媒体目录不得被缩略图、雪碧图、日志、缓存文件污染。
 - 开发电脑和最终部署电脑不同，禁止写死开发机绝对路径、IP、用户名和环境。

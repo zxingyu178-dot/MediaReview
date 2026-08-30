@@ -112,7 +112,7 @@ Agent 在宣布“阶段完成”之前，必须按顺序完成：
 6. 记录 Git 状态与本阶段提交。
 7. 生成本阶段代码 diff。
 8. 生成 `REVIEW_SUMMARY.md`。
-9. 执行 `scripts/build_review_handoff.py --stage XX --name 阶段名` 生成验收 ZIP。
+9. 在 takeover plan 的 Task 0A 已补齐并通过测试后，执行 `scripts/build_review_handoff.py --stage XX --name 阶段名` 生成验收 ZIP。脚本当前缺失时不得跳过、手工伪造或宣称阶段完成。
 10. 确认 ZIP 成功生成后，才允许向用户汇报阶段完成。
 
 验收 ZIP 输出到 `review_handoff/`，命名形如 `MediaReview_Review_Stage-XX_YYYYMMDD_HHMM.zip`。
@@ -146,3 +146,16 @@ Agent 在宣布“阶段完成”之前，必须按顺序完成：
 ### 6.6 最终 Release 例外
 
 最终 Release 阶段除验收 ZIP 外，还需单独输出部署产物（Server ZIP、Android APK、HANDOVER、Release Notes）。验收 ZIP 与部署 ZIP 是两种不同文件。
+
+## 7. 最终 APK 邮件交付（Hermes）
+
+完整细则见 `docs/HERMES_APK_EMAIL_DELIVERY.md`，以下为强制规则：
+
+1. 只有 Release/RC APK 完成对应自动化、签名、SHA-256、恶意软件扫描和真机边界说明后才能发送。
+2. 发送前必须让用户确认收件地址；仓库、共享 handoff 和日志不得记录完整邮箱或 SMTP 凭据。
+3. 项目 Agent 通过 `E:\aihome\shared\outbox\<agent>\` 交付 APK，并在 `shared\inbox\hermes\` 写无密钥请求；不得修改或读取 Hermes 的 `config/secrets.env`。
+4. 写入 Hermes inbox 不会自动唤醒 Hermes；必须通过 AI Home 的 Agent 协作入口显式通知/唤醒 Hermes，并取得它对请求文件的接收回执。
+5. Hermes 工具位于 `E:\aihome\hermes\scripts\send_mail.py`。截至 2026-08-30，它仍把附件当图片处理，**不能直接发送 APK**；必须由 Hermes 在自己房间先修复并验证非图片 MIME、邮件大小上限、拒收检查和 fail-closed 行为。
+6. 交付成功必须同时出现 SMTP accepted 与 `SEND_OK attachment=<文件名> bytes=<准确字节数> sha256=<匹配值>`。字节数和哈希必须从实际附加的内容计算；正文发送成功但附件失败不算交付。
+7. 邮件发送是最终外部动作，不得因“自动交付”绕过用户收件地址确认；输出和记录中的地址必须掩码。
+8. 若执行 Agent 不在 AI Home 主机，只交回 APK、CHECKSUMS 和验证报告，由 AI Home 上的 Hermes 发送；禁止自建 SMTP 或复制 Hermes 凭据。

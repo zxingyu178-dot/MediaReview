@@ -15,6 +15,9 @@ __pycache__/
 local.properties
 .idea/
 *.iml
+key.properties
+*.jks
+*.keystore
 
 # Packaging and generated handoffs
 server/dist/
@@ -40,7 +43,8 @@ runtime/
 
 # Local worktrees and agent scratch
 .worktrees/
-.superpowers/
+.superpowers/sdd/*.diff
+.superpowers/sdd/tmp/
 
 # OS/editor noise
 Thumbs.db

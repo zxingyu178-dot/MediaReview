@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` (recommended) or `executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 从当前 `ef528d3` 候选树继续，先把 Task 4 修到独立 CLEAN，再完成媒体墙、播放器、整理、运维、部署和真实环境验收，交付可升级可回滚的 `1.1.0`。
+**Goal:** 从历史包含 `ef528d363f4cca158c6fdbe60a59424fa0615c4a` 的 D 盘接管分支继续，先把 Task 4 修到独立 CLEAN，再完成媒体墙、播放器、整理、运维、部署和真实环境验收，交付可升级可回滚的 `1.1.0`。
 
 **Architecture:** Android 只经 MediaReview Server 做控制、索引和整理，视频由 Android 直连 Jellyfin；Server 以 SQLite 索引为普通请求唯一列表源。每个阶段形成可安装候选、冻结 diff、独立审查和回退点，不跨阶段混改。
 
@@ -20,6 +20,24 @@
 - 迁移链当前 head 是 `0012_pairing_device_identity`；后续迁移从 `0012` 延伸。
 - 每个任务必须 TDD、focused GREEN、全量回归、独立审查；0 Critical / 0 Important 才能进入下一任务。
 - 没有真实手机验收时最多标记 `rc1`，不得发布正式 `1.1.0`。
+
+---
+
+### Task 0A: 补齐可移植阶段验收工具
+
+**Files:**
+- Create: `scripts/build_review_handoff.py`
+- Create: `server/tests/test_review_handoff_builder.py`
+- Modify: `REVIEW_HANDOFF_RULES.md`
+- Verify: `docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md`
+
+**Interfaces:** `python scripts/build_review_handoff.py --stage <id> --name <name> --base <git-ref>` 输出 `review_handoff/MediaReview_Review_Stage-<id>_<timestamp>.zip`；失败返回非零。
+
+- [ ] **Step 1: Write RED tests** proving the builder is missing and specifying required ZIP entries: summary, status/log/diff, test/lint evidence, changed text source and project status docs. Add rejection cases for `.env`, DB, APK/AAB/EXE, build/cache, logs and files over the configured size limit.
+- [ ] **Step 2: Implement a standard-library-only builder** using `argparse`, `subprocess`, `pathlib` and `zipfile`. Git unavailable, invalid base, missing summary, secret-pattern path, unreadable file or ZIP write failure must stop with nonzero status.
+- [ ] **Step 3: Prove deterministic scope**: use `git diff --name-only <base>..HEAD` plus tracked working-tree changes; include only approved text extensions and never follow paths outside the repository.
+- [ ] **Step 4: Run focused and full Server tests**, inspect ZIP with `7z l`, extract into a temporary directory, confirm no forbidden entry and verify recorded commands are real outputs.
+- [ ] **Step 5: Commit** as `build(review): add portable handoff packager` before changing Task 4 production code.
 
 ---
 
@@ -47,10 +65,11 @@ Run:
 ```powershell
 git rev-parse HEAD
 git status --short
+git merge-base --is-ancestor ef528d363f4cca158c6fdbe60a59424fa0615c4a HEAD
 Get-Content .superpowers\sdd\task-4-post-fix-review.md
 ```
 
-Expected: current line contains `ef528d3`; status empty; review says `NOT CLEAN` with 2 Important.
+Expected: ancestor command exits `0`; status empty; review says `NOT CLEAN` with 2 Important. HEAD may be later than the D-copy creation commit because handoff documentation can be corrected independently.
 
 - [ ] **Step 2: Write deletion-contract RED tests**
 
@@ -239,12 +258,12 @@ Suggested commit: `feat(admin): add operations console`.
 
 **Interfaces:** Final package root is `MediaReview_Migration_1.1.0`; executable is exactly `MediaReviewServer.exe`; uninstall preserves data unless explicit `-DeleteData`.
 
-- [ ] **Step 1: Write PowerShell/package RED tests** for administrator check, port conflict, disk, Jellyfin, prior version, exact EXE name, FFmpeg priority, backup, rollback, firewall and uninstall data preservation.
-- [ ] **Step 2: Build self-contained Server EXE** and bundle `ffmpeg/bin/ffmpeg.exe` plus `ffprobe.exe`; startup logs resolved paths and versions without secrets.
+- [ ] **Step 1: Write PowerShell/package RED tests** for Windows PowerShell 5.1 compatibility, administrator check, port conflict, disk, Jellyfin, prior version, exact EXE name, FFmpeg copy/priority, backup, rollback, TCP 8766 + UDP 35001 firewall and uninstall data preservation. If PowerShell 7 becomes mandatory instead, add an explicit prerequisite check and supported acquisition path; do not depend on Codex runtime.
+- [ ] **Step 2: Build self-contained Server EXE** and bundle `ffmpeg/bin/ffmpeg.exe` plus `ffprobe.exe`; before redistribution, record source/version/SHA-256 and complete license review with project `LICENSE` and `THIRD_PARTY_NOTICES.md`. Startup logs resolved paths and versions without secrets.
 - [ ] **Step 3: Implement user controls** start/stop/restart/status with exact process ownership; do not kill unrelated listeners.
 - [ ] **Step 4: Implement transactional upgrade**: stop owned service, online-backup config/DB, stage new files, migrate, health-check, atomically promote; on failure restore old binaries/config/DB and restart old version.
 - [ ] **Step 5: Configure only TCP 8766 and UDP 35001 firewall rules** after revalidating AI Home port registry; do not change ports automatically.
-- [ ] **Step 6: Build signed Release APK** with application name `家庭媒体管家`, version `1.1.0`, versionCode greater than 5, adaptive icon and upgrade-compatible applicationId.
+- [ ] **Step 6: Build signed Release APK** with application name `家庭媒体管家`, version `1.1.0`, versionCode greater than 5, adaptive icon and upgrade-compatible applicationId. Pull the currently installed `com.mediareview.app` APK from the real phone and compare `apksigner --print-certs`; only matching fingerprints prove an in-place upgrade. If the original signing key is unavailable, stop and ask the user whether to accept uninstall/reinstall and possible local-data loss.
 - [ ] **Step 7: Assemble package and SHA-256 checksums** with server, ffmpeg, web, eight scripts, APK and docs. Scan for secrets/malware and verify every checksum after extraction.
 - [ ] **Step 8: Clean-machine install/upgrade/rollback/uninstall test** on a disposable Windows environment; full evidence and independent deployment review CLEAN.
 
@@ -263,13 +282,14 @@ Suggested commits: `feat(deploy): add transactional 1.1 upgrade`; `build(release
 - [ ] **Step 5: Validate media and organization**: image, sprite, Direct/HLS formats, review P0/P1, favorite consistency, nonce delete on disposable files, duplicates, server/Jellyfin/Windows restarts.
 - [ ] **Step 6: Accessibility and layout**: 360×740, 390×844, 740×360, font scale ≥1.3, TalkBack, touch targets and Chinese labels.
 - [ ] **Step 7: Final independent branch review**. Fix all Critical/Important, regenerate artifacts from the reviewed commit, verify checksums, tag `1.1.0` only after real phone gate passes.
-- [ ] **Step 8: Deliver** `家庭媒体管家-1.1.0.apk`, `MediaReview_Migration_1.1.0.zip`, checksums, install/upgrade/rollback/troubleshooting, API/architecture, test/performance/phone reports and redacted diagnostic sample. Email is a separate authorized final action; never store mailbox credentials in the repository.
+- [ ] **Step 8: Deliver** `家庭媒体管家-1.1.0.apk`, `MediaReview_Migration_1.1.0.zip`, checksums, install/upgrade/rollback/troubleshooting, API/architecture, test/performance/phone reports and redacted diagnostic sample.
+- [ ] **Step 9: Send the APK through Hermes** exactly as required by `docs/HERMES_APK_EMAIL_DELIVERY.md`: confirm recipient, hand files through AI Home shared, explicitly notify/wake Hermes and obtain receipt, require fixed non-image MIME/size/refusal/fail-closed behavior, and accept success only with SMTP accepted plus exact attachment filename, actual attached byte count and matching SHA-256. Never store mailbox credentials in the repository. If execution is outside AI Home, return the verified artifacts to AI Home for Hermes delivery instead of inventing SMTP.
 
 ---
 
 ## Final self-review checklist for the next Agent
 
-- [ ] Every original requirement maps to Task A–G.
+- [ ] Every original requirement maps to Task 0A and A–G.
 - [ ] No task contains placeholder behavior or an invented API result.
 - [ ] Android delete outcomes exactly match Server `success|missing|failed`.
 - [ ] Migration after 0012 is a single linear head.

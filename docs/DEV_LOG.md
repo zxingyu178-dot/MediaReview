@@ -2,6 +2,17 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-08-30 — 交接工具链与 Hermes 邮件规则审计
+
+- 新增 `docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md`，记录当前主机 uv/Python 3.12/JDK/Android SDK/ADB/apksigner/zipalign/Git/7-Zip/FFmpeg 路径、初始化命令和不可移植边界。
+- 新增 `docs/HERMES_APK_EMAIL_DELIVERY.md`，规定 APK 签名继承门禁、共享目录交接、显式唤醒 Hermes、收件地址确认、非图片 MIME、大小/拒收/fail-closed 和实际附件名/字节数/SHA-256 验收。
+- 发现 `scripts/build_review_handoff.py` 实际缺失；在 takeover plan 新增 Task 0A，未补齐前不得宣称新阶段完成。
+- 发现 `scripts/build_deploy.py` 仍硬编码 0.8.1/`Mediaserver.exe` 且缺少 1.1 正式产物合同；明确禁止用于 1.1 发布。
+- 当前主机未发现 Emulator、PyInstaller；Jellyfin 7.1.4 FFmpeg/ffprobe 已定位并记录哈希，但尚未完成许可/再分发审查，不能直接装包。Release signing 尚未配置，且必须与手机已安装 APK 证书一致才能无损覆盖升级。
+- 识别旧 PowerShell 安装脚本的 5.1 不兼容、FFmpeg 未复制、UDP 35001 缺失、健康失败仍成功和回滚/所有权边界缺口；旧部署链不得生成 1.1 正式包。
+- 根 README/历史开发路线的接管指向、`.superpowers` 忽略范围、冻结提交判定和 D 盘 remote 边界已修正规则；未来审查 Markdown 必须跟踪，临时 diff 可由 Git 重建。
+- 本次没有读取 Hermes 密钥、没有修改 Hermes 房间脚本、没有发送邮件，也没有启动或部署服务。
+
 ### 2026-08-30 — 完整项目交接冻结
 
 交接状态：

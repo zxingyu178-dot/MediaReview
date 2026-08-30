@@ -34,7 +34,7 @@ Agent 在宣布“阶段完成”之前，必须依次：
 6. 记录 Git 状态和本阶段提交。
 7. 生成本阶段代码 diff。
 8. 生成 `REVIEW_SUMMARY.md`。
-9. 执行 `scripts/build_review_handoff.py`。
+9. 执行 `scripts/build_review_handoff.py`。注意：2026-08-30 接管审计确认该脚本当前缺失；下一位 Agent 必须先按 takeover plan 的 Task 0A 用测试补齐。脚本不存在时不得伪造验收 ZIP 或宣称阶段完成。
 10. 确认 ZIP 成功生成后，才允许向用户汇报阶段完成。
 
 ---
