@@ -114,6 +114,9 @@
 
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 
+> 状态（2026-08-30）：**NOT CLEAN / 返修中**。下列 `[x]` 只表示实现已存在；最新独立审查
+> `.superpowers/sdd/task-4-post-fix-review.md` 仍有 2 个 Important，Task 4 尚未通过阶段门禁。
+
 - [x] 固定深色 Compose token：核心色、四级排版、4/8 间距、圆角、阴影、动效、状态色与 48dp 触控门槛
 - [x] code-native adaptive launcher：standard、round、Android 13 monochrome，深色底与青色房屋/播放标志
 - [x] 单一 `main_shell` 与 `媒体 / 批阅 / 收藏 / 整理` 四入口；根切换保留状态且不复制 back stack
@@ -121,10 +124,11 @@
 - [x] 设置、播放器、图片查看器独立全屏；URL/installation ID 仅设置可见
 - [x] 共享 top/bottom bar、卡片、骨架屏、空态、离线重试、连接/同步 banner、Snackbar host
 - [x] 可见符号控制替换为 Material Icons + 中文语义；播放器文字菜单达到 48dp
-- [x] 最终修复 F1/F2：批阅失活先使 settle token 失效且保留取消；Media/Favorites/Libraries/DeleteQueue/Duplicates 按成功 mutation 精确失效
+- [ ] 关闭最终删除协议：Android 使用 Server 真实 `success/missing/failed`，汇总与 Media/Favorites/DeleteQueue/Duplicates 失效矩阵通过真实状态回归
 - [x] 接受审查 I3/I4/M1：740x360/font 1.3 响应式媒体墙、token 单一来源、`✓` 符号回归
-- [x] 最终修复 F3：生产 `MainShellScreen` 注入真实 ViewModel 的 root lifecycle/revision integration test 已构建
+- [ ] 关闭生产主壳旧 settle token 回归：真实 queue + 挂起 playback + 切根 + 释放旧请求 + 重入新 token，并完成移除 reset 的 RED 反证
 - [x] Task 4 JVM 100 tests 全通过；Compose instrumentation APK 已构建，当前无设备故未执行
+- [ ] 新独立审查达到 0 Critical / 0 Important 后，才允许标记 Task 4 / alpha2 完成
 
 ## Server
 - [x] 配置

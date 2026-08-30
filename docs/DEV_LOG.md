@@ -2,6 +2,18 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-08-30 — 完整项目交接冻结
+
+交接状态：
+
+- 新增根入口 `TAKEOVER_READ_FIRST.md`、准确状态 `docs/HANDOFF_STATUS_2026-08-30.md` 和后续完整实施计划
+  `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`。
+- 冻结点为 `feature/mediareview-1.1` 当前历史；Task 0–3 已独立 CLEAN，Task 4 最新独立审查仍为
+  NOT CLEAN（2 个 Important），Task 5–10 未按 1.1 实施。
+- 修正 `TASKS.md` 的状态冲突：Task 4 已存在的视觉代码不等于通过门禁；删除 `success` 协议和生产主壳
+  settle 竞态集成回归关闭前不得进入 Task 5。
+- 本条只写交接文档和状态，不启动服务、不访问生产配置/数据库/密钥，也不声明重新执行历史测试。
+
 ### 2026-08-29 — MediaReview 1.1 Task 4 · 深色设计系统、品牌与主导航
 
 完成：
