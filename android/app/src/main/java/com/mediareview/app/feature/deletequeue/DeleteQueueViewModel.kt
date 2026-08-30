@@ -2,6 +2,7 @@ package com.mediareview.app.feature.deletequeue
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mediareview.app.core.model.DeleteOutcomeStatus
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
@@ -22,7 +23,7 @@ data class DeleteQueueUiState(
     val items: List<DeleteQueueItemDto> = emptyList(),
     val totalBytes: Long = 0,
     val error: String? = null,
-    /** 最终删除结果(success/failed 计数)。 */
+    /** 最终删除结果中文汇总(按服务端 success/missing/failed 合同统计)。 */
     val commitResult: String? = null,
 ) {
     val pendingCount: Int get() = items.count { it.status == "pending" }
@@ -56,11 +57,14 @@ class DeleteQueueViewModel private constructor(
         viewModelScope.launch {
             _ui.update { it.copy(loading = true, error = null) }
             val items = repository.listDeleteQueue()
-            _ui.value = DeleteQueueUiState(
-                loading = false,
-                items = items,
-                totalBytes = items.sumOf { it.size_bytes ?: 0 },
-            )
+            // 用 update 而非整体替换:保留尚未清除的 commitResult 摘要
+            _ui.update {
+                it.copy(
+                    loading = false,
+                    items = items,
+                    totalBytes = items.sumOf { item -> item.size_bytes ?: 0 },
+                )
+            }
         }
     }
 
@@ -78,17 +82,26 @@ class DeleteQueueViewModel private constructor(
     fun commit() {
         viewModelScope.launch {
             val result = repository.commitDeleteQueue()
-            val summary = result?.outcome?.let { outcome ->
-                val ok = outcome.count { it.value == "deleted" }
-                val failed = outcome.count { it.value != "deleted" }
-                "删除成功 $ok 项,失败 $failed 项"
-            } ?: "删除完成"
-            _ui.update { it.copy(commitResult = summary) }
-            val changed = result?.outcome?.values?.any {
-                it.equals("deleted", ignoreCase = true) || it.equals("missing", ignoreCase = true)
-            } == true
-            if (changed) invalidations.invalidate(ContentMutation.FinalDelete)
+            val parsed = result?.outcome?.mapValues { DeleteOutcomeStatus.fromWire(it.value) } ?: emptyMap()
+            _ui.update { it.copy(commitResult = summarize(parsed)) }
+            // 任何实际变更(成功删除或文件已缺失)都要推进下游内容;全失败不推进
+            if (parsed.values.any { it.changed }) {
+                invalidations.invalidate(ContentMutation.FinalDelete)
+            }
             load()
+        }
+    }
+
+    /** 按服务端合同汇总:success 计成功,missing 单独列示,failed/未知计失败。 */
+    private fun summarize(parsed: Map<String, DeleteOutcomeStatus>): String {
+        if (parsed.isEmpty()) return "删除完成"
+        val ok = parsed.values.count { it.successful }
+        val missing = parsed.values.count { it == DeleteOutcomeStatus.Missing }
+        val failed = parsed.values.count { !it.successful && it != DeleteOutcomeStatus.Missing }
+        return buildString {
+            append("删除成功 ").append(ok).append(" 项")
+            if (missing > 0) append(",缺失 ").append(missing).append(" 项")
+            if (failed > 0) append(",失败 ").append(failed).append(" 项")
         }
     }
 

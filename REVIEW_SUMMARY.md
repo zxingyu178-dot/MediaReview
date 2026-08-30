@@ -1,101 +1,124 @@
-# REVIEW_SUMMARY — MediaReview 1.1 Task 0A：可移植阶段验收工具
+# REVIEW_SUMMARY — MediaReview 1.1 Task A：关闭 Task 4 两个 Important
 
 ## 阶段编号与名称
 
-- 阶段 0A（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
-- 名称：补齐可移植阶段验收工具
-- 基线：`fe4666b`（本阶段 diff = `git diff fe4666b` 基线到工作树）
+- 阶段 A（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
+- 名称：关闭 Task 4 两个 Important（最终删除协议 + 生产主壳 settle 竞态测试缺口）
+- 基线：`f0c797c`（Task 0A 之后；本阶段 diff = `git diff f0c797c` 基线到工作树，
+  冻结副本 `.superpowers/sdd/review-f0c797c-taska.diff`，4 文件 +311/-35）
 
 ## 阶段目标
 
-按 `AGENTS.md` §6 与 `REVIEW_HANDOFF_RULES.md` 的要求补齐缺失的
-`scripts/build_review_handoff.py`，使后续每个阶段都能生成统一的 ChatGPT 验收 ZIP；
-脚本缺失时任何阶段不得宣称完成（2026-08-30 接管审计确认原规则引用的脚本不存在）。
+使 Task 4 通过阶段门禁：I1 Android 最终删除必须使用服务端真实 `success/missing/failed`
+合同并正确推进下游 revision 与中文汇总；I2 生产主壳 instrumentation 必须能捕获旧 settle
+token 竞态（真实队列项 + 挂起 playback lookup + 真实切根失活 + RED 反证）；修复后须获得
+新的独立审查 CLEAN。
 
 ## 实际完成内容
 
-- 新增 `scripts/build_review_handoff.py`（仅标准库 argparse/subprocess/pathlib/zipfile）：
-  - CLI：`--stage --name --base [--output-dir review_handoff] [--max-file-kb 1024] [--max-zip-mb 15]`。
-  - 打包范围：`git diff --name-only <base>`（基线到工作树、仅已跟踪文件，不含未跟踪文件）
-    + 8 个固定状态文档 + `review_meta/` 证据文件 + git status/log/diff stat/diff patch。
-  - 只包含已批准文本扩展名（.py/.kt/.kts/.java/.xml/.toml/.yaml/.yml/.json/.sql/.md/.ps1/.bat/.gradle/.properties）。
-  - 禁止类别（build/dist/.gradle/node_modules/logs、.db/.apk/.aab/.exe/.jar/.log/.so/.dll 等）
-    与超过单文件上限的文件：不打包，逐条记录到 `review_meta/excluded_files.txt`。
-  - fail-closed（非零退出且不产出 ZIP）：疑似密钥路径（`.env`/`*.env`/`secrets.env`/`*.jks`/
-    `*.keystore`/`key.properties`/主机密钥/证书私钥）、仓库外或非法路径、git 不可用、无效或
-    非祖先 `--base`、缺少 `REVIEW_SUMMARY.md` 或"阶段结论"行、缺少任何测试/静态检查证据、
-    ZIP 写入失败、ZIP 超过 `--max-zip-mb`。
-- 新增 `server/tests/test_review_handoff_builder.py`：15 个端到端测试，在临时 Git 仓库中
-  真实运行构建器（隔离 GIT_CONFIG_GLOBAL/SYSTEM），覆盖必需条目、文件名格式、状态/补丁
-  内容、删除路径、未跟踪排除、密钥 fail-closed、禁止类别排除、超限排除、ZIP 大小上限、
-  非法 stage 参数与 git 不可用。
-- 文档同步：`REVIEW_HANDOFF_RULES.md` 步骤 9 更新为可用状态与证据文件要求；
-  `docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md` 工具表与缺口章节更新；
-  `TASKS.md` 新增 Task 0A 节；`docs/DEV_LOG.md` 新增本阶段记录。
+- 新增共享解析器 `DeleteOutcomeStatus`（`core/model/ApiModels.kt`）：
+  Success(changed,successful)=T/T、Missing=T/F、Failed=F/F、Unknown=F/F，
+  `fromWire()` 大小写宽容、未知值 fail-closed；生产代码不再有字符串散判。
+- `DeleteQueueViewModel.commit()` 重写：按解析结果推进 `ContentMutation.FinalDelete`
+  （任一 changed=true 才推进），中文摘要按合同统计（success=成功、missing=缺失不计成功、
+  failed/Unknown=失败，空 outcome="删除完成"）。
+- 修复执行中发现的第三个真实缺陷：基线 `commit()` 的摘要被尾随 `load()` 整体状态替换
+  立即抹成 null（UI 从未显示过摘要）；`load()` 改用 `_ui.update` 保留 `commitResult`。
+  该缺陷由本阶段 RED 证据直接暴露（`expected:<删除成功 1 项> but was:<null>`）。
+- JVM 竞态测试 + 不可取消停车 fake（`MutationInvalidationViewModelTest.kt`）：
+  响应在取消后到达时旧 settle 必须被失效 token 拦截；重入后新 token 正常落位播放。
+- 生产壳 instrumentation 竞态测试（`MainShellProductionIntegrationTest.kt`）：
+  生产 `MainShellScreen` + 真实 `ReviewViewModel` + 真实底栏切根失活路径 + 真实队列项 +
+  Review 根触发真实 `onSettled(0)` + 断言 deactivate=1/旧 settle=0/旧 play=0 + 重入
+  新 token settle/play=1/1。
+- 表驱动删除合同测试 6 案例（全 success/全 failed/空/仅 missing/混合/unknown-wire）
+  与解析器直测（含 `deleted→Unknown` 反协议回归闸）。
+- 文档：`TASKS.md`、`docs/DEV_LOG.md`、`.superpowers/sdd/progress.md`、
+  `.superpowers/sdd/task-4-task-a-fix-report.md`、`.superpowers/sdd/task-4-task-a-independent-review.md`。
 
 ## 是否完整达到目标
 
-是。构建器已可用并经端到端测试验证；本阶段自身的验收 ZIP 即由它生成（自举验证）。
+是。I1/I2 均关闭；新独立审查结论 **CLEAN（0 Critical / 0 Important / 4 Minor）**，
+Task 4 代码与独立审查门禁通过（设备级 instrumentation 与真机验收仍属 Task G，
+androidTest 仅构建未执行，如实记录）。
 
 ## 核心架构 / API / 数据库变化
 
-- 无生产架构、API、数据库变化；本阶段只新增构建工具与测试，不影响 Server/Android 运行行为。
+- 无架构、API、数据库变化。Android 单侧修复：新增一个纯解析枚举、重写
+  DeleteQueueViewModel 两处方法、扩展两个测试文件；Server 合同 `success/missing/failed`
+  未动（聚焦回归 13/13 确认）。
 
 ## Android UI/交互变化
 
-- 无。
+- 最终删除确认后的中文摘要首次能真正显示并按真实结果统计；全部删除成功后返回主壳
+  媒体墙/收藏/整理不再显示已删除内容的旧快照（revision 正确推进）。
 
 ## 已执行测试与结果（真实命令）
 
 ```powershell
 # RED（实现前）
-server\.venv\Scripts\python.exe -m pytest tests/test_review_handoff_builder.py
-# => 12 failed, 3 passed (3 个为"脚本不存在即非零"的空真通过)
+.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest --tests "*MutationInvalidationViewModelTest"
+# => 5 tests, 1 failed: outcome={a=success} 摘要 expected:<删除成功 1 项> but was:<null>
 
-# GREEN（实现后）
-server\.venv\Scripts\python.exe -m pytest tests/test_review_handoff_builder.py
-# => 15 passed in 9.25s
+# GREEN（实现后，含解析器测试与 JVM 竞态测试）
+.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest --tests "*MutationInvalidationViewModelTest"
+# => 7 tests / 0 failures
 
-# 全量
-$env:MEDIAREVIEW_DATA_ROOT = <临时目录>
-server\.venv\Scripts\python.exe -m pytest tests
-# => 273 passed, 1 warning in 162.17s (exit 0)  [258 旧 + 15 新]
+# RED 反证（临时移除 settleScheduler.reset()，已恢复）
+# => reviewRootDeactivationTokenGuardsInFlightSettleResumption FAILED:
+#    旧 settle 不得落地 expected:<0> but was:<1>
+
+# Server 删除协议聚焦
+server\.venv\Scripts\python.exe -m pytest tests/test_delete_fav_service.py tests/test_phase456_api.py
+# => 13 passed
+
+# Android 全量四目标
+.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:lintDebug --rerun-tasks
+# => BUILD SUCCESSFUL in 3m 54s（91 tasks）；JVM 102 tests / 0 failures / 0 errors；
+#    debug APK 22,344,728 B；androidTest APK 1,023,373 B；lint 0 errors
 ```
 
 ## lint / format / type check 结果
 
-```powershell
-server\.venv\Scripts\python.exe -m ruff check .          # => All checks passed!
-server\.venv\Scripts\python.exe -m ruff format --check . # => 86 files already formatted
-```
+- Server（本阶段未改 Server 代码）：`ruff check .` 与 `ruff format --check .` 全绿
+  （86 files，Task 0A 回合实测，见 review_meta/server_lint.txt）。
+- Android：`lintDebug` 0 errors（47 warnings 量级与基线一致）；Kotlin 编译含
+  androidTest 目标全部通过。项目未配置独立 Android 静态 type check。
 
-项目未配置独立 type check；ruff（含 pyflakes/UP/B/S 规则集）即当前静态检查门禁。
+## 独立审查结论
 
-## 已知问题 / 遗留 TODO
+`.superpowers/sdd/task-4-task-a-independent-review.md`：**CLEAN**。审查员独立验证冻结
+diff 一致性、重跑 focused 7/7、全量 JVM 102/102（净增 2 与新增吻合）、androidTest 编译、
+Server 13/13，并沿 `onSettled/onRootDeactivated/LatestWinsScheduler` 推演确认 RED 反证
+确定性。I1/I2 closure matrix 均为 closed。
 
-- 证据文件（`review_meta/server_tests.txt` 等）由执行 Agent 手工写入；构建器只强制存在性，
-  "记录真实命令与真实输出"仍依赖独立审查复核（诚实原则）。
-- 密钥检查为路径级，不做内容级扫描；内容脱敏仍按 `REVIEW_HANDOFF_RULES.md` §6 人工执行。
-- 构建器目前不打包 `docs/TOOLCHAIN_AND_RELEASE_OPERATIONS.md` 等规则清单之外的状态文档
-  （规则 §3 B 为"优先包括"清单，未擅自扩大）。
+## 已知问题 / 遗留 TODO（独立审查 Minor，不阻塞）
+
+- M1：commit 网络失败（repository 返回 null）时摘要仍显示"删除完成"且不设 error
+  （基线即有，非本轮回归）→ 下阶段改为失败文案并保留队列。
+- M2：Unknown 线协议值在摘要中与 failed 合并计"失败"→ 建议单列"未知 N 项"。
+- M3：androidTest 计数器统一 `@Volatile`（当前经 compose test rule 同步实际安全）。
+- M4：androidTest 未在设备执行（ADB 无设备、无模拟器）→ 设备级执行与真机验收属
+  Task G；本报告不以构建成功冒充执行证据。
 
 ## 是否建议进入下一阶段
 
-建议进入 Task A：关闭 Task 4 的两个 Important（最终删除 `success` 协议错配、生产主壳
-旧 settle token 竞态集成测试缺口），并以新独立审查 CLEAN 作为 Task 4 完成条件。
+建议进入 Task B（Paging 3 媒体墙、图片与雪碧图闭环，`1.1.0-alpha2`→媒体墙闭环）。
+Task 4 已无 Critical/Important 阻塞项。
 
 ## Agent 自认为风险最高的 3 个点
 
-1. **证据真实性依赖流程而非技术**：构建器无法验证 `review_meta/` 内测试输出是否真实执行，
-   若 Agent 伪造证据文件，验收包表面仍然完整——必须靠独立审查对照命令与输出。
-2. **`git diff <base>` 的范围语义**：打包范围是"基线到工作树"，若执行者在构建 ZIP 之后、
-   提交之前再改动文件，ZIP 内容与最终提交会不一致；必须在构建后立即提交且不再改动。
-3. **路径级密钥检测的盲区**：密钥若出现在非常规命名文件（如 `notes.md`、`config.json`）中，
-   构建器不会拦截，仍会进入 ZIP——含密钥的配置脱敏责任在执行 Agent 与审查者。
+1. **instrumentation 设备缺口**：生产壳竞态测试的正确性目前依赖编译 + JVM 等价测试 +
+   审查推演；真实 looper/Compose 上的行为（尤其 resume 派发时序）要到 Task G 真机阶段
+   才有设备级证据。
+2. **M1 失败路径用户体验**：commit 网络失败仍显示"删除完成"，用户可能误以为删除成功
+   ——虽然是基线既有缺陷且审查判定不阻塞，但在修复前是真实的误导风险。
+3. **摘要文案与清除时序**：commitResult 现在跨 load 保留、靠模态对话框关闭清除；若后续
+   阶段改动 DeleteQueueScreen 的对话框结构，需保证 clearCommitResult 仍被可靠触发，
+   否则陈旧摘要可能复现。
 
 ## 敏感信息说明
 
-本阶段未接触任何密钥、Token、真实配置或生产数据；所有测试使用临时目录与临时 Git 仓库。
-`android/local.properties` 与 `server/.venv` 为本机环境文件，已被 Git 忽略，不进入提交与 ZIP。
+本阶段未接触任何密钥、Token、真实配置或生产数据；测试全部使用本地 fake。
 
 阶段结论：合格

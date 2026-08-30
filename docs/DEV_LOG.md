@@ -2,6 +2,53 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-08-30 — MediaReview 1.1 Task A · 关闭 Task 4 两个 Important
+
+完成：
+
+- 新增 `DeleteOutcomeStatus` 共享解析器（ApiModels.kt）：`success/missing/failed` 之外一律
+  Unknown fail-closed；`DeleteQueueViewModel.commit()` 全部改走解析器，全成功批次推进
+  FinalDelete（DeleteQueue/Media/Favorites/Duplicates 四区），摘要"删除成功 X 项[,缺失 Y 项
+  [,失败 Z 项]]"，空 outcome 显示"删除完成"。
+- 修复执行中发现的第三个缺陷：基线 `commit()` 的摘要被尾随 `load()` 整体状态替换立即抹成
+  null（UI 从未真正显示过摘要）；`load()` 改用 `update` 保留 `commitResult`。
+- JVM 竞态测试 `reviewRootDeactivationTokenGuardsInFlightSettleResumption`：fake loadPlayback
+  挂起在不可取消 `suspendCoroutine` 停车点，取消后释放必须被失效 token 拦截（旧 settle/play=0），
+  重入新 token 正常落位播放（1/1）。可取消 await 会被 cancel 杀死、无法复现生产窗口，故用
+  不可取消停车点（审查确认此为 RED 反证确定性的关键）。
+- 生产壳 instrumentation 竞态测试 `productionShellGuardsInFlightSettleAcrossRootSwitch`：
+  生产 MainShellScreen + 真实 ReviewViewModel + 真实切根失活路径 + 真实队列项 + 可控挂起
+  lookup + 重入断言，满足 post-fix review I2 全部要素。
+- 表驱动删除合同测试 6 案例覆盖全成功/全失败/空/仅 missing/混合/unknown-wire 的摘要与
+  revision 矩阵；解析器直测钉死大小写宽容与 `deleted→Unknown` 反协议闸。
+
+TDD 与验证：
+
+- RED：表驱动测试初次 `5 tests, 1 failed`（`outcome={a=success} 摘要 expected:<删除成功 1 项>
+  but was:<null>`）——同时暴露协议错配与摘要被抹两处缺陷。
+- GREEN：focused 7/7 通过。
+- RED 反证：移除 `settleScheduler.reset()` 后竞态测试确定失败（`旧 settle 不得落地 expected:<0>
+  but was:<1>`），恢复后与基线逐字节一致。
+- 全量 Android 四目标：BUILD SUCCESSFUL（3m54s，91 tasks）；JVM 102 tests / 0 failures；
+  debug APK 22,344,728 B；androidTest APK 1,023,373 B；lint 0 errors。
+- Server：聚焦删除协议 13 passed（确认 success 合同）；全量 273 passed + ruff 全绿
+  （Task 0A 回合实测，本阶段未改 Server 代码）。
+- 独立审查（`.superpowers/sdd/task-4-task-a-independent-review.md`）：**CLEAN**
+  （0 Critical / 0 Important / 4 Minor），审查员独立重跑 focused 7/7、全量 JVM 102/102、
+  androidTest 编译、Server 13/13，并推演确认 RED 反证确定性。
+
+遗留边界：
+
+- **instrumentation 未在设备执行**（ADB 无设备、无模拟器）：androidTest 仅编译验证；设备级
+  执行与真机验收属 Task G（审查 M4）。
+- Minor 遗留（不阻塞）：M1 commit 网络失败仍显示"删除完成"（基线即有）；M2 Unknown 摘要
+  与 failed 合并计"失败"；M3 androidTest 计数器未统一 `@Volatile`。均记录于独立审查报告，
+  建议随下一阶段顺手修复。
+
+提交：
+
+- `fix(android): close task 4 deletion and shell gates`（基线 `f0c797c`）
+
 ### 2026-08-30 — MediaReview 1.1 Task 0A · 可移植阶段验收工具
 
 完成：

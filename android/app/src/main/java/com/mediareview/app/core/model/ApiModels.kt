@@ -176,6 +176,32 @@ data class CommitResultDto(
     val outcome: Map<String, String> = emptyMap(),
 )
 
+/**
+ * 最终删除单项结果的服务端合同解析。
+ *
+ * Server 实际返回 `success`/`missing`/`failed`(见 server/app/services/delete_queue.py):
+ * - success:文件已真实删除,计成功且推进下游内容;
+ * - missing:文件本就不存在(幂等清理),推进下游内容但不计删除成功;
+ * - failed :删除失败,不推进下游内容。
+ * 任何其他值一律按 [Unknown] 处理(fail-closed:不推进、不计成功)。
+ */
+enum class DeleteOutcomeStatus(val changed: Boolean, val successful: Boolean) {
+    Success(changed = true, successful = true),
+    Missing(changed = true, successful = false),
+    Failed(changed = false, successful = false),
+    Unknown(changed = false, successful = false),
+    ;
+
+    companion object {
+        fun fromWire(value: String): DeleteOutcomeStatus = when (value.lowercase()) {
+            "success" -> Success
+            "missing" -> Missing
+            "failed" -> Failed
+            else -> Unknown
+        }
+    }
+}
+
 /** 重复分组(GET /duplicates*)。 */
 @Serializable
 data class DuplicateGroupDto(
