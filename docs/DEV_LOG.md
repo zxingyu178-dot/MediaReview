@@ -2,6 +2,57 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-02 — MediaReview 1.1 Task F6-F8 · 签名 APK、部署包组装、沙箱生命周期与独立审查
+
+Task F 收口：签名 Release APK、部署包组装与 SHA-256、沙箱 install/upgrade/rollback/uninstall
+实测、独立部署审查 CLEAN、验收 ZIP。
+
+代码与测试：
+- `android/app/build.gradle.kts`：Release 强制使用 release 签名（`signingConfigs.getByName("release")`），
+  缺失 `key.properties` 任一字段时间指向不存在的 `__MISSING_RELEASE_KEY__`，由 AGP
+  `validateSigningRelease` 使 Release 构建失败——**禁止 debug 签名兜底**（独立审查 I-4）。
+  `key.properties` 与 `keystore/mediareview-release.jks` 均 git 忽略、不进包。
+- `server/tests/test_deployment_contract_11.py` 增至 24 例：新增
+  `test_release_signing_is_fail_closed_no_debug_fallback`（无条件绑定 release 签名、无条件
+  create("release")、禁旧兜底表述）。
+- `deployment/scripts/install.ps1`：
+  - 计划任务由 SYSTEM/HIGHEST 降为 **NETWORK SERVICE / MEDIUM**（最小权限），并对数据目录
+    `icacls ... /grant "*S-1-5-20:(OI)(CI)M"` 授权其写入（独立审查 I1）。
+  - 新增路径参数校验：`InstallDir`/`DataRoot` 含 `&|<>%"` 即 throw（防 schtasks/start.cmd 注入）。
+  - 升级 commit 阶段（删旧二进制→Move-Item→写版本标记）以 try/catch + `Restore-Previous` 包裹，
+    任何异常回滚旧版本并重启。
+- `deployment/scripts/repair.ps1`：计划任务同样降为 NETWORK SERVICE/MEDIUM + icacls。
+- `scripts/build_deploy.py`：默认强制 `app-release.apk`（缺失即 `return 1` 失败），仅显式
+  `--allow-debug` 才允许回退 debug（独立审查 I2）；ruff format 规范化；`subprocess.run` 补
+  `# noqa: S603`。
+- `THIRD_PARTY_NOTICES.md`：FFmpeg 来源路径脱敏为 `%ProgramFiles%\Jellyfin\Server\...`
+  （移除真实盘符路径，独立审查 I3）。
+- 新增根级 `ruff.toml`：与 server/pyproject.toml 同一套规则（select E,F,W,I,UP,B,S,C4），
+  使 `ruff check .` 从仓库根对 scripts/（build_deploy.py、build_review_handoff.py）统一生效；
+  scripts 原先无配置、不受 lint 约束，现一并纳入并全绿。server/ 子树仍由就近的
+  server/pyproject.toml 优先解析。
+
+验证与产物：
+- Release APK：`gradlew :app:assembleRelease` BUILD SUCCESSFUL，`apksigner verify` 证书
+  DN `CN=MediaReview`、SHA-256 `592c2595…`（release 证书）；APK 15,550,794 字节，
+  SHA-256 `19F6C90853A2FBF9EF504B1BDDB7E31B55EB4FD44BF32FF91B4259D1AC8C1AE0`。
+- 部署包：`deploy_handoff/MediaReview_Migration_1.1.0_20260902_2216.zip`（120 文件），
+  含 server/8 脚本/ffmpeg/app-release.apk/文档，SHA256SUMS 逐文件回验通过；
+  密钥/绝对路径/用户名扫描干净（0 泄露）。
+- 沙箱生命周期（`deployment/tests/test_sandbox_lifecycle.ps1`，对最终交付包解包实测）：
+  Phase A 全新安装 / B 事务式升级 / C 失败回滚 / D 卸载保数据 → **24/24 PASS**。
+- Server 全量：`pytest tests` → **351 passed in 195.13s**、exit 0；`ruff check .`（根级
+  ruff.toml）All checks passed；`ruff format --check .` 136 files already formatted。
+- 部署契约聚焦：`tests\test_deployment_contract_11.py` → 24 passed。
+- 独立部署安全审查：**0 Critical / 3 Important / 10 Minor**；3 项 Important（I1 任务权限、
+  I2 debug APK 兜底、I3 绝对路径）已全部修复并经独立复验 **3/3 → CLEAN**；10 Minor 不阻塞
+  （M1 已随路径校验缓解，M2-M10 记录为后续阶段可选加固）。
+
+遗留（Task G 处理）：
+- 真实手机 in-place 升级：需从真机拉取已装 `com.mediareview.app` APK 与 release 证书指纹比对
+  （本机无已连接设备，留待 Task G 真机验收）。
+- Jellyfin 直连、UDP 发现、配对等真机链路验证留待 Task G。
+
 ### 2026-09-02 — MediaReview 1.1 Task F1-F5 · 部署契约、EXE、进程控制、事务式升级、防火墙
 
 Task F 前半段完成 Windows 部署闭环：可移植契约测试、自包含 EXE 构建、精确进程归属、

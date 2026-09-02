@@ -15,6 +15,7 @@
 用法(项目根):
     python scripts/build_deploy.py
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -65,7 +66,7 @@ def sha256(path: Path) -> str:
 def build_exe() -> None:
     """用 PyInstaller 构建 Server EXE(onedir)。"""
     print("==> 构建 Server EXE ...")
-    subprocess.run(
+    subprocess.run(  # noqa: S603
         [
             str(SERVER / ".venv" / "Scripts" / "python.exe"),
             "-m",
@@ -102,6 +103,17 @@ def write_sha256(root: Path) -> None:
 
 
 def main() -> int:
+    # 0. RC/正式包必须带签名 Release APK;仅显式 --allow-debug 时才允许回退 debug。
+    import argparse
+
+    parser = argparse.ArgumentParser(description="构建 MediaReview 1.1.0 部署包")
+    parser.add_argument(
+        "--allow-debug",
+        action="store_true",
+        help="Release APK 缺失时允许回退 debug APK(仅临时调试用)",
+    )
+    args = parser.parse_args()
+
     # 1. 构建 EXE
     if not (DIST / "MediaReviewServer.exe").exists():
         build_exe()
@@ -132,15 +144,27 @@ def main() -> int:
         if (FFMPEG_SRC / "ffprobe.exe").exists():
             shutil.copy(FFMPEG_SRC / "ffprobe.exe", deploy_dir / "ffmpeg" / "ffprobe.exe")
     else:
-        print("!! 未找到 third_party/ffmpeg/ffmpeg.exe,部署包不含 FFmpeg(install.ps1 会检测系统 PATH)")
+        print(
+            "!! 未找到 third_party/ffmpeg/ffmpeg.exe,部署包不含 FFmpeg(install.ps1 会检测系统 PATH)"
+        )
 
-    # 4. Android APK(优先 release)
+    # 4. Android APK(默认强制 release,缺失则失败;仅 --allow-debug 回退 debug)
     apk = find_apk()
-    if apk:
+    if apk and apk.name == "app-release.apk":
         print(f"==> 复制 APK: {apk.name}")
         shutil.copy(apk, deploy_dir / apk.name)
+    elif apk and args.allow_debug:
+        print(f"!! 警告: Release APK 缺失, 按 --allow-debug 回退 debug APK: {apk.name}")
+        shutil.copy(apk, deploy_dir / apk.name)
+    elif not apk:
+        print("!! 未找到 APK(android/app/build/outputs/apk/{release,debug})", file=sys.stderr)
+        return 1
     else:
-        print("!! 未找到 APK(android/app/build/outputs/apk/{release,debug})")
+        print(
+            "Release APK 缺失,RC/正式包必须使用签名 Release APK;如需临时调试请显式加 --allow-debug",
+            file=sys.stderr,
+        )
+        return 1
 
     # 5. 交接文档
     for doc in DOCS:
@@ -154,7 +178,7 @@ def main() -> int:
 ## 版本
 - Server: {VERSION}
 - Android: {VERSION}
-- 构建日期: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}
+- 构建日期: {dt.datetime.now().strftime("%Y-%m-%d %H:%M")}
 
 ## 部署
 1. 解压本 ZIP 到目标电脑。
@@ -195,9 +219,7 @@ def main() -> int:
     # 8. 回验每个校验和(在 ZIP 内核对一次)
     with zipfile.ZipFile(zip_path) as z:
         names = set(z.namelist())
-        sums_file = next(
-            n for n in names if n.endswith("SHA256SUMS.txt")
-        )
+        sums_file = next(n for n in names if n.endswith("SHA256SUMS.txt"))
         sums = z.read(sums_file).decode("utf-8").splitlines()
         checked = 0
         for line in sums:

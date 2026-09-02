@@ -1,0 +1,17 @@
+# 仓库根级 Ruff 配置：与 server/pyproject.toml 保持同一套规则，
+# 使 scripts/ 等根目录 Python 脚本在 `ruff check .` 下使用统一标准。
+# server/ 子树仍由就近的 server/pyproject.toml 优先解析。
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "S", "C4"]
+ignore = [
+    "S101",   # 测试中允许 assert
+    "B008",   # FastAPI Depends() 在参数默认值中是框架惯用法
+]
+
+[lint.per-file-ignores]
+"server/app/db/migrations/*" = ["E501", "W291"]
+"server/app/admin.py" = ["E501"]  # 内联 HTML 页面存在较长行
+"server/tests/*" = ["S", "E501"]

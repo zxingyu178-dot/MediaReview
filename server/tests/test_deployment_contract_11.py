@@ -215,3 +215,20 @@ def test_android_app_name_is_zh() -> None:
         encoding="utf-8"
     )
     assert "家庭媒体管家" in strings
+
+
+# ---------------------------------------------------------------- Release 签名 fail-closed(I-4)
+def test_release_signing_is_fail_closed_no_debug_fallback() -> None:
+    """Release 必须强制使用 release 签名;缺失密钥时构建失败,禁止静默回退 debug 签名。"""
+    gradle = (ANDROID / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+    release_block = gradle.split("buildTypes {", 1)[1]
+    # 无条件绑定 release 签名(不得包裹在 if (keystoreProps.isNotEmpty()) 内)。
+    assert 'signingConfig = signingConfigs.getByName("release")' in release_block
+    # 不得出现条件绑定或"以 debug 签名兜底"的旧逻辑。
+    assert "if (keystoreProps.isNotEmpty())" not in release_block
+    assert "以 debug 签名兜底" not in gradle
+
+
+def test_release_signing_config_created_unconditionally() -> None:
+    gradle = (ANDROID / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+    assert 'create("release")' in gradle

@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -8,6 +9,15 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
 }
+
+// Release 签名:读取 git 忽略的 key.properties;缺失或字段不全时 Release 构建必须失败(禁止 debug 签名兜底)。
+val keystoreProps = Properties()
+val keystoreFile = rootProject.file("key.properties")
+if (keystoreFile.exists()) {
+    keystoreFile.inputStream().use { keystoreProps.load(it) }
+}
+val missingKeyField = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    .firstOrNull { !keystoreProps.containsKey(it) }
 
 android {
     namespace = "com.mediareview.app"
@@ -21,6 +31,20 @@ android {
         versionName = "1.1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            if (missingKeyField != null) {
+                // 缺失签名信息: 指向不存在的密钥文件,让 AGP 的 validateSigningRelease 使 Release 构建失败。
+                storeFile = file("__MISSING_RELEASE_KEY__")
+            } else {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -28,6 +52,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // 强制使用 release 签名;缺失密钥时构建失败,不静默回退 debug 签名。
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

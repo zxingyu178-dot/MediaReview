@@ -29,7 +29,7 @@ MediaReview 1.1.0 直接分发或静态链接的第三方组件及其许可声�
 
 - 版本: 7.1.3-Jellyfin(ffmpeg version 7.1.3-Jellyfin, (c) 2000-2025 FFmpeg developers)
 - 来源: Jellyfin Server 发行附带的静态构建(LGPL-2.1-or-later)
-- 复制于: `D:\Program Files\Jellyfin\Server\ffmpeg.exe` / `ffprobe.exe`
+- 复制于: `%ProgramFiles%\Jellyfin\Server\ffmpeg.exe` / `ffprobe.exe`(构建机相对安装路径,已脱敏)
 - SHA-256:
   - `ffmpeg.exe`: `839138090AFCAC63735F3062D19FB72CFB442810AAD125B374E808140F9063F7`
   - `ffprobe.exe`: `87191811BE1BF0AD488B6B188AA7DAB2B4D113FE37DF4A229EDDB0D09DB18D2E`

@@ -1,123 +1,162 @@
-# REVIEW_SUMMARY — MediaReview 1.1 Task E：Windows 运维控制台
+# REVIEW_SUMMARY — MediaReview 1.1 Task F：Windows 部署、升级、回滚与产物（1.1.0-rc1）
 
 ## 阶段编号与名称
 
-- 阶段 E（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
-- 名称：Windows 运维控制台（`1.1.0` 收口项之一）
-- 提交：`feat(admin): add operations console`（Server 运维控制台 + dashboard/缓存/错误/日志
-  接口 + E1–E5 测试；本阶段收口提交）
-- 基线：`8acb7f4`（Task D 终点）
+- 阶段 F（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
+- 名称：Windows 部署、升级、回滚与产物（`1.1.0-rc1`）
+- 提交：`feat(deploy): add transactional 1.1 upgrade`（F1–F5 收口）+ 本阶段收口提交
+  （F6–F8：签名 APK、部署包组装、沙箱生命周期与独立审查）
+- 基线：`f679222`（Task E 终点）
 
 ## 阶段目标
 
-实现 Windows 运维控制台：状态总览面板（服务/Jellyfin/媒体库/索引/同步聚合）；
-配对与设备管理（生成配对码/设备列表/撤销/清理已用码）；媒体库与索引（勾选保存/编排刷新）；
-缓存管理（占用统计 + 二次确认清理）；后台任务（最近任务/暂停/恢复/取消/重复扫描编排）；
-错误与日志（最近脱敏错误/日志下载/诊断导出）。约束：全部面板复用现有 `/api/v1` 服务，
-不复制业务逻辑；无媒体墙；危险操作必须二次确认；键盘全可操作；360px 移动宽度与桌面
-自适应；全中文文案。
+交付可在 Windows 上安装、事务式升级、失败回滚、安全卸载的 `1.1.0-rc1` 部署闭环：
+8 个 PowerShell 部署脚本（PS 5.1 兼容、按 EXE 精确归属进程、仅 TCP 8766 + UDP 35001 防火墙、
+卸载默认保数据）；自包含 Server EXE + 随包 FFmpeg；签名 Release APK（无 debug 兜底）；
+`MediaReview_Migration_1.1.0` 部署包 + SHA-256 校验；沙箱 install/upgrade/rollback/uninstall
+实测 + 独立部署安全审查 CLEAN + 验收 ZIP。
 
 ## 实际完成内容
 
-- **E1 RED 测试基线（`tests/test_ops_console_11.py`，21 例）**：未认证 LAN 拒绝 / 回环放行、
-  缓存清理危险确认（confirm 缺失/错误值 400）、缓存清理范围（只清 cache/ 不碰 DB/媒体/
-  配置）、配对码生成回环限制、最近错误与日志下载脱敏、对抗式密钥扫描（dashboard/errors/
-  logs/诊断 ZIP 四路输出均不得含 token/api_key/配对码/绝对路径）、运维控制台页面（六面板
-  中文/无媒体墙/二次确认 dialog/键盘可操作/页面无敏感值）。
-- **E2 dashboard 聚合状态（`system.py`）**：`GET /system/dashboard` 返回版本/host/port/
-  LAN 地址/Jellyfin 配置与可达性（尽力而为探测，不外泄 key）/媒体库总数与勾选数/媒体索引
-  计数（总数/视频/图片）/同步状态与 last_success_at/has_error；未勾选库时返回 idle 语义。
-- **E3 运维操作**：`POST /system/cache/clear?confirm=true|1` 二次确认清理
-  （thumbnails/sprites/previews/temp，移除后同步失效 ready 雪碧图清单）；设备撤销、配对码
-  生成/清理、媒体刷新编排、任务暂停/恢复/取消、重复扫描编排全部经既有 `/pairing`、
-  `/media`、`/tasks`、`/duplicates` 端点复用，控制台侧仅编排不复制逻辑。
-- **E4 脱敏错误/日志/诊断**：`GET /system/errors`（最近脱敏错误行）、`GET /system/logs`
-  （脱敏纯文本下载）、既有 `GET /system/diagnostics/export` 复查——日志打包前逐行脱敏，
-  配置 masked，表计数白名单，绝不含媒体原文件/密钥。脱敏正则覆盖 `mr_` token、Bearer、
-  api_key、配对码、Windows 盘符/UNC/POSIX 挂载点绝对路径。
-- **E5 admin 页面重构（`admin.py` 全量重写）**：六个面板（状态总览/配对与设备/媒体库与
-  索引/缓存管理/后台任务/错误与日志）响应式网格（`minmax(min(100%,340px),1fr)` +
-  480px 断点适配 360px）；原生 `<dialog>` 危险操作二次确认（清理缓存/撤销设备/清理已用码/
-  取消任务/开始重复扫描）；全部交互为原生 button/input/a + `:focus-visible`，键盘可全操作；
-  令牌输入支持 LAN 使用、本机自动配对（仅回环）；无媒体墙；15s 轻量轮询刷新状态。
-- **测试与门禁**：Server 全量 326 passed（+18：test_ops_console_11 21 例 + system 相关）；
-  ruff check All checks passed；ruff format 93 files already formatted；`git diff --check` 通过。
+- **F1 部署契约 RED→GREEN（`tests/test_deployment_contract_11.py`，24 例）**：8 脚本齐全且
+  `#requires -Version 5.1`、特权脚本要求管理员、status 只读；EXE 精确名为
+  `MediaReviewServer.exe`（禁旧 `Mediaserver.exe`）；stop/restart 按 EXE 绝对路径（`.Path`）
+  归属进程、禁止按端口杀；install 磁盘检查/升级前备份 config+DB/失败回滚/写
+  `CURRENT_VERSION`/检测旧版本；防火墙仅 TCP 8766 + UDP 35001；卸载默认保数据且删除数据
+  目录位于 `-DeleteData` 守卫块内；FFmpeg 随包优先 + 系统 PATH 兜底；`build_deploy.py`
+  产出 `MediaReview_Migration_1.1.0` 根 + 8 脚本 + SHA-256；spec 产物名；Android
+  applicationId/版本/名称；LICENSE/THIRD_PARTY_NOTICES 存在；Release 签名 fail-closed。
+- **F2 Server EXE**：PyInstaller onedir 构建 `server/dist/MediaReviewServer/MediaReviewServer.exe`；
+  捆绑 `third_party/ffmpeg/{ffmpeg,ffprobe}.exe` 并记录版本/SHA-256；临时数据根冒烟——DB
+  迁移到 head、health ok、日志解析路径与版本无密钥；配置读取容忍 UTF-8 BOM。
+- **F3 用户控制**：`start/stop/restart/status.ps1` 按 EXE 绝对路径精确归属进程，不误杀无关
+  监听；restart/install 内置 health 检查；status 只读。
+- **F4 事务式升级**：stop owned service → 备份 config/DB/旧二进制 → staging `.new` →
+  新程序同数据根迁移 + health → 原子提升 → 写版本标记；健康检查失败或 commit 阶段异常均
+  经 `Restore-Previous` 回滚旧二进制/config/DB 并重启旧版；新增路径参数校验（
+  `InstallDir`/`DataRoot` 含 `&|<>%"` 即 throw，防 schtasks/start.cmd 注入）。
+- **F5 防火墙**：仅 `New-NetFirewallRule` TCP 8766 + UDP 35001，不触碰其他端口。
+- **F6 签名 Release APK**：应用名家庭媒体管家 / 1.1.0 / versionCode 6 / 自适应图标；
+  `android/key.properties` + `keystore/mediareview-release.jks`（均 git 忽略）为 Release 构建
+  签名；`apksigner verify` 证书 DN `CN=MediaReview`、SHA-256 `592c2595…`；`build.gradle.kts`
+  Release 强制 release 签名、缺失密钥构建失败（AGP `validateSigningRelease` 兜底），
+  **移除 debug 签名兜底**（独立审查 I4）。
+- **F7 部署包组装**：`deploy_handoff/MediaReview_Migration_1.1.0_20260902_2216.zip`（120 文件）
+  含 server/8 脚本/ffmpeg/app-release.apk/文档；`SHA256SUMS.txt` 逐文件回验通过；密钥/绝对
+  路径/用户名扫描干净（0 泄露）；`build_deploy.py` 默认强制 `app-release.apk`（缺失即失败，
+  仅显式 `--allow-debug` 才回退 debug）。
+- **F8 沙箱生命周期 + 独立审查**：`deployment/tests/test_sandbox_lifecycle.ps1` 对最终交付包
+  解包实测 Phase A 全新安装 / B 事务式升级 / C 失败回滚 / D 卸载保数据 → 24/24 PASS；
+  独立部署安全审查 **0 Critical / 3 Important / 10 Minor**，3 项 Important 全部修复并经独立
+  复验 **3/3 → CLEAN**。收口新增根级 `ruff.toml`（与 server 同一套规则），使 `ruff check .`
+  从仓库根对 scripts/ 统一生效并全绿（scripts 原无配置、不受 lint 约束）。
 
 ## 是否完整达到目标
 
-是。E1–E5 全部完成；E6 全量门禁 + 独立安全审查（CLEAN）收口。本阶段无 Android/真机/
-真实 Jellyfin 依赖，属于纯 Server 运维能力，全部可在隔离数据根下验证。浏览器人工走查
-（360px/键盘）属后续可用性验收（Task G），自动化断言已覆盖页面结构/键盘/脱敏/确认。
+是。F1–F8 全部完成。F6 的"从真机拉取已装 APK 比对指纹"与 Jellyfin/真机链路验证依赖已连接
+真机（本机无设备），按 plan 与既有阶段约定留待 Task G 真机验收；其余 F6 产物（签名 Release
+APK、证书指纹）已在本机完成并可复核。
 
 ## 核心架构 / API / 数据库变化
 
-- 新增 API（Server）：
-  - `GET /system/dashboard`（local/已认证）→ 运维面板聚合状态。
-  - `POST /system/cache/clear?confirm=true|1`（local/已认证）→ 缓存清理，缺 confirm 400。
-  - `GET /system/errors?limit=..`（local/已认证）→ 最近脱敏错误行。
-  - `GET /system/logs`（local/已认证）→ 脱敏日志纯文本下载。
-- 复用（未改动业务逻辑）：`/pairing/*`、`/libraries`、`/media/refresh`、`/cache/statistics`、
-  `/tasks/*`、`/duplicates/*`、`/system/storage|diagnostics/export|info`。
-- 数据库：无迁移、无表结构变化（dashboard 只读聚合 SQL）。
-- 页面：`/admin` 由"管理后台"重构为"运维控制台"，全部内联 CSS/JS，复用 `/api/v1`。
+- 新增：`deployment/scripts/` 8 个 PowerShell 部署/运维脚本、`deployment/config.example.json`、
+  `deployment/tests/test_sandbox_lifecycle.ps1`、`HANDOVER.md`、`UPGRADE_ROLLBACK.md`、
+  `server/packaging/mediareview_server.spec`（EXE 名 `MediaReviewServer`）、
+  `scripts/build_deploy.py`（部署包构建）、根目录 `LICENSE`、`THIRD_PARTY_NOTICES.md`。
+- 修改：`server/app/core/config.py`（UTF-8 BOM 容忍）；`android/app/build.gradle.kts`
+  （Release 签名 fail-closed）；`server/tests/test_deployment_contract_11.py`（24 例）。
+- Server API/数据库：无新增端点、无数据库迁移（部署闭环不触碰业务 API）。
+- Android：Release 签名方式变化（强制 release 证书，禁 debug 兜底）；版本 1.1.0/versionCode 6。
 
 ## Android UI/交互变化
 
-无（Task E 纯 Server/Windows 运维控制台，不触碰 Android）。
+无 UI 变化。仅 Release 构建签名配置 fail-closed（F6），应用名/版本/图标按 1.1.0 契约核对。
 
 ## 已执行测试与结果（真实命令）
 
 ```powershell
-# Server 全量（隔离数据根，-o addopts= 仅为非 TTY 下捕获计数行；-q 同集 exit 0）
-server\.venv\Scripts\python.exe -m pytest -o addopts= -p no:cacheprovider -v
-# => 326 passed, 1 warning in 195.82s (0:03:15)；exit 0（见 review_meta/server_tests.txt）
-server\.venv\Scripts\python.exe -m ruff check .          # => All checks passed!
-server\.venv\Scripts\python.exe -m ruff format --check .  # => 93 files already formatted
-# 聚焦 E 阶段：tests\test_ops_console_11.py + tests\test_system_api.py => 26 passed
-# git diff --check => 通过（仅 LF→CRLF 提示，无空白错误）
+# 部署契约（24 例）
+server\.venv\Scripts\python.exe -m pytest server\tests\test_deployment_contract_11.py -q
+# => 24 passed（F1 22 例 + 新增签名 fail-closed 2 例）
+
+# Server 全量（server/ 目录，隔离数据根）
+server\.venv\Scripts\python.exe -m pytest tests --no-header -p no:warnings
+# => 351 passed in 195.13s (0:03:15)，exit 0
+server\.venv\Scripts\python.exe -m ruff check .          # => All checks passed!（根级 ruff.toml，scripts/ 统一规则）
+server\.venv\Scripts\python.exe -m ruff format --check .  # => 136 files already formatted
+
+# 沙箱生命周期（对最终交付包解包实测，一次性临时目录 + 端口 18866）
+powershell -NoProfile -ExecutionPolicy Bypass -File deployment\tests\test_sandbox_lifecycle.ps1 `
+  -SourcePackage "$env:TEMP\MR_pkg_final\MediaReview_Migration_1.1.0"
+# => 通过: 24  失败: 0（Phase A/B/C/D 全 PASS）
+
+# Release APK 签名与哈希
+gradlew.bat :app:assembleRelease            # => BUILD SUCCESSFUL，validateSigningRelease 通过
+apksigner.bat verify --print-certs app-release.apk
+# => Signer #1 DN: CN=MediaReview,...; SHA-256 digest: 592c25955929ca7fa968f4450452a45919b9d8da6d91e8ca7274c5dd65973564
+Get-FileHash app-release.apk -Algorithm SHA256
+# => 19F6C90853A2FBF9EF504B1BDDB7E31B55EB4FD44BF32FF91B4259D1AC8C1AE0
+
+# 部署包组装与校验
+server\.venv\Scripts\python.exe scripts\build_deploy.py
+# => ZIP 内校验和回验通过: 120 个文件
+# => 部署包: deploy_handoff\MediaReview_Migration_1.1.0_20260902_2216.zip
+# 解包后密钥/绝对路径/用户名扫描 => 0 泄露
+
+# git diff --check => 通过（仅 LF→CRLF 提示）
 ```
 
 ## 独立审查
 
-- 审查报告：`.superpowers/sdd/task-e-independent-review.md`（对抗性运维安全审查）。
-- 结论 **CLEAN（0 Critical / 0 Important / 3 Minor）**：未认证 LAN 拒绝 + 回环放行
-  （localhost-or-auth）成立；危险操作服务端 confirm 硬门槛 + UI `<dialog>` 二次确认双层；
-  token/api_key/配对码/绝对路径在 dashboard/errors/logs/诊断 ZIP 四路输出全脱敏（对抗
-  扫描实测）；缓存清理只清 cache/ 可再生成文件，不碰 DB/配置/媒体；配对码生成仍回环限制；
-  无媒体墙、键盘全可操作；测试诚实（全量真实命令输出），无禁止工件。
-- 3 Minor（不阻塞）：M1 日志级别子串匹配与多文件拼接可能混入非主日志旧内容；
-  M2 `_lan_ipv4()` 依赖外网可达路由取地址（可用性）；M3 本机自动配对每次新建 `console-*`
-  设备记录累积。
+- 审查报告：本阶段 `.superpowers/sdd/task-f-independent-review.md`（Windows 部署安全审查）。
+- 结论 **0 Critical / 3 Important / 10 Minor**。3 项 Important 已全部修复并经独立复验：
+  - I1 计划任务 SYSTEM/HIGHEST 权限过高 → 降为 **NETWORK SERVICE / MEDIUM**，并对数据目录
+    `icacls /grant "*S-1-5-20:(OI)(CI)M"` 授权写（install.ps1 / repair.ps1）。
+  - I2 `build_deploy.py` 静默回退 debug APK → 默认强制 `app-release.apk`（缺失即失败），
+    仅显式 `--allow-debug` 才回退。
+  - I3 `THIRD_PARTY_NOTICES.md` 含真实盘符绝对路径 → 脱敏为 `%ProgramFiles%\Jellyfin\Server\...`。
+- 10 Minor（不阻塞，记录在案）：M2 防火墙规则硬编码端口未随 `-Port`、M3 诊断脱敏覆盖为
+  尽力而为、M4 删除路径护栏、M5 dist 复用无白名单、M6 Release 未开 R8 混淆、M7 密钥口令
+  明文（本地、不入库）、M8 沙箱残留清理、M9 配置占位符 fail-fast、M10 备份累积策略。
+  M1（schtasks 字符串注入）已随新增路径参数校验缓解。
+- 正面确认：进程按 EXE 路径精确归属；卸载默认保数据；`Start-Process -FilePath` 具名参数；
+  Server `api_key` 以 SecretStr 持有、无日志记录；SHA-256 生成与 ZIP 内回验逻辑正确；
+  PS 5.1 兼容（NetSecurity 依赖 Win8+，符合目标环境）。
 
 ## 已知问题 / 遗留 TODO
 
-- 浏览器端人工走查（360px/桌面宽度、纯键盘操作、对话框焦点陷阱）未在本机浏览器执行，
-  自动化断言已覆盖结构/键盘/确认元素，人工走查留待 Task G 验收。
-- dashboard 对 Jellyfin 可达性为"尽力而为"探测（不可达仅返回错误文案，不阻塞面板）。
-- 3 Minor（M1–M3）记录在案不阻塞。
+- 真实手机 in-place 升级：需从真机拉取已装 `com.mediareview.app` APK，与 release 证书指纹
+  （592c2595…）比对，证明无卸载重装/本地数据损失；本机无已连接设备，留待 Task G 真机验收。
+- Jellyfin 直连、UDP 发现、配对、Wi-Fi 切换等真机链路验证留待 Task G。
+- 防火墙/计划任务实际创建需要管理员，沙箱测试未覆盖（由契约测试静态断言 + 独立审查保障）；
+  Task G 可在干净 Windows 环境做一次管理员级 install 实测。
+- 10 Minor 记录在案不阻塞（可选后续加固）。
 
 ## 是否建议进入下一阶段
 
-建议进入 Task F（Windows 部署、升级、回滚与产物，`1.1.0-rc1`）。Task E 已闭环运维控制台
-全量能力，门禁全绿且独立安全审查 CLEAN；运维入口（/admin）与诊断/缓存/任务编排就绪，
-为部署与升级脚本提供可观测支撑。
+建议进入 Task G（全量验收与正式发布）。F 阶段已交付可安装/升级/回滚/卸载的部署闭环、
+签名 Release APK 与校验完备的部署包；门禁全绿、沙箱生命周期 24/24、独立部署审查 CLEAN。
+剩余仅真机链路与干净环境管理员级实测，属 Task G 范围。
 
 ## Agent 自认为风险最高的 3 个点
 
-1. **浏览器端真实渲染未走查**：admin.py 内联 CSS/JS 的响应式（360px）、`<dialog>` 焦点
-   陷阱与纯键盘流程仅由 HTML 结构断言覆盖，未在真实浏览器验证；若出现布局/焦点缺陷属
-   可用性而非安全，但需 Task G 人工走查确认。
-2. **日志脱敏的覆盖面**：脱敏正则基于当前已知形态（mr_/Bearer/api_key/配对码/常见路径），
-   对未预见的新日志格式可能漏脱敏；对抗扫描仅覆盖注入的固定样本，生产日志的真实多样性
-   需随使用积累再评估。
-3. **dashboard 聚合查询在超大媒体库上的耗时**：dashboard 对 `media_cache_index` 做
-   count（含按 type 分组的多个 count），10 万+ 媒体时聚合查询耗时会反映在面板加载上
-   （未做大库实测；索引为 SQLite，单表 count 通常毫秒级）。
+1. **NETWORK SERVICE 运行权限的实测覆盖不足**：计划任务降权为 NETWORK SERVICE/MEDIUM 属
+   独立审查要求的核心修复，但防火墙/计划任务创建需管理员，沙箱测试（非管理员）无法实测
+   该账户能否正常读写数据目录并运行 FFmpeg；已通过 `icacls S-1-5-20` 授权写数据根，
+   但真实 Windows 上的 ACL/账户解析（含中文系统）需 Task G 干净环境管理员级 install 确认。
+2. **Release 密钥口令强度**：`key.properties`/keystore 口令为 `mediareview123`（本地弱口令）。
+   已确保 git 忽略、不进部署包，但若构建机被攻破则密钥泄露；Task G 建议评估更换强口令并
+   妥善保管 keystore 离线副本。
+3. **回滚真实性与备份累积**：升级/回滚逻辑经沙箱实测通过，但真实生产数据（媒体库大 DB、
+   真实 Jellyfin 配置）下的升级迁移耗时与回滚可靠性未在真实环境演练；`backup/` 备份累积
+   无清理策略，长期占用磁盘（M10）。
 
 ## 敏感信息说明
 
-本阶段未接触任何真实密钥/Token/配置或生产数据；测试全部使用 `tmp_path` 临时数据根；
-脱敏/缓存测试均在临时目录执行；未新增任何媒体原文件删除路径；日志/诊断输出经对抗式
-密钥扫描确认不含 token/api_key/配对码/绝对路径。
+本阶段未将任何真实密钥/Token/密码/绝对路径提交仓库或打入部署包：`key.properties` 与
+`keystore/*.jks` 均 git 忽略且不在 `build_deploy.py` 清单；`config.example.json` 的
+`api_key` 为占位符 `__SET_DURING_SETUP__`；`THIRD_PARTY_NOTICES.md` FFmpeg 来源已脱敏为
+`%ProgramFiles%` 相对写法；部署包解包扫描确认 0 泄露（无 `D:\` 构建机路径、无用户名、无
+`mediareview123`）。测试全部使用一次性临时数据根/端口。
 
 阶段结论：合格

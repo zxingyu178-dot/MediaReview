@@ -76,7 +76,9 @@ cd /d "%~dp0MediaReviewServer"
 start "" "%~dp0MediaReviewServer\MediaReviewServer.exe"
 "@ | Set-Content $startCmd -Encoding ASCII
     }
-    schtasks /Create /F /TN $TaskName /TR "`"$startCmd`"" /SC ONSTART /RU SYSTEM /RL HIGHEST | Out-Null
+    # 服务以低权限 NETWORK SERVICE 运行(最小权限);对数据目录授予其写权限。
+    icacls $DataRoot /grant "*S-1-5-20:(OI)(CI)M" /T /Q | Out-Null
+    schtasks /Create /F /TN $TaskName /TR "`"$startCmd`"" /SC ONSTART /RU "NT AUTHORITY\NETWORK SERVICE" /RL MEDIUM | Out-Null
     Check "计划任务重建" ($LASTEXITCODE -eq 0) "schtasks"
 }
 if (-not $task) {

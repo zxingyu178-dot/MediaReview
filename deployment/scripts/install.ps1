@@ -22,6 +22,13 @@ $Version    = "1.1.0"
 $Report     = @()
 $Global:LASTEXITCODE = 0
 
+# 路径参数校验(防注入: InstallDir/DataRoot 会拼入 schtasks /TR 与 start_server.cmd)
+foreach ($p in @($InstallDir, $DataRoot)) {
+    if ($p -match '[&|<>%"]') {
+        throw "路径包含非法字符( & | < > % 或引号 ),请改用无特殊字符的路径: $p"
+    }
+}
+
 function Write-Step($msg)   { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Report($msg) { $script:Report += "$msg" }
 
@@ -150,15 +157,21 @@ try {
 
         # 3e. atomic promote: 旧二进制已备份, 用新程序替换
         Write-Step "健康检查通过, 原子替换程序文件"
-        if (Test-Path (Join-Path $InstallDir "MediaReviewServer")) {
-            Remove-Item (Join-Path $InstallDir "MediaReviewServer") -Recurse -Force
-        }
-        Move-Item (Join-Path $staging "MediaReviewServer") (Join-Path $InstallDir "MediaReviewServer")
-        Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+        try {
+            if (Test-Path (Join-Path $InstallDir "MediaReviewServer")) {
+                Remove-Item (Join-Path $InstallDir "MediaReviewServer") -Recurse -Force
+            }
+            Move-Item (Join-Path $staging "MediaReviewServer") (Join-Path $InstallDir "MediaReviewServer")
+            Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
 
-        # 3f. 写版本标记
-        Set-Content -Path $verFile -Value $Version -Encoding ASCII
-        Set-Content -Path $markFile -Value $Version -Encoding ASCII
+            # 3f. 写版本标记
+            Set-Content -Path $verFile -Value $Version -Encoding ASCII
+            Set-Content -Path $markFile -Value $Version -Encoding ASCII
+        } catch {
+            # commit 阶段任何异常都回滚旧二进制与数据,再重启旧版
+            Restore-Previous $InstallDir $backup $DataRoot $ExePath
+            throw "升级提交阶段失败,已回滚旧版本: $_"
+        }
         Write-Report "upgrade: $oldVer -> $Version (promoted)"
     } else {
         # ================= 首次安装 =================
@@ -246,9 +259,11 @@ set "MEDIAREVIEW_DATA_ROOT=$DataRoot"
 cd /d "%~dp0MediaReviewServer"
 start "" "%~dp0MediaReviewServer\MediaReviewServer.exe"
 "@ | Set-Content $startCmd -Encoding ASCII
-    schtasks /Create /F /TN $TaskName /TR "`"$startCmd`"" /SC ONSTART /RU SYSTEM /RL HIGHEST | Out-Null
+    # 服务以低权限 NETWORK SERVICE 运行(最小权限);需对数据目录授予其写权限。
+    icacls $DataRoot /grant "*S-1-5-20:(OI)(CI)M" /T /Q | Out-Null
+    schtasks /Create /F /TN $TaskName /TR "`"$startCmd`"" /SC ONSTART /RU "NT AUTHORITY\NETWORK SERVICE" /RL MEDIUM | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "创建计划任务失败" }
-    Write-Report "计划任务: $TaskName (开机自启)"
+    Write-Report "计划任务: $TaskName (开机自启, NETWORK SERVICE)"
 
     # ---- 7. 启动并健康检查 ----
     Write-Step "启动服务并健康检查"
