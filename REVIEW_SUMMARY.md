@@ -1,109 +1,147 @@
-# REVIEW_SUMMARY — MediaReview 1.1 Task B：Paging 3 媒体墙、图片与雪碧图闭环
+# REVIEW_SUMMARY — MediaReview 1.1 Task C：Direct Play 与单次 HLS 回退
 
 ## 阶段编号与名称
 
-- 阶段 B（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
-- 名称：Paging 3 媒体墙、图片与雪碧图闭环
-- 提交拆分：B1 `6577939 feat(android): page media wall`（分页 + 文件夹视图，双端）；
-  B2 `feat(media): close image and sprite flows`（本 ZIP，基线 6577939）
-- 冻结 diff：`.superpowers/sdd/review-6577939-taskb.diff`（12 文件 +316/-54 → 修复后 846 行）
+- 阶段 C（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
+- 名称：Direct Play 与单次 HLS 回退（`1.1.0-beta1`）
+- 提交：前置 `89644fd fix(review): monotonic session ids`；Server
+  `814740e feat(server): add secure playback contract`；Android
+  `757a33d feat(android): add direct hls state machine`；收口修复
+  `fix(android): fall back to hls on direct prepare failure`；文档
+  `docs(handoff): record task C completion and review`
+- 基线：`e04ebc4`（Task B 终点）
 
 ## 阶段目标
 
-媒体墙从"整列表 + 命令式翻页"迁移到 Paging 3 分页（新查询新 Pager、旧流取消、
-cachedIn 唯一缓存）；新增媒体墙内文件夹辅助视图（服务器 ID，不下发路径）；
-关闭图片查看器（视口解码/重试/离开取消）；关闭雪碧图任务闭环（202/进度/协作取消/
-指纹失效）；100k 分页不扫描 Jellyfin；双端全量门禁 + 独立审查 CLEAN。
+"手机视频看不了"的关键阶段：Server 提供安全播放合同（Direct Play + 唯一一次 HLS 回退 +
+设备级可撤销凭据），服务端 API key 绝不进入任何 URL/JSON/headers/日志；Android 用纯状态机
+驱动 Direct→恰好一次 HLS→中文终态，无回退循环；取消/切换媒体重置回退配额；legacy
+`stream_url` 一版兼容。
 
 ## 实际完成内容
 
-- **B1 分页**：`MediaQuery`（不可变）、`MediaPagingSource`（键=页码；错误包装
-  LoadResult.Error、取消上抛、sync 回传）；ViewModel `combine(query,refresh).flatMapLatest{Pager}`
-  + `cachedIn(viewModelScope)`；`MediaWallScreen` 换 LazyPagingItems（骨架/空态/离线/
-  追加失败就地重试）；2-5 列、类型/库筛选、防抖搜索、六种排序、未点赞模式全部保留。
-- **B1 文件夹视图**：Server `GET /media/folders`（SQLite 父目录聚合，folder_id=SHA-256
-  前 16 hex，响应零路径）+ `GET /media?folder_id=`（筛选范围内反查，未知 404）；
-  Android `FolderFilterMenu` 在媒体墙内部；`MediaDataSource` 接口变更三实现同步。
-- **B2 图片查看器**：详情失败重试、重复 load 取消在途请求、离开 `cancelDecoding`、
-  Coil `ImageRequest.size(viewport)` 按视口解码（≥1px 兜底）。
-- **B2 雪碧图**：POST ensure 202 {task_id,status}；服务端进度里程碑 20/40/100 与
-  生成前/后协作取消检查、终态 **CAS 条件 UPDATE**（取消不可被复活）；Android 轮询
-  任务进度 + 等待覆盖层"生成中 N%"+ 取消按钮（`/tasks/{id}/cancel`）+ 失败/取消
-  中文终态 + 轮询耗尽复位可重试。
-- **审查驱动的生产修复**：`TaskManager._loop` 异常保护（此前一次瞬时 SQLite 锁冲突
-  即永久杀死后台任务引擎——既有缺陷，回归 `test_task_manager.py`）。
+- **Server 播放合同**（`814740e`）：`GET /media/{id}/playback` 返回
+  `direct` / `fallback_hls`（各为 `{url, headers}`）+ `resume_position_ms`；
+  `stream_url` 保留为兼容字段恒等于 `direct.url`。
+- **设备级播放凭据**：按设备签发/复用 Jellyfin 命名 key（`mediareview-<installation_id>`），
+  value 只存服务端 `paired_device`（迁移 `0013_device_playback_key`，`down_revision=0012`
+  单一线性头），仅经播放响应 headers `X-Emby-Token` 下发给该设备，支持按名幂等撤销；
+  签发失败 fail-closed（中文错误，不下发任何直连地址）。
+- **安全终检**：Direct/HLS URL 构造前后均做 server-key 排除检查；HLS 为 `master.m3u8`
+  最小转码集（h264+aac），中间层不转发视频流。
+- **Android 状态机**（`757a33d`）：`PlaybackStateMachine` 纯转移函数——Direct 成功→
+  DirectPlaying；Direct 失败→恰好一次 FallbackHls；HLS 失败→中文终态
+  （"无法播放该视频(直连与转码回退均失败):…"）；取消/切换媒体重置并重新获得回退配额；
+  迟到的旧事件被忽略。`PlayerCore` 单例 `HttpDataSource.Factory` 共享请求头、
+  `playStream(headers, startPositionMs)`、错误 SharedFlow 上抛；`PlayerViewModel` 错误/成功
+  collector 驱动状态机，`usingFallback` 指示，legacy stream_url 兼容。
+- **前置修复**（`89644fd`）：review 会话平局打破键单调化，关闭 Task B 遗留 M-A。
+- **收口修复**（本阶段）：审查发现错误→事件映射忽略 Idle 态——Media3 数据源准备期失败
+  （未经过 READY，stage 仍为 Idle）是最常见 Direct 失败形态，此前不会触发 HLS 回退。
+  抽出共享纯函数 `errorEventFor(stage, reason)`（Idle/DirectPlaying→DirectStartFailed、
+  FallbackHls→HlsStartFailed、Terminal→null），PlayerViewModel 改用之；RED
+  `ErrorEventMappingTest` 4 例编译失败 → 实现后 GREEN。
+- **独立审查返修**（首轮 NOT CLEAN → 复审 CLEAN）：
+  - C1（Critical）Jellyfin `/Auth/Keys` 契约错配：POST 应为 `app`、GET 返回项应为
+    `AppName`（官方 SDK/API 文档核实）。修复 `client.py` 并同步修正四处测试 mock，
+    新增锁定测试 `test_device_key_provisioning_uses_real_jellyfin_app_contract`。
+  - I1（Important）批阅模式无凭据：`ReviewPlayable` 加 `headers`，
+    `resolvePlayable` 经纯函数 `directPlaybackEndpoint` 提取 direct URL + headers，
+    `PlayerCore.applyHttpHeaders` 供 `playStream`/`prepareSilent` 共用注入；
+    新增 `ReviewPlayableEndpointTest` 3 例。
+  - I2（Important）撤销未清除/撤销 Jellyfin key：`pairing.revoke_device` 清空
+    jellyfin_key_* 列；`POST /pairing/revoke` 经 `optional_jellyfin_client` 尽力撤销
+    命名 key；新增 HTTP 级测试。
+  - I3（Important）迟到错误污染新会话：`PlayerErrorEvent(mediaId, error)` 携带槽位媒体 id，
+    `PlayerViewModel` 经 `isCurrentSessionError` 过滤；新增 `SessionErrorFilterTest` 3 例。
 
 ## 是否完整达到目标
 
-是。第二轮独立复审 **CLEAN（0 Critical / 0 Important / 6 Minor）**；计划 Step 1-7
-验收矩阵全部 closed（M 级保留项见下）。
+是。计划 Step 1-5 完成；Step 6（格式矩阵/真机）因本机无设备/真机/真实 Jellyfin 留待 Task G
+（已按交接规则明确记录，不冒充完成）；Step 7 全量门禁 + 独立审查达到 0 Critical /
+0 Important。
 
 ## 核心架构 / API / 数据库变化
 
-- API：`GET /media/folders`（新增）、`GET /media` 增 `folder_id`、`POST /cache/sprites/{id}`
-  改 202、Android API 新增 `GET/POST /tasks/{task_id}(/cancel)` 调用。
-- 数据库：无迁移（迁移链头仍为 0012）。
-- Android 分页栈新增 Paging 3.3.5（runtime/compose/testing）。
+- API：`GET /media/{id}/playback` 响应新增 `direct`、`fallback_hls`、`resume_position_ms`；
+  `requires_jellyfin_auth` 改为 `false`；`stream_url` 语义=direct.url（兼容）。
+- 数据库：新增迁移 `0013_device_playback_key`（paired_device 加
+  jellyfin_key_name/value/created_at），从 0012 延伸，单一线性 head。
+- Android：新增 `PlaybackStateMachine` / `PlaybackEvent` / `PlaybackStage` /
+  `errorEventFor` / `PlaybackEndpointDto`；`PlayerCore` 引入共享 HttpDataSource 与错误流。
 
 ## Android UI/交互变化
 
-- 媒体墙改为分页网格；文件夹下拉筛选；追加失败就地重试。
-- 长按雪碧图等待覆盖层显示生成进度与"取消生成"。
-- 图片查看器失败显示"重试"。
+- 普通播放器起播失败自动回退一次转码 HLS；回退期间 `usingFallback` 提示（UI 尚未消费该
+  字段，见遗留）；HLS 再失败显示中文终态错误。
 
 ## 已执行测试与结果（真实命令）
 
 ```powershell
-# Server 全量（隔离数据根）
-server\.venv\Scripts\python.exe -m pytest tests            # => 282 passed (exit 0)
-# Server lint
-server\.venv\Scripts\python.exe -m ruff check .            # => All checks passed!
-server\.venv\Scripts\python.exe -m ruff format --check .   # => 87 files formatted
-# 100k flake 验证（修复后）
-# 连续 3 次 passed + 复审员 2 次全新临时目录 passed；单页 0.03-0.08s（目标 <1s）
-# Android 全量四目标（--rerun-tasks，修复前后各一轮）
-.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:lintDebug
-# => BUILD SUCCESSFUL（91 tasks）；JVM 122 tests / 0 failures；lint 0 errors
+# Server focused（播放合同 + 迁移 + 相关回归）
+server\.venv\Scripts\python.exe -m pytest tests\test_playback_contract_11.py `
+  tests\test_connection_identity_11.py tests\test_media_image_proxy_11.py tests\test_review_service.py -q
+# => 41 passed
+# Server 全量
+server\.venv\Scripts\python.exe -m pytest -q          # => 通过（退出码 0，约 291 项）
+server\.venv\Scripts\python.exe -m ruff check .        # => All checks passed!
+server\.venv\Scripts\python.exe -m ruff format --check .  # => 89 files already formatted
+# Android RED（收口修复）：ErrorEventMappingTest 编译失败（errorEventFor 未定义）
+# Android focused（修复后）
+android\.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest --tests "*PlaybackStateMachineTest" --rerun-tasks
+# => BUILD SUCCESSFUL
+# Android 全量四目标（--rerun-tasks）
+android\.\gradlew.bat --offline --no-daemon :app:testDebugUnitTest :app:assembleDebug `
+  :app:assembleAndroidTest :app:lintDebug --rerun-tasks
+# => BUILD SUCCESSFUL；JVM 142 tests / 0 failures；lint 0 errors；debug APK 已产出
 ```
 
-## 独立审查（两轮）
+## 独立审查
 
-- 第一轮 **NOT CLEAN**：I-1 100k 测试与 TaskManager 轮询争锁 flaky + `_loop` 无异常
-  保护（生产缺陷）；I-2 测试夹具 4×W605。另有 M-1..M-8。
-- 修复：I-1 两半（生产 `_loop` 加固 + 测试预插种解耦）、I-2 raw string、M-1 终态 CAS、
-  M-2/M-3 终态文案与复位、M-5 死代码、M-7 取消测试。
-- 第二轮复审 **CLEAN**（`.superpowers/sdd/task-b-independent-review.md`）：I-1/I-2 均
-  CLOSED，全部声称数字独立复现。
+- 审查报告：`.superpowers/sdd/task-c-independent-review.md`（两轮）。
+- 第一轮 **NOT CLEAN**（1 Critical / 3 Important / 6 Minor）：C1 Jellyfin `/Auth/Keys`
+  契约错配（POST 应为 `app`、GET 返回项应为 `AppName`，mock 复刻错误字段致测试全绿、
+  生产走不到）；I1 批阅路径无设备凭据；I2 撤销不撤销/不清除 Jellyfin key；
+  I3 错误 collector 不区分会话身份。
+- 返修复审 **CLEAN（0 Critical / 0 Important / 6 Minor）**：C1/I1/I2/I3 全部关闭并
+  新增锁定测试；独立复审员复现关键数字（Server focused 52 passed、Android JVM 142/0、
+  四目标构建成功、lint 0 errors）。
 
-## 已知问题 / 遗留 TODO（复审 Minor，不阻塞）
+## 已知问题 / 遗留 TODO
 
-- M-A：review 会话平局打破键（session_id 随机后缀）在微秒碰撞时与创建顺序无关，
-  全量门禁偶发红——**基线既有**，建议 Task C 前修复为单调键。
-- M-B：雪碧图失败/取消终态文案在 UI 同帧合并后不可达（行为正确，文案死代码化）。
-- M-C：取消按钮显隐未过滤空字符串 taskId（点击只本地复位）。
-- M-D：sprite 生成异常路径终态无 CAS（cancelled 可能被覆盖为 failed，均为终态）。
-- M-E：ensure_sprite 的 ready 直返也返回 202（语义上应为 200，无破坏面）。
-- M-F：ImageViewerViewModel 外层 runCatching 瞬态吞取消（自愈）。
-- M-4/M-6/M-8（第一轮）：位图级加载失败无重试 UI；folders 100k 聚合 0.6-1.1s
-  （超 1s 目标、低于 2.0s 硬上限）；loadMediaFolders 失败静默保留旧列表。
+- instrumentation 仍未在设备执行（本机无 ADB 设备/模拟器/system image）；Task C Step 6
+  格式矩阵（MP4/H.264、MKV/HEVC、4K、多音轨、内嵌字幕、仅转码）与真机 Direct<3s/
+  HLS<8s 属 Task G。
+- 设备级命名 key 的创建/回读/撤销契约已按官方文档修正并锁定测试，但未在真实 Jellyfin
+  服务器上端到端验证（本机无真实 Jellyfin）——Task G 真机阶段必须实测。
+- HLS 最小转码集未经真实 Jellyfin 转码服务验证（本机无真实 Jellyfin）。
+- 6 Minor 记录在案不阻塞：M1 `usingFallback` 只写不读；M2 Retry/Cancelled 生产未
+  dispatch；M3 普通播放器绕过 MediaUrlResolver；M4 批阅不消费 fallback_hls/resume；
+  M5 user_id 未配置发无效续播请求；M6 HLS 从原始续播位重启。
 
 ## 是否建议进入下一阶段
 
-建议进入 Task C（Direct Play 与单次 HLS 回退，`1.1.0-beta1`）。可先顺手修复 M-A
-（review 会话平局打破键）作为 Task C 前置小提交。
+建议进入 Task D（批阅、收藏、安全删除与重复整理，`1.1.0-beta1`）。Task C 为
+"手机视频看不了"补上 Direct/HLS 链路与设备级凭据安全边界；设备级播放体验与格式矩阵在
+Task G 真机验收。
 
 ## Agent 自认为风险最高的 3 个点
 
-1. **文件夹视图的 SQL dirname 技巧**：依赖 replace/rtrim 表达式对路径分隔符的归一化，
-   已覆盖 \\、/、混合与盘根测试，但真实 Jellyfin 路径中的异常形态（UNC、挂载点、
-   非 ASCII 目录名）未经真实数据验证——Task G 真机阶段需用真实库复核。
-2. **100k 性能余量集中在 SQLite 单机**：单页 0.03-0.08s 是空载值；真实 5.6 万媒体 +
-   同步任务并发时的表现需 Task G 实测（门禁只在测试环境证明"不扫描 + 数量级达标"）。
-3. **instrumentation 设备缺口延续**：媒体墙 Compose 行为（分页占位、AppendState、
-   文件夹菜单在 360×740 与横屏）仅有编译与 JVM 逻辑证据，真机验收仍属 Task G。
+1. **设备级命名 key 依赖 Jellyfin `/Auth/Keys`**：命名 key 的创建/回读/撤销契约未在真实
+   Jellyfin 服务器上验证（本机无真实 Jellyfin）；不同 Jellyfin 版本对命名 key 与
+   `X-Emby-Token` 直连流的支持可能有差异——Task G 真机阶段必须实测。
+2. **HLS 最小转码集参数**：`VideoCodec=h264&AudioCodec=aac` 是否总能被服务器接受并产出
+   可播 m3u8（含容器/DRM/字幕场景）未经验证；失败时状态机正确进入中文终态，但体验依赖
+   真实转码服务。
+3. **播放器状态机与 Media3 生命周期耦合**：Direct 失败在"起播成功判定"与"错误上抛"之间的
+   竞争窗口（READY 与 onPlayerError 顺序）已用 Idle 态修复覆盖，但真机上 HLS 起播的
+   READY 时序、预加载双实例（P0/P1）与普通播放器共用同一个 PlayerCore 的 headers 切换，
+   仍需 Task G 真机验证。
 
 ## 敏感信息说明
 
-本阶段未接触任何密钥、Token、真实配置或生产数据；测试全部使用临时目录与 mock transport。
+本阶段未接触任何真实密钥、Token、真实配置或生产数据；测试全部使用临时数据根与
+MockTransport / 内存命名 key 模拟。设备级 Jellyfin key 的 value 仅存在于服务端数据库
+与播放响应 headers 的内存流转，不写日志、不进 URL/JSON。
 
 阶段结论：合格

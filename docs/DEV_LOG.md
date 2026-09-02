@@ -2,6 +2,110 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-02 — MediaReview 1.1 Task C · Direct Play 与单次 HLS 回退（收口）
+
+完成（含前置小提交与收口修复）：
+
+- 前置（`89644fd fix(review): monotonic session ids`）：review 会话平局打破键改为单调递增，
+  关闭 Task B 遗留 M-A（session_id 随机后缀微秒碰撞时与创建顺序无关的全量门禁偶发红）。
+- Server（`814740e feat(server): add secure playback contract`）：
+  - 播放合同新增 `direct` / `fallback_hls`（均为 `{url, headers}`）+ `resume_position_ms`；
+    `stream_url` 保留为一版兼容字段恒等于 `direct.url`；`requires_jellyfin_auth=false`。
+  - 设备级播放凭据：按设备签发/复用 Jellyfin 命名 key（`mediareview-<installation_id>`），
+    value 只存服务端 `paired_device`（迁移 `0013_device_playback_key`，`down_revision=0012`
+    保持单一线性头），仅在播放响应 headers `X-Emby-Token` 下发，绝不进入 URL/JSON/日志；
+    支持按名幂等撤销。
+  - Direct/HLS URL 构造前后均做 server-key 排除终检；凭据签发失败 fail-closed（中文错误，
+    不下发任何直连地址）；Jellyfin 续播位置读取失败返回 0 不阻塞。
+  - HLS 为 `master.m3u8` 最小转码集（h264+aac），Android 状态机不得二次回退；
+    中间层仍不转发视频流。
+- Android（`757a33d feat(android): add direct hls state machine`）：
+  - `PlaybackStateMachine`：纯转移函数——Direct 成功→DirectPlaying；Direct 失败→恰好一次
+    FallbackHls；HLS 失败→中文终态（"无法播放该视频(直连与转码回退均失败):…"）；
+    取消/切换媒体完全重置并重新获得回退配额；迟到的旧成功/失败事件被忽略。
+  - `PlayerCore`：单例 `HttpDataSource.Factory` 共享默认请求头（X-Emby-Token），
+    `playStream` 支持 headers + startPositionMs；播放器错误经 SharedFlow 上抛。
+  - `PlayerViewModel`：错误/成功两个 collector 驱动状态机；Direct 失败进入唯一一次 HLS 回退
+    （`usingFallback` 指示）；legacy `stream_url` 兼容；HLS 无端点直接中文终态。
+- 收口修复（本提交，TDD RED→GREEN）：
+  - 审查发现：错误→事件映射中 Idle 态错误被忽略——Media3 数据源准备期即失败（未经过
+    READY，stage 仍为 Idle）是最常见失败形态，此前不会触发 HLS 回退，与 Task C Step 2
+    "Direct datasource/container/decoder error → exactly one HLS transition" 不符。
+  - RED：新增 `ErrorEventMappingTest` 4 例（Idle→DirectStartFailed 等）首次编译失败
+    （`errorEventFor` 未定义）。
+  - GREEN：抽出共享纯函数 `errorEventFor(stage, reason)`（Idle/DirectPlaying→
+    DirectStartFailed、FallbackHls→HlsStartFailed、Terminal→null），PlayerViewModel 改用之；
+    focused 全绿。
+
+独立审查返修（首轮 NOT CLEAN：1 Critical / 3 Important / 6 Minor → 全部关闭后复审 CLEAN）：
+
+- **C1（Critical）Jellyfin /Auth/Keys 契约错配**：`ensure_device_stream_key` 用 POST
+  `Name` 参数、按 GET 返回项 `Name` 字段匹配；真实 Jellyfin 契约是 POST 参数 **`app`**、
+  GET 返回项字段 **`AppName`**（经官方生成 SDK/API 文档/Jellyfin-Cli 多方核实）。真实服务器上
+  `/playback` 恒 500，Direct/HLS 整体不可用；测试 mock 复刻了错误字段导致"测试全绿、
+  生产走不到"。修复：client.py 改 `app`/`AppName`；同步修正 `conftest.py`、
+  `test_connection_identity_11.py`、`test_media_image_proxy_11.py`、
+  `test_playback_contract_11.py` 四处 mock；新增锁定测试
+  `test_device_key_provisioning_uses_real_jellyfin_app_contract`（RED：仅改 client 时聚焦
+  测试失败 → GREEN：mock 修正后 36 passed）。
+- **I1（Important）批阅模式无凭据**：review 路径（`resolvePlayable`→`prepareSilent`）只取
+  `stream_url`，视频请求无 X-Emby-Token → 直接进批阅（含断点恢复）401。修复：`ReviewPlayable`
+  增加 `headers`；`resolvePlayable` 缓存整个 PlaybackInfoDto 并经新纯函数
+  `directPlaybackEndpoint` 提取 direct URL + headers（legacy stream_url 兜底）；`PlayerCore`
+  抽 `applyHttpHeaders` 供 `playStream`/`prepareSilent` 共用注入共享 HttpDataSource。
+  新增 `ReviewPlayableEndpointTest` 3 例。
+- **I2（Important）"可撤销"未落地**：`revoke_device_stream_key` 无生产调用方，撤销设备不清
+  key 列。修复：`pairing.revoke_device` 清空 jellyfin_key_* 列；新增
+  `pairing.device_stream_key_name`；`POST /pairing/revoke` 改 async，经新可选依赖
+  `optional_jellyfin_client` 尽力在 Jellyfin 侧撤销命名 key（未配置/失败不阻塞本地撤销）。
+  新增 HTTP 级测试 `test_revoke_device_clears_jellyfin_key_and_revokes_upstream`。
+- **I3（Important）迟到错误污染新会话**：错误 collector 只按 stage 映射、不按会话身份过滤，
+  上一媒体缓冲错误在 `machine.reset()` 后被当作新会话 Direct 失败。修复：`PlayerCore` 错误流
+  改 `PlayerErrorEvent(mediaId, error)`（携带出错槽位媒体 id）；`PlayerViewModel` 经新纯函数
+  `isCurrentSessionError` 过滤（事件媒体 id ≠ 当前媒体即丢弃）。新增 `SessionErrorFilterTest` 3 例。
+- 6 Minor 记录在案不阻塞：M1 usingFallback 只写不读、M2 Retry/Cancelled 生产未 dispatch、
+  M3 普通播放器绕过 MediaUrlResolver（服务端已拒 loopback，纵深防御不对称）、M4 批阅不消费
+  fallback_hls/resume、M5 user_id 未配置发无效续播请求（404→0）、M6 HLS 从原始续播位重启。
+
+TDD 与验证：
+
+- Server focused：`test_playback_contract_11.py` 等 41 passed（命名 key 幂等/撤销/失败
+  fail-closed、无 server key 序列化、非视频 400、续播位置、HLS 唯一回退）。
+- Server 全量：`pytest -q` 通过（退出码 0，约 291 项）；`ruff check .` All checks passed；
+  `ruff format --check .` 89 files already formatted。
+- Android RED→GREEN：`ErrorEventMappingTest` 编译失败（RED）→ 实现后 focused BUILD SUCCESSFUL。
+- Android 全量四目标（`testDebugUnitTest/assembleDebug/assembleAndroidTest/lintDebug`
+  `--rerun-tasks`）：BUILD SUCCESSFUL（91 tasks）；JVM 136 tests / 0 failures（+4）；
+  debug APK 22,656,939 B；androidTest APK 已构建；lint 0 errors。
+- `git diff --check` 通过；工作树 clean；分阶段提交。
+
+独立审查返修后门禁（复审 CLEAN 依据）：
+
+- Server focused（播放合同 + 配对 + 图片代理 + phase7）52 passed；全量 pytest 通过
+  （退出码 0）；ruff check/format 全绿。
+- Android JVM **142 tests / 0 failures**（+6：SessionErrorFilter 3 + ReviewPlayableEndpoint 3）；
+  四目标 --rerun-tasks BUILD SUCCESSFUL；lint 0 errors。
+- 独立复审报告 `.superpowers/sdd/task-c-independent-review.md`：**CLEAN**
+  （0 Critical / 0 Important / 6 Minor）。
+
+遗留边界：
+
+- instrumentation 仍无设备执行（本机无 ADB 设备/模拟器/system image）；Task C Step 6 格式矩阵
+  （MP4/H.264、MKV/HEVC、4K、多音轨、内嵌字幕、仅转码）与真机 Direct<3s/HLS<8s 属 Task G。
+- 设备级命名 key 的创建/回读/撤销契约已按官方文档修正并锁定测试，但未在真实 Jellyfin 服务器
+  上端到端验证（本机无真实 Jellyfin）——Task G 真机阶段必须实测。
+- HLS 最小转码集未经真实 Jellyfin 转码服务验证（本机无真实 Jellyfin）。
+- 6 Minor 记录在案（见上），建议随 Task D/E 顺手处理。
+
+提交：
+
+- `89644fd fix(review): monotonic session ids`（前置，2026-08-30）
+- `814740e feat(server): add secure playback contract`（2026-08-30）
+- `757a33d feat(android): add direct hls state machine`（2026-08-30）
+- `fix(android): fall back to hls on direct prepare failure`（收口修复）
+- `fix(review-findings): close task C critical and importants`（独立审查返修）
+- `docs(handoff): record task C completion and review`（本阶段文档）
+
 ### 2026-08-30 — MediaReview 1.1 Task B · Paging 3 媒体墙、图片与雪碧图闭环
 
 完成：

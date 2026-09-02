@@ -130,6 +130,31 @@
 - [x] Server 282 passed + ruff 全绿；Android JVM 122/0 + 四目标 BUILD SUCCESSFUL（两轮）
 - [x] 独立审查：第一轮 NOT CLEAN（100k flake + _loop 无保护 + W605）→ 修复 → 第二轮 CLEAN（0C/0I/6M；M-A 平局打破键为基线既有，M-B..M-F 记录在案）
 
+## MediaReview(1.1.0-beta1 Task C: Direct Play 与单次 HLS 回退) — 完成
+
+> 状态（2026-09-02，独立审查返修后）：**代码与审查门禁通过（CLEAN）**。首轮审查
+> NOT CLEAN（1C/3I/6M）→ 修复 C1（Jellyfin /Auth/Keys 契约 app/AppName）、I1（批阅路径
+> 注入设备凭据）、I2（撤销清除/撤销 key）、I3（迟到错误会话过滤）→ 复审 CLEAN。
+> instrumentation 仍无设备执行；格式矩阵与真机 Direct<3s/HLS<8s 属 Task G。
+
+- [x] 前置：review 会话平局打破键单调化（`fix(review): monotonic session ids`，关闭 Task B M-A）
+- [x] Server 播放合同：`direct`/`fallback_hls`（{url, headers}）+ `resume_position_ms`；`stream_url` 一版兼容恒等于 direct.url
+- [x] 设备级播放凭据：按设备签发/复用 Jellyfin 命名 key（`mediareview-<installation_id>`），value 只存服务端 paired_device
+- [x] 迁移 `0013_device_playback_key` 从 0012 延伸，单一线性 head，upgrade/downgrade 对称
+- [x] 凭据只在播放响应 headers `X-Emby-Token` 下发，绝不进入 URL/JSON/日志；支持按名幂等撤销
+- [x] Direct/HLS URL 构造前后 server-key 排除终检；凭据签发失败 fail-closed（中文错误，不下发直连地址）
+- [x] HLS 为 `master.m3u8` 最小转码集（h264+aac）；中间层不转发视频流
+- [x] Android `PlaybackStateMachine` 纯转移：Direct 失败→恰好一次 HLS 回退→中文终态；取消/切换媒体重置回退配额
+- [x] `PlayerCore` 单例 HttpDataSource.Factory 共享请求头；`playStream` 支持 headers + startPositionMs；错误 SharedFlow 上抛
+- [x] `PlayerViewModel` 错误/成功 collector 驱动状态机；legacy stream_url 兼容；`usingFallback` 指示
+- [x] 收口修复：`errorEventFor` 覆盖 Idle 态（数据源准备期失败）触发 HLS 回退，RED→GREEN（ErrorEventMappingTest 4 例）
+- [x] 返修 C1：Jellyfin /Auth/Keys 契约改 `app`/`AppName` + 四处 mock + 锁定测试（真实服务器上 /playback 恒 500 的根因）
+- [x] 返修 I1：批阅路径 `ReviewPlayable.headers` + `directPlaybackEndpoint` + `applyHttpHeaders` 注入设备凭据（ReviewPlayableEndpointTest 3 例）
+- [x] 返修 I2：`pairing.revoke_device` 清列 + `POST /pairing/revoke` 经 optional_jellyfin_client 尽力撤销命名 key（HTTP 测试）
+- [x] 返修 I3：`PlayerErrorEvent(mediaId, error)` + `isCurrentSessionError` 会话过滤（SessionErrorFilterTest 3 例）
+- [x] Server focused 52 passed + 全量 pytest 通过 + ruff 全绿；Android JVM 142/0 + 四目标 BUILD SUCCESSFUL + lint 0 errors
+- [x] 独立审查两轮：首轮 NOT CLEAN（1C/3I/6M）→ 返修 → 复审 CLEAN（`.superpowers/sdd/task-c-independent-review.md`）
+
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 
 > 状态（2026-08-30，Task A 后）：**代码与独立审查门禁通过（CLEAN）**。Task A 关闭了最终删除
