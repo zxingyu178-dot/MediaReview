@@ -81,6 +81,9 @@ class JellyfinClient:
             timeout=_TIMEOUT,
             transport=transport,
             follow_redirects=False,
+            # V1 仅局域网/回环直连 Jellyfin,不采信环境代理(如 all_proxy=socks5),
+            # 避免部署机存在代理环境变量时因缺少 socksio 等扩展而启动即失败。
+            trust_env=False,
         )
 
     def _auth_headers(self) -> dict[str, str]:

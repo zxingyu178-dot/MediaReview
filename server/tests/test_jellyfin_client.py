@@ -80,6 +80,30 @@ async def test_auth_header_sent(jellyfin_config: JellyfinConfig) -> None:
 
 
 @pytest.mark.anyio
+async def test_client_ignores_env_proxy_trust_env_false(
+    jellyfin_config: JellyfinConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """部署机存在 SOCKS/HTTP 代理环境变量时,client 不得采信(trust_env=False)。
+
+    回归: 机器上 all_proxy=socks5://… 时,httpx 缺 socksio 扩展会在构造期抛
+    ImportError,导致 /libraries 等一切 Jellyfin 调用 500。V1 仅局域网直连,
+    不应被环境代理劫持。
+    """
+    monkeypatch.setenv("all_proxy", "socks5://127.0.0.1:33210")
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:33210")
+
+    jf = JellyfinClient(
+        jellyfin_config,
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json={})),
+    )
+    try:
+        # 构造成功即证明未被环境代理劫持(缺 socksio 时旧代码抛 ImportError)
+        assert jf._http.trust_env is False
+    finally:
+        await jf.close()
+
+
+@pytest.mark.anyio
 async def test_401_raises_auth_error(jellyfin_config: JellyfinConfig) -> None:
     jf = JellyfinClient(
         jellyfin_config,
