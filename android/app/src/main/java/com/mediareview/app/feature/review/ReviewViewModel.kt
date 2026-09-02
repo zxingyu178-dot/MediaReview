@@ -7,6 +7,7 @@ import com.mediareview.app.core.media.PlayerCore
 import com.mediareview.app.core.media.ReviewPlayable
 import com.mediareview.app.core.media.ReviewPlaybackController
 import com.mediareview.app.core.media.ReviewQueueWindow
+import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ReviewQueueItemDto
 import com.mediareview.app.core.ui.InitialLoadGate
 import com.mediareview.app.core.ui.ContentInvalidationStore
@@ -92,7 +93,8 @@ class ReviewViewModel private constructor(
     private val _events = MutableSharedFlow<ReviewEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<ReviewEvent> = _events.asSharedFlow()
 
-    private val streamUrlCache = mutableMapOf<String, String>()
+    /** 播放信息缓存(Direct URL + 设备级凭据 headers + HLS 回退)。 */
+    private val playbackCache = mutableMapOf<String, PlaybackInfoDto>()
 
     /** 分页窗口(纯逻辑,可单测)。 */
     private val window = ReviewQueueWindow(PAGE_SIZE)
@@ -389,7 +391,7 @@ class ReviewViewModel private constructor(
         }
     }
 
-    /** 只解析 [index] 一项的 URL;槽位身份使用 DTO 的绝对 queue index。 */
+    /** 只解析 [index] 一项的 URL 与设备级凭据 headers;槽位身份使用 DTO 的绝对 queue index。 */
     private suspend fun resolvePlayable(
         items: List<ReviewQueueItemDto>,
         index: Int,
@@ -398,10 +400,11 @@ class ReviewViewModel private constructor(
         val media = dto?.media
         if (media == null) return ReviewPlayable(dto?.index ?: index, "")
         if (!media.isVideo) return ReviewPlayable(dto.index, media.media_id)
-        val url = streamUrlCache.getOrPut(media.media_id) {
-            repository.loadPlayback(media.media_id)?.stream_url.orEmpty()
+        val info = playbackCache.getOrPut(media.media_id) {
+            repository.loadPlayback(media.media_id) ?: PlaybackInfoDto()
         }
-        return ReviewPlayable(dto.index, media.media_id, url.ifBlank { null })
+        val (url, headers) = directPlaybackEndpoint(info)
+        return ReviewPlayable(dto.index, media.media_id, url.ifBlank { null }, headers)
     }
 
     override fun onCleared() {
@@ -410,4 +413,15 @@ class ReviewViewModel private constructor(
         core?.release()
         super.onCleared()
     }
+}
+
+/**
+ * 从播放信息提取直连播放用的 URL 与设备级凭据 headers(I1)。
+ *
+ * - 优先 ``direct`` 端点(Task C 合同,含 X-Emby-Token headers);
+ * - ``direct`` 缺失时回退 legacy ``stream_url``(无凭据,一版兼容)。
+ */
+fun directPlaybackEndpoint(info: PlaybackInfoDto): Pair<String, Map<String, String>> {
+    val direct = info.direct?.takeIf { it.url.isNotBlank() }
+    return (direct?.url ?: info.stream_url) to (direct?.headers.orEmpty())
 }

@@ -110,7 +110,7 @@ def _keys_serving_transport():
                 json={
                     "Items": [
                         {
-                            "Name": "mediareview-shared-playback",
+                            "AppName": "mediareview-shared-playback",
                             "AccessToken": "device-jf-key-legacy",
                         }
                     ]

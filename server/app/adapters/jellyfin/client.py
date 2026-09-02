@@ -269,18 +269,21 @@ class JellyfinClient:
         """按名称读取/创建 Jellyfin 命名 key(幂等),返回 AccessToken。
 
         - 已存在:直接返回其 AccessToken,不重复创建;
-        - 不存在:POST /Auth/Keys 创建后回读;
+        - 不存在:POST /Auth/Keys(app=key_name) 创建后回读;
         - 任何失败抛 JellyfinError,调用方必须 fail-closed。
         密钥值只在内存与调用方持久化中流转,不写日志。
+
+        契约对照真实 Jellyfin:POST /Auth/Keys 的必需参数是 ``app``;
+        GET /Auth/Keys 返回 ``Items[]`` 的字段是 ``AppName``。
         """
         keys = await self._get("/Auth/Keys")
         for item in (keys or {}).get("Items", []):
-            if item.get("Name") == key_name and item.get("AccessToken"):
+            if item.get("AppName") == key_name and item.get("AccessToken"):
                 return str(item["AccessToken"])
-        await self._post("/Auth/Keys", params={"Name": key_name})
+        await self._post("/Auth/Keys", params={"app": key_name})
         keys = await self._get("/Auth/Keys")
         for item in (keys or {}).get("Items", []):
-            if item.get("Name") == key_name and item.get("AccessToken"):
+            if item.get("AppName") == key_name and item.get("AccessToken"):
                 return str(item["AccessToken"])
         raise JellyfinError("Jellyfin 已创建播放凭据但无法回读,请检查其版本与权限")
 
@@ -288,7 +291,7 @@ class JellyfinClient:
         """按名称撤销 Jellyfin 命名 key;不存在时返回 False(幂等)。"""
         keys = await self._get("/Auth/Keys")
         for item in (keys or {}).get("Items", []):
-            if item.get("Name") == key_name and item.get("AccessToken"):
+            if item.get("AppName") == key_name and item.get("AccessToken"):
                 token = str(item["AccessToken"])
                 await self._request("DELETE", f"/Auth/Keys/{_path_segment(token)}")
                 return True

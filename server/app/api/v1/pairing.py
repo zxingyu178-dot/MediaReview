@@ -10,17 +10,31 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.adapters.jellyfin.client import JellyfinClient, JellyfinError
 from app.api.v1.auth import require_auth
+from app.core.config import AppConfig
 from app.core.errors import ForbiddenError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
 from app.services import pairing
 
 router = APIRouter(prefix="/pairing", tags=["pairing"])
+
+
+async def optional_jellyfin_client(request: Request) -> AsyncIterator[JellyfinClient | None]:
+    """可选 Jellyfin 客户端:未配置时 yield None,供撤销等需"尽力而为"的端点使用。"""
+    settings: AppConfig = request.app.state.settings
+    if not settings.jellyfin.is_configured():
+        yield None
+        return
+    async with JellyfinClient(settings.jellyfin) as client:
+        yield client
 
 
 class PairingStatus(BaseModel):
@@ -105,11 +119,22 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)) -> Envelope[VerifyOut]
 
 
 @router.post("/revoke", response_model=Envelope[dict])
-def revoke(
-    body: RevokeIn, _auth=Depends(require_auth), db: Session = Depends(get_db)
+async def revoke(
+    body: RevokeIn,
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+    client: JellyfinClient | None = Depends(optional_jellyfin_client),
 ) -> Envelope[dict]:
+    # 先取 key 名,再本地撤销(撤销会清空 jellyfin_key_* 列)
+    key_name = pairing.device_stream_key_name(db, body.device_id)
     removed = pairing.revoke_device(db, body.device_id)
     db.commit()
+    # 尽力在 Jellyfin 侧撤销设备级播放 key(幂等);失败不阻塞本地撤销,只记日志。
+    if key_name and client is not None:
+        try:
+            await client.revoke_device_stream_key(key_name)
+        except JellyfinError:
+            pass
     return ok({"device_id": body.device_id, "revoked": removed})
 
 

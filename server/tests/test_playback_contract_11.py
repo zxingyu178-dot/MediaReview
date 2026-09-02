@@ -22,6 +22,7 @@ from pydantic import SecretStr
 
 from app.adapters.jellyfin.client import JellyfinClient
 from app.api.v1.jellyfin import jellyfin_client
+from app.api.v1.pairing import optional_jellyfin_client
 from app.core.config import AppConfig, SecurityConfig, StorageConfig
 from app.db import models
 from app.main import create_app
@@ -38,6 +39,7 @@ class _KeyStore:
         self.items: dict[str, str] = {}
         self.create_calls = 0
         self.delete_calls: list[str] = []
+        self.posted_apps: list[str] = []
         self.fail = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -48,11 +50,14 @@ class _KeyStore:
             if request.method == "GET":
                 return httpx.Response(
                     200,
-                    json={"Items": [{"Name": n, "AccessToken": v} for n, v in self.items.items()]},
+                    json={
+                        "Items": [{"AppName": n, "AccessToken": v} for n, v in self.items.items()]
+                    },
                 )
             if request.method == "POST":
                 self.create_calls += 1
-                name = request.url.params.get("Name", "")
+                name = request.url.params.get("app", "")
+                self.posted_apps.append(name)
                 self.items.setdefault(name, f"device-jf-key-{len(self.items) + 1}")
                 return httpx.Response(200)
         if request.method == "DELETE" and "/Auth/Keys/" in path:
@@ -144,6 +149,25 @@ def test_playback_contract_delivers_device_credential(tmp_path: Path) -> None:
     assert SERVER_KEY not in resp.text
     assert DEVICE_KEY not in data["direct"]["url"]
     assert DEVICE_KEY not in data["fallback_hls"]["url"]
+
+
+def test_device_key_provisioning_uses_real_jellyfin_app_contract(tmp_path: Path) -> None:
+    """锁定 C1:POST /Auth/Keys 必须携带 app 参数(真实 Jellyfin 契约,而非 Name)。
+
+    mock 用 AppName 字段回读;若重构把契约改回 Name,POST 得到的 app 为空、
+    回读匹配失败,此测试即失败(防止测试体系再次复刻错误字段)。
+    """
+    store = _KeyStore()
+    client = _make_app(tmp_path, store)
+    with client as c:
+        _seed_video(c)
+        resp = c.get("/api/v1/media/pb-1/playback")
+
+    assert resp.status_code == 200, resp.text
+    assert store.posted_apps == ["mediareview-shared-playback"]
+    assert store.create_calls == 1
+    # 设备 key 经回读(按 AppName)下发到 headers
+    assert resp.json()["data"]["direct"]["headers"]["X-Emby-Token"] == "device-jf-key-1"
 
 
 def test_playback_resume_position_from_jellyfin(tmp_path: Path) -> None:
@@ -244,6 +268,56 @@ def test_ensure_device_stream_key_is_idempotent_and_revocable(tmp_path: Path) ->
     assert create_calls == 1
     assert revoked is True and revoked_again is False
     assert store.delete_calls == [DEVICE_KEY]
+
+
+def test_revoke_device_clears_jellyfin_key_and_revokes_upstream(tmp_path: Path) -> None:
+    """I2:撤销设备时清除本地 jellyfin_key_* 列,并在 Jellyfin 侧尽力撤销命名 key。"""
+
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.revoked: list[str] = []
+
+        async def revoke_device_stream_key(self, key_name: str) -> bool:
+            self.revoked.append(key_name)
+            return True
+
+    settings = _settings(tmp_path)
+    app = create_app(settings)
+    fake = _FakeClient()
+
+    async def override_optional_client():
+        yield fake
+
+    app.dependency_overrides[optional_jellyfin_client] = override_optional_client
+    with TestClient(app) as c:
+        with c.app.state.database.session() as session:
+            session.add(
+                models.PairedDevice(
+                    device_id="d1",
+                    installation_id="install-revoke",
+                    name="旧手机",
+                    jellyfin_key_name="mediareview-install-revoke",
+                    jellyfin_key_value="device-jf-key-revoke-1",
+                )
+            )
+            session.commit()
+        resp = c.post("/api/v1/pairing/revoke", json={"device_id": "install-revoke"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["revoked"] is True
+        assert fake.revoked == ["mediareview-install-revoke"]
+
+        with c.app.state.database.session() as session:
+            row = (
+                session.query(models.PairedDevice)
+                .filter_by(installation_id="install-revoke")
+                .first()
+            )
+        assert row is not None
+        assert row.revoked is True
+        assert row.token_hash is None
+        assert row.jellyfin_key_value is None
+        assert row.jellyfin_key_name is None
+        assert row.jellyfin_key_created_at is None
 
 
 def test_migration_0013_preserves_devices_and_rolls_back(tmp_path: Path) -> None:

@@ -31,10 +31,10 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
         if request.method == "GET" and request.url.path.endswith("/Auth/Keys"):
             return httpx.Response(
                 200,
-                json={"Items": [{"Name": n, "AccessToken": v} for n, v in known_keys.items()]},
+                json={"Items": [{"AppName": n, "AccessToken": v} for n, v in known_keys.items()]},
             )
         if request.method == "POST" and request.url.path.endswith("/Auth/Keys"):
-            name = request.url.params.get("Name", "")
+            name = request.url.params.get("app", "")
             known_keys.setdefault(name, f"device-jf-key-{name}")
             return httpx.Response(200)
         if request.url.host in {"evil.example", "169.254.169.254"}:

@@ -59,6 +59,31 @@ fun failureLabel(reason: PlaybackFailureReason): String = when (reason) {
     PlaybackFailureReason.DECODER -> "不支持的视频编码"
 }
 
+/**
+ * 播放器错误 → 状态机事件映射。
+ *
+ * Idle/DirectPlaying 上的错误都视为 Direct 失败(Idle 覆盖"数据源准备期即失败、
+ * 播放器尚未 READY"这一最常见失败形态),触发唯一一次 HLS 回退;
+ * FallbackHls 上的错误进入终态;Terminal 忽略迟到的旧错误。
+ */
+fun errorEventFor(
+    stage: PlaybackStage,
+    reason: PlaybackFailureReason,
+): PlaybackEvent? = when (stage) {
+    is PlaybackStage.Idle, is PlaybackStage.DirectPlaying ->
+        PlaybackEvent.DirectStartFailed(reason)
+
+    is PlaybackStage.FallbackHls -> PlaybackEvent.HlsStartFailed(reason)
+    is PlaybackStage.Terminal -> null
+}
+
+/**
+ * 会话身份过滤(I3):错误事件携带的媒体 id 与当前媒体一致(或未携带)才算当前会话错误;
+ * 不一致即"上一媒体迟到/缓冲错误",必须丢弃,防止污染新会话的回退配额。
+ */
+fun isCurrentSessionError(eventMediaId: String?, currentMediaId: String): Boolean =
+    eventMediaId == null || eventMediaId == currentMediaId
+
 sealed interface PlaybackEvent {
     /** Direct Play 起播成功(播放器进入 READY/播放)。 */
     data object DirectStartSucceeded : PlaybackEvent

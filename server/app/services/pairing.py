@@ -123,8 +123,21 @@ def authenticate(session: Session, token: str, *, touch: bool = True) -> PairedD
     return device
 
 
+def device_stream_key_name(session: Session, device_id: str) -> str | None:
+    """返回设备当前的 Jellyfin 播放 key 名(供调用方在 Jellyfin 侧撤销);无设备返回 None。"""
+    normalized = normalize_installation_id(device_id)
+    device = session.scalars(
+        sa.select(PairedDevice).where(PairedDevice.installation_id == normalized)
+    ).first()
+    return device.jellyfin_key_name if device is not None else None
+
+
 def revoke_device(session: Session, device_id: str) -> bool:
-    """撤销某设备的认证(token 立即失效),用于管理端解除设备。"""
+    """撤销某设备的认证(token 立即失效)并清除其 Jellyfin 播放凭据字段。
+
+    Jellyfin 侧的命名 key 撤销由 API 层调用 ``revoke_device_stream_key`` 完成;
+    本函数只负责本地数据清理,确保撤销后不再滞留明文播放 key。
+    """
     normalized = normalize_installation_id(device_id)
     device = session.scalars(
         sa.select(PairedDevice).where(PairedDevice.installation_id == normalized)
@@ -133,6 +146,9 @@ def revoke_device(session: Session, device_id: str) -> bool:
         return False
     device.revoked = True
     device.token_hash = None
+    device.jellyfin_key_name = None
+    device.jellyfin_key_value = None
+    device.jellyfin_key_created_at = None
     session.flush()
     return True
 
@@ -176,6 +192,7 @@ def clear_codes(session: Session) -> int:
 __all__ = [
     "authenticate",
     "clear_codes",
+    "device_stream_key_name",
     "generate_pairing_code",
     "is_paired",
     "list_codes",

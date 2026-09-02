@@ -35,14 +35,21 @@ data class ProgressSnapshot(
     val playWhenReady: Boolean,
 )
 
-/** 批阅队列中一个可播放项。 */
+/** 批阅队列中一个可播放项。headers 携带设备级播放凭据(X-Emby-Token),只进 HTTP 请求头。 */
 data class ReviewPlayable(
     val index: Int,
     val mediaId: String,
     val streamUrl: String? = null,
+    val headers: Map<String, String> = emptyMap(),
 ) {
     val isVideo: Boolean get() = !streamUrl.isNullOrBlank()
 }
+
+/** 播放器错误事件:携带出错的槽位媒体 id,供调用方丢弃"上一媒体迟到错误"。 */
+data class PlayerErrorEvent(
+    val mediaId: String?,
+    val error: PlaybackException,
+)
 
 /**
  * 可复用 Player Core:普通播放器与批阅播放器共享同一套 Media3 播放层,不允许两套独立实现。
@@ -84,9 +91,9 @@ class PlayerCore @Inject constructor(
     private val _status = MutableStateFlow(PlaybackStatus())
     val status: StateFlow<PlaybackStatus> = _status.asStateFlow()
 
-    /** 播放器错误事件(仅当前 active 播放器);普通播放器状态机据此触发回退。 */
-    private val _errors = MutableSharedFlow<PlaybackException>(extraBufferCapacity = 4)
-    val errors: SharedFlow<PlaybackException> = _errors
+    /** 播放器错误事件(仅当前 active 播放器);携带槽位媒体 id 供会话身份过滤。 */
+    private val _errors = MutableSharedFlow<PlayerErrorEvent>(extraBufferCapacity = 4)
+    val errors: SharedFlow<PlayerErrorEvent> = _errors
 
     /** 当前真正发声/显示的是否为预加载那台(供 UI 绑定 PlayerView)。 */
     private val _activeIsPreload = MutableStateFlow(false)
@@ -121,10 +128,7 @@ class PlayerCore @Inject constructor(
         player.stop()
         // 设备级凭据注入共享 HttpDataSource.Factory(其 requestProperties 以引用共享,
         // 构建播放器之后更新仍对后续请求生效);凭据不进入 URL。
-        if (headers != currentHttpHeaders) {
-            httpDataSourceFactory.setDefaultRequestProperties(headers)
-            currentHttpHeaders = headers
-        }
+        applyHttpHeaders(headers)
         val item = MediaItem.fromUri(streamUrl)
         if (startPositionMs > 0L) {
             player.setMediaItem(item, startPositionMs)
@@ -273,12 +277,21 @@ class PlayerCore @Inject constructor(
 
     private fun slotPlayer(slotB: Boolean): ExoPlayer = if (slotB) preload else player
 
+    /** 设备级凭据注入共享 HttpDataSource.Factory;凭据只在 headers,不进入 URL。 */
+    private fun applyHttpHeaders(headers: Map<String, String>) {
+        if (headers != currentHttpHeaders) {
+            httpDataSourceFactory.setDefaultRequestProperties(headers)
+            currentHttpHeaders = headers
+        }
+    }
+
     private fun prepareSilent(p: ExoPlayer, item: ReviewPlayable) {
         if (!item.isVideo) {
             p.stop()
             return
         }
         p.stop()
+        applyHttpHeaders(item.headers)
         p.playWhenReady = false
         p.setMediaItem(MediaItem.fromUri(item.streamUrl.orEmpty()))
         p.prepare()
@@ -320,7 +333,9 @@ class PlayerCore @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             if (p !== active) return
             _status.value = PlaybackStatus(phase = PlaybackPhase.Error, error = error.message)
-            _errors.tryEmit(error)
+            // 携带出错槽位的媒体 id:调用方据此丢弃"上一媒体迟到错误"(I3 会话身份过滤)
+            val mediaId = if (p === player) slotMediaId[0] else slotMediaId[1]
+            _errors.tryEmit(PlayerErrorEvent(mediaId = mediaId, error = error))
         }
     }
 

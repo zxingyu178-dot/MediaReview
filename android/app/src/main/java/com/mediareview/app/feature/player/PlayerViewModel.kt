@@ -46,14 +46,12 @@ class PlayerViewModel @Inject constructor(
     init {
         // 播放器错误 → 状态机事件(Direct 失败触发唯一一次回退;回退失败进入终态)
         viewModelScope.launch {
-            core.errors.collect { error ->
-                val reason = reasonForPlaybackError(error.errorCode)
-                val event = when (machine.stage.value) {
-                    is PlaybackStage.DirectPlaying -> PlaybackEvent.DirectStartFailed(reason)
-                    is PlaybackStage.FallbackHls -> PlaybackEvent.HlsStartFailed(reason)
-                    else -> null
-                } ?: return@collect
-                machine.dispatch(event)
+            core.errors.collect { event ->
+                // 会话身份过滤:丢弃上一媒体迟到/缓冲的错误,避免污染新会话(I3)
+                if (!isCurrentSessionError(event.mediaId, currentMediaId)) return@collect
+                val reason = reasonForPlaybackError(event.error.errorCode)
+                val stageEvent = errorEventFor(machine.stage.value, reason) ?: return@collect
+                machine.dispatch(stageEvent)
                 when (val stage = machine.stage.value) {
                     is PlaybackStage.FallbackHls -> startHls()
                     is PlaybackStage.Terminal -> _ui.update {

@@ -144,3 +144,64 @@ class PlaybackStateMachineTest {
         assertTrue(terminal.message.isNotBlank() && terminal.message.first() != ' ')
     }
 }
+
+/**
+ * Task C Step 2 回归:Direct Play 在数据源准备期就失败(尚未进入 READY,
+ * 状态机仍停在 Idle)也必须触发唯一一次 HLS 回退,不能被忽略。
+ */
+class ErrorEventMappingTest {
+
+    @Test
+    fun idleErrorMapsToDirectStartFailed() {
+        // 最常见的失败形态:Direct 源加载即失败,播放器未 READY,stage 仍为 Idle
+        assertEquals(
+            PlaybackEvent.DirectStartFailed(DATASOURCE),
+            errorEventFor(Idle, DATASOURCE),
+        )
+        assertEquals(
+            PlaybackEvent.DirectStartFailed(CONTAINER),
+            errorEventFor(Idle, CONTAINER),
+        )
+    }
+
+    @Test
+    fun directPlayingErrorMapsToDirectStartFailed() {
+        assertEquals(
+            PlaybackEvent.DirectStartFailed(DECODER),
+            errorEventFor(DirectPlaying(attempt = 1), DECODER),
+        )
+    }
+
+    @Test
+    fun fallbackErrorMapsToHlsStartFailed() {
+        assertEquals(
+            PlaybackEvent.HlsStartFailed(DATASOURCE),
+            errorEventFor(FallbackHls(attempt = 1), DATASOURCE),
+        )
+    }
+
+    @Test
+    fun terminalErrorIsIgnored() {
+        assertEquals(null, errorEventFor(Terminal(DATASOURCE, fallbackAttempt = 1), DATASOURCE))
+    }
+}
+
+/** I3 回归:会话身份过滤——上一媒体迟到错误必须被丢弃,不污染新会话回退配额。 */
+class SessionErrorFilterTest {
+
+    @Test
+    fun sameMediaIsCurrentSessionError() {
+        assertTrue(isCurrentSessionError(eventMediaId = "media-a", currentMediaId = "media-a"))
+    }
+
+    @Test
+    fun staleMediaErrorIsDropped() {
+        assertFalse(isCurrentSessionError(eventMediaId = "media-a", currentMediaId = "media-b"))
+    }
+
+    @Test
+    fun untaggedErrorIsAllowed() {
+        // 兼容未携带媒体 id 的事件(如旧路径/无槽位上下文)
+        assertTrue(isCurrentSessionError(eventMediaId = null, currentMediaId = "media-b"))
+    }
+}

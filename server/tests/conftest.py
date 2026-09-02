@@ -106,7 +106,7 @@ def make_jellyfin_mock_transport() -> httpx.MockTransport:
                 json={
                     "Items": [
                         {
-                            "Name": "mediareview-shared-playback",
+                            "AppName": "mediareview-shared-playback",
                             "AccessToken": "device-jf-key-mock-1",
                         }
                     ]
