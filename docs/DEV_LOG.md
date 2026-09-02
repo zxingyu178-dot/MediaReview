@@ -2,6 +2,75 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-02 — MediaReview 1.1 Task G · 全量验收与正式发布准备
+
+Task G 全量验收：clean 门禁、生产备份与回滚演练、100k 性能验证、真实 Jellyfin 集成冒烟、
+设备侧受限记录、最终独立审查与 rc1 产物收口。
+
+G1 全量自动化门禁（clean 基线，证据在 `review_meta/`）：
+
+- Server：全量 pytest 通过（`g1_server_pytest.txt`）、ruff check/format 全绿（`server_lint.txt`/
+  `server_format.txt`）。
+- Android：`g1_android_gate.txt` 记录 `testDebugUnitTest` + `assembleDebug` + `assembleRelease` +
+  `lintDebug` 全部 BUILD SUCCESSFUL（0 error）。
+- 迁移升级/回滚、部署契约（24 例）随 Server 全量 pytest 一并覆盖；`git diff --check` 通过。
+
+G2 生产配置/DB 备份（无明文密钥）+ 升级/回滚演练（`g2_backup_manifest.txt`、`g2_config_masked.json`、
+`g2_sandbox_lifecycle.txt`）：备份清单只含脱敏配置；沙箱 install/upgrade/rollback/uninstall 实测通过。
+
+G3 56k/100k 性能验证（`g3_perf_100k.txt`、`g3_refresh_sync.txt`）：缓存分页 P95<1s（实测单页
+0.031-0.06s）、DB 查询<250ms、refresh 响应<500ms、无列表时 Jellyfin 扫描、同步失败保留旧缓存可浏览。
+
+G4-G6 设备侧受限（无真机/模拟器）：
+
+- 环境核查：`adb devices` 无设备；`.android\avd` 为空；`E:\aihome\tools\android-sdk` 无
+  `emulator\emulator.exe`。按「无真实手机验收最多 rc1」约束，设备侧项目如实标记受限。
+- G4 真机连接（UDP 发现/手动 IP/重复配对单记录/重启重连/撤销重配对/回环 URL 禁发/Wi-Fi 切换恢复）：
+  服务端对应逻辑已由 pytest 覆盖；设备侧留待真机。
+- G5 媒体与组织：服务端侧 pytest 全覆盖；真实 Jellyfin 集成冒烟通过（`g5_real_jellyfin.txt`：
+  健康检查 + 配对 + 真实库读取 20 个 + 1967 条媒体同步 + Direct/HLS 播放合同）。冒烟中发现并修复
+  **Jellyfin client 采信环境代理**问题（`49d45c5`）：部署机存在 `all_proxy=socks5://…` 时，httpx
+  因缺 socksio 扩展在构造期抛 ImportError，导致 /libraries 等一切 Jellyfin 调用 500；加
+  `trust_env=False` 并补回归测试 `test_client_ignores_env_proxy_trust_env_false`（V1 仅局域网/回环
+  直连，不应被环境代理劫持）。已知限制：当前真实 Jellyfin 实例 `/Auth/Keys` 返回 500（服务端实例
+  问题），设备级播放凭据签发在 rc1 文档中记为 known limitation。图片/雪碧图/批阅 P0P1/收藏一致性/
+  nonce 删除/重复整理均已有 pytest 覆盖；设备侧操作体验留待真机。
+- G6 无障碍与布局（360×740/390×844/740×360、font≥1.3、TalkBack、48dp 触控、中文标签）：无设备，
+  记录待真机；代码层响应式与 48dp 触控门槛已由既有 JVM/Compose 测试覆盖。
+
+G7 最终独立审查 + 产物重建 + rc1 标记：
+
+- 独立审查（`.superpowers/sdd/task-g-independent-review.md`）：HEAD=49d45c5，对抗式覆盖
+  trust_env 安全/回归测试有效性/版本断言/无 key 序列化/无视频代理/禁止工件/文档诚实性，
+  结论 **CLEAN（0 Critical / 0 Important / 2 Minor）**。M-1 docstring 描述机制不精确（断言仍有效）；
+  M-2 trust_env=False 同时禁用环境 CA 变量信任（依赖系统信任库者不受影响），建议部署文档注明。
+- Android 最终门禁（JAVA_HOME=JDK17）：`testDebugUnitTest` + `assembleDebug` + `assembleRelease` +
+  `lintDebug` 全部 BUILD SUCCESSFUL（证据 `review_meta/g7_android_gate.txt`）。
+- 产物重建（`scripts/build_deploy.py`，先删旧 dist 强制重建 EXE）：
+  - 新 EXE 冒烟通过（`review_meta/g7_exe_smoke.txt`）：迁移 0001→0014 完整、health ok / version 1.1.0、
+    日志密钥扫描 0 命中。
+  - 部署包 `deploy_handoff/MediaReview_Migration_1.1.0_20260903_0036.zip`（100,697,221 字节，
+    SHA-256 18A2E836…）；外部解包逐文件回验 SHA256SUMS **VERIFIED=163 BAD=0**；
+    密钥扫描 CLEAN（`review_meta/g7_deploy_zip.txt`）。
+  - Release APK 与 F 阶段一致（无 Android 生产代码变更）：15,550,794 字节，
+    SHA-256 19F6C9…，release 证书 CN=MediaReview（592c2595…）apksigner verify 通过。
+- 冒烟中发现并记录：`MEDIAREVIEW_DATA_ROOT` 仅用于定位 config.json；临时根无 config.json 时
+  storage.data_root 回落默认 `%ProgramData%\MediaReview`（既有行为）。真实部署由 install.ps1
+  在 config.json 显式写 storage.data_root，不受影响。
+- **标记 `1.1.0-rc1`**（真机门未过，不 tag `1.1.0`）。
+
+G8 交付产物（见交付物清单与手交区）：
+
+- APK：`android/app/build/outputs/apk/release/app-release.apk`（1.1.0 / versionCode 6 / 家庭媒体管家）
+- 迁移包：`deploy_handoff/MediaReview_Migration_1.1.0_20260903_0036.zip`（163 文件 + SHA256SUMS）
+- 校验和：SHA-256 清单（ZIP 内 SHA256SUMS.txt + 本日志记录 ZIP/APK 散列）
+- 文档：README/LICENSE/THIRD_PARTY_NOTICES/HANDOVER/UPGRADE_ROLLBACK
+- 报告：ACCEPTANCE.md（P0/P1 逐项服务端已验/待真机标注）、test/performance/phone 报告（review_meta/）
+
+G9 Hermes 邮件交付：待用户确认收件人后执行。
+
+---
+
 ### 2026-09-02 — MediaReview 1.1 Task F6-F8 · 签名 APK、部署包组装、沙箱生命周期与独立审查
 
 Task F 收口：签名 Release APK、部署包组装与 SHA-256、沙箱 install/upgrade/rollback/uninstall

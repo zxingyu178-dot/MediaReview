@@ -1,5 +1,24 @@
 # V1 任务清单
 
+## MediaReview(1.1.0-rc1 Task G: 全量验收与正式发布)
+
+> 状态（2026-09-02）：G1-G3 完成（clean 门禁 + 生产备份/回滚演练 + 100k 性能验证）。
+> G4-G6 设备侧受限于无真机/模拟器（`.android\avd` 为空、SDK 无 emulator 二进制），
+> 如实记录为「受限」，服务端对应能力已由 pytest + 真实 Jellyfin 冒烟覆盖。
+> G5 真实 Jellyfin 集成冒烟通过（1967 条媒体同步 + 播放合同 Direct/HLS），并修复
+> Jellyfin client 采信环境代理导致的启动失败（`trust_env=False` + 回归测试，`49d45c5`）。
+> 真机门未过 → 最终产物标记 `1.1.0-rc1`，**不 tag `1.1.0`**。
+
+- [x] G1 clean 门禁：Server pytest/ruff/format/performance、Android JVM/Debug/Release/lint、迁移升级回滚、部署契约、`git diff --check`
+- [x] G2 生产配置/DB 备份（无明文密钥）+ 升级/回滚演练
+- [x] G3 56k/100k 性能验证：缓存分页 P95<1s、DB<250ms、refresh<500ms、无列表 Jellyfin 扫描、同步失败留旧缓存
+- [x] G4 真机连接验证：**受限（无设备）**；服务端 UDP 发现/手动 IP/配对单记录/撤销重配对已由 pytest 覆盖
+- [x] G5 媒体与组织验证：服务端侧 pytest + 真实 Jellyfin 冒烟（1967 条同步 + Direct/HLS 播放合同 + 代理环境变量修复）；设备侧受限
+- [x] G6 无障碍与布局：**受限（无设备）**，记录待真机（360/390/740 宽、font≥1.3、TalkBack、触控目标、中文标签）
+- [x] G7 最终独立审查（CLEAN，0C/0I/2M）+ 重建产物（EXE 含代理修复/Release APK/部署包）+ 校验和 163/163 回验 + 标记 rc1（不 tag 1.1.0）
+- [x] G8 交付产物（APK/迁移包/校验和/文档/报告）
+- [ ] G9 Hermes 邮件交付（需用户确认收件人）
+
 ## MediaReview(1.1.0-rc1 Task F: Windows 部署、升级、回滚与产物)
 
 > 状态（2026-09-02）：F1-F8 全部完成。部署契约 24 例、全量 Server 351 passed + ruff/format 全绿；
