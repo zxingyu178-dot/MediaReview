@@ -60,4 +60,30 @@ async def cancel_task(
     return ok(task_service.safe_task_view(task))
 
 
+@router.post("/{task_id}/pause", response_model=Envelope[dict])
+async def pause_task(
+    task_id: str,
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[dict]:
+    task = db.get(BackgroundTask, task_id)
+    if task is None:
+        raise NotFoundError(message="任务不存在")
+    task_service.pause_task(db, task)
+    return ok(task_service.safe_task_view(task))
+
+
+@router.post("/{task_id}/resume", response_model=Envelope[dict])
+async def resume_task(
+    task_id: str,
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[dict]:
+    task = db.get(BackgroundTask, task_id)
+    if task is None:
+        raise NotFoundError(message="任务不存在")
+    task_service.resume_task(db, task)
+    return ok(task_service.safe_task_view(task))
+
+
 __all__ = ["router"]

@@ -185,4 +185,43 @@ def cancel_task(session: Session, task: BackgroundTask) -> BackgroundTask:
     return task
 
 
-__all__ = ["TaskManager", "cancel_task", "list_task_rows", "safe_task_view"]
+def pause_task(session: Session, task: BackgroundTask) -> BackgroundTask:
+    """把 pending/running 任务置为 paused;处理器在分页边界观察 paused 并停止。"""
+    session.execute(
+        sa.update(BackgroundTask)
+        .where(
+            BackgroundTask.task_id == task.task_id,
+            BackgroundTask.status.in_(("pending", "running")),
+        )
+        .values(status="paused")
+        .execution_options(synchronize_session=False)
+    )
+    session.flush()
+    session.refresh(task)
+    return task
+
+
+def resume_task(session: Session, task: BackgroundTask) -> BackgroundTask:
+    """把 paused 任务置回 pending,由 TaskManager 重新认领执行(幂等覆盖)。"""
+    session.execute(
+        sa.update(BackgroundTask)
+        .where(
+            BackgroundTask.task_id == task.task_id,
+            BackgroundTask.status == "paused",
+        )
+        .values(status="pending", started_at=None)
+        .execution_options(synchronize_session=False)
+    )
+    session.flush()
+    session.refresh(task)
+    return task
+
+
+__all__ = [
+    "TaskManager",
+    "cancel_task",
+    "list_task_rows",
+    "pause_task",
+    "resume_task",
+    "safe_task_view",
+]

@@ -33,7 +33,7 @@ from app.core.responses import Envelope, ErrorBody, error_response
 from app.db.migrate import run_migrations
 from app.db.session import Database
 from app.media.ffmpeg import FfmpegExecutor
-from app.services import discovery, hash_tasks, media_index, sprite
+from app.services import discovery, duplicate_scanner, hash_tasks, media_index, sprite
 from app.services.tasks import TaskManager
 
 logger = get_logger("main")
@@ -78,10 +78,13 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
             task_manager.register(
                 sprite.TASK_TYPE_SPRITE, sprite.make_sprite_handler(executor, paths.sprites_dir)
             )
-        # 重复检测哈希处理器(features.duplicate_scan 关闭时跳过)
+        # 重复检测哈希处理器 + 持久化分组扫描(features.duplicate_scan 关闭时跳过)
         if settings.features.duplicate_scan:
             task_manager.register(
                 hash_tasks.TASK_TYPE_DUPLICATE_HASH, hash_tasks.make_hash_handler()
+            )
+            task_manager.register(
+                duplicate_scanner.TASK_TYPE_DUPLICATE_SCAN, duplicate_scanner.run_duplicate_scan
             )
         app.state.task_manager = task_manager
         await task_manager.start()
