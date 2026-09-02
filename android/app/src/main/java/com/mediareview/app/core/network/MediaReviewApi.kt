@@ -1,6 +1,8 @@
 package com.mediareview.app.core.network
 
+import com.mediareview.app.core.model.CommitRequest
 import com.mediareview.app.core.model.CommitResultDto
+import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.Envelope
@@ -144,8 +146,11 @@ interface MediaReviewApi {
     @DELETE("/api/v1/delete-queue/{media_id}")
     suspend fun dequeueDelete(@Path("media_id") mediaId: String): Envelope<Map<String, String>>
 
+    @POST("/api/v1/delete-queue/commit/prepare")
+    suspend fun prepareDeleteCommit(): Envelope<DeleteCommitPrepDto>
+
     @POST("/api/v1/delete-queue/commit")
-    suspend fun commitDeleteQueue(): Envelope<CommitResultDto>
+    suspend fun commitDeleteQueue(@Body body: CommitRequest): Envelope<CommitResultDto>
 
     @GET("/api/v1/duplicates/exact")
     suspend fun duplicatesExact(): Envelope<List<DuplicateGroupDto>>

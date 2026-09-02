@@ -2,19 +2,57 @@
 
 遵循 AGENTS.md: 删除必须两步(先入待删除,commit 才永久删除),禁止点击即删。
 删除目标为 media_cache_index 持久化的真实文件路径;删除成功后再清理索引/收藏。
+
+Task D 起最终删除采用一次性 nonce 合同:
+- ``prepare_commit`` 生成绑定当前队列快照的 nonce(仅一次、10 分钟过期);
+- ``commit_with_nonce`` 只删除快照内的媒体(TOCTOU 防护),逐项独立处理并写审计。
 """
 
 from __future__ import annotations
 
+import json
 import os
+import secrets
 import stat
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.db.models import DeleteQueue, Favorite, utc_now
+from app.db.models import DeleteCommitNonce, DeleteQueue, Favorite, utc_now
 from app.services import audit
 from app.services import media_index as mi
+
+# 删除确认 nonce 默认有效期(秒)
+NONCE_TTL_SECONDS = 10 * 60
+
+
+class NonceError(Exception):
+    """删除确认 nonce 无效的基类。"""
+
+
+class NonceMissingError(NonceError):
+    """nonce 不存在或已失效。"""
+
+
+class NonceReusedError(NonceError):
+    """nonce 已被使用。"""
+
+
+class NonceExpiredError(NonceError):
+    """nonce 已过期。"""
+
+
+@dataclass(frozen=True)
+class DeleteCommitPrep:
+    """删除确认的预备信息:一次性 nonce + 队列快照摘要。"""
+
+    nonce: str
+    expires_at: datetime
+    count: int
+    total_bytes: int
+    media_ids: list[str]
 
 
 def enqueue(session: Session, media_id: str, *, size_bytes: int | None = None) -> bool:
@@ -100,21 +138,78 @@ def _deletion_guard(session: Session, media, media_path: str) -> str | None:
     return None
 
 
+def prepare_commit(session: Session) -> DeleteCommitPrep:
+    """生成一次性删除确认 nonce,绑定当前 pending 队列快照。
+
+    返回的 nonce 只能使用一次、10 分钟过期;media_ids 快照防止 nonce 生成后
+    新入队的媒体被"顺手"删除(TOCTOU)。
+    """
+    pending = list(
+        session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
+    )
+    media_ids = [row.media_id for row in pending]
+    total_bytes = sum(row.size_bytes or 0 for row in pending)
+    nonce = secrets.token_hex(16)
+    expires_at = utc_now() + timedelta(seconds=NONCE_TTL_SECONDS)
+    session.add(
+        DeleteCommitNonce(
+            nonce=nonce,
+            expires_at=expires_at,
+            used=False,
+            media_ids_json=json.dumps(media_ids),
+            total_bytes=total_bytes,
+        )
+    )
+    session.flush()
+    return DeleteCommitPrep(
+        nonce=nonce,
+        expires_at=expires_at,
+        count=len(media_ids),
+        total_bytes=total_bytes,
+        media_ids=media_ids,
+    )
+
+
+def commit_with_nonce(session: Session, nonce: str) -> dict[str, str]:
+    """使用一次性 nonce 确认并删除其快照内的媒体(逐项 success/missing/failed)。"""
+    row = session.get(DeleteCommitNonce, nonce)
+    if row is None:
+        raise NonceMissingError()
+    if row.used:
+        raise NonceReusedError()
+    if row.expires_at < utc_now():
+        raise NonceExpiredError()
+    row.used = True
+    snapshot_ids: list[str] = json.loads(row.media_ids_json)
+    outcome = _commit_media_ids(session, snapshot_ids)
+    session.flush()
+    return outcome
+
+
 def commit_all(session: Session) -> dict[str, str]:
-    """确认并真实删除全部 pending 项。返回 {media_id: result}。
+    """确认并真实删除全部 pending 项(内部/测试入口;生产走 nonce 合同)。"""
+    pending = list(
+        session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
+    )
+    return _commit_media_ids(session, [row.media_id for row in pending])
+
+
+def _commit_media_ids(session: Session, media_ids: list[str]) -> dict[str, str]:
+    """对指定媒体逐项确认删除,返回 {media_id: result}。
 
     result ∈ success(已删除) / missing(文件路径缺失或已不存在,仍清理索引) / failed。
     删除前重新校验媒体归属与文件身份;文件被替换/修改/不再属于允许库时拒绝删除,
     并记录审计与失败原因。逐项处理,失败不影响其余项;成功后清理索引、收藏与队列记录。
     """
-    pending = list(
-        session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
-    )
     outcome: dict[str, str] = {}
-    for row in pending:
+    for media_id in media_ids:
+        row = session.get(DeleteQueue, media_id)
+        if row is None:
+            # 队列中已无此项(prepare 后被撤销),跳过且不计入结果
+            continue
         row.status = "committed"
         row.committed_at = utc_now()
-        media = mi.get_cached_media(session, row.media_id)
+        media = mi.get_cached_media(session, media_id)
         media_path = media.media_path if media else None
         guard_reason: str | None = None
         try:
@@ -135,14 +230,14 @@ def commit_all(session: Session) -> dict[str, str]:
             row.status = "failed"
             row.error = str(exc)
             result = "failed"
-        outcome[row.media_id] = result
+        outcome[media_id] = result
         detail = result if guard_reason is None else f"{result}:{guard_reason}"
-        audit.log_action(session, "delete_commit", row.media_id, detail=detail)
+        audit.log_action(session, "delete_commit", media_id, detail=detail)
         if result in ("success", "missing"):
             row.status = "succeeded"
             if media is not None:
                 session.delete(media)
-            fav = session.get(Favorite, row.media_id)
+            fav = session.get(Favorite, media_id)
             if fav is not None:
                 session.delete(fav)
             session.delete(row)
@@ -150,4 +245,16 @@ def commit_all(session: Session) -> dict[str, str]:
     return outcome
 
 
-__all__ = ["commit_all", "dequeue", "enqueue", "list_queue"]
+__all__ = [
+    "DeleteCommitPrep",
+    "NonceError",
+    "NonceExpiredError",
+    "NonceMissingError",
+    "NonceReusedError",
+    "commit_all",
+    "commit_with_nonce",
+    "dequeue",
+    "enqueue",
+    "list_queue",
+    "prepare_commit",
+]

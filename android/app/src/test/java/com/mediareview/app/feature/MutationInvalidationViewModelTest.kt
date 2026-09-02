@@ -3,6 +3,7 @@ package com.mediareview.app.feature
 import com.mediareview.app.FakeMediaDataSource
 import com.mediareview.app.MainDispatcherRule
 import com.mediareview.app.core.model.CommitResultDto
+import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteOutcomeStatus
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.FavoriteItemDto
@@ -252,7 +253,13 @@ private class MutationRepository : FakeMediaDataSource() {
     override suspend fun enqueueDelete(mediaId: String) = deleteSuccess
     override suspend fun dequeueDelete(mediaId: String) = deleteSuccess
     override suspend fun listDeleteQueue() = listOf(DeleteQueueItemDto(media_id = "media-1", status = "pending"))
-    override suspend fun commitDeleteQueue() = commitResult
+    override suspend fun prepareDeleteCommit() = DeleteCommitPrepDto(
+        nonce = "nonce-1",
+        count = 1,
+        total_bytes = 1,
+        media_ids = listOf("media-1"),
+    )
+    override suspend fun commitDeleteQueue(nonce: String) = commitResult
     override suspend fun latestReviewSession() = ReviewSessionDto(session_id = "session", status = "active")
     override suspend fun reviewQueue(sessionId: String, page: Int, pageSize: Int) = ReviewQueuePageDto(
         items = listOf(

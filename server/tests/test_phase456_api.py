@@ -179,7 +179,10 @@ def test_delete_queue_api_deletes_real_file(app, client, tmp_path) -> None:
     assert queued["queued"] is True
     assert len(client.get("/api/v1/delete-queue").json()["data"]) == 1
 
-    committed = client.post("/api/v1/delete-queue/commit").json()["data"]
+    prep = client.post("/api/v1/delete-queue/commit/prepare").json()["data"]
+    committed = client.post("/api/v1/delete-queue/commit", json={"nonce": prep["nonce"]}).json()[
+        "data"
+    ]
     assert committed["outcome"] == {"del1": "success"}
     assert not real_file.exists()
     assert client.get("/api/v1/delete-queue").json()["data"] == []

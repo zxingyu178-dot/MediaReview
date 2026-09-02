@@ -200,6 +200,22 @@ data class CommitResultDto(
     val outcome: Map<String, String> = emptyMap(),
 )
 
+/** 最终删除预备信息(POST /delete-queue/commit/prepare):一次性 nonce + 队列快照摘要。 */
+@Serializable
+data class DeleteCommitPrepDto(
+    val nonce: String = "",
+    val expires_at: String? = null,
+    val count: Int = 0,
+    val total_bytes: Long = 0,
+    val media_ids: List<String> = emptyList(),
+)
+
+/** 最终删除提交请求体:一次性 nonce(只接受服务端 prepare 签发的值)。 */
+@Serializable
+data class CommitRequest(
+    val nonce: String,
+)
+
 /**
  * 最终删除单项结果的服务端合同解析。
  *

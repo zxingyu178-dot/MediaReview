@@ -415,6 +415,59 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
 
+class DeleteCommitNonce(Base):
+    """两阶段最终删除的一次性 nonce(0014):绑定提交时的队列快照。
+
+    - commit 必须携带 prepare 返回的 nonce,且只能使用一次;
+    - 过期(默认 10 分钟)或已使用均拒绝,防 TOCTOU 与重复删除;
+    - media_ids_json 记录 prepare 时刻的待删媒体快照,commit 只删除快照内媒体,
+      防止 nonce 生成后新入队的媒体被"顺手"删除。
+    """
+
+    __tablename__ = "delete_commit_nonce"
+
+    nonce: Mapped[str] = mapped_column(String(32), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    media_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class DuplicateGroup(Base):
+    """持久化的重复分组(0014):后台扫描任务写,Android 只读展示。
+
+    type ∈ exact(整文件 sha256 一致) / high(采样一致) / candidate(等待哈希) /
+    similar(疑似: 大小一致但时长或分辨率差异)。
+    """
+
+    __tablename__ = "duplicate_group"
+
+    group_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    type: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class DuplicateGroupMember(Base):
+    """重复分组内的成员媒体,含人工"保留"标记(0014)。
+
+    keep 默认 False;Task D 双栏对比页允许用户显式选择要保留的一份,
+    未选择的默认不自动删除(AGENTS: 完全/疑似重复都不自动删除)。
+    """
+
+    __tablename__ = "duplicate_group_member"
+
+    group_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    keep: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class PairedDevice(Base):
     """已配对设备: 记录一次配对码绑定的 Android 设备(AGENTS: 一次配对码)。
 

@@ -1,6 +1,7 @@
 package com.mediareview.app.feature.home.data
 
 import com.mediareview.app.core.model.CommitResultDto
+import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.FavoriteItemDto
@@ -46,7 +47,9 @@ interface MediaDataSource {
     suspend fun setReviewPosition(sessionId: String, index: Int)
     suspend fun listFavorites(): List<FavoriteItemDto>
     suspend fun listDeleteQueue(): List<DeleteQueueItemDto>
-    suspend fun commitDeleteQueue(): CommitResultDto?
+    /** 两阶段最终删除:先 prepare 取得一次性 nonce,再 commit(nonce) 真实删除。 */
+    suspend fun prepareDeleteCommit(): DeleteCommitPrepDto?
+    suspend fun commitDeleteQueue(nonce: String): CommitResultDto?
     suspend fun loadDuplicatesExact(): List<DuplicateGroupDto>
     suspend fun loadDuplicatesSimilar(): List<DuplicateGroupDto>
     suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean)

@@ -78,10 +78,17 @@ class DeleteQueueViewModel private constructor(
         }
     }
 
-    /** 最终确认删除(两阶段最后一步)。 */
+    /** 最终确认删除(两阶段:先 prepare 取一次性 nonce,再 commit 真实删除)。 */
     fun commit() {
         viewModelScope.launch {
-            val result = repository.commitDeleteQueue()
+            val prep = repository.prepareDeleteCommit()
+            val nonce = prep?.nonce
+            if (nonce.isNullOrBlank()) {
+                _ui.update { it.copy(commitResult = "删除失败:无法发起删除确认,请重试") }
+                load()
+                return@launch
+            }
+            val result = repository.commitDeleteQueue(nonce)
             val parsed = result?.outcome?.mapValues { DeleteOutcomeStatus.fromWire(it.value) } ?: emptyMap()
             _ui.update { it.copy(commitResult = summarize(parsed)) }
             // 任何实际变更(成功删除或文件已缺失)都要推进下游内容;全失败不推进

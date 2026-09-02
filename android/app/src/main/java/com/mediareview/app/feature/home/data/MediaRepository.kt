@@ -258,9 +258,15 @@ class MediaRepository @Inject constructor(
             }
         }.getOrDefault(emptyList())
 
-    /** 最终确认删除待删除队列(两阶段删除的最后一步)。 */
-    override suspend fun commitDeleteQueue(): com.mediareview.app.core.model.CommitResultDto? =
-        runSuspendCatching { unwrap(api().commitDeleteQueue()) }.getOrNull()
+    /** 两阶段最终删除:先 prepare 取得一次性 nonce(绑定队列快照)。 */
+    override suspend fun prepareDeleteCommit(): com.mediareview.app.core.model.DeleteCommitPrepDto? =
+        runSuspendCatching { unwrap(api().prepareDeleteCommit()) }.getOrNull()
+
+    /** 携带一次性 nonce 确认并真实删除(两阶段删除的最后一步)。 */
+    override suspend fun commitDeleteQueue(nonce: String): com.mediareview.app.core.model.CommitResultDto? =
+        runSuspendCatching {
+            unwrap(api().commitDeleteQueue(com.mediareview.app.core.model.CommitRequest(nonce)))
+        }.getOrNull()
 
     /** 完全重复分组。 */
     override suspend fun loadDuplicatesExact(): List<com.mediareview.app.core.model.DuplicateGroupDto> =

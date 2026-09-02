@@ -1,6 +1,7 @@
 package com.mediareview.app
 
 import com.mediareview.app.core.model.CommitResultDto
+import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.FavoriteItemDto
@@ -56,7 +57,9 @@ open class FakeMediaDataSource : MediaDataSource {
     override suspend fun setReviewPosition(sessionId: String, index: Int) = Unit
     override suspend fun listFavorites(): List<FavoriteItemDto> = emptyList()
     override suspend fun listDeleteQueue(): List<DeleteQueueItemDto> = emptyList()
-    override suspend fun commitDeleteQueue(): CommitResultDto? = null
+    override suspend fun prepareDeleteCommit(): DeleteCommitPrepDto? =
+        DeleteCommitPrepDto(nonce = "test-nonce")
+    override suspend fun commitDeleteQueue(nonce: String): CommitResultDto? = null
     override suspend fun loadDuplicatesExact(): List<DuplicateGroupDto> = emptyList()
     override suspend fun loadDuplicatesSimilar(): List<DuplicateGroupDto> = emptyList()
     override suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean) = Unit

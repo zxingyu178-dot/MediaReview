@@ -12,6 +12,7 @@ import com.mediareview.app.core.media.ProgressSnapshot
 import com.mediareview.app.core.media.ReviewPlayable
 import com.mediareview.app.core.media.ReviewPlaybackController
 import com.mediareview.app.core.model.CommitResultDto
+import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.FavoriteItemDto
@@ -274,7 +275,8 @@ private class ShellRepository : MediaDataSource {
     override suspend fun setReviewPosition(sessionId: String, index: Int) = Unit
     override suspend fun listFavorites() = listOf(FavoriteItemDto(media_id = "media-1"))
     override suspend fun listDeleteQueue(): List<DeleteQueueItemDto> = emptyList()
-    override suspend fun commitDeleteQueue(): CommitResultDto? = null
+    override suspend fun prepareDeleteCommit(): DeleteCommitPrepDto? = null
+    override suspend fun commitDeleteQueue(nonce: String): CommitResultDto? = null
     override suspend fun loadDuplicatesExact(): List<DuplicateGroupDto> = emptyList()
     override suspend fun loadDuplicatesSimilar(): List<DuplicateGroupDto> = emptyList()
     override suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean) = Unit

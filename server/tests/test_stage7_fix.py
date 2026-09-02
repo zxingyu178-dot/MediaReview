@@ -150,8 +150,14 @@ def test_valid_token_allows_dangerous_apis(pair_client: TestClient) -> None:
     headers = _bearer(token)
     # 收藏危险 API
     assert pair_client.get("/api/v1/favorites", headers=headers).status_code == 200
-    # 待删除队列 commit(危险)放行(空队列也返回 200)
-    resp = pair_client.post("/api/v1/delete-queue/commit", headers=headers)
+    # 待删除队列 commit(危险)放行(prepare 生成 nonce 后 commit,空队列返回空 outcome)
+    prep = pair_client.post("/api/v1/delete-queue/commit/prepare", headers=headers)
+    assert prep.status_code == 200
+    resp = pair_client.post(
+        "/api/v1/delete-queue/commit",
+        json={"nonce": prep.json()["data"]["nonce"]},
+        headers=headers,
+    )
     assert resp.status_code == 200
     assert resp.json()["data"]["outcome"] == {}
     # 重复扫描
