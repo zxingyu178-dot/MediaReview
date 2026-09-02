@@ -253,6 +253,33 @@ data class DuplicateGroupDto(
     val size_bytes: Long = 0,
     val duration_ms: Long? = null,
     val detail: String = "",
+    /** 成员明细(含人工"保留"选择),用于双栏对比页。 */
+    val members: List<DuplicateMemberDto> = emptyList(),
+)
+
+/** 重复分组内单个成员(GET /duplicates*):keep 为人工"保留"选择记录。 */
+@Serializable
+data class DuplicateMemberDto(
+    val media_id: String = "",
+    val name: String = "",
+    val keep: Boolean = false,
+)
+
+/** 重复扫描任务状态(GET /duplicates/status);无任务时服务端返回 {"task_id": null}。 */
+@Serializable
+data class DuplicateScanStatusDto(
+    val task_id: String? = null,
+    val type: String? = null,
+    val status: String? = null,
+    val progress: Int? = null,
+    val error: String? = null,
+)
+
+/** 重复分组"保留"选择请求体(POST /duplicates/{group_id}/keep)。 */
+@Serializable
+data class DuplicateKeepRequest(
+    val media_id: String,
+    val keep: Boolean,
 )
 
 @Serializable

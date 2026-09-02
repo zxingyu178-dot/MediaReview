@@ -5,6 +5,8 @@ import com.mediareview.app.core.model.CommitResultDto
 import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
+import com.mediareview.app.core.model.DuplicateKeepRequest
+import com.mediareview.app.core.model.DuplicateScanStatusDto
 import com.mediareview.app.core.model.Envelope
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.HealthOut
@@ -94,6 +96,12 @@ interface MediaReviewApi {
     @POST("/api/v1/tasks/{task_id}/cancel")
     suspend fun cancelTask(@Path("task_id") taskId: String): Envelope<TaskStateDto>
 
+    @POST("/api/v1/tasks/{task_id}/pause")
+    suspend fun pauseTask(@Path("task_id") taskId: String): Envelope<TaskStateDto>
+
+    @POST("/api/v1/tasks/{task_id}/resume")
+    suspend fun resumeTask(@Path("task_id") taskId: String): Envelope<TaskStateDto>
+
     @GET("/api/v1/media/{media_id}/playback")
     suspend fun playback(@Path("media_id") mediaId: String): Envelope<PlaybackInfoDto>
 
@@ -157,6 +165,18 @@ interface MediaReviewApi {
 
     @GET("/api/v1/duplicates/similar")
     suspend fun duplicatesSimilar(): Envelope<List<DuplicateGroupDto>>
+
+    @POST("/api/v1/duplicates/scan")
+    suspend fun scanDuplicates(): Envelope<TaskStateDto>
+
+    @GET("/api/v1/duplicates/status")
+    suspend fun duplicatesStatus(): Envelope<DuplicateScanStatusDto>
+
+    @POST("/api/v1/duplicates/{group_id}/keep")
+    suspend fun setDuplicateKeep(
+        @Path("group_id") groupId: String,
+        @Body body: DuplicateKeepRequest,
+    ): Envelope<Map<String, String>>
 }
 
 @Serializable

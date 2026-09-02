@@ -2,6 +2,51 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-02 — MediaReview 1.1 Task D · 安全删除 + 重复整理（Android 收口）
+
+Task D 覆盖批阅/收藏一致性核查、两阶段永久删除（nonce）、重复分组持久化与后台扫描、
+Android 双栏对比 + 保留选择。
+
+前置核查（D2/D3，无代码改动）：
+- 批阅窗口行为：混合图/视频、稳定 pager、P0 缓冲停 P1、横屏视频居中、删除失败停留当前项，
+  既有实现核查无缺口。
+- 收藏一致性：Media/Player/Review/Favorites 经 revision 图与成功变更才更新，核查无缺口。
+
+Server（已提交）：
+- `ca9f75a feat(delete): add nonce two-phase commit contract`：两阶段永久删除。
+  `POST /delete-queue/commit/prepare` 返回一次性 nonce（UTC 过期、数量/字节/媒体 ID 摘要，
+  不含路径）；`POST /delete-queue/commit` 仅接受 nonce，逐项返回 `success|missing|failed`；
+  nonce 一次性、过期/复用/篡改拒绝；服务端重解析媒体 ID、校验所选库/队列/指纹/当前文件身份，
+  逐项独立执行并写审计。迁移 `0014_task_d_delete_nonce_duplicates` 含 delete_commit_nonce /
+  duplicate_group / duplicate_group_member，down_revision=0012 单一线性头。
+- `8e824b7 feat(duplicates): persist scan groups as background task`：重复扫描持久化后台任务。
+  exact=size+duration+分段 quick fingerprint+combined SHA-256；疑似=duration/size/resolution
+  （1.1 无 pHash）；任务支持暂停/继续/取消/进度；绝不自动删除。API：
+  `POST /duplicates/scan`（幂等）/ `GET /duplicates/status` / `GET /duplicates`
+  （exact/similar 分组含成员与 keep）/ `POST /duplicates/{group_id}/keep` /
+  `POST /tasks/{task_id}/pause|resume`。
+
+Android（本提交 `feat(duplicates): dual-column compare + keep`）：
+- 契约层：ApiModels 新增 DuplicateGroupDto（members/keep）/ DuplicateMemberDto /
+  DuplicateScanStatusDto / DuplicateKeepRequest / TaskStateDto；MediaReviewApi 新增
+  scan/status/keep/pause/resume 端点；MediaDataSource 新增 8 个方法；
+  MediaRepository 实现（失败返回 null/false 不抛）；TestFakes / MainShell 的
+  ShellRepository 补齐实现。
+- DuplicatesViewModel：分组加载（revision 门 + 成功才失效）、触发扫描→轮询进度
+  （1500ms/20 次 miss 兜底）、暂停/继续/取消、双栏对比（逐成员取摘要）、保留选择
+  （服务端成功才落本地）。
+- DuplicatesScreen：扫描状态卡（进度/暂停/继续/取消）、完全重复/疑似重复分组列表、
+  双栏对比网格 + 保留勾选、中文提示"保留仅作整理记录，删除仍需在待删除页确认"。
+
+TDD 与验证：
+- Android RED→GREEN：先补 DuplicatesViewModelTest 8 例 + ApiModelsTest DTO 3 例（编译失败
+  RED）→ 实现契约/ViewModel/Screen 后 focused BUILD SUCCESSFUL；修复 fake 未覆写
+  `resumeTask` 导致的"暂停/继续"测试挂起。
+- Android 全量：JVM 154 tests / 0 failures（+11）；assembleDebug、lintDebug BUILD SUCCESSFUL。
+- Server 全量：`pytest -q` 通过（exit 0）；`ruff check .` All checks passed；
+  `ruff format --check .` 92 files already formatted。
+- `git diff --check` 通过；构建产物 `.tmp_kct/` 与 `android/META-INF/` 泄漏已清理。
+
 ### 2026-09-02 — MediaReview 1.1 Task C · Direct Play 与单次 HLS 回退（收口）
 
 完成（含前置小提交与收口修复）：

@@ -15,6 +15,7 @@ import com.mediareview.app.core.model.CommitResultDto
 import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DuplicateGroupDto
+import com.mediareview.app.core.model.DuplicateScanStatusDto
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.LibraryItem
 import com.mediareview.app.core.model.MediaFolderItem
@@ -24,6 +25,7 @@ import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ReviewQueueItemDto
 import com.mediareview.app.core.model.ReviewQueuePageDto
 import com.mediareview.app.core.model.ReviewSessionDto
+import com.mediareview.app.core.model.TaskStateDto
 import com.mediareview.app.core.ui.ContentArea
 import com.mediareview.app.core.ui.ContentInvalidationStore
 import com.mediareview.app.feature.connect.data.ConnectionState
@@ -279,5 +281,12 @@ private class ShellRepository : MediaDataSource {
     override suspend fun commitDeleteQueue(nonce: String): CommitResultDto? = null
     override suspend fun loadDuplicatesExact(): List<DuplicateGroupDto> = emptyList()
     override suspend fun loadDuplicatesSimilar(): List<DuplicateGroupDto> = emptyList()
+    override suspend fun triggerDuplicateScan(): TaskStateDto? = null
+    override suspend fun duplicateScanStatus(): DuplicateScanStatusDto? = null
+    override suspend fun setDuplicateKeep(groupId: String, mediaId: String, keep: Boolean): Boolean = false
+    override suspend fun pauseTask(taskId: String): TaskStateDto? = null
+    override suspend fun resumeTask(taskId: String): TaskStateDto? = null
+    override suspend fun cancelTask(taskId: String): TaskStateDto? = null
+    override suspend fun loadMediaSummary(mediaId: String): MediaSummary? = null
     override suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean) = Unit
 }

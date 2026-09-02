@@ -155,6 +155,22 @@
 - [x] Server focused 52 passed + 全量 pytest 通过 + ruff 全绿；Android JVM 142/0 + 四目标 BUILD SUCCESSFUL + lint 0 errors
 - [x] 独立审查两轮：首轮 NOT CLEAN（1C/3I/6M）→ 返修 → 复审 CLEAN（`.superpowers/sdd/task-c-independent-review.md`）
 
+## MediaReview(1.1.0-beta1 Task D: 批阅、收藏、安全删除与重复整理)
+
+> 状态（2026-09-02）：D1–D5 与 D6 Server/Android 已完成并通过全量门禁；D7 全量门禁 +
+> 独立审查 CLEAN + 验收 ZIP 待收口。Server 侧随 `ca9f75a`（nonce 两阶段删除）与
+> `8e824b7`（重复分组持久化后台任务）提交；Android 双栏对比 + 保留选择为本阶段提交。
+
+- [x] D1 RED 测试基线：批阅 settled-only/P0/P1 带宽仲裁/绝对索引恢复/seen 唯一性、收藏/删除/撤销/进度幂等、nonce 过期/复用/篡改、逐项继续、文件身份复核与审计（既有 + 新增锁定测试）
+- [x] D2 批阅窗口行为核查：混合图/视频、稳定 pager、P0 缓冲停 P1、横屏视频居中、删除失败停留当前项（既有实现核查无缺口）
+- [x] D3 收藏一致性核查：Media/Player/Review/Favorites 经 revision 图与成功变更才更新（既有实现核查无缺口）
+- [x] D4 两阶段永久删除：server 重解析媒体 ID、校验库/队列/指纹/文件身份、逐项独立执行并审计、拒绝客户端路径（`ca9f75a`）
+- [x] D5 迁移 0014：down_revision=0012 单一线性头，delete_commit_nonce / duplicate_group / duplicate_group_member，覆盖升级/回滚/失败回滚/备份恢复（不重写 0012）
+- [x] D6a 服务端重复分组持久化 + 后台任务（`8e824b7`）：exact=size+duration+分段 quick fingerprint+combined SHA-256；疑似=duration/size/resolution；任务暂停/继续/取消/进度；绝不自动删除
+- [x] D6b Android 双栏对比 + 保留选择：扫描触发/轮询/暂停/继续/取消、分组列表、双栏对比、保留标记（本提交）
+- [x] D6c 测试：DuplicatesViewModelTest 8 例 + ApiModelsTest DTO 3 例 + 全量门禁（Android JVM 154/0 + assembleDebug + lintDebug + server pytest/ruff/format）
+- [ ] D7 全量门禁 + 破坏安全独立审查 CLEAN + 验收 ZIP
+
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 
 > 状态（2026-08-30，Task A 后）：**代码与独立审查门禁通过（CLEAN）**。Task A 关闭了最终删除

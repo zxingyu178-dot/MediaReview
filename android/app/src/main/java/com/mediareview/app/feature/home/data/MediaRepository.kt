@@ -1,6 +1,8 @@
 package com.mediareview.app.feature.home.data
 
 import com.mediareview.app.core.datastore.ServerProfileStore
+import com.mediareview.app.core.model.DuplicateKeepRequest
+import com.mediareview.app.core.model.DuplicateScanStatusDto
 import com.mediareview.app.core.model.LibraryItem
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.MediaSummary
@@ -146,8 +148,16 @@ class MediaRepository @Inject constructor(
         runSuspendCatching { unwrap(api().taskDetail(taskId)) }.getOrNull()
 
     /** 协作取消后台任务;失败返回 null。 */
-    suspend fun cancelTask(taskId: String): com.mediareview.app.core.model.TaskStateDto? =
+    override suspend fun cancelTask(taskId: String): com.mediareview.app.core.model.TaskStateDto? =
         runSuspendCatching { unwrap(api().cancelTask(taskId)) }.getOrNull()
+
+    /** 协作暂停后台任务(重复扫描等);失败返回 null。 */
+    override suspend fun pauseTask(taskId: String): com.mediareview.app.core.model.TaskStateDto? =
+        runSuspendCatching { unwrap(api().pauseTask(taskId)) }.getOrNull()
+
+    /** 协作继续后台任务(重复扫描等);失败返回 null。 */
+    override suspend fun resumeTask(taskId: String): com.mediareview.app.core.model.TaskStateDto? =
+        runSuspendCatching { unwrap(api().resumeTask(taskId)) }.getOrNull()
 
     /**
      * 读取雪碧图清单;url 为服务端相对路径,补全为绝对地址供 Coil 加载。
@@ -275,6 +285,23 @@ class MediaRepository @Inject constructor(
     /** 疑似重复分组。 */
     override suspend fun loadDuplicatesSimilar(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
         runSuspendCatching { unwrap(api().duplicatesSimilar()) }.getOrNull() ?: emptyList()
+
+    /** 触发重复扫描后台任务(服务端幂等,已有运行中任务则直返)。 */
+    override suspend fun triggerDuplicateScan(): com.mediareview.app.core.model.TaskStateDto? =
+        runSuspendCatching { unwrap(api().scanDuplicates()) }.getOrNull()
+
+    /** 最近一次重复扫描任务状态;无任务时服务端返回 {"task_id": null}。 */
+    override suspend fun duplicateScanStatus(): DuplicateScanStatusDto? =
+        runSuspendCatching { unwrap(api().duplicatesStatus()) }.getOrNull()
+
+    /** 记录重复分组内某成员的人工"保留"选择;服务端成功才返回 true。 */
+    override suspend fun setDuplicateKeep(groupId: String, mediaId: String, keep: Boolean): Boolean =
+        runSuspendCatching {
+            unwrap(api().setDuplicateKeep(groupId, DuplicateKeepRequest(media_id = mediaId, keep = keep))) != null
+        }.getOrDefault(false)
+
+    /** 单条媒体摘要(重复对比页封面/元数据;URL 已解析为绝对地址)。 */
+    override suspend fun loadMediaSummary(mediaId: String): MediaSummary? = loadDetail(mediaId)
 
     /** 回传播放进度到 Jellyfin(普通播放器/批阅播放器周期性调用)。 */
     override suspend fun reportProgress(mediaId: String, positionMs: Long, isPaused: Boolean) {
