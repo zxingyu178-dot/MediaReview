@@ -157,9 +157,10 @@
 
 ## MediaReview(1.1.0-beta1 Task D: 批阅、收藏、安全删除与重复整理)
 
-> 状态（2026-09-02）：D1–D5 与 D6 Server/Android 已完成并通过全量门禁；D7 全量门禁 +
-> 独立审查 CLEAN + 验收 ZIP 待收口。Server 侧随 `ca9f75a`（nonce 两阶段删除）与
-> `8e824b7`（重复分组持久化后台任务）提交；Android 双栏对比 + 保留选择为本阶段提交。
+> 状态（2026-09-02）：Task D 全部完成。Server 侧随 `ca9f75a`（nonce 两阶段删除）与
+> `8e824b7`（重复分组持久化后台任务）提交；Android 双栏对比 + 保留选择为 `afa6b0b`
+> 提交；D7 全量门禁（Server 308 全过 + Android 四目标 BUILD SUCCESSFUL）+ 破坏安全
+> 独立审查 CLEAN（0C/0I/4M）+ 验收 ZIP 完成。
 
 - [x] D1 RED 测试基线：批阅 settled-only/P0/P1 带宽仲裁/绝对索引恢复/seen 唯一性、收藏/删除/撤销/进度幂等、nonce 过期/复用/篡改、逐项继续、文件身份复核与审计（既有 + 新增锁定测试）
 - [x] D2 批阅窗口行为核查：混合图/视频、稳定 pager、P0 缓冲停 P1、横屏视频居中、删除失败停留当前项（既有实现核查无缺口）
@@ -169,7 +170,7 @@
 - [x] D6a 服务端重复分组持久化 + 后台任务（`8e824b7`）：exact=size+duration+分段 quick fingerprint+combined SHA-256；疑似=duration/size/resolution；任务暂停/继续/取消/进度；绝不自动删除
 - [x] D6b Android 双栏对比 + 保留选择：扫描触发/轮询/暂停/继续/取消、分组列表、双栏对比、保留标记（本提交）
 - [x] D6c 测试：DuplicatesViewModelTest 8 例 + ApiModelsTest DTO 3 例 + 全量门禁（Android JVM 154/0 + assembleDebug + lintDebug + server pytest/ruff/format）
-- [ ] D7 全量门禁 + 破坏安全独立审查 CLEAN + 验收 ZIP
+- [x] D7 全量门禁 + 破坏安全独立审查 CLEAN + 验收 ZIP（Server 308/ruff/format 全过 + Android 四目标 BUILD SUCCESSFUL + 审查 0C/0I/4M + `review_handoff` ZIP 生成）
 
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 

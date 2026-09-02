@@ -47,6 +47,40 @@ TDD 与验证：
   `ruff format --check .` 92 files already formatted。
 - `git diff --check` 通过；构建产物 `.tmp_kct/` 与 `android/META-INF/` 泄漏已清理。
 
+### 2026-09-02 — MediaReview 1.1 Task D7 · 全量门禁 + 破坏安全独立审查 + 验收 ZIP
+
+D7 为 Task D 收口门禁，不新增功能代码（仅文档与证据收口）。
+
+全量门禁（D7a）：
+- Server 全量：`pytest -q` → 308 tests collected、exit 0（全过）；`ruff check .` All checks
+  passed；`ruff format --check .` 92 files already formatted。
+  - 注：性能门禁（100k 响应性 <2.0s）与 Android 构建并行时出现一次 2.09s 抖动失败，
+    单跑复测 exit 0（CPU 竞争，非代码问题）。
+- Android 四目标 `--rerun-tasks` 干净重跑：`:app:testDebugUnitTest :app:assembleDebug
+  :app:assembleAndroidTest :app:lintDebug` → BUILD SUCCESSFUL（6m37s，91 tasks）；
+  JVM 154 tests / 0 failures / 0 errors（33 套件）；lintDebug 0 Error（47 条既有
+  Warning：依赖版本/图标/清单类，与 Task D 无关，诚实记录）。
+
+独立审查（D7b）：
+- 对抗性破坏安全审查（`.superpowers/sdd/task-d-independent-review.md`），对
+  6485881..HEAD（HEAD=afa6b0b）全量改动逐项裁决。
+- 结论 **CLEAN（0 Critical / 0 Important / 4 Minor）**：nonce 合同（一次性/过期/防伪/
+  服务端重取 DB 身份/逐项独立/逐项审计/TOCTOU 快照）成立；Android 需 AlertDialog 二次
+  确认，无单步永久删除；重复扫描全链路只读不删；任务控制无双重运行/死锁；迁移 0014
+  单一线性 head、升降对称；禁止工件检索仅命中文档文件名。
+- 4 Minor（不阻塞，记录在案）：M1 OSError 文本可能含绝对路径写入本地 SQLite 审计/错误
+  字段（不外发）；M2 重扫清空旧分组并清掉 keep 标记；M3 resume 后 progress 重置、
+  paused 时 POST /scan 为 no-op；M4 任务书文字写 down_revision=0012，实际 0014 为 0013
+  （链路线性成立，文字误差）。建议后续阶段处理 M1/M2。
+
+文档与证据（D7c）：
+- `REVIEW_SUMMARY.md`（阶段 D 完整总结，结论：合格）。
+- `review_meta/server_tests.txt`（pytest 真实输出）、`review_meta/android_lint.txt`
+  （lint 明细）作为门禁证据随验收 ZIP 打包。
+
+验收 ZIP（D7d）：`python scripts/build_review_handoff.py --stage D --name … --base 6485881`
+生成于 `review_handoff/`，确认产物存在且体积达标后向用户汇报。
+
 ### 2026-09-02 — MediaReview 1.1 Task C · Direct Play 与单次 HLS 回退（收口）
 
 完成（含前置小提交与收口修复）：
