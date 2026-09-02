@@ -16,8 +16,8 @@ class BrandingResourceTest {
         val strings = projectFile("src/main/res/values/strings.xml").readText()
         val gradle = projectFile("build.gradle.kts").readText()
         assertTrue(strings.contains("<string name=\"app_name\">家庭媒体管家</string>"))
-        assertTrue(gradle.contains("versionCode = 5"))
-        assertTrue(gradle.contains("versionName = \"1.1.0-alpha2\""))
+        assertTrue(gradle.contains("versionCode = 6"))
+        assertTrue(gradle.contains("versionName = \"1.1.0\""))
     }
 
     @Test
