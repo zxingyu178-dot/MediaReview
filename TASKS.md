@@ -172,6 +172,19 @@
 - [x] D6c 测试：DuplicatesViewModelTest 8 例 + ApiModelsTest DTO 3 例 + 全量门禁（Android JVM 154/0 + assembleDebug + lintDebug + server pytest/ruff/format）
 - [x] D7 全量门禁 + 破坏安全独立审查 CLEAN + 验收 ZIP（Server 308/ruff/format 全过 + Android 四目标 BUILD SUCCESSFUL + 审查 0C/0I/4M + `review_handoff` ZIP 生成）
 
+## MediaReview(1.1.0 Task E: Windows 运维控制台) — 完成
+
+> 状态（2026-09-02）：Task E 全部完成。E1–E5 代码与测试随 `feat(admin): add operations console`
+> 提交；E6 全量门禁（Server 326 passed + ruff/format 全绿）+ 运维安全独立审查
+> CLEAN（0C/0I/3M）+ 验收 ZIP 完成。
+
+- [x] E1 RED 测试：未认证 LAN 拒绝 / 回环放行、缓存清理危险确认（confirm 门槛）、清理范围（只清 cache/）、配对码回环限制、错误/日志脱敏、对抗式密钥扫描（dashboard/errors/logs/诊断 ZIP）、控制台页面（六面板/无媒体墙/dialog 二次确认/键盘可操作/无敏感值）
+- [x] E2 dashboard 聚合状态：版本/host/port/LAN 地址/Jellyfin 配置与可达性/媒体库勾选/索引计数/同步状态（`GET /system/dashboard`）
+- [x] E3 运维操作：`POST /system/cache/clear?confirm=true|1` 二次确认清理（含雪碧图清单失效同步）+ 设备撤销/配对码/媒体刷新/任务暂停恢复取消/重复扫描编排（复用既有 API）
+- [x] E4 脱敏错误与日志：`GET /system/errors`、`GET /system/logs` 输出前逐行脱敏；诊断导出复查（日志打包前脱敏、配置 masked、表计数白名单）
+- [x] E5 admin 页面重构：六面板响应式（360px/桌面）+ 原生 `<dialog>` 危险二次确认 + 键盘全可操作 + 全中文 + 无媒体墙
+- [x] E6 全量门禁 + 运维安全独立审查 CLEAN + 验收 ZIP（Server 326/ruff/format 全过 + 审查 0C/0I/3M + `review_handoff` ZIP 生成）
+
 ## Android(1.1.0-alpha2 Task 4: 深色设计系统、品牌与主导航)
 
 > 状态（2026-08-30，Task A 后）：**代码与独立审查门禁通过（CLEAN）**。Task A 关闭了最终删除

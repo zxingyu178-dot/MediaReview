@@ -56,7 +56,8 @@ def test_openapi_available(client: TestClient) -> None:
 def test_admin_page_served(client: TestClient) -> None:
     resp = client.get("/admin")
     assert resp.status_code == 200
-    assert "MediaReview 管理后台" in resp.text
+    assert "MediaReview 运维控制台" in resp.text
+    assert "状态总览" in resp.text
 
 
 def test_diagnostics_export_zip(client: TestClient) -> None:

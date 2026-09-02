@@ -2,6 +2,40 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-02 — MediaReview 1.1 Task E · Windows 运维控制台
+
+Task E 实现 Windows 运维控制台：状态总览 / 配对与设备 / 媒体库与索引 / 缓存管理 /
+后台任务 / 错误与日志 六面板，全部复用既有 `/api/v1` 服务，不复制业务逻辑，无媒体墙。
+
+代码（本提交 `feat(admin): add operations console`）：
+- `app/admin.py` 全量重写：单页运维控制台（内联 CSS/JS）。响应式网格
+  `minmax(min(100%,340px),1fr)` + 480px 断点适配 360px/桌面；原生 `<dialog>` 危险操作
+  二次确认（清理缓存/撤销设备/清理已用码/取消任务/开始重复扫描，`askConfirm` 可复用）；
+  全部交互为原生 button/input/a + `:focus-visible`，键盘全可操作；令牌输入支持 LAN 使用，
+  本机自动配对仅回环；15s 轻量轮询。
+- `app/api/v1/system.py` 新增：
+  - `GET /system/dashboard`：版本/host/port/LAN 地址/Jellyfin 配置与可达性（尽力而为探测，
+    不外泄 key）/媒体库勾选/索引计数/同步状态聚合。
+  - `POST /system/cache/clear?confirm=true|1`：危险操作服务端 confirm 硬门槛（缺/错 400），
+    只清 cache/{thumbnails,sprites,previews,temp}，随后同步失效 ready 雪碧图清单。
+  - `GET /system/errors`、`GET /system/logs`：最近日志行输出前经 `_mask_log_text` 脱敏
+    （mr_ token/Bearer/api_key/配对码/Windows 盘符/UNC/POSIX 路径）。
+  - 诊断导出复查：日志打包前逐行脱敏、配置 masked、表计数白名单，绝不含媒体原文件/密钥。
+- `tests/test_ops_console_11.py` 新增 21 例（E1 RED→GREEN）：未认证 LAN 拒绝/回环放行、
+  缓存清理 confirm 门槛与范围、配对码回环限制、错误/日志/诊断脱敏、对抗式密钥扫描
+  （dashboard/errors/logs/诊断 ZIP 四路输出）、控制台页面六面板/无媒体墙/dialog 二次确认/
+  键盘可操作/无敏感值。
+
+TDD 与验证：
+- Server 全量：`pytest -o addopts= -p no:cacheprovider -v` → **326 passed, 1 warning in
+  195.82s (0:03:15)**、exit 0（`-o addopts=` 仅为非 TTY 下捕获计数行；`-q` 同集 exit 0）；
+  `ruff check .` All checks passed；`ruff format --check .` 93 files already formatted。
+- 聚焦 E 阶段：`tests\test_ops_console_11.py + tests\test_system_api.py` → 26 passed。
+- `git diff --check` 通过；无禁止工件泄漏。
+- E6 独立运维安全审查 CLEAN（0C/0I/3M，`.superpowers/sdd/task-e-independent-review.md`）：
+  3 Minor 为日志级别子串匹配/多文件拼接、`_lan_ipv4()` 依赖外网路由、`console-*` 设备记录
+  累积，均不阻塞。
+
 ### 2026-09-02 — MediaReview 1.1 Task D · 安全删除 + 重复整理（Android 收口）
 
 Task D 覆盖批阅/收藏一致性核查、两阶段永久删除（nonce）、重复分组持久化与后台扫描、
