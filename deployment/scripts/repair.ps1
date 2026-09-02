@@ -1,8 +1,9 @@
+#requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 修复脚本(Stage 16)
-  检查缺失文件/服务/端口/ffmpeg/config/DB,重建服务,**不删除用户数据库**。
-  用法:  .\repair.ps1
+  MediaReview Server 修复脚本(1.1.0)
+  检查缺失文件/服务/端口/ffmpeg/config/DB,重建缺失项,**不删除用户数据库**。
+  用法:  .\repair.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]
 #>
 [CmdletBinding()]
 param(
@@ -13,6 +14,9 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $issues = @()
+$TaskName = "MediaReviewServer"
+$Exe      = Join-Path $InstallDir "MediaReviewServer\MediaReviewServer.exe"
+$startCmd = Join-Path $InstallDir "start_server.cmd"
 
 function Check($name, [bool]$ok, [string]$detail) {
     if ($ok) { Write-Host "  [OK]  $name - $detail" -ForegroundColor Green }
@@ -20,13 +24,10 @@ function Check($name, [bool]$ok, [string]$detail) {
 }
 
 Write-Host "========== MediaReview 修复检查 ==========" -ForegroundColor Cyan
-$startCmd = Join-Path $InstallDir "start_server.cmd"
-$taskName = "MediaReviewServer"
 
 # 1. 文件完整性
 Write-Host "文件检查"
-$exe = Join-Path $InstallDir "MediaReviewServer\Mediaserver.exe"
-Check "服务端可执行文件" (Test-Path $exe) $exe
+Check "服务端可执行文件" (Test-Path $Exe) $Exe
 Check "启动脚本" (Test-Path $startCmd) $startCmd
 
 # 2. 配置
@@ -52,17 +53,17 @@ Check "端口 $Port" ($null -eq $listener) $(if ($listener) { "已被占用" } e
 
 # 6. 任务计划
 Write-Host "服务/任务检查"
-$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-Check "计划任务 $taskName" ($null -ne $task) $(if ($task) { "已注册" } else { "未注册" })
+$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+Check "计划任务 $TaskName" ($null -ne $task) $(if ($task) { "已注册" } else { "未注册" })
 
 # 7. 重建缺失项
-if (-not (Test-Path $exe)) {
+if (-not (Test-Path $Exe)) {
     Write-Host "重新复制服务端文件..."
     $src = Join-Path $ScriptDir "..\server\MediaReviewServer"
-    if (Test-Path (Join-Path $src "Mediaserver.exe")) {
-        Copy-Item -Path $src -Destination $InstallDir -Recurse -Force
+    if (Test-Path (Join-Path $src "MediaReviewServer.exe")) {
+        Copy-Item -Path $src -Destination (Join-Path $InstallDir "MediaReviewServer") -Recurse -Force
     } else {
-        Write-Host "部署包中缺少 Mediaserver.exe,无法重建,请重新解压部署包" -ForegroundColor Red
+        Write-Host "部署包中缺少 MediaReviewServer.exe,无法重建,请重新解压部署包" -ForegroundColor Red
     }
 }
 if (-not (Test-Path $startCmd) -or -not $task) {
@@ -72,14 +73,14 @@ if (-not (Test-Path $startCmd) -or -not $task) {
 @echo off
 set "MEDIAREVIEW_DATA_ROOT=$DataRoot"
 cd /d "%~dp0MediaReviewServer"
-start "" "%~dp0MediaReviewServer\Mediaserver.exe"
+start "" "%~dp0MediaReviewServer\MediaReviewServer.exe"
 "@ | Set-Content $startCmd -Encoding ASCII
     }
-    schtasks /Create /F /TN $taskName /TR "`"$startCmd`"" /SC ONSTART /RU SYSTEM /RL HIGHEST | Out-Null
+    schtasks /Create /F /TN $TaskName /TR "`"$startCmd`"" /SC ONSTART /RU SYSTEM /RL HIGHEST | Out-Null
     Check "计划任务重建" ($LASTEXITCODE -eq 0) "schtasks"
 }
 if (-not $task) {
-    schtasks /Run /TN $taskName | Out-Null
+    schtasks /Run /TN $TaskName | Out-Null
 }
 
 if ($issues.Count -eq 0) {

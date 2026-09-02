@@ -54,6 +54,14 @@ def test_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.features.sprites is False
 
 
+def test_load_from_json_file_with_utf8_bom(tmp_path: Path) -> None:
+    """PowerShell 5.1 Set-Content -Encoding UTF8 会写 BOM,加载必须容忍。"""
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"server": {"port": 9001}}), encoding="utf-8-sig")
+    config = load_config(config_file)
+    assert config.server.port == 9001
+
+
 def test_env_override_keeps_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """配置文件中的 API Key 不能被环境变量覆盖流程破坏成掩码。"""
     config_file = tmp_path / "config.json"

@@ -1,5 +1,28 @@
 # V1 任务清单
 
+## MediaReview(1.1.0-rc1 Task F: Windows 部署、升级、回滚与产物)
+
+> 状态（2026-09-02）：F1-F5 完成。F1 部署契约 RED→GREEN（22 例）、F2 EXE 构建与冒烟、
+> F3 用户控制脚本、F4 事务式升级、F5 防火墙均已收口；全量 Server 349 passed + ruff/format
+> 全绿。F6-F8 进行中（F6 签名密钥需用户决策）。
+
+- [x] F1 部署契约 RED 测试（`test_deployment_contract_11.py` 22 例）：8 脚本 PS5.1 兼容/特权、
+  `MediaReviewServer.exe` 精确名、按 EXE 路径归属进程（禁按端口杀）、事务式升级备份/回滚/
+  CURRENT_VERSION、防火墙仅 TCP 8766 + UDP 35001、卸载保数据、FFmpeg 随包优先、build_deploy
+  根与 SHA-256、spec 产物名、Android 版本/应用名、LICENSE/THIRD_PARTY_NOTICES
+- [x] F2 自包含 Server EXE：PyInstaller onedir 构建 `MediaReviewServer.exe`（13.8MB）成功；
+  捆绑 `third_party/ffmpeg/{ffmpeg,ffprobe}.exe` 并记录 SHA-256；冒烟（临时数据根）DB 迁移到
+  head + health ok + 启动日志无密钥；配置读取容忍 UTF-8 BOM；根目录新增 LICENSE + THIRD_PARTY_NOTICES
+- [x] F3 用户控制 start/stop/restart/status：按 EXE 绝对路径精确归属进程，不杀无关监听；
+  restart/install 内置 health 检查
+- [x] F4 事务式升级：stop owned service → 备份 config/DB/旧二进制 → 暂存新文件 → 迁移 →
+  health → 原子提升；失败回滚旧二进制/config/DB 并重启旧版本；写 CURRENT_VERSION
+- [x] F5 防火墙：仅 New-NetFirewallRule TCP 8766 + UDP 35001，不触碰其他端口
+- [ ] F6 Android 签名 Release APK（应用名家庭媒体管家/1.1.0/versionCode 6/自适应图标；
+  Release 未配签名、无 keystore、无已连接设备——需用户决策签名密钥）
+- [ ] F7 组装 MediaReview_Migration_1.1.0 + SHA-256 校验 + 密钥/恶意扫描（补齐 HANDOVER/UPGRADE_ROLLBACK）
+- [ ] F8 沙箱安装/升级/回滚/卸载测试 + 独立部署审查 CLEAN + 验收 ZIP
+
 ## Foundation
 - [x] 仓库初始化(2026-08-19,git 提交待环境可用)
 - [x] Server scaffold

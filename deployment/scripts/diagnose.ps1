@@ -1,17 +1,20 @@
+#requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 诊断脚本(Stage 16)
+  MediaReview Server 诊断脚本(1.1.0)
   收集: 版本/配置(脱敏)/health/日志/服务/端口/ffmpeg/Jellyfin/磁盘/数据库版本,
   输出 ZIP 到当前目录。
   用法:  .\diagnose.ps1  [-DataRoot ...] [-Port ...]
 #>
 [CmdletBinding()]
 param(
+    [string]$InstallDir = "$env:ProgramFiles\MediaReviewServer",
     [string]$DataRoot = "$env:ProgramData\MediaReview",
     [int]$Port = 8766
 )
 $ErrorActionPreference = "Continue"
 $taskName = "MediaReviewServer"
+$Exe = Join-Path $InstallDir "MediaReviewServer\MediaReviewServer.exe"
 $outDir = Join-Path $PSScriptRoot "..\diagnostics"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd_HHmm"
@@ -63,6 +66,15 @@ Out-Diag "recent_logs.txt" $recent
 # 4. 服务/任务状态
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 Out-Diag "service.txt" $(if ($task) { "任务: $taskName" } else { "任务: 未注册" })
+
+# 4.1 进程归属(按 EXE 绝对路径)
+$owned = Get-Process MediaReviewServer -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq $Exe } | Select-Object -First 1
+if ($owned) {
+    Out-Diag "process.txt" "进程: 运行中 PID=$($owned.Id) Path=$($owned.Path)"
+} else {
+    Out-Diag "process.txt" "进程: 未运行 (期望 $Exe)"
+}
 
 # 5. 端口
 $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue

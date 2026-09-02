@@ -324,7 +324,8 @@ def persist_jellyfin_user_id(config_file: Path, user_id: str) -> None:
     payload: dict[str, Any] = {}
     if config_file.exists():
         try:
-            raw = json.loads(config_file.read_text(encoding="utf-8"))
+            # PowerShell 5.1 Set-Content -Encoding UTF8 会写 BOM,必须容忍。
+            raw = json.loads(config_file.read_text(encoding="utf-8-sig"))
             if isinstance(raw, dict):
                 payload = raw
         except (OSError, json.JSONDecodeError):
@@ -351,7 +352,8 @@ def load_config(config_file: Path | None = None) -> AppConfig:
     merged: dict[str, Any] = {}
     if config_file.exists():
         try:
-            raw = json.loads(config_file.read_text(encoding="utf-8"))
+            # PowerShell 5.1 Set-Content -Encoding UTF8 会写 BOM,必须容忍。
+            raw = json.loads(config_file.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ConfigLoadError(f"配置文件无法解析: {config_file}") from exc
         if not isinstance(raw, dict):

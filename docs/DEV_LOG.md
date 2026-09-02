@@ -2,6 +2,51 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-02 — MediaReview 1.1 Task F1-F5 · 部署契约、EXE、进程控制、事务式升级、防火墙
+
+Task F 前半段完成 Windows 部署闭环：可移植契约测试、自包含 EXE 构建、精确进程归属、
+事务式升级与回滚、最小端口防火墙。
+
+代码与测试：
+- `server/tests/test_deployment_contract_11.py` 新增 22 例（F1 RED→GREEN）：8 个脚本齐全且
+  PS 5.1 兼容（`#requires -Version 5.1`）、特权脚本要求管理员、status 只读；EXE 精确名为
+  `MediaReviewServer.exe`（任何脚本不得引用旧 `Mediaserver.exe`）；stop/restart 按 EXE 绝对
+  路径（`.Path`）归属进程，禁止 `Get-NetTCPConnection + Stop-Process` 按端口杀进程；install
+  做磁盘检查、升级前备份 config+database、失败回滚并写 `CURRENT_VERSION`、检测旧版本；
+  防火墙只开放 TCP 8766 + UDP 35001；uninstall 默认保留数据且删除数据目录位于
+  `if ($DeleteData)` 守卫块内；FFmpeg 优先随包、`Get-Command ffmpeg` 兜底系统 PATH；
+  `build_deploy.py` 产出 `MediaReview_Migration_1.1.0` 根 + 8 脚本 + SHA-256；spec 产物名为
+  `MediaReviewServer.exe`；Android applicationId/版本/名称与 1.1.0 一致；LICENSE 与
+  THIRD_PARTY_NOTICES 存在。
+- `deployment/scripts/`：新增 `start.ps1`/`stop.ps1`/`restart.ps1`/`status.ps1`（F3 用户控制）；
+  重写 `install.ps1`（F4 事务式升级 + F5 防火墙）、`uninstall.ps1`（F3 保数据）、`repair.ps1`
+  （PS5.1 头 + `MediaReviewServer.exe`）、`diagnose.ps1`（进程归属按 EXE 路径）。
+- `server/packaging/mediareview_server.spec`：EXE 名 `Mediaserver` → `MediaReviewServer`（F2）。
+- `scripts/build_deploy.py`：产出固定根 `MediaReview_Migration_1.1.0`，递归 SHA-256 校验和并在
+  ZIP 内回验，含 8 脚本/APK/FFmpeg/文档（F7 基础）。
+- `server/app/core/config.py`：读取配置容忍 UTF-8 BOM（PowerShell 5.1 `Set-Content -Encoding
+  UTF8` 写 BOM），`utf-8-sig` 读取。
+- 根目录新增 `LICENSE`（MIT）与 `THIRD_PARTY_NOTICES.md`（FFmpeg 版本/SHA-256 记录）（F2）。
+- `android/app/build.gradle.kts`：versionName `1.1.0`、versionCode `6`（>5）（F6 契约前置）。
+
+EXE 构建与冒烟（F2）：
+- 安装 PyInstaller；`third_party/ffmpeg/` 复制 `ffmpeg.exe`/`ffprobe.exe` 并记录 SHA-256。
+- `server/dist/MediaReviewServer/MediaReviewServer.exe`（13.8MB onedir）构建成功。
+- 临时数据根冒烟：DB 迁移到 head、health 返回 ok、日志解析路径与版本无密钥泄漏。
+- FFmpeg 随包优先、系统 PATH 兜底，缺失时优雅降级。
+
+TDD 与验证：
+- Server 全量：`pytest -q` → **349 passed**、exit 0；`ruff check .` All checks passed；
+  `ruff format --check .` 94 files already formatted（先修 3 处再全绿）。
+- 部署契约聚焦：`tests\test_deployment_contract_11.py` → 22 passed。
+- `git diff --check` 通过（仅 LF→CRLF 提示，符合既有仓库行为）。
+
+遗留（F6/F7/F8 处理）：
+- F6 签名 Release APK：Release 构建类型未配置签名、项目内无 keystore、SDK 无已连接设备、
+  无 AVD/emulator 组件；需与用户确认签名密钥决策（卸载重装/本地数据损失风险）。
+- F7 需补齐 `HANDOVER.md`/`UPGRADE_ROLLBACK.md` 并组装 `MediaReview_Migration_1.1.0`。
+- F8 沙箱安装/升级/回滚/卸载 + 独立部署审查 + 验收 ZIP。
+
 ### 2026-09-02 — MediaReview 1.1 Task E · Windows 运维控制台
 
 Task E 实现 Windows 运维控制台：状态总览 / 配对与设备 / 媒体库与索引 / 缓存管理 /

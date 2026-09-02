@@ -4,7 +4,7 @@
 用法:
     pyinstaller packaging/mediareview_server.spec --distpath dist --workpath build/pyinstaller
 
-产物: dist/MediaReviewServer/ 目录,内含 Mediaserver.exe + _internal/(Python 运行时 + app + 迁移)。
+产物: dist/MediaReviewServer/ 目录,内含 MediaReviewServer.exe + _internal/(Python 运行时 + app + 迁移)。
 """
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -48,7 +48,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Mediaserver",
+    name="MediaReviewServer",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
