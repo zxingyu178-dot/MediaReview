@@ -21,7 +21,9 @@ from app.db.models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: 迁移不得禁用应用日志配置里已挂载的
+    # "app" logger, 否则 fileConfig 后 server.log 停止落盘(服务健康但无日志)。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

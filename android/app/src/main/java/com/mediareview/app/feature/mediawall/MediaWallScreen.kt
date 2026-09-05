@@ -289,13 +289,21 @@ private fun MediaWallFilters(
             verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
             maxItemsInEachRow = 2,
         ) { controls() }
-        Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
-        Slider(
-            value = ui.gridColumns.toFloat(),
-            onValueChange = { viewModel.setGridColumns(it.toInt()) },
-            valueRange = 2f..5f,
-            steps = 2,
-        )
+        // 封面大小调节:文字与滑块同行,滑块占剩余宽度,避免整行被滑块占满
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.width(MediaSpacing.Small))
+            Slider(
+                value = ui.gridColumns.toFloat(),
+                onValueChange = { viewModel.setGridColumns(it.toInt()) },
+                valueRange = 2f..5f,
+                steps = 2,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 

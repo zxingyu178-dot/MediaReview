@@ -260,8 +260,11 @@ cd /d "%~dp0MediaReviewServer"
 start "" "%~dp0MediaReviewServer\MediaReviewServer.exe"
 "@ | Set-Content $startCmd -Encoding ASCII
     # 服务以低权限 NETWORK SERVICE 运行(最小权限);需对数据目录授予其写权限。
+    # /TR 必须用 `cmd /c "路径"` 包装: schtasks 直接存含空格的 EXE/.cmd 路径时
+    # Task Scheduler 无法解析(CreateProcess 报 0x80070002), 实测 cmd /c 包装可解决。
     icacls $DataRoot /grant "*S-1-5-20:(OI)(CI)M" /T /Q | Out-Null
-    schtasks /Create /F /TN $TaskName /TR "`"$startCmd`"" /SC ONSTART /RU "NT AUTHORITY\NETWORK SERVICE" /RL MEDIUM | Out-Null
+    $taskCommand = 'cmd /c \"' + $startCmd + '\"'
+    schtasks /Create /F /TN $TaskName /TR $taskCommand /SC ONSTART /RU "NT AUTHORITY\NETWORK SERVICE" /RL LIMITED | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "创建计划任务失败" }
     Write-Report "计划任务: $TaskName (开机自启, NETWORK SERVICE)"
 

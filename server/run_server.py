@@ -15,6 +15,10 @@ def main() -> None:
         port=cfg.server.port,
         log_level="info",
         access_log=False,
+        # 不让 uvicorn 的 dictConfig 覆盖应用日志配置: 默认 log_config 会
+        # disable_existing_loggers=True, 把 configure_logging 挂载的 "app"
+        # logger 禁用, 导致 server.log 不落盘(服务健康但无日志)。
+        log_config=None,
     )
 
 
