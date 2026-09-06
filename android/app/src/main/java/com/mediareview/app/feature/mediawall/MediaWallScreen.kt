@@ -275,34 +275,37 @@ private fun MediaWallFilters(
             )
         }
     } else {
-        OutlinedTextField(
-            value = ui.search,
-            onValueChange = viewModel::onSearchChange,
-            label = { Text("搜索") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(MediaSpacing.Small))
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
-            verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
-            maxItemsInEachRow = 2,
-        ) { controls() }
-        // 封面大小调节:文字与滑块同行,滑块占剩余宽度,避免整行被滑块占满
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.width(MediaSpacing.Small))
-            Slider(
-                value = ui.gridColumns.toFloat(),
-                onValueChange = { viewModel.setGridColumns(it.toInt()) },
-                valueRange = 2f..5f,
-                steps = 2,
-                modifier = Modifier.weight(1f),
+        // 竖屏筛选区:父容器是 Box(层叠),必须用 Column 依次排列,否则搜索/筛选/滑块全部叠在同一位置
+        Column(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = ui.search,
+                onValueChange = viewModel::onSearchChange,
+                label = { Text("搜索") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
             )
+            Spacer(Modifier.height(MediaSpacing.Small))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                maxItemsInEachRow = 2,
+            ) { controls() }
+            // 封面大小调节:文字与滑块同行,滑块占剩余宽度,避免整行被滑块占满
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.width(MediaSpacing.Small))
+                Slider(
+                    value = ui.gridColumns.toFloat(),
+                    onValueChange = { viewModel.setGridColumns(it.toInt()) },
+                    valueRange = 2f..5f,
+                    steps = 2,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
