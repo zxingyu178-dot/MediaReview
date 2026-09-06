@@ -2,6 +2,31 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-06 — 1.1.0-rc2 重打发布（真机反馈批量修复 + 真实播放端到端验证）
+
+Jellyfin 恢复后完成真实环境验证,并重打发布产物标记 rc1 → **1.1.0-rc2**(versionCode 7,
+不 tag 1.1.0,真机门仍待真机验收):
+
+- 真实服务器(8766)链路审计:配对 → /playback 200(设备级凭据签发正常)→ Direct HEAD
+  直连 Jellyfin 200(198MB mp4),URL 无密钥泄漏。
+- **模拟器真实媒体播放验证**:媒体墙"暂时离线"横幅随 Jellyfin 恢复消失;点开真实视频
+  Direct Play 实际起播(进度 0:15 → 0:55 / 32:05 持续前进,控制层锚定底部,无崩溃,
+  logcat 无 FATAL)。此前一次模拟器直连超时确认为 Jellyfin 当时正在停止,非网络/代码问题。
+- 产物重建(Android 门禁 testDebugUnitTest + assembleRelease + lintDebug 全绿,
+  versionCode 6→7 + BrandingResourceTest 同步):
+  - 签名 Release APK:release/家庭媒体管家-1.1.0-rc2.apk(15,616,330 字节,
+    SHA-256 B1482B8F…B89C1D;apksigner 验证证书 CN=MediaReview,
+    SHA-256 592c2595… 与 rc1 一致,真机可覆盖升级)。
+  - 部署包:deploy_handoff/MediaReview_Migration_1.1.0_20260906_1628.zip
+    (100,756,042 字节,SHA-256 58A7A444…9E9A75D;ZIP 内 163 文件校验和回验通过)。
+  - EXE 冒烟:临时数据根迁移 0001→0014 head、health ok/version 1.1.0、
+    启动日志密钥扫描 0 泄露(err.log 唯一命中为 alembic 迁移说明文字)。
+  - release/CHECKSUMS.txt 更新(rc1/rc2 APK + 部署包);过期 debug 验证版 APK 已移除。
+- 部署包现含三个修复提交:d2331f5(筛选区层叠)/988a151(筛选区紧凑两行)/
+  a7cd814(播放器锚点 + hls 模块 + 同步 user_id + 回环 500)。
+- 注意:真实部署(Windows 服务)仍是 rc1 旧程序,需用新迁移包升级后才有服务端修复;
+  Hermes 邮件交付(G9)仍待用户确认收件人。
+
 ### 2026-09-06 — 1.1.0-rc1 后 · 播放器专项审计与修复（真机反馈"播放器没功能"根治）
 
 用户反馈整体使用感受不佳、播放器功能全无。经模拟器/服务端全链路审计,定位并修复:
