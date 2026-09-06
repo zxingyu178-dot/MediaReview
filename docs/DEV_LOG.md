@@ -2,6 +2,47 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-06 — 1.1.0-rc1 后 · 播放器专项审计与修复（真机反馈"播放器没功能"根治）
+
+用户反馈整体使用感受不佳、播放器功能全无。经模拟器/服务端全链路审计,定位并修复:
+
+1. **播放器控制层锚点错误（Critical,Android）**:`PlayerScreen` 把 `BottomControls`
+   直接放进外层 `Box` 未加 align,Box 默认子级在左上角——播放键/进度条/倍速/音轨等
+   全部叠在屏幕顶部与顶栏重叠,完全不可用。修复:BottomControls 增加 modifier 参数并
+   锚定 `Alignment.BottomCenter`。模拟器实测控制层两行正确落在底部(y≈2121-2348)。
+2. **缺少 media3-exoplayer-hls 依赖（Critical,Android）**:工程仅打包 media3-exoplayer
+   + ui;Direct 失败触发 HLS 回退时,DefaultMediaSourceFactory 运行时反射加载
+   `HlsMediaSource$Factory` 抛 ClassNotFoundException → 主线程 FATAL,应用闪退。
+   这是"点视频就崩/播放器没功能"的直接根因。修复:版本目录与 app 依赖加入
+   `androidx.media3:media3-exoplayer-hls:1.4.1`。
+3. **首次选库后媒体同步必失败直到重启（Important,Server）**:`make_media_refresh_handler`
+   启动时深拷贝 JellyfinConfig;首次库配置自动发现并持久化的 user_id 只写回共享配置
+   实例,handler 快照不可见 → 刷新恒报"缺少 Jellyfin 用户"。修复:handler 捕获共享
+   配置对象本身,不深拷贝。测试环境(8776)实测:修复后选库 → refresh 202 → 22 条同步
+   成功 → /playback 直连 URL 200。
+4. **回环请求 playback 500（Minor,Server）**:本机请求(Host=127.0.0.1)派生客户端
+   Jellyfin 地址时被 `_client_reachable_hostname` 拒绝,ValueError 未捕获成 500。
+   修复:转 `ConfigError` 中文提示(建议配置 jellyfin.client_url)。fail-closed 语义不变。
+
+端到端验证(模拟器 → 测试栈 8776/8097,合成测试内容):
+
+- 配对(手动 IP 10.0.2.2:8776 + 配对码)→ 媒体墙缓存加载 → 点视频进播放器 →
+  控制层在底部、Direct 播放真实起播(45s 测试视频完整播放,AudioTrack 45s、解码全程)
+  → 播完 0:45/0:45。HLS 模块打包后不再闪退。
+- 批阅页:顶栏/右侧 ❤收藏 🗑待删除 ⋯更多(48dp)/底部导航齐全;收藏页空态中文文案
+  正常;整理页媒体库/待删除/重复计数正常。
+- 真实服务器(8766)审计:配对 → /playback 200,Direct HEAD 直连 Jellyfin 200(198MB
+  mp4)。注意:审计后真实 Jellyfin 服务在会话中期停止(8096 无监听),媒体墙按设计
+  显示"暂时离线,已缓存内容仍可查看";播放恢复需重启 Jellyfin(未擅自启动)。
+- 门禁:Server 全量 pytest(exit 0;test_task_manager 单例在并发构建负载下偶发锁
+  冲突,单独复跑通过)+ ruff check/format 全绿;Android assembleDebug +
+  testDebugUnitTest + lintDebug 全绿。
+- 回归辅助:测试栈 start_mrsrv.py 改为保留已持久化 user_id;模拟器切回真实服务器
+  8766 并恢复媒体墙加载。
+
+遗留:媒体墙竖屏筛选/播放器修复需随下一次正式发布重打包;真实 Jellyfin 停止原因
+待用户确认;播放器缓冲期无进度/时长显示(0:00/0:00)可后续打磨。
+
 ### 2026-09-06 — 1.1.0-rc1 后 · 媒体墙竖屏筛选区层叠修复与紧凑重排（真机反馈问题 1 根治 + 问题 2）
 
 真机截图一:筛选区控件相互重叠(滑块画在搜索框上、`类型` 按钮被盖住)。模拟器竖屏

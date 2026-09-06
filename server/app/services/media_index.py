@@ -910,15 +910,19 @@ def refresh_media_index(
 
 
 def make_media_refresh_handler(config: JellyfinConfig) -> Callable[[Database, str], None]:
-    """按应用配置构造媒体刷新处理器；凭据只留在内存客户端中。"""
-    captured = config.model_copy(deep=True)
+    """按应用配置构造媒体刷新处理器；凭据只留在内存客户端中。
+
+    必须捕获共享配置对象本身(不做深拷贝):首次媒体库配置会把自动发现的
+    user_id 就地写回同一 Pydantic 实例;若使用快照,启动后新写入的 user_id
+    对本处理器不可见,导致全新部署选库后媒体同步一直失败,直到重启服务。
+    """
 
     def _handler(database: Database, task_id: str) -> None:
         refresh_media_index(
             database,
             task_id,
-            user_id=captured.user_id,
-            client_factory=lambda: JellyfinClient(captured),
+            user_id=config.user_id,
+            client_factory=lambda: JellyfinClient(config),
         )
 
     return _handler

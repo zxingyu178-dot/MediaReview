@@ -389,7 +389,13 @@ async def get_playback_info(
         raise ValidationFailedError("仅视频支持播放,该媒体非视频类型")
     jellyfin_settings = request.app.state.settings.jellyfin
     request_host = request.url.hostname or ""
-    client_base = jellyfin_settings.client_base_url(request_host)
+    try:
+        client_base = jellyfin_settings.client_base_url(request_host)
+    except ValueError as exc:
+        # 回环/仅服务器可达的派生 host 不下发给客户端(fail-closed),转成可理解的中文错误
+        raise ConfigError(
+            "无法为当前网络环境生成可直连的 Jellyfin 播放地址,请配置 jellyfin.client_url"
+        ) from exc
     server_key = jellyfin_settings.api_key.get_secret_value()
     authoritative = bool(jellyfin_settings.client_url)
 
