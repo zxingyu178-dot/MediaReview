@@ -2,6 +2,23 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
+### 2026-09-06 — 1.1.0-rc2 APK 邮件交付（G9 完成）
+
+发送前提:defender 扫描 rc2 APK `found no threats`;签名/SHA-256 已记录;真机边界
+(RC 候选、正式 1.1.0 待真机门)写入邮件正文。
+
+发送方式:Hermes `send_mail.py` 截至 2026-09-06 仍为 MIMEImage 附件路径(未修复非图片
+MIME),沿用 2026-09-03 rc1 经用户明确授权的直连 SMTP 模式:运行时读取
+`E:\aihome\hermes\config\secrets.env`(仅内存,不落盘不打印),APK 以
+`application/vnd.android.package-archive` 附加,附 CHECKSUMS.txt;收件为用户确认的
+默认地址(全部记录掩码 `30*****@qq.com`);fail-closed(附件/构造/拒收任一失败不发送)。
+
+结果:`SMTP accepted` + `SEND_OK attachment=家庭媒体管家-1.1.0-rc2.apk bytes=15616330
+sha256=B1482B8F…B89C1D`,与 `release/CHECKSUMS.txt` 完全一致 → 记录为「APK 已交付」。
+交付档案:共享 `inbox/hermes/2026-09-06-mediareview-apk-email.md`(含交付状态)、
+`E:\aihome\codex\logs\mediareview_email_delivery_20260906_165500.log`(凭据 NOT_LOGGED)。
+部署迁移包(97MB)超常规邮件附件上限,不邮件交付,保留 deploy_handoff 共享路径交付。
+
 ### 2026-09-06 — 1.1.0-rc2 重打发布（真机反馈批量修复 + 真实播放端到端验证）
 
 Jellyfin 恢复后完成真实环境验证,并重打发布产物标记 rc1 → **1.1.0-rc2**(versionCode 7,

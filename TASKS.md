@@ -23,7 +23,12 @@
   versionCode 6→7 + 品牌测试同步；签名 rc2 APK（证书与 rc1 一致）+
   部署包 163 文件校验回验 + EXE 冒烟（迁移到 0014 head + health + 日志无密钥）。
   **真实部署 Windows 服务仍是 rc1，需用新迁移包升级**；正式 1.1.0 仍待真机门。
-- [ ] G9 Hermes 邮件交付（需用户确认收件人）
+- [x] G9 APK 邮件交付（2026-09-06 rc2）：Defender 扫描无威胁后，沿用 rc1 经用户授权的
+  直连 SMTP 模式（运行时凭据、不落盘、地址掩码 `30*****@qq.com`）发送
+  家庭媒体管家-1.1.0-rc2.apk（15,616,330 字节，SHA-256 B1482B8F…）；SMTP accepted +
+  SEND_OK 行与 CHECKSUMS 一致；交付记录见 `E:\aihome\shared\inbox\hermes\2026-09-06-mediareview-apk-email.md`
+  与 `E:\aihome\codex\logs\mediareview_email_delivery_20260906_165500.log`。
+  （Hermes send_mail.py 仍为图片附件路径未修复；部署迁移包 97MB 超邮件上限，不邮件交付。）
 
 ## MediaReview(1.1.0-rc1 Task F: Windows 部署、升级、回滚与产物)
 
