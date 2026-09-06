@@ -2,27 +2,28 @@
 
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
-### 2026-09-06 — 1.1.0-rc1 后 · 媒体墙竖屏筛选区层叠修复（真机反馈问题 1 根治）
+### 2026-09-06 — 1.1.0-rc1 后 · 媒体墙竖屏筛选区层叠修复与紧凑重排（真机反馈问题 1 根治 + 问题 2）
 
-真机横屏截图显示媒体墙筛选区控件相互重叠（滑块画在搜索框上、部分按钮被盖住）。
-在模拟器竖屏用 uiautomator bounds 数值复现:`排序` 与 `封面 N 列+Slider` 行完全同位,
-`类型` 按钮整体被盖住。
+真机截图一:筛选区控件相互重叠(滑块画在搜索框上、`类型` 按钮被盖住)。模拟器竖屏
+uiautomator bounds 数值复现:`排序` 与 `封面 N 列+Slider` 行完全同位。
 
 根因:`ResponsiveMediaWallLayout` 的筛选容器是 `Box`(层叠语义),竖屏 stacked 分支把
 OutlinedTextField、Spacer、FlowRow、封面滑块行 4 个同级元素直接 emit 进该 Box,
-全部层叠在左上角;FlowRow 溢出的行(媒体库/文件夹、筛选未点赞)垂在下方,形成截图
-中的混合重叠。8f10090 的"文字+滑块同行"修复未触及该容器语义。横屏 compact 分支
-只有单一 Row,故不受影响。
+全部层叠在左上角。8f10090 的"文字+滑块同行"修复未触及该容器语义。横屏 compact
+分支只有单一 Row,不受影响。修复:stacked 分支包进 `Column(fillMaxWidth)`。
 
-修复:stacked 分支整体包进 `Column(fillMaxWidth)`(MediaWallScreen.kt),竖屏恢复
-依次排列;横屏分支不动。
+真机截图二(层叠修复后):竖屏筛选区占 5 行太高,整宽滑轨浪费空间。重排为两行:
+第一行 = 搜索框(weight) + `封面 N 列` 标签 + −/+ 步进 IconButton(48dp 触控,
+2/5 边界禁用);第二行 = 筛选按钮横向滚动 Row。移除竖屏 Slider 与 FlowRow
+(及其 ExperimentalLayoutApi OptIn),横屏 compact 分支不变。
 
 验证:
 
-- 修复后模拟器竖屏 bounds:搜索 y424-592 → 排序/类型 y650 → 媒体库/文件夹 y797 →
-  筛选未点赞 y944 → 封面行 y1038-1154,互不重叠,`类型` 恢复可见。
-- 模拟器横屏 bounds:单行 y352-405 横向滚动,与修复前一致(分支未改)。
-- `:app:assembleDebug` + `:app:testDebugUnitTest` BUILD SUCCESSFUL。
+- 竖屏 bounds:搜索框+步进器一行(y≈424-592),筛选按钮滚动一行(y650-703),
+  筛选区高度 ~730px → ~280px;`类型` 恢复可见。
+- 步进器实测:点 `+` → `封面 3 列`,点 `-` → `封面 2 列`。
+- 横屏 bounds 与修复前一致(单行横向滚动)。
+- `:app:assembleDebug` / `:app:testDebugUnitTest` / `:app:lintDebug` 均 BUILD SUCCESSFUL。
 - 修复随 debug 验证版 APK(20260906)提供真机安装。
 
 遗留:正式 1.1.0 发布产物需重打包(含本修复);真机门其余项仍待真机验收。

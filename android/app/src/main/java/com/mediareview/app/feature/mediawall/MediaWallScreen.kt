@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -21,10 +19,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -95,7 +98,6 @@ fun NavGraphBuilder.mediaWallGraph(navController: NavController) {
  * 媒体墙:封面网格(Paging 3 分页) + 封面大小调节 + 排序/类型/媒体库/文件夹筛选 + 搜索。
  * 首屏骨架/空态/离线重试由 LoadState 驱动;追加失败在网格尾部就地重试。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MediaWallScreen(
     viewModel: MediaWallViewModel = hiltViewModel(),
@@ -223,7 +225,6 @@ fun ResponsiveMediaWallLayout(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MediaWallFilters(
     ui: MediaWallUiState,
@@ -275,37 +276,42 @@ private fun MediaWallFilters(
             )
         }
     } else {
-        // 竖屏筛选区:父容器是 Box(层叠),必须用 Column 依次排列,否则搜索/筛选/滑块全部叠在同一位置
+        // 竖屏筛选区:父容器是 Box(层叠),必须用 Column 依次排列
+        // 两行紧凑排版:搜索+封面列数步进一行,筛选项横向滚动一行
         Column(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = ui.search,
-                onValueChange = viewModel::onSearchChange,
-                label = { Text("搜索") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(MediaSpacing.Small))
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
-                verticalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
-                maxItemsInEachRow = 2,
-            ) { controls() }
-            // 封面大小调节:文字与滑块同行,滑块占剩余宽度,避免整行被滑块占满
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("封面 ${ui.gridColumns} 列", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(MediaSpacing.Small))
-                Slider(
-                    value = ui.gridColumns.toFloat(),
-                    onValueChange = { viewModel.setGridColumns(it.toInt()) },
-                    valueRange = 2f..5f,
-                    steps = 2,
+                OutlinedTextField(
+                    value = ui.search,
+                    onValueChange = viewModel::onSearchChange,
+                    label = { Text("搜索") },
+                    singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
+                Text(
+                    "封面 ${ui.gridColumns} 列",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(start = MediaSpacing.Small),
+                )
+                IconButton(
+                    onClick = { viewModel.setGridColumns(ui.gridColumns - 1) },
+                    enabled = ui.gridColumns > 2,
+                ) { Icon(Icons.Outlined.Remove, contentDescription = "减少封面列数") }
+                IconButton(
+                    onClick = { viewModel.setGridColumns(ui.gridColumns + 1) },
+                    enabled = ui.gridColumns < 5,
+                ) { Icon(Icons.Outlined.Add, contentDescription = "增加封面列数") }
             }
+            Spacer(Modifier.height(MediaSpacing.Small))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
+                verticalAlignment = Alignment.CenterVertically,
+            ) { controls() }
         }
     }
 }
