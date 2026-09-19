@@ -1,0 +1,10 @@
+﻿{
+    "source":  "03_portrait.mp4",
+    "columns":  5,
+    "rows":  2,
+    "cell_width":  160,
+    "cell_height":  90,
+    "frame_interval_s":  2,
+    "duration_s":  18,
+    "frame_count":  9
+}

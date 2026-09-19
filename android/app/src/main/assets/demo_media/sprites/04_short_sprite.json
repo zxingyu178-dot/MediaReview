@@ -1,0 +1,10 @@
+﻿{
+    "source":  "04_short.mp4",
+    "columns":  5,
+    "rows":  1,
+    "cell_width":  160,
+    "cell_height":  90,
+    "frame_interval_s":  2,
+    "duration_s":  10,
+    "frame_count":  5
+}

@@ -1,0 +1,10 @@
+﻿{
+    "source":  "02_landscape.mp4",
+    "columns":  5,
+    "rows":  3,
+    "cell_width":  160,
+    "cell_height":  90,
+    "frame_interval_s":  2,
+    "duration_s":  22.5,
+    "frame_count":  12
+}

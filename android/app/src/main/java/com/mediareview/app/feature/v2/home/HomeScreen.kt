@@ -1,0 +1,269 @@
+package com.mediareview.app.feature.v2.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.mediareview.app.feature.v2.model.V2Folder
+import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.ui.V2Colors
+import com.mediareview.app.feature.v2.ui.V2Radius
+import com.mediareview.app.feature.v2.ui.V2Spacing
+import com.mediareview.app.ui.theme.MediaBackground
+import com.mediareview.app.ui.theme.MediaSurfaceRaised
+import com.mediareview.app.ui.theme.MediaTextPrimary
+import com.mediareview.app.ui.theme.MediaTextSecondary
+
+/**
+ * V2 首页：搜索栏 + 媒体/书架双模式 + 文件夹分类 + 排序/筛选 + 双列媒体网格。
+ * 底部导航由 V2Root 统一管理。
+ */
+@Composable
+fun HomeScreen(
+    vm: V2HomeViewModel,
+    onOpenMedia: (V2Media) -> Unit,
+    onOpenFolder: (V2Folder) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val folders by vm.folders.collectAsState()
+    val list by vm.currentList.collectAsState()
+    val sortSpec by vm.sortSpec.collectAsState()
+    val selectedFolderId by vm.selectedFolderId.collectAsState()
+    val folderCounts by vm.folderCounts.collectAsState()
+    val searchActive = vm.searchActive
+    val selectedRecent = vm.selectedRecent
+
+    var showMoreSheet by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
+        SearchBarButton(
+            active = searchActive,
+            onToggle = { vm.setSearchMode(!searchActive) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Md),
+        )
+
+        if (!searchActive) {
+            ModeTabRow(
+                current = vm.currentTab,
+                onSelect = vm::setTab,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm),
+            )
+
+            if (vm.currentTab == V2HomeTab.MEDIA) {
+                FolderChipRow(
+                    folders = folders,
+                    selectedFolderId = selectedFolderId,
+                    selectedRecent = selectedRecent,
+                    onSelectAll = vm::selectAll,
+                    onSelectRecent = vm::selectRecent,
+                    onSelectFolder = vm::selectFolder,
+                    onMore = { showMoreSheet = true },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SortFilterRow(
+                    spec = sortSpec,
+                    onClick = { showSortSheet = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Xs),
+                )
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                when (vm.currentTab) {
+                    V2HomeTab.MEDIA -> MediaGrid(
+                        list = list,
+                        vm = vm,
+                        onOpenMedia = onOpenMedia,
+                    )
+                    V2HomeTab.SHELF -> ShelfGrid(
+                        folders = folders,
+                        counts = folderCounts,
+                        thumbFor = { id -> vm.mediaById(id)?.let { vm.thumbUri(it) } ?: "" },
+                        onOpenFolder = onOpenFolder,
+                    )
+                }
+            }
+        } else {
+            SearchPanel(
+                vm = vm,
+                onOpenMedia = onOpenMedia,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+
+    if (showMoreSheet) {
+        MoreFoldersSheet(
+            folders = folders,
+            counts = folderCounts,
+            selectedFolderId = selectedFolderId,
+            onSelect = {
+                vm.selectFolder(it)
+                showMoreSheet = false
+            },
+            onDismiss = { showMoreSheet = false },
+        )
+    }
+
+    if (showSortSheet) {
+        SortFilterSheet(
+            spec = sortSpec,
+            onChange = vm::setSortSpec,
+            onDismiss = { showSortSheet = false },
+        )
+    }
+}
+
+/** 顶部搜索栏（点击在页面内展开搜索面板，不新开页面）。 */
+@Composable
+private fun SearchBarButton(
+    active: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(V2Radius.SearchBar))
+            .background(MediaSurfaceRaised)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = V2Spacing.Lg, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "搜索",
+            tint = MediaTextSecondary,
+        )
+        Text(
+            text = if (active) "" else "搜索媒体…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MediaTextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = V2Spacing.Md),
+        )
+        if (active) {
+            IconButton(onClick = onToggle, modifier = Modifier.size(20.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "关闭搜索",
+                    tint = MediaTextSecondary,
+                )
+            }
+        }
+    }
+}
+
+/** 媒体 / 书架双模式切换。 */
+@Composable
+private fun ModeTabRow(
+    current: V2HomeTab,
+    onSelect: (V2HomeTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier) {
+        TabChip(
+            text = "媒体",
+            selected = current == V2HomeTab.MEDIA,
+            onClick = { onSelect(V2HomeTab.MEDIA) },
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.size(V2Spacing.Md))
+        TabChip(
+            text = "书架",
+            selected = current == V2HomeTab.SHELF,
+            onClick = { onSelect(V2HomeTab.SHELF) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun TabChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(V2Radius.Chip))
+            .background(if (selected) V2Colors.Accent else MediaSurfaceRaised)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleSmall,
+            color = if (selected) MediaBackground else MediaTextPrimary,
+        )
+    }
+}
+
+/** 双列媒体网格。 */
+@Composable
+fun MediaGrid(
+    list: List<V2Media>,
+    vm: V2HomeViewModel,
+    onOpenMedia: (V2Media) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl,
+        ),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(V2Spacing.Md),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(V2Spacing.Md),
+    ) {
+        items(list, key = { it.id }) { media ->
+            MediaCard(
+                media = media,
+                thumbUri = vm.thumbUri(media),
+                spriteUri = vm.spriteUri(media),
+                manifest = vm.spriteManifest(media),
+                onClick = { onOpenMedia(media) },
+            )
+        }
+    }
+}
