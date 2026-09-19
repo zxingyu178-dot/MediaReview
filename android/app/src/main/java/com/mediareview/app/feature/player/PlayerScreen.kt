@@ -258,9 +258,10 @@ fun PlayerScreen(
             }
         }
 
-        // 底部控制(Column 堆叠,避免重叠)
+        // 底部控制(Column 堆叠,避免重叠);Box 默认子级在左上角,必须显式锚到底部
         if (controlsVisible && ready) {
             BottomControls(
+                modifier = Modifier.align(Alignment.BottomCenter),
                 core = core,
                 status = status,
                 positionMs = positionMs,
@@ -338,6 +339,7 @@ private fun GestureLayer(
 /** 底部控制层:播放/暂停 + 进度 Slider + 倍速/音量/比例/音轨/字幕/横竖屏/锁定(Column 堆叠)。 */
 @Composable
 private fun BottomControls(
+    modifier: Modifier = Modifier,
     core: PlayerCore,
     status: PlaybackStatus,
     positionMs: Long,
@@ -376,7 +378,7 @@ private fun BottomControls(
     }
 
     Column(
-        Modifier
+        modifier
             .fillMaxWidth()
             .background(MediaControlScrim)
             .padding(MediaSpacing.Small),
