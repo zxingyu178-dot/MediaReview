@@ -1,5 +1,7 @@
 # AGENTS.md — MediaReview 开发总规则
 
+> **流程变更（2026-09-19）**：本项目已托管至 GitHub 公开仓库（远程 `origin`，默认分支 `main`），GitHub 为唯一主要源码交接渠道。交接流程改为：任务 → 开发 → `git commit` → `git push` → 真机测试 → 基于 GitHub commit / diff 验收。原则上不再单独为 ChatGPT 制作完整源码 ZIP；本文档第 6 节验收包流程保留为阶段自检参考。
+
 本文件是本项目所有 Agent、Codex、Trae 或其他自动化开发代理的最高优先级工程规则。
 
 ## 1. 工作方式

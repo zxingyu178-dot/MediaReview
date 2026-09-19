@@ -12,9 +12,9 @@
 
 ## 当前冻结点
 
-- 分支：`feature/mediareview-1.1`
+- 分支：`main`（2026-09-19 起；原 `feature/mediareview-1.1`）
 - 交接副本建立时 HEAD：`fac901e`；其历史必须包含 Task 4 源码提交 `ef528d363f4cca158c6fdbe60a59424fa0615c4a`。接管文档修正可能产生更晚的 HEAD，不应以 HEAD 等于某个旧提交作为门禁。
-- 本 D 盘副本应保持无 Git remote。只有用户明确指定新的托管位置后才能添加 remote；禁止推送回 E 盘原源码目录。
+- 本仓库已按用户 2026-09-19 决定托管至 **GitHub 公开仓库**（`origin`，`https://github.com/zxingyu178-dot/MediaReview.git`）。禁止推送回 E 盘原源码目录。
 - Task 0–3：独立审查 CLEAN。
 - Task 4：**NOT CLEAN**，仍有 2 个 Important；当前 HEAD 只能作为继续返修的候选树，不能作为发布基线。
 - Task 5–10：尚未按 1.1 规格实施和验收。
