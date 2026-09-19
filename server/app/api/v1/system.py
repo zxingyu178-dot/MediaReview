@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.adapters.jellyfin.client import JellyfinClient
 from app.api.v1.auth import require_localhost_or_auth
 from app.core.errors import BadRequestError
+from app.core.instance_identity import get_instance_identity
 from app.core.responses import Envelope, ok
 from app.db.models import MediaCacheIndex, MediaSyncState, SpriteManifest
 from app.db.session import get_db
@@ -56,7 +57,10 @@ def _mask_log_text(text: str) -> str:
 
 class HealthData(BaseModel):
     status: str
+    service: str
     version: str
+    instance_mode: str
+    lifecycle_target: str
     components: dict[str, str]
 
 
@@ -135,14 +139,22 @@ def _recent_log_lines(
 
 @router.get("/health", response_model=Envelope[HealthData])
 def health(request: Request) -> Envelope[HealthData]:
-    """健康检查。database 异常时整体 status=degraded。"""
+    """健康检查。database 异常时整体 status=degraded。
+
+    p5cb.1 起携带实例身份(instance_mode / lifecycle_target),供 Control Hub
+    交叉校验"确为 AIHome.MediaReview 服务实例",而不只是看到 HTTP 200。
+    """
     from app import __version__
 
     database_status = _database_status(request)
     jellyfin_configured = request.app.state.settings.jellyfin.is_configured()
+    identity = get_instance_identity()
     data = HealthData(
         status="ok" if database_status == "ok" else "degraded",
+        service=identity.service,
         version=__version__,
+        instance_mode=identity.instance_mode,
+        lifecycle_target=identity.lifecycle_target,
         components={
             "database": database_status,
             "jellyfin": "not_configured" if not jellyfin_configured else "configured",
