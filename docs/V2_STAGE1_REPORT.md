@@ -65,4 +65,4 @@
 
 `feat: establish MediaReview 2.0 offline interactive baseline`
 
-（Commit SHA 见 Git 历史，提交后填写）
+Commit SHA：`71c3414`（分支 `feature/mediareview-v2-stage1-offline`）
