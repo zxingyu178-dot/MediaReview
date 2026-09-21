@@ -8,15 +8,18 @@ import kotlinx.coroutines.launch
 /**
  * 控制层显隐状态（MediaReview 播放器 UI 逻辑，非播放内核）。
  *
+ * Stage 2.2.1 状态收敛：锁定状态的唯一真实来源是 GSY controller.snapshot.isLocked，
+ * 本类不再持有 locked，也不提供 setLocked；仅通过 [onLockChanged] 接收外部
+ * （controller 快照）同步过来的锁定态，以驱动显隐：
+ *
  * - 播放中约 3 秒无操作自动隐藏；
  * - 暂停时保持显示；
  * - Seek / 倍速 / 按钮 / 切比例等交互重新计时；
- * - 锁定后隐藏全部普通控制，仅保留锁图标。
+ * - 锁定（来自 controller）后立即隐藏普通控制；解锁后重新显示并计时。
  */
 class ControlsVisibilityState(
     private val scope: CoroutineScope,
     private val onVisibilityChange: ((Boolean) -> Unit)? = null,
-    private val onLockChange: ((Boolean) -> Unit)? = null,
 ) {
 
     companion object {
@@ -24,9 +27,6 @@ class ControlsVisibilityState(
     }
 
     var visible = true
-        private set
-
-    var locked = false
         private set
 
     private var hideJob: Job? = null
@@ -42,32 +42,34 @@ class ControlsVisibilityState(
         }
     }
 
-    /** 手势 / 按钮操作：显示并重置自动隐藏计时（锁定态忽略）。 */
+    /** 手势 / 按钮操作：显示并重置自动隐藏计时。 */
     fun onUserInteraction() {
-        if (locked) return
         show()
         scheduleHide()
     }
 
     fun toggleVisibility() {
-        if (locked) return
         visible = !visible
         if (visible) scheduleHide() else hideJob?.cancel()
         onVisibilityChange?.invoke(visible)
     }
 
-    fun setLocked(locked: Boolean) {
-        if (this.locked == locked) return
-        this.locked = locked
+    /**
+     * 锁定态由 controller.snapshot.isLocked 同步驱动（本类不持有锁定真值）。
+     * 锁定：立即隐藏并停止计时；解锁：重新显示并按播放状态计时。
+     */
+    fun onLockChanged(locked: Boolean) {
         if (locked) {
             hideJob?.cancel()
-            visible = false
+            if (visible) {
+                visible = false
+                onVisibilityChange?.invoke(false)
+            }
         } else {
             visible = true
+            onVisibilityChange?.invoke(true)
             scheduleHide()
         }
-        onVisibilityChange?.invoke(visible)
-        onLockChange?.invoke(this.locked)
     }
 
     private fun scheduleHide() {
@@ -75,7 +77,7 @@ class ControlsVisibilityState(
         hideJob?.cancel()
         hideJob = scope.launch {
             delay(AUTO_HIDE_MS)
-            if (!locked && playing && visible) {
+            if (playing && visible) {
                 visible = false
                 onVisibilityChange?.invoke(false)
             }

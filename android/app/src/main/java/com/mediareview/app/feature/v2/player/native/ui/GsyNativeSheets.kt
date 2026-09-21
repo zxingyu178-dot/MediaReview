@@ -1,6 +1,8 @@
 package com.mediareview.app.feature.v2.player.native.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,7 +48,7 @@ fun GsyNativeMoreSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetTitle("更多")
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             MoreRow("上一条", enabled = hasPrevious, onClick = onPrevious)
             MoreRow("下一条", enabled = hasNext, onClick = onNext)
             MoreRow("播放速度", onClick = onSpeed)
@@ -87,7 +89,7 @@ fun GsyNativeSpeedSheet(
     val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetTitle("播放速度")
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             speeds.forEach { s ->
                 SelectableRow(label = "${formatSpeedLabel(s)}x", selected = abs(s - current) < 0.001f, onClick = { onSelect(s) })
             }
@@ -105,7 +107,7 @@ fun GsyNativeScaleSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetTitle("画面比例")
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             com.mediareview.app.feature.v2.player.native.state.VideoScaleState.ScaleMode.entries.forEach { mode ->
                 SelectableRow(label = mode.label, selected = mode == current, onClick = { onSelect(mode) })
             }

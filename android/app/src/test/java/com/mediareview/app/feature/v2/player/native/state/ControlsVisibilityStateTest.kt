@@ -10,7 +10,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** ControlsVisibilityState：播放 3s 自动隐藏、暂停保持、交互重置、锁定隐藏。 */
+/** ControlsVisibilityState：播放 3s 自动隐藏、暂停保持、交互重置、锁定同步隐藏。 */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ControlsVisibilityStateTest {
 
@@ -58,18 +58,17 @@ class ControlsVisibilityStateTest {
     }
 
     @Test
-    fun `锁定隐藏全部普通控制 解锁恢复`() = runTest {
+    fun `controller 锁定同步隐藏 解锁恢复`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val state = ControlsVisibilityState(CoroutineScope(dispatcher))
         state.updatePlayback(true)
-        state.setLocked(true)
-        assertTrue(state.locked)
+        // 锁定真值来自 controller.snapshot.isLocked，这里只接收同步
+        state.onLockChanged(true)
         assertFalse(state.visible)
         advanceTimeBy(10_000L)
         runCurrent()
         assertFalse(state.visible)
-        state.setLocked(false)
-        assertFalse(state.locked)
+        state.onLockChanged(false)
         assertTrue(state.visible)
     }
 }

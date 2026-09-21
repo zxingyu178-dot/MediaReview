@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
@@ -38,9 +39,14 @@ fun GsyNativeTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .testTag("player_top_bar")
             .background(
                 Brush.verticalGradient(
-                    listOf(MediaImmersiveBackground.copy(alpha = 0.65f), Color.Transparent),
+                    listOf(
+                        MediaImmersiveBackground.copy(alpha = 0.62f),
+                        MediaImmersiveBackground.copy(alpha = 0.30f),
+                        Color.Transparent,
+                    ),
                 ),
             ),
     ) {

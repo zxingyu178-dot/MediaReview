@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.player.native
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -33,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.mediareview.app.feature.v2.player.gsy.demoRawVideoUri
+import com.mediareview.app.BuildConfig
 import com.mediareview.app.feature.v2.player.native.state.BackNavigationLogic
 import com.mediareview.app.feature.v2.player.native.state.ControlsVisibilityState
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
@@ -53,10 +54,12 @@ import com.mediareview.app.feature.v2.player.native.ui.GsyNativeSpeedSheet
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeStatusSheet
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeTopBar
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeVideoInfoSheet
+import com.mediareview.app.feature.v2.player.native.ui.PlayerLayoutDebug
 import com.mediareview.app.feature.v2.player.native.ui.formatSpeedLabel
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.shuyu.gsyvideoplayer.compose.native_.GSYGestureType
+import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayState
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerEvent
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerSurface
 import com.shuyu.gsyvideoplayer.compose.native_.gsyGestureControl
@@ -77,12 +80,13 @@ private enum class PlayerSheet { MORE, SPEED, SCALE, ROTATION, SUBTITLE, AUDIO, 
  * 播放 / 暂停 / Seek / 状态 / 全屏 / 音量亮度手势等全部由 GSY 提供；
  * MediaReview 只负责控制层 UI 与交互组织。
  *
- * - 播放状态一律来自 controller.snapshot（不维护第二套 isPlaying）；
+ * - 播放 / 锁定 / 倍速状态一律以 controller.snapshot 为唯一真实来源（不维护第二份状态）；
  * - 单击显隐控制层（播放 3s 自动隐藏、暂停保持）；
  * - 双击左/右 ±10s（连续累计）；长按临时 2x；
  * - 横向拖拽 Seek（灵敏度自适应，松手 controller.seekTo 提交）；
- * - 全屏用 controller.enterFullscreen / exitFullscreen；Back 优先退出全屏；
- * - 上一条 / 下一条复用同一 controller.setUp 切换源。
+ * - 全屏由 MediaReview 自管（仅旋转 Activity 方向，Compose 三层 Overlay 天然跟随，不走 GSY
+ *   经典 View 迁移）；Back 统一走 handlePlayerBack；
+ * - 上一条 / 下一条复用同一 controller.setUp 正式换源（URL / Title / Headers 全更新）。
  */
 @Composable
 fun GsyNativePlayerScreen(
@@ -94,18 +98,20 @@ fun GsyNativePlayerScreen(
     val activity = remember { appContext.findActivity() }
     val scope = rememberCoroutineScope()
 
+    // autoPlay=false：库内部在 AndroidView factory 中 attachHost 后立即 post startPlayLogic，
+    // 冷启动 / JIT 繁忙时宿主可能尚未完成首次布局。下方 LaunchedEffect 等 host attach 且
+    // 完成首次布局（width/height>0）后再自管 play，保证启动时渲染容器尺寸确定。
     val controller = rememberGSYPlayerController(
         url = playbackContext.current?.url,
         cacheWithPlay = false,
         title = playbackContext.current?.title ?: "",
-        autoPlay = true,
+        autoPlay = false,
         autoPauseResume = true,
     )
 
     // ---------- MediaReview 交互状态 ----------
     var contextState by remember { mutableStateOf(playbackContext) }
     var controlsVisible by remember { mutableStateOf(true) }
-    var controlsLocked by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
     var seekHint by remember { mutableStateOf<GsyNativeSeekHint?>(null) }
@@ -115,11 +121,11 @@ fun GsyNativePlayerScreen(
     var savedBrightness by remember { mutableStateOf(-1f) }
     var savedOrientation by remember { mutableStateOf(-1) }
 
+    // 锁定真值不存放于此：唯一来源是 controller.snapshot.isLocked
     val controls = remember {
         ControlsVisibilityState(
             scope = scope,
             onVisibilityChange = { visible -> controlsVisible = visible },
-            onLockChange = { locked -> controlsLocked = locked },
         )
     }
     val scrub = remember { SeekScrubState() }
@@ -131,13 +137,32 @@ fun GsyNativePlayerScreen(
     // snapshot 为唯一播放状态来源
     val snapshot = controller.snapshot.value
     val current = contextState.current
+    val locked = snapshot.isLocked
 
-    // ---------- 事件订阅（全屏边沿等） ----------
+    // ---------- 事件订阅 + 自管播放启动 ----------
     LaunchedEffect(controller) {
+        // 等 host attach 到窗口且完成首次布局后再 startPlayLogic，规避冷启动首帧黑屏
+        controller.withHost { host ->
+            var attempts = 0
+            fun tryStartPlayback() {
+                val layoutReady = host.isAttachedToWindow && host.width > 0 && host.height > 0
+                if (layoutReady) {
+                    host.postDelayed({ controller.play() }, 120L)
+                } else if (attempts++ < 60) {
+                    host.postDelayed({ tryStartPlayback() }, 50L)
+                } else {
+                    controller.play()
+                }
+            }
+            host.post { tryStartPlayback() }
+        }
+
         controller.events.collect { event ->
             when (event) {
-                is GSYPlayerEvent.EnterFull -> isFullscreen = true
-                is GSYPlayerEvent.QuitFull -> isFullscreen = false
+                // 全屏由 MediaReview 自管（enterFullscreen/exitFullscreen），不依赖 GSY 经典
+                // View 迁移事件，故此处不再用 EnterFull/QuitFull 驱动 isFullscreen。
+                // 每次 Prepared（含切源后内核重置倍速）恢复用户期望倍速
+                is GSYPlayerEvent.Prepared -> controller.setSpeed(speed.expectedSpeed)
                 else -> Unit
             }
         }
@@ -148,15 +173,21 @@ fun GsyNativePlayerScreen(
         controls.updatePlayback(snapshot.isPlaying)
     }
 
+    // 锁定态唯一来源 controller.snapshot.isLocked，同步给显隐逻辑
+    LaunchedEffect(locked) {
+        controls.onLockChanged(locked)
+    }
+
     // 头信息（Demo 为空；未来 Jellyfin 传 X-Emby-Token）
     LaunchedEffect(current?.mediaId) {
         controller.setHeaders(current?.headers?.ifEmpty { null })
     }
 
-    // 全屏自动旋转交给 GSY OrientationUtils（rotateViewAuto），内嵌不随系统转
+    // 全屏方向由 MediaReview 自管（见 enterFullscreen/exitFullscreen）。关闭 GSY 自动旋转全屏，
+    // 避免 OrientationUtils 在横屏时自行 startWindowFullscreen（Compose 下会迁出 View 导致黑屏）。
     LaunchedEffect(Unit) {
         controller.withHost { player ->
-            player.setRotateViewAuto(true)
+            player.setRotateViewAuto(false)
             player.setRotateWithSystem(false)
         }
     }
@@ -189,12 +220,39 @@ fun GsyNativePlayerScreen(
         }
     }
 
-    // ---------- Back：全屏优先退出全屏 ----------
-    BackHandler {
-        when (BackNavigationLogic.resolveBackAction(isFullscreen)) {
-            BackNavigationLogic.BackAction.EXIT_FULLSCREEN -> activity?.let { controller.exitFullscreen(it) }
+    // 全屏由 MediaReview 自管（Compose 方案）：仅旋转 Activity 方向，不调用 GSY 经典
+    // startWindowFullscreen——后者会把 View 迁出 Compose 树迁到 decorView，在 Compose 下不旋转、
+    // 产生双 host 且自绘三层 Overlay 不跟随（实测黑屏）。Manifest 已声明 configChanges，
+    // 旋转只触发重组、不重建 Activity，controller / 播放进度 / 三层 Overlay 全部保留。
+    fun enterFullscreen() {
+        val a = activity ?: return
+        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+        isFullscreen = true
+        controls.onUserInteraction()
+    }
+
+    fun exitFullscreen() {
+        val a = activity ?: return
+        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        isFullscreen = false
+        controls.onUserInteraction()
+    }
+
+    fun toggleFullscreen() {
+        if (isFullscreen) exitFullscreen() else enterFullscreen()
+    }
+
+    // ---------- Back：顶部返回与 Android Back 统一走 handlePlayerBack ----------
+    fun handlePlayerBack() {
+        when (BackNavigationLogic.resolveBackAction(sheet != null, isFullscreen)) {
+            BackNavigationLogic.BackAction.DISMISS_SHEET -> sheet = null
+            BackNavigationLogic.BackAction.EXIT_FULLSCREEN -> exitFullscreen()
             BackNavigationLogic.BackAction.EXIT_PLAYER -> onBack()
         }
+    }
+
+    BackHandler {
+        handlePlayerBack()
     }
 
     // ---------- 交互动作 ----------
@@ -218,20 +276,20 @@ fun GsyNativePlayerScreen(
     }
 
     fun togglePlayPause() {
-        if (controlsLocked) return
+        if (locked) return
         controller.togglePlayPause()
         controls.onUserInteraction()
     }
 
     fun seekRelative(deltaMs: Long) {
-        if (controlsLocked) return
+        if (locked) return
         controller.seekRelative(deltaMs)
         showHint(deltaMs, controller.snapshot.value.currentPosition)
         controls.onUserInteraction()
     }
 
     fun handleDoubleTap(xFraction: Float) {
-        if (controlsLocked) return
+        if (locked) return
         val action = tap.onDoubleTap(xFraction, SystemClock.uptimeMillis())
         when (action) {
             TapActionState.DoubleTapAction.SEEK_BACK -> {
@@ -253,42 +311,37 @@ fun GsyNativePlayerScreen(
     }
 
     fun startTempSpeed() {
-        if (controlsLocked) return
-        speed.startTempSpeed(snapshot.isPlaying)
+        if (locked) return
+        speed.startTemp(snapshot.speed, snapshot.isPlaying)
         if (speed.tempActive) controller.setSpeed(SpeedState.TEMP_SPEED)
     }
 
     fun endTempSpeed() {
         if (speed.tempActive) {
-            speed.endTempSpeed()
-            controller.setSpeed(speed.userSpeed)
+            controller.setSpeed(speed.endTemp())
         }
     }
 
     fun toggleLock() {
-        val next = !controls.locked
-        controls.setLocked(next)
-        controller.setLocked(next)
+        val next = !locked
         if (next) {
             seekPreview.onCancel()
             scrub.cancel()
             seekHint = null
             brightnessPct = null
             volumePct = null
+            endTempSpeed()
         }
+        controller.setLocked(next)
     }
 
-    fun toggleFullscreen() {
-        val a = activity ?: return
-        if (isFullscreen) {
-            controller.exitFullscreen(a)
-        } else {
-            controller.enterFullscreen(a)
-        }
-        controls.onUserInteraction()
-    }
-
-    fun resetForSwitch() {
+    /**
+     * 正式换源：同一 controller 重新 setUp（URL / Title / Headers 全更新，autoPlay=true），
+     * 而不是只改 MediaReview 自己的 Context。mediaId 未变化时不动作（边界安全）。
+     */
+    fun switchTo(target: PlaybackContext) {
+        val req = target.current ?: return
+        if (req.mediaId == current?.mediaId) return
         tap.reset()
         seekHint = null
         brightnessPct = null
@@ -296,23 +349,36 @@ fun GsyNativePlayerScreen(
         seekPreview.onCancel()
         scrub.cancel()
         endTempSpeed()
+        controller.setLocked(false)
+        controller.setHeaders(req.headers.ifEmpty { null })
+        controller.setUp(req.url, false, req.title, true)
+        contextState = target
         controls.onUserInteraction()
     }
 
     fun goPrevious() {
-        contextState = contextState.previous()
-        resetForSwitch()
+        switchTo(contextState.previous())
     }
 
     fun goNext() {
-        contextState = contextState.next()
-        resetForSwitch()
+        switchTo(contextState.next())
+    }
+
+    // 中央覆盖层类型：LOADING / COMPLETED / ERROR 时中央由 GsyNativeIndicators 独占，
+    // 三按钮（-10 / 播放暂停 / +10）仅在普通播放 / 暂停态显示，避免与重播层重叠。
+    val centerOverlay = PlaybackUiMapper.overlayFor(snapshot.state)
+
+    // Completed 时内核 position 归零（GSY getCurrentPositionWhenPlaying 仅 Playing 返回），
+    // UI 进度保持在结尾，避免 thumb 跳回起点、时间显示 00:00。
+    val resolvedPosition = when (snapshot.state) {
+        GSYPlayState.Completed -> snapshot.duration
+        else -> snapshot.currentPosition
     }
 
     val displayPosition = when {
         scrub.isScrubbing -> scrub.previewMs
         seekPreview.isActive -> seekPreview.targetMs
-        else -> snapshot.currentPosition
+        else -> resolvedPosition
     }
 
     // ---------- 手势层（GSY 纵向 + MediaReview 横向/点击） ----------
@@ -400,7 +466,15 @@ fun GsyNativePlayerScreen(
             )
         }
 
-    // ---------- 布局 ----------
+    // Debug-only：三层边界可视化，默认关闭；release 构建恒不生效
+    fun Modifier.debugBounds(layer: PlayerLayoutDebug.Layer): Modifier =
+        if (BuildConfig.DEBUG && PlayerLayoutDebug.ENABLED) {
+            PlayerLayoutDebug.boundsModifier(this, layer)
+        } else {
+            this
+        }
+
+    // ---------- 布局：三个独立 Overlay，禁止 Column 堆叠 ----------
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -416,30 +490,41 @@ fun GsyNativePlayerScreen(
         Box(modifier = Modifier.fillMaxSize().then(gestureModifier))
 
         // 控制层（播放 3s 无操作自动隐藏 / 暂停保持 / 锁定隐藏）
-        if (controlsVisible && !controlsLocked) {
+        if (controlsVisible && !locked) {
+            // TOP：返回 / 标题 / 更多
             GsyNativeTopBar(
                 title = current?.title ?: "",
                 subtitle = "",
-                onBack = { onBack() },
+                onBack = { handlePlayerBack() },
                 onMore = { sheet = PlayerSheet.MORE },
-                modifier = Modifier.align(Alignment.TopCenter),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .debugBounds(PlayerLayoutDebug.Layer.TOP),
             )
 
-            GsyNativeCenterControls(
-                playing = PlaybackUiMapper.isPlaying(snapshot.state),
-                onTogglePlay = { togglePlayPause() },
-                onRewind = { seekRelative(-10_000L) },
-                onForward = { seekRelative(10_000L) },
-                modifier = Modifier.align(Alignment.Center),
-            )
+            // CENTER：-10 / 播放暂停 / +10（独立居中，不受 BottomBar 尺寸影响）
+            // 缓冲 / 完成 / 错误时中央交给 GsyNativeIndicators 独占，避免重叠
+            if (centerOverlay == PlaybackUiMapper.CenterOverlay.NONE) {
+                GsyNativeCenterControls(
+                    playing = PlaybackUiMapper.isPlaying(snapshot.state),
+                    onTogglePlay = { togglePlayPause() },
+                    onRewind = { seekRelative(-10_000L) },
+                    onForward = { seekRelative(10_000L) },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .debugBounds(PlayerLayoutDebug.Layer.CENTER),
+                )
+            }
 
+            // BOTTOM：进度 / 时间 / 倍速 / 比例 / 锁定 / 全屏
+            // 锁定时整块控制层已隐藏，locked 固定传 false（锁图标由外层独占）
             GsyNativeBottomBar(
                 positionMs = displayPosition,
                 durationMs = snapshot.duration,
                 bufferPercent = snapshot.bufferPercent,
-                speedLabel = formatSpeedLabel(speed.effectiveSpeed),
+                speedLabel = formatSpeedLabel(snapshot.speed),
                 scaleLabel = scale.mode.label,
-                locked = controlsLocked,
+                locked = false,
                 isFullscreen = isFullscreen,
                 onScrub = { value ->
                     if (!scrub.isScrubbing) {
@@ -462,12 +547,14 @@ fun GsyNativePlayerScreen(
                 },
                 onToggleLock = { toggleLock() },
                 onToggleFullscreen = { toggleFullscreen() },
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .debugBounds(PlayerLayoutDebug.Layer.BOTTOM),
             )
         }
 
         // 锁定态：只保留锁图标（点击解锁）
-        if (controlsLocked) {
+        if (locked) {
             IconButton(
                 onClick = { toggleLock() },
                 modifier = Modifier.align(Alignment.Center),
@@ -483,17 +570,17 @@ fun GsyNativePlayerScreen(
 
         // 指示器（Loading / Seek 提示 / 音量亮度 / 临时 2x / Completed / Error）
         GsyNativeIndicators(
-            overlay = PlaybackUiMapper.overlayFor(snapshot.state),
+            overlay = centerOverlay,
             seekHint = seekHint,
             seekDurationMs = snapshot.duration,
             brightnessPct = brightnessPct,
             volumePct = volumePct,
             tempSpeedActive = speed.tempActive,
             hasNext = contextState.hasNext,
-            onRestart = { togglePlayPause() },
+            onRestart = { controller.retry() },
             onNext = { goNext() },
             onRetry = { controller.retry() },
-            onBack = { onBack() },
+            onBack = { handlePlayerBack() },
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -514,9 +601,9 @@ fun GsyNativePlayerScreen(
             onDismiss = { sheet = null },
         )
         PlayerSheet.SPEED -> GsyNativeSpeedSheet(
-            current = speed.userSpeed,
+            current = snapshot.speed,
             onSelect = { s ->
-                speed.setSpeed(s)
+                speed.setExpected(s)
                 controller.setSpeed(s)
                 sheet = null
                 controls.onUserInteraction()
@@ -555,7 +642,7 @@ fun GsyNativePlayerScreen(
             title = current?.title ?: "",
             durationMs = snapshot.duration,
             positionMs = displayPosition,
-            speedLabel = formatSpeedLabel(speed.userSpeed),
+            speedLabel = formatSpeedLabel(snapshot.speed),
             fileName = current?.url?.substringAfterLast('/') ?: "",
             mediaId = current?.mediaId ?: "",
             resolution = if (snapshot.videoWidth > 0) "${snapshot.videoWidth} × ${snapshot.videoHeight}" else "未知",

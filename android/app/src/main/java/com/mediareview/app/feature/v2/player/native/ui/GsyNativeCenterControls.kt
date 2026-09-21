@@ -23,13 +23,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.mediareview.app.ui.theme.MediaControlScrimSoft
 import com.mediareview.app.ui.theme.MediaTextPrimary
 
 /**
  * 中央控制：-10 / 播放暂停 / +10。
  * 播放状态直接来自 GSYPlayerSnapshot，本组件不维护第二套 isPlaying。
+ *
+ * Stage 2.2.1：尺寸收敛为克制的播放器风格——
+ * 快退/快进 52dp 点击区 / 30dp 图标；播放暂停 68dp 点击区 / 42dp 图标；
+ * 圆形背景降为 20% 黑，尽量少遮挡画面。
  */
 @Composable
 fun GsyNativeCenterControls(
@@ -40,9 +44,9 @@ fun GsyNativeCenterControls(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier,
+        modifier = modifier.testTag("player_center_controls"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         CenterIconButton(icon = Icons.Default.Replay10, desc = "快退10秒", onClick = onRewind)
         CenterPlayButton(playing = playing, onToggle = onTogglePlay)
@@ -50,7 +54,7 @@ fun GsyNativeCenterControls(
     }
 }
 
-/** 大号播放/暂停（按下轻微缩放）。 */
+/** 播放/暂停：68dp 点击区，42dp 图标（按下轻微缩放）。 */
 @Composable
 private fun CenterPlayButton(
     playing: Boolean,
@@ -60,13 +64,13 @@ private fun CenterPlayButton(
     val pressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = Modifier
-            .size(76.dp)
+            .size(68.dp)
             .graphicsLayer {
                 scaleX = if (pressed) 0.92f else 1f
                 scaleY = if (pressed) 0.92f else 1f
             }
             .clip(CircleShape)
-            .background(MediaControlScrimSoft)
+            .background(CenterButtonScrim)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
@@ -74,12 +78,12 @@ private fun CenterPlayButton(
             if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
             if (playing) "暂停" else "播放",
             tint = MediaTextPrimary,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(42.dp),
         )
     }
 }
 
-/** 中等圆形按钮（±10s）。 */
+/** 快退/快进：52dp 点击区，30dp 图标。 */
 @Composable
 private fun CenterIconButton(
     icon: ImageVector,
@@ -90,16 +94,19 @@ private fun CenterIconButton(
     val pressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .size(52.dp)
             .graphicsLayer {
                 scaleX = if (pressed) 0.92f else 1f
                 scaleY = if (pressed) 0.92f else 1f
             }
             .clip(CircleShape)
-            .background(MediaControlScrimSoft)
+            .background(CenterButtonScrim)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, desc, tint = MediaTextPrimary, modifier = Modifier.size(32.dp))
+        Icon(icon, desc, tint = MediaTextPrimary, modifier = Modifier.size(30.dp))
     }
 }
+
+/** 中央按钮圆形半透明背景：20% 黑，克制不挡画面。 */
+private val CenterButtonScrim = androidx.compose.ui.graphics.Color(0x33000000)
