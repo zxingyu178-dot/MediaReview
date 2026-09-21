@@ -21,7 +21,7 @@ val missingKeyField = listOf("storeFile", "storePassword", "keyAlias", "keyPassw
 
 android {
     namespace = "com.mediareview.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.mediareview.app"
@@ -111,6 +111,10 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)
+
+    // GSYVideoPlayer（Stage2.1 Wrapper 模式验证；Exo2 内核，Media3 1.10.1）
+    implementation(libs.gsyvideoplayer.compose)
+    implementation(libs.gsyvideoplayer.exo2)
 
     // Paging 3
     implementation(libs.androidx.paging.runtime)

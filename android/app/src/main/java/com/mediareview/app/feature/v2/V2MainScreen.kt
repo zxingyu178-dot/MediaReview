@@ -51,7 +51,7 @@ import com.mediareview.app.feature.v2.home.HomeScreen
 import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
-import com.mediareview.app.feature.v2.player.V2PlayerScreen
+import com.mediareview.app.feature.v2.player.gsy.GsyPlayerScreen
 import com.mediareview.app.feature.v2.viewer.V2ImageViewer
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -150,9 +150,9 @@ private fun V2HomeNav(
                 val mediaId = entry.arguments?.getString("mediaId") ?: ""
                 val media = vm.mediaById(mediaId)
                 if (media != null) {
-                    V2PlayerScreen(
+                    // Stage2.1：正式运行路径全部进入 GSY 播放器；旧 V2PlayerScreen 保留但不再调用
+                    GsyPlayerScreen(
                         media = media,
-                        playbackUri = vm.playbackUri(mediaId),
                         onBack = { navController.popBackStack() },
                     )
                 }
