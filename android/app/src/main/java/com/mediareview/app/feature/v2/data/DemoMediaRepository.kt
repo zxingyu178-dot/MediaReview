@@ -1,4 +1,4 @@
-﻿package com.mediareview.app.feature.v2.data
+package com.mediareview.app.feature.v2.data
 
 import android.content.Context
 import com.mediareview.app.feature.v2.AppMode
@@ -71,6 +71,8 @@ class DemoMediaRepository @Inject constructor(
     }
 
     override fun thumbUri(media: V2Media): String = DemoAssets.thumbUri(media)
+
+    override fun imageUri(media: V2Media): String = DemoAssets.imageUri(media)
 
     override fun spriteUri(media: V2Media): String? = DemoAssets.spriteUri(media)
 

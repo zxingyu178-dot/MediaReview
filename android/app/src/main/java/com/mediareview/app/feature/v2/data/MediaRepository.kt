@@ -41,6 +41,9 @@ interface MediaRepository {
     /** 封面 URI（Demo 为 asset:///...）。 */
     fun thumbUri(media: V2Media): String
 
+    /** 图片原图 URI（Demo 为 asset:///demo_media/images/...；Production 为 Server/Jellyfin 原图 URL）。 */
+    fun imageUri(media: V2Media): String
+
     fun spriteUri(media: V2Media): String?
 
     fun spriteManifest(media: V2Media): V2SpriteManifest?

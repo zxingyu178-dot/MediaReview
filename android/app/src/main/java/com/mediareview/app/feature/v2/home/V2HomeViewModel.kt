@@ -169,6 +169,9 @@ class V2HomeViewModel @Inject constructor(
 
     fun thumbUri(media: V2Media): String = repository.thumbUri(media)
 
+    /** 图片原图 URI（薄委托，加载逻辑在数据层）。 */
+    fun imageUri(media: V2Media): String = repository.imageUri(media)
+
     fun spriteUri(media: V2Media): String? = repository.spriteUri(media)
 
     fun spriteManifest(media: V2Media): com.mediareview.app.feature.v2.model.V2SpriteManifest? =
