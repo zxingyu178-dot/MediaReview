@@ -23,6 +23,16 @@ object DemoAssets {
 
     fun thumbUri(media: V2Media): String = assetUri(media.thumbPath)
 
+    /**
+     * 图片原图 URI：Demo 图片已移至 res/raw（asset:/// 在本机 Coil 上加载失败），
+     * 用 android.resource:// 播放，与本地视频方案一致。
+     */
+    fun imageUri(media: V2Media): String {
+        val base = media.assetPath.substringAfterLast('/')
+            .removeSuffix(".jpg").removeSuffix(".jpeg").removeSuffix(".png").removeSuffix(".webp")
+        return "android.resource://${com.mediareview.app.BuildConfig.APPLICATION_ID}/raw/demo_$base"
+    }
+
     fun playbackUri(media: V2Media): String = assetUri(media.assetPath)
 
     fun spriteUri(media: V2Media): String? = media.spritePath?.let { assetUri(it) }
