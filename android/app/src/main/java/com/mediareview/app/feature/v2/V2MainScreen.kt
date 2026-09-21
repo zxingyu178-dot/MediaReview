@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
@@ -51,7 +52,10 @@ import com.mediareview.app.feature.v2.home.HomeScreen
 import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
-import com.mediareview.app.feature.v2.player.gsy.GsyPlayerScreen
+import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
+import com.mediareview.app.feature.v2.player.gsy.demoRawVideoUri
+import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
+import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
 import com.mediareview.app.feature.v2.viewer.V2ImageViewer
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -150,9 +154,26 @@ private fun V2HomeNav(
                 val mediaId = entry.arguments?.getString("mediaId") ?: ""
                 val media = vm.mediaById(mediaId)
                 if (media != null) {
-                    // Stage2.1：正式运行路径全部进入 GSY 播放器；旧 V2PlayerScreen 保留但不再调用
-                    GsyPlayerScreen(
-                        media = media,
+                    val context = LocalContext.current
+                    // Stage2.2：正式运行路径进入 GSY Native Compose 播放器；
+                    // 旧 V2PlayerScreen 与 Stage2.1 Wrapper 均保留源码但不再调用。
+                    val playbackContext = remember(mediaId) {
+                        val videos = vm.currentList.value.filter { it.isVideo }
+                        PlaybackContext(
+                            mediaList = videos.map { m ->
+                                GsyPlaybackRequest(
+                                    mediaId = m.id,
+                                    title = m.name,
+                                    url = demoRawVideoUri(context, m),
+                                    headers = emptyMap(),
+                                )
+                            },
+                            currentIndex = videos.indexOfFirst { it.id == mediaId }.coerceAtLeast(0),
+                            source = "demo",
+                        )
+                    }
+                    GsyNativePlayerScreen(
+                        playbackContext = playbackContext,
                         onBack = { navController.popBackStack() },
                     )
                 }
