@@ -28,4 +28,6 @@ object V2Colors {
     val CardScrim = Color(0x99000000)
     val TimeCapsule = Color(0xCC000000)
     val Favorite = Color(0xFFFF5C7A)
+    /** 封面加载 Skeleton 底色（浅灰，非纯黑）。 */
+    val Skeleton = Color(0xFF2A2A30)
 }

@@ -41,6 +41,12 @@ interface MediaRepository {
     /** 封面 URI（Demo 为 asset:///...）。 */
     fun thumbUri(media: V2Media): String
 
+    /**
+     * 统一封面 URI：UI 一律调用本方法（图片→缩略图，视频→Poster）；
+     * UI 不感知 assets / res-raw / Server URL 的差异。
+     */
+    fun coverUri(media: V2Media): String
+
     /** 图片原图 URI（Demo 为 asset:///demo_media/images/...；Production 为 Server/Jellyfin 原图 URL）。 */
     fun imageUri(media: V2Media): String
 

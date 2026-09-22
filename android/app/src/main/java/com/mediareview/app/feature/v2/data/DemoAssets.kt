@@ -24,6 +24,22 @@ object DemoAssets {
     fun thumbUri(media: V2Media): String = assetUri(media.thumbPath)
 
     /**
+     * 统一封面 URI（UI 封面一律走这里，不感知数据来源）：
+     * - 图片：res/raw 内原图（android.resource://），与 Viewer 同一资源；
+     * - 视频：res/raw 内 Poster 帧（android.resource://）。
+     * 未来 Production 换成 Server / Jellyfin Thumbnail URL 时仅修改本映射。
+     */
+    fun coverUri(media: V2Media): String {
+        val base = media.assetPath.substringAfterLast('/')
+        return if (media.isVideo) {
+            val num = base.takeWhile { it.isDigit() }.ifEmpty { "01" }
+            "android.resource://${com.mediareview.app.BuildConfig.APPLICATION_ID}/raw/demo_video_${num}_poster"
+        } else {
+            imageUri(media)
+        }
+    }
+
+    /**
      * 图片原图 URI：Demo 图片已移至 res/raw（asset:/// 在本机 Coil 上加载失败），
      * 用 android.resource:// 播放，与本地视频方案一致。
      */

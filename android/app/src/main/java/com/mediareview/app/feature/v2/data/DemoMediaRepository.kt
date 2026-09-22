@@ -72,6 +72,8 @@ class DemoMediaRepository @Inject constructor(
 
     override fun thumbUri(media: V2Media): String = DemoAssets.thumbUri(media)
 
+    override fun coverUri(media: V2Media): String = DemoAssets.coverUri(media)
+
     override fun imageUri(media: V2Media): String = DemoAssets.imageUri(media)
 
     override fun spriteUri(media: V2Media): String? = DemoAssets.spriteUri(media)

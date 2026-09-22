@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.model.V2ContextQueue
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
@@ -27,6 +28,7 @@ enum class V2HomeTab { MEDIA, SHELF }
 @HiltViewModel
 class V2HomeViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val searchHistory: SearchHistoryStore,
 ) : ViewModel() {
 
     private val _folders = MutableStateFlow<List<V2Folder>>(emptyList())
@@ -72,6 +74,10 @@ class V2HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _folders.value = repository.folders()
             refreshList()
+        }
+        // 搜索历史从 DataStore 恢复（App 重启后仍在）
+        viewModelScope.launch {
+            recentSearches = searchHistory.current()
         }
     }
 
@@ -124,11 +130,17 @@ class V2HomeViewModel @Inject constructor(
         val q = searchQuery.trim()
         if (q.isNotEmpty()) {
             recentSearches = (listOf(q) + recentSearches).distinct().take(10)
+            viewModelScope.launch {
+                searchHistory.add(q)
+            }
         }
     }
 
     fun clearRecentSearches() {
         recentSearches = emptyList()
+        viewModelScope.launch {
+            searchHistory.clear()
+        }
     }
 
     fun setFavorite(mediaId: String, favorite: Boolean) {
@@ -168,6 +180,9 @@ class V2HomeViewModel @Inject constructor(
     // ---------- URI 能力（委托数据层，UI 不感知数据来源） ----------
 
     fun thumbUri(media: V2Media): String = repository.thumbUri(media)
+
+    /** 统一封面 URI（视频→Poster、图片→缩略图；UI 全用这个，不感知数据来源）。 */
+    fun coverUri(media: V2Media): String = repository.coverUri(media)
 
     /** 图片原图 URI（薄委托，加载逻辑在数据层）。 */
     fun imageUri(media: V2Media): String = repository.imageUri(media)

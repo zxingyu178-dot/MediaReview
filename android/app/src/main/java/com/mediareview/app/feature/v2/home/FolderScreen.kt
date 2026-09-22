@@ -167,7 +167,7 @@ fun FolderScreen(
             items(list, key = { it.id }) { media ->
                 MediaCard(
                     media = media,
-                    thumbUri = vm.thumbUri(media),
+                    coverUri = vm.coverUri(media),
                     spriteUri = vm.spriteUri(media),
                     manifest = vm.spriteManifest(media),
                     onClick = { onOpenMedia(media) },
