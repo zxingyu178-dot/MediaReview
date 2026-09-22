@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CopyAll
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,6 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -58,6 +58,8 @@ import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
 import com.mediareview.app.feature.v2.player.gsy.demoRawVideoUri
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
+import com.mediareview.app.feature.v2.review.V2ReviewScreen
+import com.mediareview.app.feature.v2.review.V2ReviewViewModel
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.feature.v2.viewer.V2ImageViewer
@@ -82,6 +84,7 @@ fun V2MainScreen(
     vm: V2HomeViewModel,
     modifier: Modifier = Modifier,
 ) {
+    val reviewViewModel: V2ReviewViewModel = hiltViewModel()
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val backStack by navController.currentBackStackEntryAsState()
@@ -135,10 +138,14 @@ fun V2MainScreen(
                 )
             }
             composable(MediaNavigator.ROUTE_REVIEW) {
-                PlaceholderPage(
-                    icon = Icons.Default.RateReview,
-                    title = "批阅模式",
-                    subtitle = "Stage 2",
+                V2ReviewScreen(
+                    vm = reviewViewModel,
+                    onOpenFullPlayer = { media, queue ->
+                        // deep-link 完整播放器：队列 = 批阅队列（上下条正确），返回仍回批阅原页
+                        vm.openMediaInVideoQueue(queue, media.id)
+                        MediaNavigator.openMedia(navController, media)
+                    },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(MediaNavigator.ROUTE_FAVORITES) {
@@ -197,8 +204,15 @@ fun V2MainScreen(
                     val context = LocalContext.current
                     // Stage2.2：正式运行路径进入 GSY Native Compose 播放器；
                     // 旧 V2PlayerScreen 与 Stage2.1 Wrapper 均保留源码但不再调用。
+                    // 队列优先取 contextQueue（批阅/收藏/相册进入时按来源限定），
+                    // 兜底取首页当前列表视频，保证上下条正确且不串库。
+                    val videos = remember(mediaId) {
+                        val ids = vm.contextQueue?.mediaIds?.takeIf { it.isNotEmpty() }
+                            ?: vm.currentList.value.filter { it.isVideo }.map { it.id }
+                        ids.mapNotNull { id -> vm.mediaById(id) }
+                            .onEach { m -> require(m.isVideo) }
+                    }
                     val playbackContext = remember(mediaId) {
-                        val videos = vm.currentList.value.filter { it.isVideo }
                         PlaybackContext(
                             mediaList = videos.map { m ->
                                 GsyPlaybackRequest(
@@ -356,9 +370,9 @@ private fun OrganizeCard(
     }
 }
 
-/** 占位页（批阅 Stage 2）。 */
+/** 占位页（批阅 Stage 2，已由 V2ReviewScreen 取代，保留供 4 号 Tab 复用）。 */
 @Composable
-private fun PlaceholderPage(
+internal fun PlaceholderPage(
     icon: ImageVector,
     title: String,
     subtitle: String,

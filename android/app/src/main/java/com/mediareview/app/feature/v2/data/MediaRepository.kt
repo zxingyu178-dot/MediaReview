@@ -36,6 +36,18 @@ interface MediaRepository {
 
     suspend fun markReviewed(mediaId: String)
 
+    /**
+     * 待删除集合（Review 用）：与 isReviewed 相互独立——
+     * 一条视频可以"已批阅"但与"待删除"无关；撤销删除时删除集合里移除即可。
+     */
+    suspend fun pendingDeleteIds(): Set<String>
+
+    /** 加入 / 移除待删除集合（Review 里的 🗑 / 撤销）。 */
+    suspend fun setPendingDelete(mediaId: String, pending: Boolean)
+
+    /** 重新批阅：清除已批阅标记（Review complete 页的"重新批阅"入口）。 */
+    suspend fun unmarkReviewed(mediaId: String)
+
     /** 返回可播放 URI（Demo 为 asset:///...；Production 为服务器直连 URL）。 */
     fun playbackUri(mediaId: String): String
 

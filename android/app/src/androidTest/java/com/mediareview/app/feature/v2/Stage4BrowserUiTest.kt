@@ -178,6 +178,9 @@ private class BrowserFakeRepository : MediaRepository {
     override fun mediaById(id: String): V2Media? = byId[id]
     override suspend fun setFavorite(mediaId: String, favorite: Boolean) {}
     override suspend fun markReviewed(mediaId: String) {}
+    override suspend fun pendingDeleteIds(): Set<String> = emptySet()
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {}
+    override suspend fun unmarkReviewed(mediaId: String) {}
     override fun playbackUri(mediaId: String): String = ""
     override fun thumbUri(media: V2Media): String = ""
     override fun coverUri(media: V2Media): String = when (media.type) {
