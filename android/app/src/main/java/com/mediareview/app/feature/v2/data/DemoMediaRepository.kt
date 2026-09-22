@@ -34,7 +34,7 @@ class DemoMediaRepository @Inject constructor(
 
     override suspend fun folders(): List<V2Folder> = allFolders
 
-    override suspend fun media(): List<V2Media> = allMedia
+    override suspend fun media(): List<V2Media> = allMedia.applyOverridesState()
 
     override suspend fun media(spec: V2SortSpec): List<V2Media> =
         allMedia.applyOverridesState().sorted(spec)

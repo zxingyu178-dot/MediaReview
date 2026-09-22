@@ -5,6 +5,9 @@ import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Demo 资源路径工具：把 assets 相对路径转为 URI，并读取雪碧图 manifest。 */
@@ -57,18 +60,20 @@ object DemoAssets {
     fun readSpriteManifest(context: Context, manifestPath: String): V2SpriteManifest? {
         return try {
             val text = context.assets.open(manifestPath).bufferedReader().use { it.readText() }
-            val obj = json.parseToJsonElement(text) as JsonObject
+            // 去除 UTF-8 BOM（部分 manifest 文件带 BOM，kotlinx.json 会解析失败）
+            val clean = text.removePrefix("\uFEFF")
+            val obj = json.parseToJsonElement(clean) as JsonObject
             V2SpriteManifest(
-                source = obj["source"]?.jsonPrimitive?.content ?: "",
-                columns = obj["columns"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1,
-                rows = obj["rows"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1,
-                cell_width = obj["cell_width"]?.jsonPrimitive?.content?.toIntOrNull() ?: 160,
-                cell_height = obj["cell_height"]?.jsonPrimitive?.content?.toIntOrNull() ?: 90,
-                frame_interval_s = obj["frame_interval_s"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 2.0,
-                duration_s = obj["duration_s"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0,
-                frame_count = obj["frame_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1,
+                source = obj["source"]?.jsonPrimitive?.contentOrNull ?: "",
+                columns = obj["columns"]?.jsonPrimitive?.intOrNull ?: 1,
+                rows = obj["rows"]?.jsonPrimitive?.intOrNull ?: 1,
+                cell_width = obj["cell_width"]?.jsonPrimitive?.intOrNull ?: 160,
+                cell_height = obj["cell_height"]?.jsonPrimitive?.intOrNull ?: 90,
+                frame_interval_s = obj["frame_interval_s"]?.jsonPrimitive?.floatOrNull?.toDouble() ?: 2.0,
+                duration_s = obj["duration_s"]?.jsonPrimitive?.floatOrNull?.toDouble() ?: 0.0,
+                frame_count = obj["frame_count"]?.jsonPrimitive?.intOrNull ?: 1,
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             null
         }
     }

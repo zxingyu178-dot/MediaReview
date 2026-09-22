@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -47,7 +48,6 @@ import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
-import android.os.SystemClock
 
 private const val SPRITE_LONG_PRESS_MS = 280L
 
@@ -92,23 +92,11 @@ fun MediaCard(
             .pointerInput(media.id, hasSprite, cardW, cardH) {
                 if (!hasSprite) return@pointerInput
                 awaitEachGesture {
+                    // 长按检测：awaitLongPressOrCancellation 由官方实现（含 slop 取消），按住不动直到
+                    // 系统 longPressTimeout 或位移/抬起；返回非 null 即长按命中。
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    // 自实现长按检测（约 280ms）：期间发生显著位移 → 不进入预览，交给 LazyGrid 滚动
-                    var entered = false
-                    val startPos = down.position
-                    val deadline = SystemClock.uptimeMillis() + SPRITE_LONG_PRESS_MS
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                        if (!change.pressed) return@awaitEachGesture
-                        val dist = (change.position - startPos).getDistance()
-                        if (dist > 12.dp.toPx()) return@awaitEachGesture // 位移交给滚动
-                        if (SystemClock.uptimeMillis() >= deadline) {
-                            entered = true
-                            break
-                        }
-                    }
-                    if (!entered) return@awaitEachGesture
+                    val lp = awaitLongPressOrCancellation(down.id)
+                    if (lp == null) return@awaitEachGesture
 
                     // 长按命中：进入预览（绝对位置起步）
                     previewing = true
