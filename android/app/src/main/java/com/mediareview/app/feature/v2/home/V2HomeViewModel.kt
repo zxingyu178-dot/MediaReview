@@ -7,10 +7,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
+import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2ContextQueue
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SortSpec
+import com.mediareview.app.feature.v2.model.V2TypeFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -70,9 +72,29 @@ class V2HomeViewModel @Inject constructor(
     private val _favorites = MutableStateFlow<List<V2Media>>(emptyList())
     val favorites: StateFlow<List<V2Media>> = _favorites.asStateFlow()
 
+    private val _albums = MutableStateFlow<List<V2Album>>(emptyList())
+    val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
+
+    // ---------- 雪碧图预览单实例状态 ----------
+
+    /** 当前播放雪碧图预览的媒体 id（null = 无预览）。 */
+    var activePreviewMediaId by mutableStateOf<String?>(null)
+        private set
+
+    /** 请求播放某媒体雪碧图（同一时间仅 1 个 Preview）。 */
+    fun startSpritePreview(mediaId: String) {
+        activePreviewMediaId = mediaId
+    }
+
+    /** 停止当前雪碧图预览（滚动 / 切 Tab / 打开媒体 / 等）。 */
+    fun stopSpritePreview() {
+        activePreviewMediaId = null
+    }
+
     init {
         viewModelScope.launch {
             _folders.value = repository.folders()
+            _albums.value = repository.albums()
             refreshList()
         }
         // 搜索历史从 DataStore 恢复（App 重启后仍在）
@@ -171,6 +193,21 @@ class V2HomeViewModel @Inject constructor(
         )
     }
 
+    /**
+     * 在指定媒体序列中打开某张图片（用于相册：Viewer 只在当前相册照片间翻页）。
+     */
+    fun openMediaIn(list: List<V2Media>, mediaId: String) {
+        val index = list.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
+        contextQueue = V2ContextQueue(
+            folderId = _selectedFolderId.value,
+            sortField = _sortSpec.value.field,
+            sortOrder = _sortSpec.value.order,
+            typeFilter = V2TypeFilter.IMAGE,
+            mediaIds = list.map { it.id },
+            currentIndex = index,
+        )
+    }
+
     /** 由播放器/查看器更新队列（如左右翻页后同步索引）。 */
     fun updateQueueIndex(index: Int) {
         val q = contextQueue ?: return
@@ -195,6 +232,26 @@ class V2HomeViewModel @Inject constructor(
     fun playbackUri(mediaId: String): String = repository.playbackUri(mediaId)
 
     fun mediaById(id: String): V2Media? = repository.mediaById(id)
+
+    // ---------- 相册能力 ----------
+
+    fun refreshAlbums() {
+        viewModelScope.launch {
+            _albums.value = repository.albums()
+        }
+    }
+
+    /** 相册内照片（IMAGE ONLY）；用于 AlbumScreen 与相册 Viewer 队列。 */
+    suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
+        repository.imagesInAlbum(albumId, spec)
+
+    /** 用户选择相册封面（校验后持久化），随后刷新书架。 */
+    fun setAlbumCover(albumId: String, mediaId: String) {
+        viewModelScope.launch {
+            repository.setAlbumCover(albumId, mediaId)
+            _albums.value = repository.albums()
+        }
+    }
 
     private fun refreshList() {
         viewModelScope.launch {
