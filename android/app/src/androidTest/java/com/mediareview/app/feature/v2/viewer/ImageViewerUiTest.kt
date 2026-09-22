@@ -133,6 +133,10 @@ private class FakeViewerRepository : MediaRepository {
     override fun spriteUri(media: V2Media): String? = null
     override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
 
+    override suspend fun albums(): List<com.mediareview.app.feature.v2.model.V2Album> = emptyList()
+    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> = emptyList()
+    override suspend fun setAlbumCover(albumId: String, mediaId: String) {}
+
     private fun applyOverrides(source: List<V2Media>): List<V2Media> =
         source.map { m -> if (favoriteState[m.id] != null) m.copy(isFavorite = favoriteState[m.id]!!) else m }
 

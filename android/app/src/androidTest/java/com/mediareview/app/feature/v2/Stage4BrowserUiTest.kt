@@ -57,6 +57,7 @@ class Stage4BrowserUiTest {
                     vm = vm,
                     onOpenMedia = {},
                     onOpenFolder = {},
+                    onOpenAlbum = {},
                 )
             }
         }
@@ -78,6 +79,7 @@ class Stage4BrowserUiTest {
                     vm = vm,
                     onOpenMedia = {},
                     onOpenFolder = {},
+                    onOpenAlbum = {},
                 )
             }
         }
@@ -186,6 +188,14 @@ private class BrowserFakeRepository : MediaRepository {
     override fun imageUri(media: V2Media): String = "android.resource://com.mediareview.app/raw/demo_img_landscape_01"
     override fun spriteUri(media: V2Media): String? = null
     override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
+
+    override suspend fun albums(): List<com.mediareview.app.feature.v2.model.V2Album> =
+        listOf(com.mediareview.app.feature.v2.model.V2Album("f1", "f1", "收藏", 1, "i1"))
+
+    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
+        catalog.filter { it.type == V2MediaType.IMAGE }
+
+    override suspend fun setAlbumCover(albumId: String, mediaId: String) {}
 
     private fun media(
         id: String, name: String, folderName: String, type: V2MediaType, isFav: Boolean,
