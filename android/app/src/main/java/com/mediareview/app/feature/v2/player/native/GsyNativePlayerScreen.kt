@@ -130,6 +130,10 @@ fun GsyNativePlayerScreen(
     }
     val scrub = remember { SeekScrubState() }
     val seekPreview = remember { SeekGesturePreview() }
+    // 拖动（进度条 / 横向手势）开始前是否在播放：拖动期暂停以冻结画面与声音，
+    // 松手 seek 后据此恢复播放（成熟播放器标准手感）。
+    var resumeAfterScrub by remember { mutableStateOf(false) }
+    var resumeAfterSeekGesture by remember { mutableStateOf(false) }
     val speed = remember { SpeedState() }
     val scale = remember { VideoScaleState() }
     val tap = remember { TapActionState() }
@@ -384,6 +388,9 @@ fun GsyNativePlayerScreen(
         else -> resolvedPosition
     }
 
+    // 拖动期内核虽暂停，中央按钮仍维持拖动前的播放/暂停图标，避免图标抖动。
+    val centerIsPlaying = PlaybackUiMapper.isPlaying(snapshot.state) || resumeAfterScrub || resumeAfterSeekGesture
+
     // ---------- 手势层（GSY 纵向 + MediaReview 横向/点击） ----------
     val gestureModifier = Modifier
         .gsyGestureControl(
@@ -418,12 +425,17 @@ fun GsyNativePlayerScreen(
                         endTempSpeed()
                         seekPreview.onStart(controller.snapshot.value.currentPosition, offset.x, size.width.toFloat())
                         accX = 0f
+                        resumeAfterSeekGesture = controller.snapshot.value.isPlaying
+                        if (resumeAfterSeekGesture) controller.pause()
                     }
                 },
                 onDragEnd = {
                     if (seekPreview.isActive) {
-                        seekPreview.onEnd()?.let { controller.seekTo(it) }
+                        val seekTarget = seekPreview.onEnd()
+                        if (seekTarget != null) controller.seekTo(seekTarget)
                         showHint(seekPreview.deltaMs, seekPreview.targetMs)
+                        if (resumeAfterSeekGesture) controller.play()
+                        resumeAfterSeekGesture = false
                         controls.onUserInteraction()
                     }
                 },
@@ -431,6 +443,8 @@ fun GsyNativePlayerScreen(
                     if (seekPreview.isActive) {
                         seekPreview.onCancel()
                         seekHint = null
+                        if (resumeAfterSeekGesture) controller.play()
+                        resumeAfterSeekGesture = false
                     }
                 },
                 onHorizontalDrag = { change, dragAmount ->
@@ -505,14 +519,18 @@ fun GsyNativePlayerScreen(
                     .debugBounds(PlayerLayoutDebug.Layer.TOP),
             )
 
-            // CENTER：-10 / 播放暂停 / +10（独立居中，不受 BottomBar 尺寸影响）
+            // CENTER：上一条 / 快退 / 播放暂停 / 快进 / 下一条（独立居中，不受 BottomBar 尺寸影响）
             // 缓冲 / 完成 / 错误时中央交给 GsyNativeIndicators 独占，避免重叠
             if (centerOverlay == PlaybackUiMapper.CenterOverlay.NONE) {
                 GsyNativeCenterControls(
-                    playing = PlaybackUiMapper.isPlaying(snapshot.state),
-                    onTogglePlay = { togglePlayPause() },
+                    isPlaying = centerIsPlaying,
+                    hasPrevious = contextState.hasPrevious,
+                    hasNext = contextState.hasNext,
+                    onPrevious = { goPrevious() },
                     onRewind = { seekRelative(-10_000L) },
+                    onPlayPause = { togglePlayPause() },
                     onForward = { seekRelative(10_000L) },
+                    onNext = { goNext() },
                     modifier = Modifier
                         .align(Alignment.Center)
                         .debugBounds(PlayerLayoutDebug.Layer.CENTER),
@@ -532,12 +550,17 @@ fun GsyNativePlayerScreen(
                 onScrub = { value ->
                     if (!scrub.isScrubbing) {
                         scrub.begin(snapshot.currentPosition)
+                        resumeAfterScrub = snapshot.isPlaying
+                        if (resumeAfterScrub) controller.pause()
                         controls.onUserInteraction()
                     }
                     scrub.update(value.toLong())
                 },
                 onScrubEnd = {
-                    scrub.commit()?.let { controller.seekTo(it) }
+                    val scrubTarget = scrub.commit()
+                    if (scrubTarget != null) controller.seekTo(scrubTarget)
+                    if (resumeAfterScrub) controller.play()
+                    resumeAfterScrub = false
                     controls.onUserInteraction()
                 },
                 onOpenSpeed = {

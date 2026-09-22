@@ -3,6 +3,8 @@ package com.mediareview.app.feature.v2.player.native
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -24,9 +26,12 @@ import org.junit.runner.RunWith
 /**
  * Stage 2.2.1 播放器布局 Semantic 测试（模拟器 instrumentation）。
  *
- * 目的：防止再次出现"逻辑单测全 PASS、第一眼布局却是坏的"——
+ * 目的：防止再次出现"逻辑单测 PASS、第一眼布局却是坏的"——
  * 直接挂载真实 GSY Native 播放器，验证 TOP / CENTER / BOTTOM 三层控件存在、
- * 三层边界不交叠，以及更多 / 倍速 / 比例三个 Sheet 可以正常打开。
+ * 三层边界不交叠，更多 / 倍速 / 比例三个 Sheet 可以正常打开。
+ *
+ * Stage6 增补：中央成熟播放器标准 5 键（上一条 / 快退 / 播放 / 快进 / 下一条）存在，
+ * 且首集"上一条"、末集"下一条"按列表边界置灰禁用。
  */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -41,7 +46,7 @@ class GsyNativePlayerLayoutTest {
         url = "android.resource://com.mediareview.app/raw/$rawName",
     )
 
-    private fun launchPlayer() {
+    private fun launchPlayer(startIndex: Int = 0) {
         val list = listOf(
             demoRequest(5, "demo_05_longer", "AI视频-测试 005"),
             demoRequest(6, "demo_06_wide", "AI视频-测试 006"),
@@ -49,7 +54,7 @@ class GsyNativePlayerLayoutTest {
         compose.setContent {
             MediaReviewTheme {
                 GsyNativePlayerScreen(
-                    playbackContext = PlaybackContext(mediaList = list, currentIndex = 0),
+                    playbackContext = PlaybackContext(mediaList = list, currentIndex = startIndex),
                     onBack = {},
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -58,8 +63,8 @@ class GsyNativePlayerLayoutTest {
     }
 
     /** 进入播放器后立即暂停，保证控制层常驻，便于断言。 */
-    private fun launchAndPause() {
-        launchPlayer()
+    private fun launchAndPause(startIndex: Int = 0) {
+        launchPlayer(startIndex)
         // swiftshader 软解 + GSY 起播时序较慢：中央主按钮渲染出来即可
         // （播放中 contentDescription 为「暂停」，尚未起播 / 已暂停为「播放」），
         // 不把软解环境的起播延迟误判为布局失败。
@@ -85,17 +90,33 @@ class GsyNativePlayerLayoutTest {
         compose.onNodeWithTag("player_top_bar").assertExists()
         compose.onNodeWithContentDescription("返回").assertExists()
         compose.onNodeWithContentDescription("更多").assertExists()
-        // CENTER
+        // CENTER（Stage6：5 键 = 上一条 / 快退 / 播放 / 快进 / 下一条）
         compose.onNodeWithTag("player_center_controls").assertExists()
+        compose.onNodeWithContentDescription("上一条").assertExists()
         compose.onNodeWithContentDescription("快退10秒").assertExists()
         compose.onNodeWithContentDescription("播放").assertExists()
         compose.onNodeWithContentDescription("快进10秒").assertExists()
+        compose.onNodeWithContentDescription("下一条").assertExists()
         // BOTTOM
         compose.onNodeWithTag("player_bottom_bar").assertExists()
         compose.onNodeWithText("1x").assertExists()
         compose.onNodeWithText("适应").assertExists()
         compose.onNodeWithContentDescription("锁定").assertExists()
         compose.onNodeWithContentDescription("全屏").assertExists()
+    }
+
+    @Test
+    fun 首集上一条置灰禁用而下一条可用() {
+        launchAndPause(startIndex = 0)
+        compose.onNodeWithContentDescription("上一条").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("下一条").assertIsEnabled()
+    }
+
+    @Test
+    fun 末集下一条置灰禁用而上一条可用() {
+        launchAndPause(startIndex = 1)
+        compose.onNodeWithContentDescription("下一条").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("上一条").assertIsEnabled()
     }
 
     @Test

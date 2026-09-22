@@ -1,5 +1,9 @@
 package com.mediareview.app.feature.v2.player.native.state
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 /**
  * 横向拖拽 Seek 预览状态（MediaReview UI 逻辑）。
  *
@@ -7,6 +11,9 @@ package com.mediareview.app.feature.v2.player.native.state
  * 稍微一滑就跳几分钟，不符合 MediaReview 手感要求。这里按 Next Player 思路：
  * 整宽映射 span = min(max(duration, 30s), 90s)，短视频与长视频都不过敏；
  * 松手后仍通过 GSY controller.seekTo 提交（不重造播放内核）。
+ *
+ * Stage6：[isActive] / [targetMs] / [deltaMs] 改为 Compose 可观察状态，
+ * 横向拖动过程中居中的目标时间 / ±增量提示逐帧实时跟随，而不是松手才刷新。
  */
 class SeekGesturePreview {
 
@@ -18,24 +25,24 @@ class SeekGesturePreview {
         fun spanFor(durationMs: Long): Long = durationMs.coerceIn(MIN_SPAN_MS, MAX_SPAN_MS)
     }
 
-    var isActive = false
+    var isActive: Boolean by mutableStateOf(false)
         private set
 
-    var startPositionMs = 0L
+    var startPositionMs: Long = 0L
         private set
 
-    var startX = 0f
+    var startX: Float = 0f
         private set
 
-    var widthPx = 1f
+    var widthPx: Float = 1f
         private set
 
     /** 当前预览目标位置（已 clamp 0..duration）。 */
-    var targetMs = 0L
+    var targetMs: Long by mutableStateOf(0L)
         private set
 
     /** 相对起始位置增量（正=前进，负=后退），用于 +00:18 / -00:12 提示。 */
-    var deltaMs = 0L
+    var deltaMs: Long by mutableStateOf(0L)
         private set
 
     fun onStart(positionMs: Long, startX: Float, widthPx: Float) {
