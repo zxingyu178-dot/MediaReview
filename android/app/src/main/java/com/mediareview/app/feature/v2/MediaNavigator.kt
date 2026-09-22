@@ -1,0 +1,49 @@
+package com.mediareview.app.feature.v2
+
+import androidx.navigation.NavHostController
+import com.mediareview.app.feature.v2.home.V2MainTab
+import com.mediareview.app.feature.v2.model.V2Media
+
+/** V2 统一导航入口：不感知当前 Tab，媒体类型自动路由。 */
+object MediaNavigator {
+    const val ROUTE_HOME = "home"
+    const val ROUTE_REVIEW = "review"
+    const val ROUTE_FAVORITES = "favorites"
+    const val ROUTE_ORGANIZE = "organize"
+    const val ROUTE_FOLDER = "folder/{folderId}"
+    const val ROUTE_PLAYER = "player/{mediaId}"
+    const val ROUTE_VIEWER = "viewer/{mediaId}"
+
+    fun folder(folderId: String) = "folder/$folderId"
+    fun player(mediaId: String) = "player/$mediaId"
+    fun viewer(mediaId: String) = "viewer/$mediaId"
+
+    /**
+     * 统一打开媒体：VIDEO → Player，IMAGE → Viewer。
+     * 收藏 / 首页 / 文件夹 / 以后批阅页全部走这里，不再在页面里复制 if/else。
+     */
+    fun openMedia(nav: NavHostController, media: V2Media) {
+        if (media.isVideo) {
+            nav.navigate(player(media.id))
+        } else {
+            nav.navigate(viewer(media.id))
+        }
+    }
+
+    fun openFolder(nav: NavHostController, folderId: String) {
+        nav.navigate(folder(folderId))
+    }
+
+    /** 底部导航一级 Tab 路由。 */
+    fun tabRoute(tab: V2MainTab): String = when (tab) {
+        V2MainTab.HOME -> ROUTE_HOME
+        V2MainTab.REVIEW -> ROUTE_REVIEW
+        V2MainTab.FAVORITES -> ROUTE_FAVORITES
+        V2MainTab.ORGANIZE -> ROUTE_ORGANIZE
+    }
+
+    /** Player / Viewer 等详情页不显示底部导航。 */
+    fun isTabRoute(currentRoute: String?): Boolean =
+        currentRoute == ROUTE_HOME || currentRoute == ROUTE_REVIEW ||
+            currentRoute == ROUTE_FAVORITES || currentRoute == ROUTE_ORGANIZE
+}

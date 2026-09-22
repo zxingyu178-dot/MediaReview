@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CopyAll
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,9 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,87 +48,76 @@ import com.mediareview.app.feature.v2.home.HomeScreen
 import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
+import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
 import com.mediareview.app.feature.v2.player.gsy.demoRawVideoUri
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
-import com.mediareview.app.feature.v2.viewer.V2ImageViewer
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
+import com.mediareview.app.feature.v2.viewer.V2ImageViewer
 import com.mediareview.app.ui.theme.MediaBackground
-import com.mediareview.app.ui.theme.MediaSurface
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 
-/** V2 主界面：主导航（首页/批阅/收藏/整理）+ 首页内部导航（home/folder/player/viewer）。 */
+/**
+ * V2 主界面（Root NavHost）：
+ * 一级 Tab：home / review / favorites / organize；
+ * 全局详情：folder/{folderId} / player/{mediaId} / viewer/{mediaId}。
+ *
+ * - [MediaNavigator.openMedia] 统一路由：VIDEO → Player，IMAGE → Viewer；
+ * - Player / Viewer 不显示底部导航，Back 返回原 Tab（收藏→Viewer→Back→收藏）；
+ * - 首页 / 收藏 / 整理页共享该 NavController，不再各自复制 if/else 路由。
+ */
 @Composable
 fun V2MainScreen(
     vm: V2HomeViewModel,
     modifier: Modifier = Modifier,
 ) {
-    var mainTab by remember { mutableStateOf(V2MainTab.HOME) }
-
-    when (mainTab) {
-        V2MainTab.HOME -> V2HomeNav(
-            vm = vm,
-            onSwitchTab = { mainTab = it },
-            modifier = modifier,
-        )
-        V2MainTab.REVIEW -> PlaceholderPage(
-            icon = Icons.Default.RateReview,
-            title = "批阅模式",
-            subtitle = "Stage 2",
-            onSwitchTab = { mainTab = it },
-            modifier = modifier,
-        )
-        V2MainTab.FAVORITES -> FavoritesPage(
-            vm = vm,
-            onSwitchTab = { mainTab = it },
-            onOpenMedia = { m ->
-                vm.openMedia(m.id)
-            },
-            modifier = modifier,
-        )
-        V2MainTab.ORGANIZE -> OrganizePage(
-            vm = vm,
-            onSwitchTab = { mainTab = it },
-            modifier = modifier,
-        )
-    }
-}
-
-/** 首页内部导航：home / folder / player / viewer。 */
-@Composable
-private fun V2HomeNav(
-    vm: V2HomeViewModel,
-    onSwitchTab: (V2MainTab) -> Unit,
-    modifier: Modifier = Modifier,
-) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
-    val route = backStack?.destination?.route
-    val showBottomBar = route == null || route == "home" || route == "folder/{folderId}"
+    val currentRoute = backStack?.destination?.route
+    val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
 
     Box(modifier = modifier.fillMaxSize()) {
-        NavHost(navController = navController, startDestination = "home", modifier = Modifier.fillMaxSize()) {
-            composable("home") {
+        NavHost(
+            navController = navController,
+            startDestination = MediaNavigator.ROUTE_HOME,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            composable(MediaNavigator.ROUTE_HOME) {
                 HomeScreen(
                     vm = vm,
                     onOpenMedia = { m ->
                         vm.openMedia(m.id)
-                        if (m.isVideo) {
-                            navController.navigate("player/${m.id}")
-                        } else {
-                            navController.navigate("viewer/${m.id}")
-                        }
+                        MediaNavigator.openMedia(navController, m)
                     },
                     onOpenFolder = { f ->
-                        navController.navigate("folder/${f.id}")
+                        MediaNavigator.openFolder(navController, f.id)
                     },
                 )
             }
-            composable("folder/{folderId}") { entry ->
+            composable(MediaNavigator.ROUTE_REVIEW) {
+                PlaceholderPage(
+                    icon = Icons.Default.RateReview,
+                    title = "批阅模式",
+                    subtitle = "Stage 2",
+                )
+            }
+            composable(MediaNavigator.ROUTE_FAVORITES) {
+                FavoritesPage(
+                    vm = vm,
+                    onOpenMedia = { m ->
+                        vm.openMedia(m.id)
+                        MediaNavigator.openMedia(navController, m)
+                    },
+                )
+            }
+            composable(MediaNavigator.ROUTE_ORGANIZE) {
+                OrganizePage(vm = vm)
+            }
+            composable(MediaNavigator.ROUTE_FOLDER) { entry ->
                 val folderId = entry.arguments?.getString("folderId") ?: ""
                 val folderName = vm.folders.value.find { it.id == folderId }?.name ?: ""
                 FolderScreen(
@@ -142,15 +127,11 @@ private fun V2HomeNav(
                     onBack = { navController.popBackStack() },
                     onOpenMedia = { m ->
                         vm.openMedia(m.id)
-                        if (m.isVideo) {
-                            navController.navigate("player/${m.id}")
-                        } else {
-                            navController.navigate("viewer/${m.id}")
-                        }
+                        MediaNavigator.openMedia(navController, m)
                     },
                 )
             }
-            composable("player/{mediaId}") { entry ->
+            composable(MediaNavigator.ROUTE_PLAYER) { entry ->
                 val mediaId = entry.arguments?.getString("mediaId") ?: ""
                 val media = vm.mediaById(mediaId)
                 if (media != null) {
@@ -178,7 +159,7 @@ private fun V2HomeNav(
                     )
                 }
             }
-            composable("viewer/{mediaId}") { entry ->
+            composable(MediaNavigator.ROUTE_VIEWER) { entry ->
                 val mediaId = entry.arguments?.getString("mediaId") ?: ""
                 V2ImageViewer(
                     vm = vm,
@@ -190,20 +171,34 @@ private fun V2HomeNav(
 
         if (showBottomBar) {
             V2BottomNavBar(
-                current = V2MainTab.HOME,
-                onSelect = onSwitchTab,
+                current = currentTab(currentRoute),
+                onSelect = { tab ->
+                    navController.navigate(MediaNavigator.tabRoute(tab)) {
+                        popUpTo(MediaNavigator.ROUTE_HOME) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
 }
 
-/** 收藏页：直接显示 Demo 收藏内容。 */
+/** 由当前路由推导底部导航选中项。 */
+private fun currentTab(route: String?): V2MainTab = when (route) {
+    MediaNavigator.ROUTE_HOME -> V2MainTab.HOME
+    MediaNavigator.ROUTE_REVIEW -> V2MainTab.REVIEW
+    MediaNavigator.ROUTE_FAVORITES -> V2MainTab.FAVORITES
+    MediaNavigator.ROUTE_ORGANIZE -> V2MainTab.ORGANIZE
+    else -> V2MainTab.HOME
+}
+
+/** 收藏页：显示收藏媒体，点击经 MediaNavigator 进入 Player / Viewer，返回仍回收藏页。 */
 @Composable
 private fun FavoritesPage(
     vm: V2HomeViewModel,
-    onSwitchTab: (V2MainTab) -> Unit,
-    onOpenMedia: (com.mediareview.app.feature.v2.model.V2Media) -> Unit,
+    onOpenMedia: (V2Media) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val favorites by vm.favorites.collectAsState()
@@ -216,7 +211,7 @@ private fun FavoritesPage(
         ) {
             Text(
                 text = "收藏",
-                style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge,
                 color = MediaTextPrimary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
@@ -224,7 +219,7 @@ private fun FavoritesPage(
         }
         if (favorites.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("暂无收藏内容", color = MediaTextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                Text("暂无收藏内容", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyVerticalGrid(
@@ -237,7 +232,7 @@ private fun FavoritesPage(
                 items(favorites, key = { it.id }) { media ->
                     com.mediareview.app.feature.v2.home.MediaCard(
                         media = media,
-                        thumbUri = vm.thumbUri(media),
+                        coverUri = vm.coverUri(media),
                         spriteUri = vm.spriteUri(media),
                         manifest = vm.spriteManifest(media),
                         onClick = { onOpenMedia(media) },
@@ -245,11 +240,6 @@ private fun FavoritesPage(
                 }
             }
         }
-        V2BottomNavBar(
-            current = V2MainTab.FAVORITES,
-            onSelect = onSwitchTab,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 
@@ -257,7 +247,6 @@ private fun FavoritesPage(
 @Composable
 private fun OrganizePage(
     vm: V2HomeViewModel,
-    onSwitchTab: (V2MainTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val all = vm.currentList.collectAsState().value
@@ -272,7 +261,7 @@ private fun OrganizePage(
         ) {
             Text(
                 text = "整理",
-                style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge,
                 color = MediaTextPrimary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
@@ -288,11 +277,6 @@ private fun OrganizePage(
             item { OrganizeCard(Icons.Default.CheckCircle, "已批阅", "$reviewedCount 项已批阅", MediaTextSecondary) }
             item { OrganizeCard(Icons.Default.Folder, "媒体库管理", "$total 项 · 6 个文件夹", MediaTextSecondary) }
         }
-        V2BottomNavBar(
-            current = V2MainTab.ORGANIZE,
-            onSelect = onSwitchTab,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 
@@ -312,15 +296,15 @@ private fun OrganizeCard(
             .padding(V2Spacing.Lg),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        androidx.compose.material3.Icon(
+        Icon(
             icon,
             null,
             tint = tint,
             modifier = Modifier.size(28.dp),
         )
         Column(modifier = Modifier.padding(start = V2Spacing.Lg)) {
-            Text(title, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, color = MediaTextPrimary)
-            Text(subtitle, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = MediaTextSecondary)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MediaTextPrimary)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MediaTextSecondary)
         }
     }
 }
@@ -331,7 +315,6 @@ private fun PlaceholderPage(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onSwitchTab: (V2MainTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
@@ -342,7 +325,7 @@ private fun PlaceholderPage(
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                androidx.compose.material3.Icon(
+                Icon(
                     icon,
                     null,
                     tint = MediaTextSecondary,
@@ -350,22 +333,17 @@ private fun PlaceholderPage(
                 )
                 Text(
                     title,
-                    style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MediaTextPrimary,
                     modifier = Modifier.padding(top = V2Spacing.Md),
                 )
                 Text(
                     subtitle,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MediaTextSecondary,
                     modifier = Modifier.padding(top = V2Spacing.Xs),
                 )
             }
         }
-        V2BottomNavBar(
-            current = V2MainTab.REVIEW,
-            onSelect = onSwitchTab,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
