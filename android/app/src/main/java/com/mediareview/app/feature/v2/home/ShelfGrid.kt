@@ -27,7 +27,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -67,6 +69,10 @@ fun ShelfGrid(
     }
 }
 
+/** 相册书封卡：目标解码尺寸 ≈ 168dp 宽 * 2.75x = 462×616px（3:4）。 */
+private const val ALBUM_COVER_WIDTH = 462
+private const val ALBUM_COVER_HEIGHT = 616
+
 @Composable
 private fun AlbumBookCard(
     album: V2Album,
@@ -92,8 +98,14 @@ private fun AlbumBookCard(
                     .background(MediaSurfaceRaised),
             ) {
                 if (coverUri != null) {
+                    // Stage6 轻量封面：3:4 书封约 168dp 宽 → 缩小解码 + 关 crossfade
+                    val request = ImageRequest.Builder(LocalContext.current)
+                        .data(coverUri)
+                        .crossfade(false)
+                        .size(ALBUM_COVER_WIDTH, ALBUM_COVER_HEIGHT)
+                        .build()
                     SubcomposeAsyncImage(
-                        model = coverUri,
+                        model = request,
                         contentDescription = album.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

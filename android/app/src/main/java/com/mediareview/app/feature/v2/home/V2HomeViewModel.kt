@@ -14,6 +14,8 @@ import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +76,14 @@ class V2HomeViewModel @Inject constructor(
 
     private val _albums = MutableStateFlow<List<V2Album>>(emptyList())
     val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
+
+    // Stage6：列表刷新 Job 竞态控制。
+    // 只有最后一次触发的 refreshList 生效（连点文件夹/排序/输入搜索词时，
+    // 旧一次的结果不得覆盖新一次）；搜索输入走防抖路径。
+    private var listRefreshJob: Job? = null
+
+    /** 搜索防抖窗口（输入停顿该时长后才真正查询）。 */
+    private val searchDebounceMs = 300L
 
     // ---------- 雪碧图预览单实例状态 ----------
 
@@ -145,7 +155,8 @@ class V2HomeViewModel @Inject constructor(
 
     fun updateSearchQuery(q: String) {
         searchQuery = q
-        refreshList()
+        // 输入防抖：停顿 300ms 后才真正查询，避免每个字符都触发一次全量过滤
+        refreshList(debounceMs = searchDebounceMs)
     }
 
     fun commitSearch() {
@@ -208,6 +219,23 @@ class V2HomeViewModel @Inject constructor(
         )
     }
 
+    /**
+     * 在指定视频队列中打开（批阅页 → 完整播放器：Player 按此队列上下条，
+     * 返回时依旧回到批阅原位置）。
+     */
+    fun openMediaInVideoQueue(queue: List<V2Media>, mediaId: String) {
+        val videos = queue.filter { it.isVideo }
+        val index = videos.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
+        contextQueue = V2ContextQueue(
+            folderId = null,
+            sortField = V2SortSpec().field,
+            sortOrder = V2SortSpec().order,
+            typeFilter = V2TypeFilter.VIDEO,
+            mediaIds = videos.map { it.id },
+            currentIndex = index,
+        )
+    }
+
     /** 由播放器/查看器更新队列（如左右翻页后同步索引）。 */
     fun updateQueueIndex(index: Int) {
         val q = contextQueue ?: return
@@ -253,8 +281,14 @@ class V2HomeViewModel @Inject constructor(
         }
     }
 
-    private fun refreshList() {
-        viewModelScope.launch {
+    /**
+     * 刷新媒体列表（mapLatest 语义：取消上一次未完成的刷新，只保留最新一次）。
+     * [debounceMs] > 0 时先等待该时长（用于搜索输入节流）。
+     */
+    private fun refreshList(debounceMs: Long = 0L) {
+        listRefreshJob?.cancel()
+        listRefreshJob = viewModelScope.launch {
+            if (debounceMs > 0) delay(debounceMs)
             val spec = _sortSpec.value
             val folder = _selectedFolderId.value
             val query = searchQuery.trim()

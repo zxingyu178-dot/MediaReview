@@ -13,6 +13,16 @@ import java.util.concurrent.TimeUnit
  */
 object DemoMediaCatalog {
 
+    /**
+     * Stage6 性能演示模式（默认关闭，交付包保持真实数据量）。
+     * 置 true 构建时，会把内置示例媒体复制扩展到 500 条用于性能验证
+     * （dumpsys gfxinfo Before/After、列表流畅度），无需改任何 UI/仓库代码。
+     */
+    const val PERF_DEMO_MODE = false
+
+    /** 性能模式目标媒体条数。 */
+    private const val PERF_TARGET_COUNT = 500
+
     private const val V = "demo_media/videos"
     private const val I = "demo_media/images"
     private const val S = "demo_media/sprites"
@@ -154,7 +164,34 @@ object DemoMediaCatalog {
             list += v.copy(isReviewed = i < 2)
         }
 
-        return list
+        val base = list.toList()
+        return if (!PERF_DEMO_MODE) base
+        // 性能演示：把内置媒体循环复制到目标条数（id/名称/编号唯一），
+        // 用于 500 条级别列表滚动性能验证；资源仍指向同一批内置文件。
+        else buildPerfVariant(base)
+    }
+
+    /**
+     * 将内置媒体循环复制扩展到 [PERF_TARGET_COUNT] 条。
+     * 每条 id/名称/编号唯一，folderId 按原数据保持（画架/文件夹计数仍正确），
+     * 排序字段（dateMillis/size/duration）做微调整避免全部相同。
+     */
+    private fun buildPerfVariant(base: List<V2Media>): List<V2Media> {
+        val out = ArrayList<V2Media>(PERF_TARGET_COUNT)
+        var i = 0
+        while (out.size < PERF_TARGET_COUNT) {
+            val src = base[i % base.size]
+            out += src.copy(
+                id = "perf-${"%05d".format(i)}",
+                code = "%05d".format(i + 1),
+                name = src.name,
+                // 每批次微调时间/体积，模拟真实库的分布，避免排序时相邻全等
+                dateMillis = src.dateMillis - i * 60_000L,
+                sizeBytes = src.sizeBytes + (i % 7) * 31_000L,
+            )
+            i++
+        }
+        return out
     }
 
     // ---------- helpers ----------

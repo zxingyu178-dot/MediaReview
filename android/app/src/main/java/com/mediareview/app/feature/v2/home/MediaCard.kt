@@ -31,10 +31,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import com.mediareview.app.feature.v2.ui.V2Colors
@@ -53,6 +55,10 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
  * - 同一时间只有 1 个 Preview（由 ViewModel 的 activePreviewMediaId 保证）；
  * - 松手不停止；滚动/切 Tab/打开媒体/超时由外部停止。
  */
+
+/** 封面轻量解码目标尺寸（像素）：约 176dp 双列卡，不按 1920×1080 原始尺寸解码。 */
+private const val COVER_TARGET_WIDTH = 484
+private const val COVER_TARGET_HEIGHT = 272
 @Composable
 fun MediaCard(
     media: V2Media,
@@ -67,6 +73,18 @@ fun MediaCard(
 ) {
     val haptic = LocalHapticFeedback.current
     val hasSprite = spriteUri != null && manifest != null
+    val context = LocalContext.current
+
+    // Stage6 轻量封面：目标解码尺寸 = 双列卡片约 176dp * 2.75x ≈ 484×272px，
+    // 明确要求小于原始 1920×1080 的缩小解码，同时关闭 crossfade 淡入，降低组合路径开销；
+    // 统一走 data-ui 双路径（占位/错误仍保留灰底图标，不出现黑块）。
+    val coverRequest = remember(coverUri) {
+        ImageRequest.Builder(context)
+            .data(coverUri)
+            .crossfade(false)
+            .size(COVER_TARGET_WIDTH, COVER_TARGET_HEIGHT)
+            .build()
+    }
 
     Box(
         modifier = modifier
@@ -110,7 +128,7 @@ fun MediaCard(
                     .background(V2Colors.CardScrim),
             ) {
                 SubcomposeAsyncImage(
-                    model = coverUri,
+                    model = coverRequest,
                     contentDescription = media.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

@@ -31,6 +31,12 @@ class DemoMediaRepository @Inject constructor(
 
     private val favoriteState = mutableMapOf<String, Boolean>()
     private val reviewedState = mutableMapOf<String, Boolean>()
+    private val pendingDeleteState = mutableSetOf<String>()
+
+    // Stage6：雪碧图 manifest 解析缓存。
+    // 禁止在 Compose 组合路径重复做 assets IO / JSON 解析——每个 manifest 只解析一次，
+    // 之后全部命中内存缓存（key = manifest asset 路径）。
+    private val spriteManifestCache = mutableMapOf<String, V2SpriteManifest?>()
 
     override val mode: AppMode = AppMode.DEMO
 
@@ -67,6 +73,16 @@ class DemoMediaRepository @Inject constructor(
         reviewedState[mediaId] = true
     }
 
+    override suspend fun pendingDeleteIds(): Set<String> = pendingDeleteState.toSet()
+
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {
+        if (pending) pendingDeleteState += mediaId else pendingDeleteState -= mediaId
+    }
+
+    override suspend fun unmarkReviewed(mediaId: String) {
+        reviewedState[mediaId] = false
+    }
+
     override fun playbackUri(mediaId: String): String {
         val m = mediaById[mediaId] ?: return ""
         return DemoAssets.playbackUri(m)
@@ -80,8 +96,11 @@ class DemoMediaRepository @Inject constructor(
 
     override fun spriteUri(media: V2Media): String? = DemoAssets.spriteUri(media)
 
-    override fun spriteManifest(media: V2Media): V2SpriteManifest? =
-        media.spriteManifestPath?.let { DemoAssets.readSpriteManifest(context, it) }
+    override fun spriteManifest(media: V2Media): V2SpriteManifest? {
+        val path = media.spriteManifestPath ?: return null
+        // 组合路径只查缓存，命中即返回，不触碰 assets（IO/解析只发生一次）
+        return spriteManifestCache.getOrPut(path) { DemoAssets.readSpriteManifest(context, path) }
+    }
 
     // ---------- 相册（书架） ----------
 
