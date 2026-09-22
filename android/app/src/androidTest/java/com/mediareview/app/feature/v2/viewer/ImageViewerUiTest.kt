@@ -9,8 +9,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ApplicationProvider
 import com.mediareview.app.feature.v2.AppMode
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
@@ -32,7 +34,7 @@ class ImageViewerUiTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     private fun newVm(): V2HomeViewModel {
-        val vm = V2HomeViewModel(FakeViewerRepository())
+        val vm = V2HomeViewModel(FakeViewerRepository(), StubSearchHistory())
         compose.waitUntil(5_000) { vm.currentList.value.isNotEmpty() }
         vm.openMedia("img2")
         return vm
@@ -88,6 +90,20 @@ class ImageViewerUiTest {
     }
 }
 
+/** 内存版搜索历史（避免 androidTest 触碰真实 DataStore）。 */
+private class StubSearchHistory : SearchHistoryStore(ApplicationProvider.getApplicationContext()) {
+    private val memory = mutableListOf<String>()
+    override suspend fun current(): List<String> = memory.toList()
+    override suspend fun add(term: String) {
+        memory.remove(term)
+        memory.add(0, term)
+    }
+
+    override suspend fun clear() {
+        memory.clear()
+    }
+}
+
 /** 测试用内存数据仓库：3 图 + 1 视频。 */
 private class FakeViewerRepository : MediaRepository {
     private val catalog = listOf(
@@ -112,6 +128,7 @@ private class FakeViewerRepository : MediaRepository {
     override suspend fun markReviewed(mediaId: String) {}
     override fun playbackUri(mediaId: String): String = ""
     override fun thumbUri(media: V2Media): String = ""
+    override fun coverUri(media: V2Media): String = ""
     override fun imageUri(media: V2Media): String = "asset:///demo_media/images/${media.id}.jpg"
     override fun spriteUri(media: V2Media): String? = null
     override fun spriteManifest(media: V2Media): V2SpriteManifest? = null

@@ -57,7 +57,7 @@ class ZoomMathTest {
     }
 
     @Test
-    fun `zoomAround 保持焦点下的图片点不动`() {
+    fun `zoomAround 保持焦点下的图片点不动（默认原点）`() {
         val focal = Offset(300f, 400f)
         val offset = Offset(50f, 60f)
         val k = 2f
@@ -66,6 +66,25 @@ class ZoomMathTest {
         // (focal - offset) == (focal - newOffset) / k
         assertEquals((focal.x - offset.x) * k, focal.x - newOffset.x, 0.001f)
         assertEquals((focal.y - offset.y) * k, focal.y - newOffset.y, 0.001f)
+    }
+
+    @Test
+    fun `zoomAround 支持中心 TransformOrigin 焦点模型`() {
+        // 与 graphicsLayer 默认 TransformOrigin.Center 对齐：
+        // t' = (focal - origin) - (focal - origin - t) * k
+        val origin = Offset(540f, 960f)
+        val focal = Offset(300f, 400f)
+        val offset = Offset(50f, 60f)
+        val k = 2f
+        val newOffset = ZoomMath.zoomAround(offset, focal, k, origin)
+        assertEquals(
+            (focal.x - origin.x) - (focal.x - origin.x - offset.x) * k,
+            newOffset.x, 0.001f,
+        )
+        assertEquals(
+            (focal.y - origin.y) - (focal.y - origin.y - offset.y) * k,
+            newOffset.y, 0.001f,
+        )
     }
 
     @Test
