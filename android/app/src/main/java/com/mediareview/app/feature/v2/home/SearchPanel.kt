@@ -116,6 +116,8 @@ fun SearchPanel(
                         coverUri = vm.coverUri(media),
                         spriteUri = vm.spriteUri(media),
                         manifest = vm.spriteManifest(media),
+                        isSpritePreviewing = false,
+                        onSpritePreviewRequest = {},
                         onClick = { onOpenMedia(media) },
                     )
                 }

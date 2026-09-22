@@ -2,6 +2,7 @@ package com.mediareview.app.feature.v2.data
 
 import android.content.Context
 import com.mediareview.app.feature.v2.AppMode
+import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2MediaType
@@ -21,6 +22,7 @@ import javax.inject.Singleton
 @Singleton
 class DemoMediaRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val albumCoverStore: AlbumCoverStore,
 ) : MediaRepository {
 
     private val allFolders: List<V2Folder> = DemoMediaCatalog.buildFolders()
@@ -81,6 +83,26 @@ class DemoMediaRepository @Inject constructor(
     override fun spriteManifest(media: V2Media): V2SpriteManifest? =
         media.spriteManifestPath?.let { DemoAssets.readSpriteManifest(context, it) }
 
+    // ---------- 相册（书架） ----------
+
+    override suspend fun albums(): List<V2Album> {
+        val state = allMedia.applyOverridesState()
+        val userCovers = albumCoverStore.allCovers()
+        return buildAlbums(allFolders, state, userCovers)
+    }
+
+    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
+        allMedia.applyOverridesState()
+            .filter { it.folderId == albumId && it.type == V2MediaType.IMAGE }
+            .sorted(spec)
+
+    override suspend fun setAlbumCover(albumId: String, mediaId: String) {
+        val media = mediaById[mediaId] ?: return
+        // 封面只能指向本相册内的照片
+        if (media.type != V2MediaType.IMAGE || media.folderId != albumId) return
+        albumCoverStore.setCover(albumId, mediaId)
+    }
+
     // ---------- helpers ----------
 
     private fun applyOverrides(source: List<V2Media> = allMedia): List<V2Media> =
@@ -116,5 +138,35 @@ class DemoMediaRepository @Inject constructor(
                 list.sortedByDescending { it.sizeBytes } else list.sortedBy { it.sizeBytes }
         }
         return list
+    }
+}
+
+/**
+ * 由文件夹 + 媒体（已应用状态覆盖）+ 用户自选封面构建相册列表（纯函数，可 JVM 单测）。
+ * 规则：
+ * - 只看 IMAGE；某文件夹无照片则不出现在书架；
+ * - 默认封面 = 该文件夹最新照片（dateMillis 最大）；
+ * - 用户手动设置优先，但只能指向本文件夹内的照片（否则回退默认）。
+ */
+fun buildAlbums(
+    folders: List<V2Folder>,
+    media: List<V2Media>,
+    userCovers: Map<String, String>,
+): List<V2Album> = folders.mapNotNull { folder ->
+    val images = media.filter { it.folderId == folder.id && it.type == V2MediaType.IMAGE }
+    if (images.isEmpty()) {
+        null
+    } else {
+        val defaultCover = images.maxByOrNull { it.dateMillis }?.id
+        val cover = userCovers[folder.id]
+            ?.takeIf { id -> images.any { it.id == id } }
+            ?: defaultCover
+        V2Album(
+            id = folder.id,
+            folderId = folder.id,
+            name = folder.name,
+            imageCount = images.size,
+            coverImageId = cover,
+        )
     }
 }

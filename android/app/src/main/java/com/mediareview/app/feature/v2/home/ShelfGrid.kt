@@ -5,12 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -21,26 +22,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
-import com.mediareview.app.feature.v2.model.V2Folder
-import com.mediareview.app.feature.v2.model.V2Media
-import com.mediareview.app.feature.v2.ui.V2Colors
+import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 
-/** 书架模式：文件夹表现为"书"，一行两个，支持单封面 / 四宫格封面。 */
+/**
+ * 书架 = 照片相册（Stage 5）。
+ * - 数据：List<V2Album>（无照片的文件夹已由数据层过滤）；
+ * - 外观：一行两个、约 3:4 的"书"，单图封面 + 侧边书脊 + 轻微阴影层叠感；
+ * - 信息：相册名 + "XX 张"（不再显示媒体总数或描述）。
+ */
 @Composable
 fun ShelfGrid(
-    folders: List<V2Folder>,
-    counts: Map<String, Int>,
-    thumbFor: (String) -> String,
-    onOpenFolder: (V2Folder) -> Unit,
+    albums: List<V2Album>,
+    coverFor: (String) -> String?,
+    onOpenAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
@@ -49,25 +54,23 @@ fun ShelfGrid(
         contentPadding = PaddingValues(
             start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl,
         ),
-        horizontalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-        verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
+        horizontalArrangement = Arrangement.spacedBy(V2Spacing.Xl),
+        verticalArrangement = Arrangement.spacedBy(V2Spacing.Xl),
     ) {
-        items(folders, key = { it.id }) { folder ->
-            FolderShelfCard(
-                folder = folder,
-                count = counts[folder.id] ?: 0,
-                thumbFor = thumbFor,
-                onClick = { onOpenFolder(folder) },
+        items(albums, key = { it.id }) { album ->
+            AlbumBookCard(
+                album = album,
+                coverUri = coverFor(album.coverImageId ?: ""),
+                onClick = { onOpenAlbum(album.id) },
             )
         }
     }
 }
 
 @Composable
-private fun FolderShelfCard(
-    folder: V2Folder,
-    count: Int,
-    thumbFor: (String) -> String,
+private fun AlbumBookCard(
+    album: V2Album,
+    coverUri: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -75,89 +78,60 @@ private fun FolderShelfCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(V2Radius.Card))
-            .background(MediaSurfaceRaised)
             .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 封面区：1 个单封面 / 4 个四宫格
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .padding(V2Spacing.Md),
-        ) {
-            val covers = folder.coverMediaIds.take(4)
-            when (covers.size) {
-                1 -> QuadrantCover(uris = listOf(thumbFor(covers[0])), emptyColor = V2Colors.CardScrim, showEmpty = false)
-                else -> QuadrantCover(
-                    uris = listOfNotNull(
-                        covers.getOrNull(0)?.let { thumbFor(it) },
-                        covers.getOrNull(1)?.let { thumbFor(it) },
-                        covers.getOrNull(2)?.let { thumbFor(it) },
-                        covers.getOrNull(3)?.let { thumbFor(it) },
-                    ),
-                    emptyColor = V2Colors.CardScrim,
-                    showEmpty = true,
+        // 书封面：3:4，单图 + 右侧书脊 + 轻层叠阴影
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(3f / 4f)
+                    .shadow(elevation = 6.dp, shape = RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp, topEnd = 4.dp, bottomEnd = 4.dp))
+                    .background(MediaSurfaceRaised),
+            ) {
+                if (coverUri != null) {
+                    SubcomposeAsyncImage(
+                        model = coverUri,
+                        contentDescription = album.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                // 右侧书脊渐变
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxSize()
+                        .width(14.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    androidx.compose.ui.graphics.Color.Transparent,
+                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.12f),
+                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.28f),
+                                ),
+                            ),
+                        ),
                 )
             }
         }
 
         Text(
-            text = folder.name,
+            text = album.name,
             style = MaterialTheme.typography.titleMedium,
             color = MediaTextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = V2Spacing.Md),
+            modifier = Modifier.padding(top = V2Spacing.Sm),
         )
         Text(
-            text = "$count 项 · ${folder.description}",
+            text = "${album.imageCount} 张",
             style = MaterialTheme.typography.bodySmall,
             color = MediaTextSecondary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = V2Spacing.Md, end = V2Spacing.Md, bottom = V2Spacing.Md),
+            modifier = Modifier.padding(top = 2.dp),
         )
-    }
-}
-
-/** 四宫格封面：按可用封面填充，不足用占位色块。 */
-@Composable
-private fun QuadrantCover(
-    uris: List<String>,
-    emptyColor: androidx.compose.ui.graphics.Color,
-    showEmpty: Boolean,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.weight(1f)) {
-            CoverCell(uris.getOrNull(0), emptyColor, Modifier.weight(1f))
-            CoverCell(uris.getOrNull(1), emptyColor, Modifier.weight(1f))
-        }
-        Row(modifier = Modifier.weight(1f)) {
-            CoverCell(uris.getOrNull(2), emptyColor, Modifier.weight(1f))
-            CoverCell(uris.getOrNull(3), emptyColor, Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun CoverCell(
-    uri: String?,
-    emptyColor: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .padding(2.dp)
-            .clip(RoundedCornerShape(V2Radius.Sm))
-            .background(emptyColor),
-    ) {
-        if (uri != null) {
-            SubcomposeAsyncImage(
-                model = uri,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
     }
 }

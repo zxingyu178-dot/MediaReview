@@ -38,13 +38,22 @@ data class V2Media(
     val durationSeconds: Int get() = (durationMs / 1000L).toInt()
 }
 
-/** V2 文件夹（书架中的"书"）。 */
+/** V2 文件夹（媒体文件夹，非书架封面来源）。 */
 data class V2Folder(
     val id: String,
     val name: String,
     val description: String,
-    /** 封面媒体 id 列表：1 个为单封面，4 个为四宫格封面。 */
+    /** 封面媒体 id 列表：1 个为单封面，4 个为四宫格封面。（书架已弃用，保留供媒体筛选） */
     val coverMediaIds: List<String>,
+)
+
+/** 照片相册：书架只按此模型展示，仅统计 / 封面 / 内容均只允许 IMAGE。 */
+data class V2Album(
+    val id: String,          // 相册 id（第一版 = folderId）
+    val folderId: String,
+    val name: String,        // 第一版直接使用 folderName
+    val imageCount: Int,
+    val coverImageId: String?, // 只能指向 IMAGE（默认最新照片；用户手动设置后持久化）
 )
 
 /** 雪碧图 manifest（对应 assets 内 0X_sprite.json）。 */

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.snapshotFlow
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.ui.V2Colors
@@ -53,9 +57,11 @@ fun HomeScreen(
     vm: V2HomeViewModel,
     onOpenMedia: (V2Media) -> Unit,
     onOpenFolder: (V2Folder) -> Unit,
+    onOpenAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val folders by vm.folders.collectAsState()
+    val albums by vm.albums.collectAsState()
     val list by vm.currentList.collectAsState()
     val sortSpec by vm.sortSpec.collectAsState()
     val selectedFolderId by vm.selectedFolderId.collectAsState()
@@ -66,13 +72,23 @@ fun HomeScreen(
     var showMoreSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
 
+    // 切换 Tab / 进入搜索时立即停止雪碧图预览，避免残留动画
+    fun clearPreviewIfNeeded() {
+        if (vm.activePreviewMediaId != null) vm.stopSpritePreview()
+    }
+
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
         SearchBar(
             active = searchActive,
             query = vm.searchQuery,
             onQueryChange = vm::updateSearchQuery,
-            onActivate = { vm.setSearchMode(true) },
-            onClose = { vm.setSearchMode(false) },
+            onActivate = {
+                clearPreviewIfNeeded()
+                vm.setSearchMode(true)
+            },
+            onClose = {
+                vm.setSearchMode(false)
+            },
             onSearch = vm::commitSearch,
             modifier = Modifier
                 .fillMaxWidth()
@@ -83,7 +99,10 @@ fun HomeScreen(
         if (!searchActive) {
             ModeTabRow(
                 current = vm.currentTab,
-                onSelect = vm::setTab,
+                onSelect = {
+                    clearPreviewIfNeeded()
+                    vm.setTab(it)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm),
@@ -94,15 +113,27 @@ fun HomeScreen(
                     folders = folders,
                     selectedFolderId = selectedFolderId,
                     selectedRecent = selectedRecent,
-                    onSelectAll = vm::selectAll,
-                    onSelectRecent = vm::selectRecent,
-                    onSelectFolder = vm::selectFolder,
+                    onSelectAll = {
+                        clearPreviewIfNeeded()
+                        vm.selectAll()
+                    },
+                    onSelectRecent = {
+                        clearPreviewIfNeeded()
+                        vm.selectRecent()
+                    },
+                    onSelectFolder = {
+                        clearPreviewIfNeeded()
+                        vm.selectFolder(it)
+                    },
                     onMore = { showMoreSheet = true },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 SortFilterRow(
                     spec = sortSpec,
-                    onClick = { showSortSheet = true },
+                    onClick = {
+                        clearPreviewIfNeeded()
+                        showSortSheet = true
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Xs),
@@ -117,10 +148,9 @@ fun HomeScreen(
                         onOpenMedia = onOpenMedia,
                     )
                     V2HomeTab.SHELF -> ShelfGrid(
-                        folders = folders,
-                        counts = folderCounts,
-                        thumbFor = { id -> vm.mediaById(id)?.let { vm.coverUri(it) } ?: "" },
-                        onOpenFolder = onOpenFolder,
+                        albums = albums,
+                        coverFor = { albumId -> vm.mediaById(albumId)?.let { vm.coverUri(it) } },
+                        onOpenAlbum = onOpenAlbum,
                     )
                 }
             }
@@ -294,10 +324,22 @@ fun MediaGrid(
     onOpenMedia: (V2Media) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val gridState = rememberLazyGridState()
+    val previewId = vm.activePreviewMediaId
+
+    // 用户开始滑动页面 → 立即恢复 Poster
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.isScrollInProgress }
+            .collect { scrolling ->
+                if (scrolling && vm.activePreviewMediaId != null) vm.stopSpritePreview()
+            }
+    }
+
     LazyVerticalGrid(
+        state = gridState,
         columns = GridCells.Fixed(2),
         modifier = modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+        contentPadding = PaddingValues(
             start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl,
         ),
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(V2Spacing.Md),
@@ -309,7 +351,15 @@ fun MediaGrid(
                 coverUri = vm.coverUri(media),
                 spriteUri = vm.spriteUri(media),
                 manifest = vm.spriteManifest(media),
-                onClick = { onOpenMedia(media) },
+                isSpritePreviewing = previewId == media.id && media.isVideo,
+                onSpritePreviewRequest = {
+                    vm.startSpritePreview(media.id)
+                },
+                onSpritePreviewStop = { vm.stopSpritePreview() },
+                onClick = {
+                    vm.stopSpritePreview()
+                    onOpenMedia(media)
+                },
             )
         }
     }

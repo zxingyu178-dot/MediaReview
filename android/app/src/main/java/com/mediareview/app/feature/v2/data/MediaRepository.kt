@@ -1,6 +1,7 @@
 package com.mediareview.app.feature.v2.data
 
 import com.mediareview.app.feature.v2.AppMode
+import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SortSpec
@@ -53,4 +54,19 @@ interface MediaRepository {
     fun spriteUri(media: V2Media): String?
 
     fun spriteManifest(media: V2Media): V2SpriteManifest?
+
+    // ---------- 相册（书架）能力 ----------
+
+    /** 照片相册列表：只能由 IMAGE 构成；无照片的文件夹不出现在书架。 */
+    suspend fun albums(): List<V2Album>
+
+    /** 相册内照片（IMAGE ONLY，已应用排序；不受首页过滤状态污染）。 */
+    suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media>
+
+    /**
+     * 用户设置相册封面。
+     * 校验：media.type == IMAGE 且 media.folderId == album.folderId；
+     * 否则忽略（封面只能指向本相册内的照片）。
+     */
+    suspend fun setAlbumCover(albumId: String, mediaId: String)
 }
