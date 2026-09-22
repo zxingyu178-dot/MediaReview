@@ -67,6 +67,9 @@ fun ZoomableImage(
     val scaleRef = rememberUpdatedState(scale)
     val offsetRef = rememberUpdatedState(offset)
 
+    // graphicsLayer 默认 TransformOrigin.Center => origin = viewport 中心
+    fun viewportOrigin(v: Size): Offset = Offset(v.width / 2f, v.height / 2f)
+
     // 翻页成为当前页时统一重置缩放（不记忆每张图独立缩放位置）
     LaunchedEffect(isCurrent) {
         if (isCurrent) {
@@ -106,7 +109,10 @@ fun ZoomableImage(
                                     val newScale = ZoomMath.clampScale(scale * dist / lastDist)
                                     val effectiveK = newScale / scale
                                     if (effectiveK != 1f) {
-                                        offset = ZoomMath.zoomAround(offset, centroid, effectiveK)
+                                        // 与 graphicsLayer 默认中心 TransformOrigin 对齐的焦点缩放
+                                        offset = ZoomMath.zoomAround(
+                                            offset, centroid, effectiveK, viewportOrigin(viewport),
+                                        )
                                     }
                                     scale = newScale
                                     offset = ZoomMath.resetOffsetIfScaleOne(scale, offset)
@@ -138,11 +144,16 @@ fun ZoomableImage(
                     onDoubleTap = { pos ->
                         val target = ZoomMath.doubleTapTarget(scale)
                         if (target > 1f) {
-                            offset = ZoomMath.zoomAround(offset, pos, target / scale)
+                            offset = ZoomMath.zoomAround(
+                                offset, pos, target / scale, viewportOrigin(viewport),
+                            )
                         } else {
                             offset = Offset.Zero
                         }
                         scale = target
+                        // 双击放大后必须立即 clamp，边缘双击不能跳出有效边界
+                        offset = ZoomMath.resetOffsetIfScaleOne(scale, offset)
+                        offset = ZoomMath.clampOffset(offset, viewport, imageSize, scale)
                         onScaleChange(scale)
                     },
                 )

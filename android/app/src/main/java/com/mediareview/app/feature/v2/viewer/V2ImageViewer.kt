@@ -101,12 +101,6 @@ fun V2ImageViewer(
         }
     }
 
-    // 预加载 N-1 / N+1 / N+2（轻量，不整文件夹加载）
-    ImagePreloader(
-        uris = ids.mapNotNull { id -> vm.mediaById(id)?.let { vm.imageUri(it) } },
-        currentIndex = pagerState.currentPage,
-    )
-
     Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
         HorizontalPager(
             state = pagerState,

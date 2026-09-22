@@ -290,17 +290,20 @@ fun GsyNativePlayerScreen(
 
     fun handleDoubleTap(xFraction: Float) {
         if (locked) return
-        val action = tap.onDoubleTap(xFraction, SystemClock.uptimeMillis())
+        val currentPos = controller.snapshot.value.currentPosition
+        val action = tap.onDoubleTap(xFraction, SystemClock.uptimeMillis(), currentPos)
         when (action) {
             TapActionState.DoubleTapAction.SEEK_BACK -> {
-                val d = -tap.deltaSeconds() * 1000L
-                controller.seekRelative(d)
-                showHint(d, controller.snapshot.value.currentPosition)
+                // 目标 = 连续序列起始位置 + 累计增量；clamp 到 [0, duration]
+                val target = tap.targetPositionMs().coerceAtLeast(0L)
+                controller.seekTo(target)
+                showHint(tap.accumulatedDeltaMs, target)
             }
             TapActionState.DoubleTapAction.SEEK_FORWARD -> {
-                val d = tap.deltaSeconds() * 1000L
-                controller.seekRelative(d)
-                showHint(d, controller.snapshot.value.currentPosition)
+                val maxTarget = controller.snapshot.value.duration
+                val target = tap.targetPositionMs().coerceAtMost(maxTarget.coerceAtLeast(0L))
+                controller.seekTo(target)
+                showHint(tap.accumulatedDeltaMs, target)
             }
             TapActionState.DoubleTapAction.TOGGLE_PLAY_PAUSE -> {
                 tap.reset()

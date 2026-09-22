@@ -7,10 +7,11 @@ import androidx.compose.ui.geometry.Size
  * 缩放 / 平移纯数学（可单测）。
  *
  * 模型：图片以 ContentScale.Fit 放入 viewport，再施加 graphicsLayer
- * scale + translation。t 与屏幕上点 p 的关系（近似）：
- *   图片坐标 = (p - offset) / scale
+ * scale + translation。graphicsLayer 使用默认中心 TransformOrigin，
+ * 缩放围绕层中心 [origin]、再叠加 translation，因此焦点缩放公式为：
+ *   p' = (p - origin) * k + origin + t
  * 以焦点 f 缩放 k 倍时保持图片坐标不变：
- *   offset' = f - (f - offset) * k
+ *   t' = (f - origin) - (f - origin - t) * k
  */
 object ZoomMath {
 
@@ -34,7 +35,7 @@ object ZoomMath {
 
     /**
      * 平移边界：图片放大后不能被拖到完全离开屏幕。
-     * 允许的最大平移 = (渲染尺寸 - viewport) / 2（不足时归 0）。
+     * 允许的最大平移 = (渲染尺寸 - viewport) / 2（不足时归 0）。以图片中心与视口中心重合为原点。
      */
     fun clampOffset(offset: Offset, viewport: Size, image: Size, scale: Float): Offset {
         val scaledW = image.width * scale
@@ -47,12 +48,18 @@ object ZoomMath {
         )
     }
 
-    /** 以屏幕焦点 [focal] 放大 [k] 倍（k = 新scale/旧scale）。 */
-    fun zoomAround(offset: Offset, focal: Offset, k: Float): Offset =
-        Offset(
-            x = focal.x - (focal.x - offset.x) * k,
-            y = focal.y - (focal.y - offset.y) * k,
+    /**
+     * 以层中心 [origin] 为 TransformOrigin、焦点 [focal] 放大 [k] 倍（k = 新scale/旧scale）。
+     * 与 graphicsLayer(transformOrigin = TransformOrigin(0.5f, 0.5f)) 的坐标模型一致：
+     *   t' = (focal - origin) - (focal - origin - t) * k
+     */
+    fun zoomAround(offset: Offset, focal: Offset, k: Float, origin: Offset = Offset.Zero): Offset {
+        val rel = focal - origin
+        return Offset(
+            x = rel.x - (rel.x - offset.x) * k,
+            y = rel.y - (rel.y - offset.y) * k,
         )
+    }
 
     /** scale 回到 1.0 时 offset 必须归零。 */
     fun resetOffsetIfScaleOne(scale: Float, offset: Offset): Offset =
