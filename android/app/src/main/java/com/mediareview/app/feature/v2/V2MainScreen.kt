@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,12 +45,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.material3.Scaffold
+import com.mediareview.app.feature.v2.home.AlbumScreen
 import com.mediareview.app.feature.v2.home.FolderScreen
 import com.mediareview.app.feature.v2.home.HomeScreen
 import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
 import com.mediareview.app.feature.v2.player.gsy.demoRawVideoUri
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
@@ -60,15 +65,17 @@ import com.mediareview.app.ui.theme.MediaBackground
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import kotlinx.coroutines.launch
 
 /**
- * V2 主界面（Root NavHost）：
+ * V2 主界面（Root Scaffold + NavHost）：
  * 一级 Tab：home / review / favorites / organize；
- * 全局详情：folder/{folderId} / player/{mediaId} / viewer/{mediaId}。
+ * 全局详情：folder/{folderId} / album/{albumId} / player/{mediaId} / viewer/{mediaId}。
  *
- * - [MediaNavigator.openMedia] 统一路由：VIDEO → Player，IMAGE → Viewer；
- * - Player / Viewer 不显示底部导航，Back 返回原 Tab（收藏→Viewer→Back→收藏）；
- * - 首页 / 收藏 / 整理页共享该 NavController，不再各自复制 if/else 路由。
+ * - Root Scaffold 提供 bottomBar（仅 Tab route 显示），innerPadding 下发给 Tab 内容，
+ *   内容区域天然结束在 BottomNav 上方，最后一行不再被遮挡；
+ * - Player / Viewer / Album 不显示底部导航，Back 返回原 Tab（收藏→Viewer→Back→收藏）；
+ * - 所有 Tab 内容共享该 NavController，统一经 MediaNavigator 路由。
  */
 @Composable
 fun V2MainScreen(
@@ -76,25 +83,54 @@ fun V2MainScreen(
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MediaBackground,
+        // 页面顶部各自的 statusBarsPadding、BottomNav 内部 navigationBarsPadding 已处理 inset；
+        // Scaffold 只负责下发 bottomBar 高度，避免双重 padding 或底部大块空白。
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            if (showBottomBar) {
+                V2BottomNavBar(
+                    current = currentTab(currentRoute),
+                    onSelect = { tab ->
+                        navController.navigate(MediaNavigator.tabRoute(tab)) {
+                            popUpTo(MediaNavigator.ROUTE_HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
+        },
+    ) { innerPadding ->
         NavHost(
             navController = navController,
             startDestination = MediaNavigator.ROUTE_HOME,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
         ) {
             composable(MediaNavigator.ROUTE_HOME) {
                 HomeScreen(
                     vm = vm,
                     onOpenMedia = { m ->
+                        vm.stopSpritePreview()
                         vm.openMedia(m.id)
                         MediaNavigator.openMedia(navController, m)
                     },
                     onOpenFolder = { f ->
+                        vm.stopSpritePreview()
                         MediaNavigator.openFolder(navController, f.id)
+                    },
+                    onOpenAlbum = { albumId ->
+                        vm.stopSpritePreview()
+                        MediaNavigator.navigateAlbum(navController, albumId)
                     },
                 )
             }
@@ -128,6 +164,29 @@ fun V2MainScreen(
                     onOpenMedia = { m ->
                         vm.openMedia(m.id)
                         MediaNavigator.openMedia(navController, m)
+                    },
+                )
+            }
+            composable(MediaNavigator.ROUTE_ALBUM) { entry ->
+                val albumId = entry.arguments?.getString("albumId") ?: ""
+                AlbumScreen(
+                    vm = vm,
+                    albumId = albumId,
+                    onBack = { navController.popBackStack() },
+                    onOpenImage = { m ->
+                        // Viewer 队列 = 当前相册照片（IMAGE ONLY），左右滑只在相册内翻页
+                        scope.launch {
+                            val albumImages = vm.imagesInAlbum(
+                                albumId,
+                                V2SortSpec(
+                                    field = com.mediareview.app.feature.v2.model.V2SortField.RECENT,
+                                    order = com.mediareview.app.feature.v2.model.V2SortOrder.DESC,
+                                    typeFilter = com.mediareview.app.feature.v2.model.V2TypeFilter.IMAGE,
+                                ),
+                            )
+                            vm.openMediaIn(albumImages, m.id)
+                            MediaNavigator.openMedia(navController, m)
+                        }
                     },
                 )
             }
@@ -167,20 +226,6 @@ fun V2MainScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
-        }
-
-        if (showBottomBar) {
-            V2BottomNavBar(
-                current = currentTab(currentRoute),
-                onSelect = { tab ->
-                    navController.navigate(MediaNavigator.tabRoute(tab)) {
-                        popUpTo(MediaNavigator.ROUTE_HOME) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
         }
     }
 }
@@ -235,6 +280,8 @@ private fun FavoritesPage(
                         coverUri = vm.coverUri(media),
                         spriteUri = vm.spriteUri(media),
                         manifest = vm.spriteManifest(media),
+                        isSpritePreviewing = false,
+                        onSpritePreviewRequest = {},
                         onClick = { onOpenMedia(media) },
                     )
                 }

@@ -11,10 +11,12 @@ object MediaNavigator {
     const val ROUTE_FAVORITES = "favorites"
     const val ROUTE_ORGANIZE = "organize"
     const val ROUTE_FOLDER = "folder/{folderId}"
+    const val ROUTE_ALBUM = "album/{albumId}"
     const val ROUTE_PLAYER = "player/{mediaId}"
     const val ROUTE_VIEWER = "viewer/{mediaId}"
 
     fun folder(folderId: String) = "folder/$folderId"
+    fun album(albumId: String) = "album/$albumId"
     fun player(mediaId: String) = "player/$mediaId"
     fun viewer(mediaId: String) = "viewer/$mediaId"
 
@@ -32,6 +34,10 @@ object MediaNavigator {
 
     fun openFolder(nav: NavHostController, folderId: String) {
         nav.navigate(folder(folderId))
+    }
+
+    fun navigateAlbum(nav: NavHostController, albumId: String) {
+        nav.navigate(album(albumId))
     }
 
     /** 底部导航一级 Tab 路由。 */
