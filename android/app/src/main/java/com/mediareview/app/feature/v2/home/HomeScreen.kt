@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -66,9 +67,13 @@ fun HomeScreen(
     var showSortSheet by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
-        SearchBarButton(
+        SearchBar(
             active = searchActive,
-            onToggle = { vm.setSearchMode(!searchActive) },
+            query = vm.searchQuery,
+            onQueryChange = vm::updateSearchQuery,
+            onActivate = { vm.setSearchMode(true) },
+            onClose = { vm.setSearchMode(false) },
+            onSearch = vm::commitSearch,
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
@@ -114,7 +119,7 @@ fun HomeScreen(
                     V2HomeTab.SHELF -> ShelfGrid(
                         folders = folders,
                         counts = folderCounts,
-                        thumbFor = { id -> vm.mediaById(id)?.let { vm.thumbUri(it) } ?: "" },
+                        thumbFor = { id -> vm.mediaById(id)?.let { vm.coverUri(it) } ?: "" },
                         onOpenFolder = onOpenFolder,
                     )
                 }
@@ -150,42 +155,84 @@ fun HomeScreen(
     }
 }
 
-/** 顶部搜索栏（点击在页面内展开搜索面板，不新开页面）。 */
+/** 顶部唯一搜索框：未激活显示占位文案，点击同一框变为 TextField 并聚焦（不新增第二个输入框）。 */
 @Composable
-private fun SearchBarButton(
+private fun SearchBar(
     active: Boolean,
-    onToggle: () -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onActivate: () -> Unit,
+    onClose: () -> Unit,
+    onSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Box(
         modifier = modifier
             .clip(RoundedCornerShape(V2Radius.SearchBar))
-            .background(MediaSurfaceRaised)
-            .clickable(onClick = onToggle)
-            .padding(horizontal = V2Spacing.Lg, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .background(if (active) MediaSurfaceRaised else MediaSurfaceRaised),
     ) {
-        Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = "搜索",
-            tint = MediaTextSecondary,
-        )
-        Text(
-            text = if (active) "" else "搜索媒体…",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MediaTextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = V2Spacing.Md),
-        )
         if (active) {
-            IconButton(onClick = onToggle, modifier = Modifier.size(20.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = V2Spacing.Lg, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "关闭搜索",
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
                     tint = MediaTextSecondary,
+                )
+                val focusRequester = androidx.compose.ui.focus.FocusRequester()
+                androidx.compose.foundation.text.BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = V2Spacing.Md)
+                        .focusRequester(focusRequester),
+                    singleLine = true,
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MediaTextPrimary),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MediaTextPrimary),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Search,
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onSearch() }),
+                )
+                androidx.compose.runtime.LaunchedEffect(active) {
+                    if (active) focusRequester.requestFocus()
+                }
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭搜索",
+                        tint = MediaTextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onActivate)
+                    .padding(horizontal = V2Spacing.Lg, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "搜索",
+                    tint = MediaTextSecondary,
+                )
+                Text(
+                    text = "搜索媒体…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MediaTextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = V2Spacing.Md),
                 )
             }
         }
@@ -259,7 +306,7 @@ fun MediaGrid(
         items(list, key = { it.id }) { media ->
             MediaCard(
                 media = media,
-                thumbUri = vm.thumbUri(media),
+                coverUri = vm.coverUri(media),
                 spriteUri = vm.spriteUri(media),
                 manifest = vm.spriteManifest(media),
                 onClick = { onOpenMedia(media) },

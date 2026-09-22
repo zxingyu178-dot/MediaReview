@@ -1,9 +1,9 @@
 package com.mediareview.app.feature.v2.home
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -44,19 +47,22 @@ import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import android.os.SystemClock
+
+private const val SPRITE_LONG_PRESS_MS = 280L
 
 /**
  * V2 双列媒体卡片：
- * - 圆角 + 轻阴影 + 略微立体
- * - 时长叠封面右下角
- * - 标题一行、次信息弱化
- * - 长按约 250ms 进入雪碧图预览（轻微触觉反馈、卡片 1.00→1.03、阴影增强、左右拖动选时间、松手恢复）
+ * - 圆角 + 轻阴影 + 略微立体；封面 16:9，标题单行、次信息弱化（首屏约 4~5 排可见）
+ * - 封面加载中显示轻量 Skeleton，失败显示统一占位（绝不纯黑）
+ * - 长按约 280ms 进入雪碧图预览：轻震动、卡片 1.00→1.03、阴影增强；
+ *   左右拖动按"手指绝对位置 / 卡宽"映射进度（非累计），松手恢复 Poster
+ * - 与 LazyGrid 滚动竞争：长按判定前发生显著位移 → 不消耗事件，交给滚动
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaCard(
     media: V2Media,
-    thumbUri: String,
+    coverUri: String,
     spriteUri: String?,
     manifest: V2SpriteManifest?,
     onClick: () -> Unit,
@@ -66,8 +72,11 @@ fun MediaCard(
     var progress by remember { mutableFloatStateOf(0f) }
     var cardW by remember { mutableIntStateOf(0) }
     var cardH by remember { mutableIntStateOf(0) }
+    // 长按拖拽会话标记：防止松手瞬间被 clickable 当作普通点击
+    var dragSessionActive by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val hasSprite = spriteUri != null && manifest != null
+    val activeByGesture = rememberUpdatedState(dragSessionActive)
 
     Box(
         modifier = modifier
@@ -80,57 +89,87 @@ fun MediaCard(
                 }
             }
             .onSizeChanged { cardW = it.width; cardH = it.height }
-            .pointerInput(media.id, hasSprite) {
+            .pointerInput(media.id, hasSprite, cardW, cardH) {
                 if (!hasSprite) return@pointerInput
-                detectDragGesturesAfterLongPress(
-                    onDragStart = {
-                        previewing = true
-                        progress = 0f
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onDrag = { change, dragAmount ->
-                        // 手指移出卡片边界时结束预览（不保持）
-                        if (cardW > 0 && cardH > 0) {
-                            val pos = change.position
-                            if (pos.x !in 0f..cardW.toFloat() || pos.y !in 0f..cardH.toFloat()) {
-                                previewing = false
-                                progress = 0f
-                                return@detectDragGesturesAfterLongPress
-                            }
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // 自实现长按检测（约 280ms）：期间发生显著位移 → 不进入预览，交给 LazyGrid 滚动
+                    var entered = false
+                    val startPos = down.position
+                    val deadline = SystemClock.uptimeMillis() + SPRITE_LONG_PRESS_MS
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
+                        if (!change.pressed) return@awaitEachGesture
+                        val dist = (change.position - startPos).getDistance()
+                        if (dist > 12.dp.toPx()) return@awaitEachGesture // 位移交给滚动
+                        if (SystemClock.uptimeMillis() >= deadline) {
+                            entered = true
+                            break
                         }
-                        if (cardW > 0) {
-                            progress = (progress + dragAmount.x / cardW).coerceIn(0f, 1f)
+                    }
+                    if (!entered) return@awaitEachGesture
+
+                    // 长按命中：进入预览（绝对位置起步）
+                    previewing = true
+                    dragSessionActive = true
+                    var totalDx = 0f
+                    var totalDy = 0f
+                    progress = (down.position.x / cardW.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null) break
+                        if (!change.pressed) {
+                            change.consume()
+                            break
                         }
+                        totalDx += change.positionChange().x
+                        totalDy += change.positionChange().y
+                        val outside = cardW > 0 && cardH > 0 &&
+                            (change.position.x !in 0f..cardW.toFloat() || change.position.y !in 0f..cardH.toFloat())
+                        val verticalDominant = totalDy > 24.dp.toPx() && totalDy > totalDx
+                        if (outside || verticalDominant) {
+                            // 纵向位移主导：结束预览、停止消费，把滚动交还给 LazyGrid
+                            change.consume()
+                            break
+                        }
+                        progress = (change.position.x / cardW.coerceAtLeast(1)).coerceIn(0f, 1f)
                         change.consume()
-                    },
-                    onDragEnd = {
-                        previewing = false
-                        progress = 0f
-                    },
-                    onDragCancel = {
-                        previewing = false
-                        progress = 0f
-                    },
-                )
+                    }
+                    previewing = false
+                    progress = 0f
+                }
             }
             .clip(RoundedCornerShape(V2Radius.Card))
             .background(MediaSurfaceRaised)
-            .clickable { onClick() },
+            .clickable {
+                // 长按结束后的松手不触发普通点击（避免误入详情页）
+                if (activeByGesture.value) {
+                    dragSessionActive = false
+                } else {
+                    dragSessionActive = false
+                    onClick()
+                }
+            },
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // 封面
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 10f)
+                    .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(topStart = V2Radius.Card, topEnd = V2Radius.Card))
                     .background(V2Colors.CardScrim),
             ) {
                 SubcomposeAsyncImage(
-                    model = thumbUri,
+                    model = coverUri,
                     contentDescription = media.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                    loading = { CoverSkeleton() },
+                    error = { CoverPlaceholder() },
                 )
 
                 // 时长胶囊（视频）
@@ -139,9 +178,9 @@ fun MediaCard(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(V2Spacing.Sm)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .background(V2Colors.TimeCapsule)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
                     ) {
                         Text(
                             text = formatDuration(media.durationMs),
@@ -160,7 +199,7 @@ fun MediaCard(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(V2Spacing.Sm)
-                            .size(20.dp),
+                            .size(18.dp),
                     )
                 }
 
@@ -176,8 +215,8 @@ fun MediaCard(
                 }
             }
 
-            // 标题 + 次信息
-            Column(modifier = Modifier.padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Sm)) {
+            // 标题 + 次信息（紧凑垂直内边距，提升首屏排数）
+            Column(modifier = Modifier.padding(horizontal = V2Spacing.Sm, vertical = V2Spacing.Sm)) {
                 Text(
                     text = media.name,
                     style = MaterialTheme.typography.bodyMedium,
@@ -193,6 +232,49 @@ fun MediaCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+/** 封面加载中 Skeleton：轻量呼吸色块 + 居中图标（非纯黑空块）。 */
+@Composable
+private fun CoverSkeleton() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(V2Colors.Skeleton),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.BrokenImage,
+            contentDescription = null,
+            tint = MediaTextSecondary.copy(alpha = 0.35f),
+            modifier = Modifier.size(28.dp),
+        )
+    }
+}
+
+/** 封面加载失败统一占位（网络异常 / Server 缺失也不出现黑墙）。 */
+@Composable
+private fun CoverPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(V2Colors.CardScrim),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.BrokenImage,
+                contentDescription = null,
+                tint = MediaTextSecondary.copy(alpha = 0.55f),
+                modifier = Modifier.size(26.dp),
+            )
+            Text(
+                text = "封面不可用",
+                style = MaterialTheme.typography.labelSmall,
+                color = MediaTextSecondary.copy(alpha = 0.6f),
+            )
         }
     }
 }
