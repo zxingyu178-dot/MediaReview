@@ -209,8 +209,8 @@ fun V2MainScreen(
                     val videos = remember(mediaId) {
                         val ids = vm.contextQueue?.mediaIds?.takeIf { it.isNotEmpty() }
                             ?: vm.currentList.value.filter { it.isVideo }.map { it.id }
-                        ids.mapNotNull { id -> vm.mediaById(id) }
-                            .onEach { m -> require(m.isVideo) }
+                        // 队列只取视频（contextQueue 可能含图片，进入播放器只按视频上下条）
+                        ids.mapNotNull { id -> vm.mediaById(id)?.takeIf { it.isVideo } }
                     }
                     val playbackContext = remember(mediaId) {
                         PlaybackContext(
