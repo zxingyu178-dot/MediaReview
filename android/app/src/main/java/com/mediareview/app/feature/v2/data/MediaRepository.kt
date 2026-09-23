@@ -48,10 +48,17 @@ interface MediaRepository {
     /** 重新批阅：清除已批阅标记（Review complete 页的"重新批阅"入口）。 */
     suspend fun unmarkReviewed(mediaId: String)
 
-    /** 返回可播放 URI（Demo 为 asset:///...；Production 为服务器直连 URL）。 */
+    /** 返回可播放 URI（Demo 为本地；Production 为服务器直连 URL）。 */
     fun playbackUri(mediaId: String): String
 
-    /** 封面 URI（Demo 为 asset:///...）。 */
+    /**
+     * 播放请求头（Review / Player 播放源抽象的一部分）：
+     * Demo 为 emptyMap()；Production 接 Jellyfin Direct Play / HLS 时
+     * 传 X-Emby-Token 等头，Review / Player UI 不感知差异。
+     */
+    fun playbackHeaders(mediaId: String): Map<String, String> = emptyMap()
+
+    /** 封面 URI（Demo 为本地）。 */
     fun thumbUri(media: V2Media): String
 
     /**

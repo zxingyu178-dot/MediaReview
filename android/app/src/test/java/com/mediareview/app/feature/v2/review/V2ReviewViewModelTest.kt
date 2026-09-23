@@ -16,16 +16,21 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Review 队列 / 待删除 / 重新批阅的 JVM 逻辑测试。
+ * Review Session / 队列生命周期的 JVM 逻辑测试（Stage 7）。
  * 校验：
  * - 队列 = 未审视频（不含已审/图片）；
- * - pendingDelete 加入与撤销独立于 isReviewed；
- * - 重新批阅清空本次队列的已批阅标记。
+ * - 再次进入 Review（enterReview）能看到最新未审队列（不再依赖 loadIfNeeded 偶然状态）；
+ * - 空队列"重新批阅"可真正重建全量队列（restartAllVideos）；
+ * - 完成条件 = 队列全部已批阅；缺任一未审条目不完成（取代旧"末页已批阅"弱判定）；
+ * - 完整播放器返回（onLeaveForFullPlayer → enterReview）恢复原 Session（页/已批阅）；
+ * - pendingDelete 与 reviewed 独立、可撤销；
+ * - restart 后所有 Session 条目回到未审。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class V2ReviewViewModelTest {
@@ -46,19 +51,70 @@ class V2ReviewViewModelTest {
     fun `队列只含未审视频`() = runTest {
         val repo = FakeRepo(videos = 3, reviewedVideos = 1, images = 2)
         val vm = V2ReviewViewModel(repo)
-        vm.loadIfNeeded()
+        vm.enterReview()
         assertTrue(vm.ready.value)
         val queue = vm.queue.value
         assertEquals(2, queue.size)
-        assertTrue(queue.all { it.isVideo && !it.isReviewed })
+        assertTrue(queue.all { repo.isVideo(it.mediaId) && !repo.isReviewedById(it.mediaId) })
+    }
+
+    @Test
+    fun `再次进入 Review 能看到最新未审队列`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        assertEquals(listOf("v0", "v1", "v2"), vm.queue.value.map { it.mediaId })
+        // 外部（如首页）标记 v1 已批阅
+        repo.markReviewed("v1")
+        vm.enterReview()
+        assertEquals(listOf("v0", "v2"), vm.queue.value.map { it.mediaId })
+    }
+
+    @Test
+    fun `空队列重新批阅可真正重建全量队列`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 3, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        assertTrue(vm.queue.value.isEmpty())
+        assertTrue(vm.ready.value)
+        // 空队列页"重新批阅"：清除全部视频已批阅并重建全量队列
+        vm.restartAllVideos()
+        assertEquals(listOf("v0", "v1", "v2"), vm.queue.value.map { it.mediaId })
+        assertTrue(vm.queue.value.all { !vm.isReviewed(it.mediaId) })
+        assertTrue(vm.reviewedIds.value.isEmpty())
+        assertEquals(0, vm.currentIndex.value)
+    }
+
+    @Test
+    fun `最后一条已批阅但前面还有未审_NOT_complete`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        assertFalse(vm.isComplete.value)
+        vm.markReviewed("v2") // 只有最后一条已审
+        assertFalse(vm.isComplete.value)
+        // 补齐其余两条后才完成
+        vm.markReviewed("v0")
+        vm.markReviewed("v1")
+        assertTrue(vm.isComplete.value)
+    }
+
+    @Test
+    fun `全部已批阅才 complete`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        vm.queue.value.forEach { vm.markReviewed(it.mediaId) }
+        assertTrue(vm.isComplete.value)
+        assertTrue(repo.reviewed == vm.queue.value.map { it.mediaId }.toSet())
     }
 
     @Test
     fun `待删除与已批阅相互独立且可撤销`() = runTest {
         val repo = FakeRepo(videos = 2, reviewedVideos = 0, images = 0)
         val vm = V2ReviewViewModel(repo)
-        vm.loadIfNeeded()
-        val target = vm.queue.value.first().id
+        vm.enterReview()
+        val target = vm.queue.value.first().mediaId
         vm.addPendingDelete(target)
         assertTrue(target in vm.pendingDeleteIds.value)
         // 待删除不改变批阅状态
@@ -72,19 +128,63 @@ class V2ReviewViewModelTest {
     }
 
     @Test
-    fun `重新批阅清空本次队列已批阅标记`() = runTest {
+    fun `restartCurrentSession 清空本次队列已批阅标记`() = runTest {
         val repo = FakeRepo(videos = 2, reviewedVideos = 0, images = 0)
         val vm = V2ReviewViewModel(repo)
-        vm.loadIfNeeded()
-        vm.queue.value.forEach { vm.markReviewed(it.id) }
+        vm.enterReview()
+        vm.queue.value.forEach { vm.markReviewed(it.mediaId) }
         assertTrue(vm.reviewedIds.value.size == 2)
-        vm.restartReview()
+        vm.restartCurrentSession()
         assertTrue(vm.reviewedIds.value.isEmpty())
-        assertTrue(repo.unmarked.isNotEmpty())
-        assertEquals(vm.queue.value.map { it.id }.toSet(), repo.unmarked)
+        assertEquals(vm.queue.value.map { it.mediaId }.toSet(), repo.unmarked)
+        assertFalse(vm.isComplete.value)
     }
 
-    /** 内存仓库：可控视频/已审/图片数量。 */
+    @Test
+    fun `restartAllVideos 后所有视频回到未审`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 1, images = 1)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        assertEquals(2, vm.queue.value.size)
+        vm.markReviewed(vm.queue.value.first().mediaId)
+        vm.restartAllVideos()
+        // 全量视频均已清除批阅标记
+        assertEquals(repo.allMediaIds, repo.unmarked)
+        assertEquals(3, vm.queue.value.size)
+        assertTrue(vm.queue.value.all { !vm.isReviewed(it.mediaId) })
+        assertEquals(0, vm.currentIndex.value)
+    }
+
+    @Test
+    fun `完整播放器返回恢复原 Session 不重建队列`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        vm.onPageSettled(1)
+        vm.markReviewed("v0") // 已看第 1 条
+        vm.onLeaveForFullPlayer()
+        // 模拟完整播放器返回：恢复会话，不重建队列、不跳回第 1 条
+        vm.enterReview()
+        assertEquals(3, vm.queue.value.size)
+        assertEquals(1, vm.currentIndex.value)
+        assertTrue("v0" in vm.reviewedIds.value)
+        assertFalse(vm.isComplete.value)
+    }
+
+    @Test
+    fun `离开Tab再进入重建最新队列且回到第1条`() = runTest {
+        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        vm.onPageSettled(1)
+        vm.markReviewed("v0")
+        // 正常离开（非完整播放器）后再次进入：刷新队列
+        vm.enterReview()
+        assertEquals(2, vm.queue.value.size) // v0 已审，不在新队列
+        assertEquals(0, vm.currentIndex.value)
+    }
+
+    /** 内存仓库：可控视频/已审/图片数量；可查询/修改外部状态。 */
     private class FakeRepo(
         videos: Int,
         reviewedVideos: Int,
@@ -92,13 +192,12 @@ class V2ReviewViewModelTest {
     ) : MediaRepository {
         private val catalog = buildList {
             repeat(videos) { i ->
-                val reviewed = i < reviewedVideos
                 add(V2Media(
                     id = "v$i", code = "V$i", name = "视频 $i",
                     folderId = "f", folderName = "F",
                     type = V2MediaType.VIDEO, durationMs = 10_000L,
                     sizeBytes = 1000L, dateMillis = 100L + i,
-                    isFavorite = false, isReviewed = reviewed,
+                    isFavorite = false, isReviewed = false,
                     assetPath = "demo_media/videos/01_landscape.mp4",
                     thumbPath = "", spritePath = null, spriteManifestPath = null,
                     naturalWidth = 1280, naturalHeight = 720,
@@ -118,18 +217,25 @@ class V2ReviewViewModelTest {
             }
         }
 
+        val allMediaIds: Set<String> = catalog.filter { it.isVideo }.map { it.id }.toSet()
+
         private val favorite = mutableSetOf<String>()
-        private val reviewed = mutableSetOf<String>()
+        val reviewed = mutableSetOf<String>()
         private val pendingDelete = mutableSetOf<String>()
 
         val unmarked = mutableSetOf<String>()
+
+        init {
+            // 初始已批阅（完全由 reviewed 集合驱动，unmarkReviewed 才能真正清除）
+            repeat(reviewedVideos) { i -> reviewed += "v$i" }
+        }
 
         override val mode: AppMode = AppMode.DEMO
         override suspend fun folders(): List<V2Folder> = emptyList()
         override suspend fun media(): List<V2Media> = catalog.map { m ->
             m.copy(
                 isFavorite = m.id in favorite,
-                isReviewed = m.isReviewed || m.id in reviewed,
+                isReviewed = m.id in reviewed,
             )
         }
         override suspend fun media(spec: V2SortSpec): List<V2Media> = media()
@@ -157,5 +263,8 @@ class V2ReviewViewModelTest {
         override suspend fun albums(): List<V2Album> = emptyList()
         override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> = emptyList()
         override suspend fun setAlbumCover(albumId: String, mediaId: String) {}
+
+        fun isVideo(id: String): Boolean = catalog.find { it.id == id }?.isVideo == true
+        fun isReviewedById(id: String): Boolean = id in reviewed
     }
 }
