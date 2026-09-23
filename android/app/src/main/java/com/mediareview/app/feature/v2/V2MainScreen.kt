@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -55,7 +54,6 @@ import com.mediareview.app.feature.v2.home.V2MainTab
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
-import com.mediareview.app.feature.v2.player.gsy.demoRawVideoUri
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
 import com.mediareview.app.feature.v2.review.V2ReviewScreen
@@ -140,10 +138,16 @@ fun V2MainScreen(
             composable(MediaNavigator.ROUTE_REVIEW) {
                 V2ReviewScreen(
                     vm = reviewViewModel,
-                    onOpenFullPlayer = { media, queue ->
+                    onOpenFullPlayer = { mediaId ->
                         // deep-link 完整播放器：队列 = 批阅队列（上下条正确），返回仍回批阅原页
-                        vm.openMediaInVideoQueue(queue, media.id)
-                        MediaNavigator.openMedia(navController, media)
+                        val media = vm.mediaById(mediaId)
+                        if (media != null) {
+                            vm.openMediaInVideoQueue(
+                                reviewViewModel.queue.value.mapNotNull { m -> vm.mediaById(m.mediaId) },
+                                mediaId,
+                            )
+                            MediaNavigator.openMedia(navController, media)
+                        }
                     },
                     onBack = { navController.popBackStack() },
                 )
@@ -201,7 +205,6 @@ fun V2MainScreen(
                 val mediaId = entry.arguments?.getString("mediaId") ?: ""
                 val media = vm.mediaById(mediaId)
                 if (media != null) {
-                    val context = LocalContext.current
                     // Stage2.2：正式运行路径进入 GSY Native Compose 播放器；
                     // 旧 V2PlayerScreen 与 Stage2.1 Wrapper 均保留源码但不再调用。
                     // 队列优先取 contextQueue（批阅/收藏/相册进入时按来源限定），
@@ -218,8 +221,9 @@ fun V2MainScreen(
                                 GsyPlaybackRequest(
                                     mediaId = m.id,
                                     title = m.name,
-                                    url = demoRawVideoUri(context, m),
-                                    headers = emptyMap(),
+                                    // 播放源抽象：URL / Headers 由 Repository 解析（Demo 本地 / 未来 Server 直连）
+                                    url = vm.playbackUri(m.id),
+                                    headers = vm.playbackHeaders(m.id),
                                 )
                             },
                             currentIndex = videos.indexOfFirst { it.id == mediaId }.coerceAtLeast(0),

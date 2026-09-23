@@ -259,6 +259,9 @@ class V2HomeViewModel @Inject constructor(
 
     fun playbackUri(mediaId: String): String = repository.playbackUri(mediaId)
 
+    /** 播放请求头（Demo 空；未来 Server 直连传入鉴权头），UI 不感知差异。 */
+    fun playbackHeaders(mediaId: String): Map<String, String> = repository.playbackHeaders(mediaId)
+
     fun mediaById(id: String): V2Media? = repository.mediaById(id)
 
     // ---------- 相册能力 ----------
