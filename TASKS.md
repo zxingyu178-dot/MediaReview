@@ -343,3 +343,22 @@
 - [x] Review position 改 Channel.CONFLATED 单消费者串行上报 + 测试
 - [x] PlayerCore 槽位改用服务端绝对 queue index(prepend 不再破坏匹配)
 - [x] 待删除 enqueue 成功后才自动滑向下一条(DeleteSucceeded 事件)
+
+---
+
+# V2 Stage 7 — Review Hardening + Offline V2 Closure（2026-09-23）
+
+> 分支 feature/mediareview-v2-stage7-review-hardening（base 8fc047f / HEAD 43025d3），4 commits，工作区 clean。
+> 结果：READY_FOR_USER_VALIDATION（Real-device Performance NOT VERIFIED，等待用户真机验收后再进入 Stage 8）。
+
+- [x] Review Session 生命周期：enterReview/refreshQueue/restoreSession（重入刷新 / 完整播放器返回恢复原页）
+- [x] 空队列"重新批阅"修复（restartAllVideos 重建全量队列）＋ 完成页 restartCurrentSession
+- [x] 完成条件 = queue.all reviewed（isComplete）
+- [x] 480ms 稳定批阅（ReviewStableGate，快滑不误标；滚动立即取消）
+- [x] 换页防黑屏（Poster 覆盖到首帧＋200ms 淡出）；awaitPlayerHostReady 收敛 host 等待
+- [x] 单击 = 播放/暂停（顶层 TapOverlay）；操作层常驻；完成页/Sheet 暂停策略
+- [x] More 改 ModalBottomSheet；视频信息 Sheet 数据来自 ReviewMediaSource
+- [x] 播放源解耦（ReviewMediaSource + playbackHeaders；Route player 移除 demoRawVideoUri；修复 DemoAssets playbackUri）
+- [x] 测试：JVM 306 passed（新增 12 项 Review 用例）；assembleDebug PASS；lint 0 errors
+- [x] 模拟器实测：自动播放/单击/完成页暂停与重阅/空队列重阅 1/22/More 与信息 Sheet/完整播放器深链返回/转场无黑屏
+- [ ] 真机验收（用户）：滑动流畅度、播放性能、双声道、体验确认 —— NOT VERIFIED

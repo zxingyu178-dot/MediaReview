@@ -1469,3 +1469,27 @@ TDD 与验证：
 
 ---
 
+
+---
+
+## V2 Stage 7 — Review Hardening + Offline V2 Closure（2026-09-23）
+
+分支：feature/mediareview-v2-stage7-review-hardening（base 8fc047f，HEAD 43025d3）
+4 commits：session lifecycle / playback transitions / media source decouple / playback uri + tap fix
+
+改动摘要：
+- ReviewSession + enterReview/refreshQueue/restoreSession：进入批阅每次都重新检查 Repository，
+  完整播放器返回恢复原会话（不跳回第 1 条）；空队列页 restartAllVideos 重建全量队列（修复死按钮）。
+- 完成条件改为 queue.all reviewed（isComplete），取代旧“末页已批阅”弱判定。
+- 480ms 稳定批阅：ReviewStableGate（纯逻辑，snapshotFlow+collectLatest 取消语义，任何滚动立即取消）。
+- 换页防黑屏：当前页 Poster 保留直到首帧就绪后 200ms 淡出；awaitPlayerHostReady 收敛 host 等待（2s 超时）。
+- 单击 = 播放/暂停（顶层 TapOverlay），操作层常驻；完成页/Sheet 暂停策略；More 改 ModalBottomSheet。
+- 播放源解耦：ReviewMediaSource + MediaRepository.playbackHeaders；Route player 不再硬编码 demoRawVideoUri；
+  修复 DemoAssets.playbackUri 指向 res/raw（asset:// 旧 URI FileNotFound）。
+
+验证：JVM 306 tests 通过（含本阶段新增 12 项 Review 用例）；assembleDebug PASS；lint 0 errors/42 warnings；
+模拟器（MediaReview_Test/API35）实测全流程通过（自动播放、单击、完成页暂停与重阅、空队列重阅 1/22、
+More/信息 sheet、完整播放器深链返回原页、转场无黑屏）。
+Real-device Performance: NOT VERIFIED（等待用户真机验收）。
+
+交接：temp/MediaReview_Stage7_Handoff_20260923_43025d3.zip（2.07MB）+ temp/MediaReview-v2-stage7-review-hardening.apk
