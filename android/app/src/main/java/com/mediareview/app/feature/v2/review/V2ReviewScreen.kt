@@ -102,6 +102,7 @@ fun V2ReviewScreen(
 
     var controlsVisible by remember { mutableStateOf(true) }
     var infoMedia by remember { mutableStateOf<V2Media?>(null) }
+    var showMore by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -130,12 +131,42 @@ fun V2ReviewScreen(
     )
     var lastPlayedId by remember { mutableStateOf("") }
 
-    // 停稳 → 换源播放 + 延迟自动批阅
+    // 停稳 → 换源播放 + 延迟自动批阅。
+    // Surface 只挂在当前页：每次回到该页（Surface 重建）都要重新 play。
+    // withHost 在 host（GSYPlayerSurface 的 AndroidView）未 attach 时返回 null；
+    // 这里轮询直到拿到 host，再按"布局就绪"重试 play（与完整播放器一致），
+    // 避免软解渲染 Surface 尚未创建就 start 导致首帧黑屏。
     LaunchedEffect(pagerState.settledPage) {
         val media = queue.getOrNull(pagerState.settledPage) ?: return@LaunchedEffect
-        if (media.id != lastPlayedId) {
-            lastPlayedId = media.id
-            controller.setUp(demoVideoUrl(context, media), false, media.name, true)
+        if (media.id != lastPlayedId && lastPlayedId.isNotEmpty()) {
+            controller.setUp(demoVideoUrl(context, media), false, media.name, false)
+        }
+        lastPlayedId = media.id
+        // 等 host attach（GSYPlayerSurface 组合后 attachHost）
+        repeat(150) {
+            val ready = controller.withHost { _ ->
+                true
+            }
+            if (ready == true) return@repeat
+            delay(50L)
+        }
+        // host 已 attach：post 到主线程，等待首帧布局后 play
+        controller.withHost { host ->
+            host.postDelayed({
+                var attempts = 0
+                fun tryStart() {
+                    val layoutReady = host.isAttachedToWindow && host.width > 0 && host.height > 0
+                    if (layoutReady) {
+                        controller.play()
+                    } else if (attempts++ < 60) {
+                        host.postDelayed({ tryStart() }, 50L)
+                    } else {
+                        controller.play()
+                    }
+                }
+                tryStart()
+            }, 120L)
+            true
         }
         delay(MARK_REVIEWED_DELAY_MS)
         vm.markReviewed(media.id)
@@ -145,26 +176,33 @@ fun V2ReviewScreen(
     val lastMediaId = queue.lastOrNull()?.id
     val allDone = lastMediaId != null && lastMediaId in reviewedIds && pagerState.settledPage >= queue.lastIndex
 
-    // 全屏容器：Pager + 各 overlay 都放这里，保证 align 在 BoxScope 内有效
+    // 全屏容器：常驻 Surface + pager 海报层 + 各 overlay
     Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
+        // 常驻视频 Surface：永远挂在组合树上，只在换页时 setUp 换源。
+        // 相比"每页按需挂 Surface"，避免翻页时 AndroidView 销毁/重建导致
+        // MediaCodec Surface 不稳定（模拟器软解渲染 error -32、黑屏）。
+        GSYPlayerSurface(
+            controller = controller,
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // Pager：当前页透明（露出底层视频画面），周边页用 Poster 盖层承上启下
         VerticalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
         ) { page ->
             val media = queue[page]
             val isCurrent = page == pagerState.settledPage
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-            ) {
-                if (isCurrent) {
-                    GSYPlayerSurface(
-                        controller = controller,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    // 周边页：Poster + 半透明遮罩（保证上下滑时的视觉承接）
+            if (!isCurrent) {
+                // 周边页：不透明白底 Poster + 遮罩 + 播放标记（盖住底层视频）
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { controlsVisible = !controlsVisible })
+                        },
+                ) {
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(demoPosterUrl(context, media))
@@ -192,19 +230,17 @@ fun V2ReviewScreen(
                         )
                     }
                 }
+            } else {
+                // 当前页：透明，让底层视频透出；单击显隐控制层
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { controlsVisible = !controlsVisible })
+                        },
+                )
             }
         }
-
-        // 单击画面任意处显隐控制层（抖音手势：仅竖向滑动 + 单击）。
-        // 始终挂载（而非仅 controlsVisible 时），保证点第二下能唤回控制层；
-        // 顶部/底部/右侧按钮在上层，点击按钮不会被此层吞掉。
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = { controlsVisible = !controlsVisible })
-                },
-        )
 
         // 控制层（顶栏 + 底部信息 + 右侧动作）
         if (controlsVisible && !allDone) {
@@ -307,7 +343,7 @@ fun V2ReviewScreen(
                     icon = Icons.Default.MoreVert,
                     tint = MediaTextPrimary,
                     label = "更多",
-                    onClick = { infoMedia = media },
+                    onClick = { showMore = true },
                 )
             }
         }
@@ -319,7 +355,39 @@ fun V2ReviewScreen(
                 .navigationBarsPadding(),
         )
 
-        // 更多 → 视频信息 Sheet
+        // 更多 → 动作菜单：打开完整播放器 / 视频信息
+        if (showMore) {
+            val media = queue[pagerState.settledPage]
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1E1E1E),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
+            ) {
+                Column {
+                    MoreActionItem(
+                        icon = Icons.Default.PlayArrow,
+                        label = "打开完整播放器",
+                        onClick = {
+                            showMore = false
+                            onOpenFullPlayer(media, queue)
+                        },
+                    )
+                    MoreActionItem(
+                        icon = Icons.Default.MoreVert,
+                        label = "视频信息",
+                        onClick = {
+                            showMore = false
+                            infoMedia = media
+                        },
+                    )
+                }
+            }
+        }
+
+        // 完整播放器 → 视频信息 Sheet
         infoMedia?.let { media ->
             GsyNativeVideoInfoSheet(
                 title = media.name,
@@ -374,6 +442,35 @@ private fun ReviewActionButton(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MediaTextPrimary,
+        )
+    }
+}
+
+/** 更多菜单条目：图标 + 文案，横向整行点击。 */
+@Composable
+private fun MoreActionItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MediaTextPrimary,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MediaTextPrimary,
+            modifier = Modifier.padding(start = 14.dp),
         )
     }
 }
