@@ -79,8 +79,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** Poster 从首帧就绪到淡出的时长（消灭切换黑屏的视觉过渡）。 */
 private const val POSTER_FADE_MS = 200
 
-/** 等待首帧渲染超时（超过则保留 Poster / Loading，不让纯黑空窗暴露）。 */
-private const val FIRST_FRAME_TIMEOUT_MS = 2500L
+/** 等待首帧渲染超时（模拟器 SwiftShader 软解启动慢，放宽到 10s；超过则保留 Poster / Loading）。 */
+private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
 /** 表示"已出画面"的播放状态（本地资源首帧后立即进入这些状态之一）。 */
 private val FIRST_FRAME_STATES = setOf(
@@ -282,10 +282,7 @@ fun V2ReviewScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { togglePlayPause() })
-                    },
+                    .background(Color.Black),
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
@@ -505,6 +502,21 @@ fun V2ReviewScreen(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
+        }
+
+        // 中央单击区（抖音式 播放/暂停）：置于最顶层以稳定命中，
+        // 但 padding 避开顶栏 / 底部信息 / 右侧动作栏，不干扰按钮点击；
+        // 完成页时整体移除，避免吞掉"重新批阅"按钮的点击。
+        if (!allDone) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(top = 64.dp, bottom = 240.dp, end = 140.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { togglePlayPause() })
+                    },
+            )
         }
     }
 }

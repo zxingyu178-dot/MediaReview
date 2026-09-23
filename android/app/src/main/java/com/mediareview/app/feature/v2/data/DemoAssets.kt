@@ -52,7 +52,19 @@ object DemoAssets {
         return "android.resource://${com.mediareview.app.BuildConfig.APPLICATION_ID}/raw/demo_$base"
     }
 
-    fun playbackUri(media: V2Media): String = assetUri(media.assetPath)
+    /**
+     * 视频可播放 URI：Demo 视频位于 res/raw（android.resource://<pkg>/raw/demo_<name>），
+     * 与统一封面同源；图片仍走 [imageUri]。UI 不感知这里的资源形式，
+     * 未来 Production 换成 Server / Jellyfin Direct URL 时仅修改本映射。
+     */
+    fun playbackUri(media: V2Media): String {
+        return if (media.isVideo) {
+            val base = media.assetPath.substringAfterLast('/').removeSuffix(".mp4")
+            "android.resource://${com.mediareview.app.BuildConfig.APPLICATION_ID}/raw/demo_$base"
+        } else {
+            imageUri(media)
+        }
+    }
 
     fun spriteUri(media: V2Media): String? = media.spritePath?.let { assetUri(it) }
 
