@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime
 
 import httpx
 import sqlalchemy as sa
@@ -499,6 +500,190 @@ def test_media_folders_without_path_rows_excluded(jellyfin_api_client) -> None:
         session.commit()
     folders = _folder_view(client.get("/api/v1/media/folders", params={"library_id": "lib-np"}))
     assert folders == []
+
+
+# ---- Stage 8A: 文件夹代表封面(服务端下发,客户端不再 N+1 请求) ----
+
+
+def _cover_row(
+    media_id: str, library_id: str, media_type: str, dirname: str, created_at: datetime | None
+) -> dict:
+    return {
+        "media_id": media_id,
+        "jellyfin_id": media_id,
+        "library_id": library_id,
+        "name": f"{media_id}.bin",
+        "media_type": media_type,
+        "size_bytes": 1000,
+        "duration_ms": 6000 if media_type == "video" else None,
+        "width": 1920,
+        "height": 1080,
+        "fingerprint": f"fp-{media_id}",
+        "is_available": True,
+        "media_path": f"{dirname}/{media_id}.bin",
+        "created_at": created_at,
+    }
+
+
+def _seed_cover_library(client: TestClient, library_id: str = "lib-covers") -> None:
+    rows = [
+        # 图片+视频混合目录:封面应取 created_at 最新的一张图片(img-new)
+        _cover_row("img-old", library_id, "image", "D:/Covers/AlbumA", datetime(2025, 1, 1)),
+        _cover_row("img-new", library_id, "image", "D:/Covers/AlbumA", datetime(2025, 3, 1)),
+        _cover_row("vid-mid", library_id, "video", "D:/Covers/AlbumA", datetime(2025, 4, 1)),
+        # 仅视频目录:没有图片封面
+        _cover_row("vid-only", library_id, "video", "D:/Covers/AlbumV", datetime(2025, 2, 1)),
+        # created_at 相同:用 media_id 升序做稳定 tie-break(a-tie < b-tie)
+        _cover_row("b-tie", library_id, "image", "D:/Covers/AlbumT", datetime(2025, 5, 1)),
+        _cover_row("a-tie", library_id, "image", "D:/Covers/AlbumT", datetime(2025, 5, 1)),
+    ]
+    with client.app.state.database.session() as session:
+        session.execute(sa.insert(models.MediaCacheIndex), rows)
+        session.commit()
+
+
+def test_media_folders_cover_latest_image(jellyfin_api_client) -> None:
+    """有图片的文件夹:返回 created_at 最新图片的 media_id 与 cover_url。"""
+    client, _transport = jellyfin_api_client
+    _seed_cover_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
+    )
+    by_name = {f["name"]: f for f in folders}
+
+    album_a = by_name["AlbumA"]
+    assert album_a["count"] == 3
+    assert album_a["image_count"] == 2
+    assert album_a["cover_media_id"] == "img-new"
+    assert album_a["cover_url"] == "/api/v1/media/img-new/thumbnail"
+    # 响应仍不含 Windows 路径
+    assert "D:/" not in str(album_a) and "Covers" not in str(album_a)
+
+
+def test_media_folders_cover_only_videos_is_none(jellyfin_api_client) -> None:
+    """只有视频的文件夹:cover_media_id / cover_url 均为 None,image_count 为 0。"""
+    client, _transport = jellyfin_api_client
+    _seed_cover_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
+    )
+    by_name = {f["name"]: f for f in folders}
+
+    album_v = by_name["AlbumV"]
+    assert album_v["count"] == 1
+    assert album_v["image_count"] == 0
+    assert album_v["cover_media_id"] is None
+    assert album_v["cover_url"] is None
+
+
+def test_media_folders_image_count(jellyfin_api_client) -> None:
+    """image_count = 该文件夹内 IMAGE 数量,与 count 同一筛选范围。"""
+    client, _transport = jellyfin_api_client
+    _seed_cover_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
+    )
+    by_name = {f["name"]: f for f in folders}
+    assert by_name["AlbumA"]["image_count"] == 2  # 2 图 + 1 视频
+    assert by_name["AlbumT"]["image_count"] == 2  # 2 图
+    assert by_name["AlbumV"]["image_count"] == 0  # 仅视频
+
+
+def test_media_folders_cover_tie_break_by_media_id(jellyfin_api_client) -> None:
+    """同一文件夹多张图片:created_at 相同时按 media_id 升序取封面。"""
+    client, _transport = jellyfin_api_client
+    _seed_cover_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
+    )
+    by_name = {f["name"]: f for f in folders}
+    assert by_name["AlbumT"]["cover_media_id"] == "a-tie"
+
+
+def test_media_folders_cover_respects_media_type_filter(jellyfin_api_client) -> None:
+    """封面与 count 属同一筛选范围:media_type=video 时无图片,封面为 None。"""
+    client, _transport = jellyfin_api_client
+    _seed_cover_library(client)
+    folders = _folder_view(
+        client.get(
+            "/api/v1/media/folders",
+            params={"library_id": "lib-covers", "media_type": "video"},
+        )
+    )
+    by_name = {f["name"]: f for f in folders}
+    assert by_name["AlbumA"]["count"] == 1
+    assert by_name["AlbumA"]["image_count"] == 0
+    assert by_name["AlbumA"]["cover_media_id"] is None
+    assert by_name["AlbumA"]["cover_url"] is None
+
+
+def test_media_folders_existing_fields_still_present(jellyfin_api_client) -> None:
+    """新增封面字段为增量:folder_id / name / count 行为不变,老客户端可忽略新字段。"""
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-folders"})
+    )
+    by_name = {f["name"]: f for f in folders}
+    assert by_name["MoviesA"]["count"] == 3
+    assert by_name["MoviesB"]["count"] == 2
+    assert by_name["(根目录)"]["count"] == 1
+    for f in folders:
+        assert len(f["folder_id"]) == 16
+        assert "cover_media_id" in f and "cover_url" in f and "image_count" in f
+        # 这些目录全是视频,故图片数为 0、封面为 None
+        assert f["image_count"] == 0
+        assert f["cover_media_id"] is None and f["cover_url"] is None
+
+
+def test_media_list_items_carry_folder_identity(jellyfin_api_client) -> None:
+    """列表项带 folder_id/folder_name,且与 /media/folders 的 folder_id 一一对应。"""
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-folders"})
+    )
+    by_name = {f["name"]: f for f in folders}
+    movies_a_id = by_name["MoviesA"]["folder_id"]
+
+    resp = client.get("/api/v1/media", params={"library_id": "lib-folders", "page_size": 50})
+    assert resp.status_code == 200
+    items = resp.json()["data"]["items"]
+    by_media = {i["media_id"]: i for i in items}
+
+    # 同一文件夹下媒体的 folder_id / folder_name 必须等于该文件夹的取值
+    for media_id in ("fa-0", "fa-1", "fa-2"):
+        assert by_media[media_id]["folder_id"] == movies_a_id
+        assert by_media[media_id]["folder_name"] == "MoviesA"
+    assert by_media["fb-0"]["folder_name"] == "MoviesB"
+    assert by_media["root-in-media"]["folder_name"] == "Media"
+    assert by_media["drive-root"]["folder_name"] == "(根目录)"
+
+    # 媒体路径为 NULL → folder_id / folder_name 均为 None
+    assert by_media["no-path"]["folder_id"] is None
+    assert by_media["no-path"]["folder_name"] is None
+
+    # 所有非 None 的 folder_id 都能在 /media/folders 中找到(一一对应)
+    folder_ids = {f["folder_id"] for f in folders}
+    for item in items:
+        for value in (item["folder_id"], item["folder_name"]):
+            assert value is None or ("\\" not in value and ":/" not in value)
+        if item["folder_id"] is not None:
+            assert item["folder_id"] in folder_ids
+
+
+def test_media_detail_carries_folder_identity(jellyfin_api_client) -> None:
+    """单条媒体详情与列表项同源:返回一致的 folder_id / folder_name。"""
+    client, _transport = jellyfin_api_client
+    _seed_folder_library(client)
+    folders = _folder_view(
+        client.get("/api/v1/media/folders", params={"library_id": "lib-folders"})
+    )
+    movies_a_id = next(f for f in folders if f["name"] == "MoviesA")["folder_id"]
+
+    detail = client.get("/api/v1/media/fa-1").json()["data"]
+    assert detail["folder_id"] == movies_a_id
+    assert detail["folder_name"] == "MoviesA"
 
 
 def test_media_pagination_100k_no_rescan_and_responsive(data_root) -> None:

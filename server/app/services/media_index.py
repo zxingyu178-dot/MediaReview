@@ -350,6 +350,78 @@ def list_media_folder_groups(
     return [(str(row.dir), int(row.n)) for row in rows]
 
 
+def _folder_image_stats(
+    session: Session,
+    *,
+    library_ids: Iterable[str],
+    media_type: str | None = None,
+    search: str | None = None,
+    exclude_favorites: bool = False,
+) -> dict[str, tuple[int, str]]:
+    """每个目录的图片统计:该目录内 IMAGE 数量 + 最新一张 IMAGE 的 media_id。
+
+    - 复用 _media_filter_conditions 与 _folder_dirname_expression,保证 image_count /
+      封面与 count 属于同一筛选范围;额外限定 media_type == "image"。
+    - 「最新」= created_at 降序(SQLite 中 NULL 最小,DESC 自动排最后),
+      created_at 相同用 media_id 升序做稳定 tie-break。
+    - 用一条窗口函数查询按目录分区(count + row_number)并只取 rn=1,
+      一次返回每个有图片的目录一行,不在 Python 里对每个文件夹单独发 SQL(避免服务端 N+1)。
+    """
+    conditions = _media_filter_conditions(
+        library_ids=sorted(set(library_ids)),
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    )
+    conditions.append(MediaCacheIndex.media_type == "image")
+    dirname = _folder_dirname_expression()
+    ranked = (
+        sa.select(
+            dirname.label("dir"),
+            MediaCacheIndex.media_id.label("media_id"),
+            sa.func.count().over(partition_by=dirname).label("image_count"),
+            sa.func.row_number()
+            .over(
+                partition_by=dirname,
+                order_by=(MediaCacheIndex.created_at.desc(), MediaCacheIndex.media_id.asc()),
+            )
+            .label("rn"),
+        )
+        .where(*conditions, dirname.is_not(None), dirname != "")
+        .subquery()
+    )
+    rows = session.execute(
+        sa.select(ranked.c.dir, ranked.c.media_id, ranked.c.image_count).where(ranked.c.rn == 1)
+    ).all()
+    return {str(row.dir): (int(row.image_count), row.media_id) for row in rows}
+
+
+def folder_dirname_for_path(media_path: str | None) -> str | None:
+    """Python 侧与 _folder_dirname_expression() 等价的目录规范化(单条媒体使用)。
+
+    与 SQL 表达式保持同一语义:先统一分隔符并折叠连续斜杠,再剥离最后一段文件名,
+    结果形如 "D:/Media/子目录/"。media_path 为空时返回 None。
+    """
+    if not media_path:
+        return None
+    unified = media_path.replace("\\", "/").replace("//", "/")
+    return unified.rstrip(unified.replace("/", ""))
+
+
+def folder_identity_for_path(media_path: str | None) -> tuple[str | None, str | None]:
+    """由媒体路径派生 (folder_id, folder_name),与文件夹接口完全同源。
+
+    - folder_id 复用 folder_id_for_dirname,folder_name 复用 _folder_display_name,
+      保证与 GET /media/folders 的 folder_id / name 一一对应;
+    - folder_name 只允许显示名,绝不暴露 Windows 路径;
+    - media_path 为空时返回 (None, None)。
+    """
+    dirname = folder_dirname_for_path(media_path)
+    if dirname is None:
+        return None, None
+    return folder_id_for_dirname(dirname), _folder_display_name(dirname)
+
+
 def list_media_folders(
     session: Session,
     *,
@@ -366,11 +438,20 @@ def list_media_folders(
         search=search,
         exclude_favorites=exclude_favorites,
     )
+    stats = _folder_image_stats(
+        session,
+        library_ids=library_ids,
+        media_type=media_type,
+        search=search,
+        exclude_favorites=exclude_favorites,
+    )
     return [
         {
             "folder_id": folder_id_for_dirname(dirname),
             "name": _folder_display_name(dirname),
             "count": count,
+            "image_count": stats.get(dirname, (0, ""))[0],
+            "cover_media_id": stats.get(dirname, (0, None))[1],
         }
         for dirname, count in groups
     ]
@@ -971,6 +1052,8 @@ __all__ = [
     "list_media_folder_groups",
     "list_media_folders",
     "folder_id_for_dirname",
+    "folder_dirname_for_path",
+    "folder_identity_for_path",
     "resolve_folder_dirname",
     "make_media_refresh_handler",
     "media_sync_view",

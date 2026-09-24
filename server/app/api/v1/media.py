@@ -50,6 +50,10 @@ class MediaSummary(BaseModel):
     cover_url: str | None = None
     # 需 MediaReview 配对认证的相对原图代理 URL；视频为 None
     original_url: str | None = None
+    # 与 GET /media/folders 完全同源的文件夹不透明 ID；媒体无路径时为 None
+    folder_id: str | None = None
+    # 与文件夹接口同源的显示名(仅显示名,绝不含 Windows 路径)；媒体无路径时为 None
+    folder_name: str | None = None
 
 
 class MediaSyncSummary(BaseModel):
@@ -76,6 +80,12 @@ class FolderSummary(BaseModel):
     folder_id: str
     name: str
     count: int
+    # 该文件夹内 IMAGE 数量(与 count / 封面同一筛选范围)
+    image_count: int = 0
+    # 该文件夹代表封面:最新一张 IMAGE 的 media_id;文件夹无图片时为 None
+    cover_media_id: str | None = None
+    # 需 MediaReview 配对认证的相对缩略图代理 URL;文件夹无图片封面时为 None
+    cover_url: str | None = None
 
 
 class MediaRefreshBody(BaseModel):
@@ -96,6 +106,8 @@ def media_original_url(item) -> str | None:
 def _summary_from_row(
     row, cover_url: str | None = None, original_url: str | None = None
 ) -> MediaSummary:
+    # 文件夹身份与 GET /media/folders 同源;媒体无路径时为 (None, None)
+    folder_id, folder_name = media_index.folder_identity_for_path(row.media_path)
     return MediaSummary(
         media_id=row.media_id,
         name=row.name,
@@ -110,6 +122,8 @@ def _summary_from_row(
         modified_at=row.modified_at,
         cover_url=cover_url,
         original_url=original_url,
+        folder_id=folder_id,
+        folder_name=folder_name,
     )
 
 
@@ -148,7 +162,18 @@ async def list_media_folders(
         search=search,
         exclude_favorites=exclude_favorites,
     )
-    return ok([FolderSummary.model_validate(f) for f in folders])
+    # cover_url 复用既有缩略图代理路径约定;无图片封面时 cover_url 为 None。
+    return ok(
+        [
+            FolderSummary(
+                **f,
+                cover_url=(
+                    media_thumbnail_url(f["cover_media_id"]) if f["cover_media_id"] else None
+                ),
+            )
+            for f in folders
+        ]
+    )
 
 
 @router.get("", response_model=Envelope[MediaPage])
