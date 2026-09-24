@@ -10,15 +10,21 @@ import androidx.compose.ui.test.performClick
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ApplicationProvider
-import com.mediareview.app.feature.v2.AppMode
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
+import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
+import com.mediareview.app.feature.v2.testHomeViewModel
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.model.V2MediaPage
+import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2MediaType
+import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
+import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
+import com.mediareview.app.feature.v2.model.V2TypeFilter
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,7 +40,7 @@ class ImageViewerUiTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     private fun newVm(): V2HomeViewModel {
-        val vm = V2HomeViewModel(FakeViewerRepository(), StubSearchHistory())
+        val vm = testHomeViewModel(FakeViewerRepository(), StubSearchHistory())
         compose.waitUntil(5_000) { vm.currentList.value.isNotEmpty() }
         vm.openMedia("img2")
         return vm
@@ -115,20 +121,35 @@ private class FakeViewerRepository : MediaRepository {
     private val byId = catalog.associateBy { it.id }
     private val favoriteState = mutableMapOf<String, Boolean>()
 
-    override val mode: AppMode = AppMode.DEMO
+    override val mode: V2DataMode = V2DataMode.DEMO
     override suspend fun folders(): List<V2Folder> = emptyList()
+    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
+        val items = when (query.spec.typeFilter) {
+            V2TypeFilter.ALL -> catalog
+            V2TypeFilter.VIDEO -> catalog.filter { it.isVideo }
+            V2TypeFilter.IMAGE -> catalog.filter { !it.isVideo }
+        }
+        return V2MediaPage(items = items, page = 1, pageSize = query.pageSize, total = items.size)
+    }
     override suspend fun media(): List<V2Media> = applyOverrides(catalog)
     override suspend fun media(spec: V2SortSpec): List<V2Media> = applyOverrides(catalog)
     override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> = applyOverrides(catalog)
     override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> = applyOverrides(catalog)
     override fun mediaById(id: String): V2Media? = byId[id]?.let { applyOverrides(listOf(it)).firstOrNull() }
-    override suspend fun setFavorite(mediaId: String, favorite: Boolean) {
+    override suspend fun setFavorite(mediaId: String, favorite: Boolean): Boolean {
         favoriteState[mediaId] = favorite
+        return true
     }
+    override suspend fun favorites(): List<V2Media> = applyOverrides(catalog).filter { it.isFavorite }
     override suspend fun markReviewed(mediaId: String) {}
     override suspend fun pendingDeleteIds(): Set<String> = emptySet()
     override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {}
     override suspend fun unmarkReviewed(mediaId: String) {}
+    override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource = V2PlaybackSource(
+        mediaId = mediaId,
+        title = byId[mediaId]?.name.orEmpty(),
+        direct = V2PlaybackEndpoint(url = "asset:///demo_media/videos/$mediaId.mp4"),
+    )
     override fun playbackUri(mediaId: String): String = ""
     override fun thumbUri(media: V2Media): String = ""
     override fun coverUri(media: V2Media): String = ""

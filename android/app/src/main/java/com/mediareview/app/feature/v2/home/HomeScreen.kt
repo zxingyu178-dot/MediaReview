@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -20,10 +21,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -38,18 +41,23 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.snapshotFlow
+import com.mediareview.app.feature.v2.data.V2DataMode
+import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.settings.displayLabel
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaBackground
+import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
- * V2 首页：搜索栏 + 媒体/书架双模式 + 文件夹分类 + 排序/筛选 + 双列媒体网格。
+ * V2 首页：搜索栏 + 数据源状态 + 媒体/书架双模式 + 文件夹分类 + 排序/筛选 + 双列媒体网格。
  * 底部导航由 V2Root 统一管理。
  */
 @Composable
@@ -58,6 +66,7 @@ fun HomeScreen(
     onOpenMedia: (V2Media) -> Unit,
     onOpenFolder: (V2Folder) -> Unit,
     onOpenAlbum: (String) -> Unit,
+    onOpenDataSource: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val folders by vm.folders.collectAsState()
@@ -78,6 +87,14 @@ fun HomeScreen(
     }
 
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
+        DataSourceBar(
+            vm = vm,
+            onClick = onOpenDataSource,
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm),
+        )
         SearchBar(
             active = searchActive,
             query = vm.searchQuery,
@@ -92,8 +109,7 @@ fun HomeScreen(
             onSearch = vm::commitSearch,
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Md),
+                .padding(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm),
         )
 
         if (!searchActive) {
@@ -181,6 +197,52 @@ fun HomeScreen(
             spec = sortSpec,
             onChange = vm::setSortSpec,
             onDismiss = { showSortSheet = false },
+        )
+    }
+}
+
+/**
+ * 数据源状态条（轻量顶部提示，Stage 8A §30）：
+ * - Demo 模式显示"演示数据"；Server 模式显示 在线 / 重新连接中 / 离线 / 认证失效 / 未配置；
+ * - 点击打开数据源设置 Sheet（Demo ↔ 我的服务器）。
+ * 不再有"启动 → ConnectScreen → 健康检查 → 才能进首页"的阻塞路径。
+ */
+@Composable
+private fun DataSourceBar(
+    vm: V2HomeViewModel,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val mode by vm.dataMode.collectAsState()
+    val status by vm.serverStatus.collectAsState()
+    val label = if (mode == V2DataMode.DEMO) "演示数据（离线）" else status.displayLabel()
+    val tint = when {
+        mode == V2DataMode.DEMO -> MediaTextSecondary
+        status == V2ServerStatus.Online -> V2Colors.Accent
+        status == V2ServerStatus.Offline || status == V2ServerStatus.AuthRejected -> MediaDanger
+        else -> MediaTextSecondary
+    }
+    Row(
+        modifier = modifier.clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(tint),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = tint,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+        Text(
+            text = "· 切换数据源",
+            style = MaterialTheme.typography.labelMedium,
+            color = MediaTextSecondary,
+            modifier = Modifier.padding(start = 4.dp),
         )
     }
 }
@@ -316,7 +378,7 @@ private fun TabChip(
     }
 }
 
-/** 双列媒体网格。 */
+/** 双列媒体网格（分页：滚动到底部自动加载下一页；Server 端执行 search/sort/filter）。 */
 @Composable
 fun MediaGrid(
     list: List<V2Media>,
@@ -326,6 +388,10 @@ fun MediaGrid(
 ) {
     val gridState = rememberLazyGridState()
     val previewId = vm.activePreviewMediaId
+    val loading by vm.listLoading.collectAsState()
+    val hasMore by vm.hasMore.collectAsState()
+    val total by vm.totalCount.collectAsState()
+    val error by vm.listError.collectAsState()
 
     // 用户开始滑动页面 → 立即恢复 Poster
     LaunchedEffect(gridState) {
@@ -333,6 +399,44 @@ fun MediaGrid(
             .collect { scrolling ->
                 if (scrolling && vm.activePreviewMediaId != null) vm.stopSpritePreview()
             }
+    }
+
+    // 滚动接近底部 → 加载下一页（每页 50 条；绝不在进入页面时拉全量）
+    LaunchedEffect(gridState, hasMore, loading) {
+        snapshotFlow {
+            val info = gridState.layoutInfo
+            (info.visibleItemsInfo.lastOrNull()?.index ?: -1) to info.totalItemsCount
+        }
+            .distinctUntilChanged()
+            .collect { (lastVisible, itemCount) ->
+                if (hasMore && !loading && itemCount > 0 && lastVisible >= itemCount - 4) {
+                    vm.loadNextPage()
+                }
+            }
+    }
+
+    if (list.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (loading) {
+                    CircularProgressIndicator(color = MediaTextPrimary, strokeWidth = 3.dp)
+                    Text(
+                        text = "加载中…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MediaTextSecondary,
+                        modifier = Modifier.padding(top = V2Spacing.Md),
+                    )
+                } else if (error != null) {
+                    Text(text = error ?: "加载失败", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { vm.retryList() }) {
+                        Text("重试", color = MediaTextPrimary)
+                    }
+                } else {
+                    Text("暂无媒体", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+        return
     }
 
     LazyVerticalGrid(
@@ -361,6 +465,27 @@ fun MediaGrid(
                     onOpenMedia(media)
                 },
             )
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = V2Spacing.Md),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    loading -> Text("加载中…", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    error != null -> TextButton(onClick = { vm.retryList() }) {
+                        Text("加载失败，点击重试", color = MediaTextPrimary)
+                    }
+                    hasMore -> Text("继续下滑加载更多", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    else -> Text(
+                        text = "已加载全部 $total 项",
+                        color = MediaTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
         }
     }
 }

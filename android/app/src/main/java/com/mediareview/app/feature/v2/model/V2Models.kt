@@ -45,6 +45,13 @@ data class V2Folder(
     val description: String,
     /** 封面媒体 id 列表：1 个为单封面，4 个为四宫格封面。（书架已弃用，保留供媒体筛选） */
     val coverMediaIds: List<String>,
+    /**
+     * 该文件夹内媒体数量：
+     * - Demo：内存统计；Server：来自 `GET /media/folders` 的 count（服务端聚合，避免 App 端 N+1）。
+     */
+    val count: Int = 0,
+    /** 该文件夹内图片数量（书架相册用；Server 来自 `image_count`，无图片文件夹为 0）。 */
+    val imageCount: Int = 0,
 )
 
 /** 照片相册：书架只按此模型展示，仅统计 / 封面 / 内容均只允许 IMAGE。 */
@@ -85,3 +92,34 @@ data class V2SortSpec(
     val order: V2SortOrder = V2SortOrder.DESC,
     val typeFilter: V2TypeFilter = V2TypeFilter.ALL,
 )
+
+/**
+ * 统一分页查询（Stage 8A）：
+ *
+ * - Server：search / sort / filter / page 全部作为 query 参数交给 `GET /media`，
+ *   由 Server 在 SQLite 内执行（禁止把全量媒体下载到手机再本地排序）；
+ * - Demo：内存排序/过滤后按 [page] / [pageSize] 切片（行为与旧实现一致）。
+ */
+data class V2MediaQuery(
+    val page: Int = 1,
+    val pageSize: Int = DEFAULT_PAGE_SIZE,
+    val folderId: String? = null,
+    val search: String? = null,
+    val spec: V2SortSpec = V2SortSpec(),
+) {
+    companion object {
+        /** 默认每页条数：真实库可能上万条，必须分页滚动加载。 */
+        const val DEFAULT_PAGE_SIZE = 50
+    }
+}
+
+/** 统一分页结果：page / pageSize / total 是 Server 与 Demo 共同的分页合同。 */
+data class V2MediaPage(
+    val items: List<V2Media>,
+    val page: Int,
+    val pageSize: Int,
+    val total: Int,
+) {
+    /** 是否还有下一页（以 total 为准，不依赖"页是否满"）。 */
+    val hasMore: Boolean get() = page * pageSize < total
+}

@@ -1,11 +1,14 @@
 package com.mediareview.app.feature.v2.data
 
 import android.content.Context
-import com.mediareview.app.feature.v2.AppMode
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.model.V2MediaPage
+import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2MediaType
+import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
+import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortField
 import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.feature.v2.model.V2SortSpec
@@ -16,8 +19,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Demo 数据仓库：全部数据来自 APK 内置 assets，离线可用。
- * 与 [MediaRepository] 接口对应，未来可被真实 Server 仓库替换。
+ * Demo 数据仓库：全部数据来自 APK 内置 assets / res-raw，离线可用。
+ * 与 [MediaRepository] 接口对应；运行时是否生效由 [V2MediaRepositoryRouter] 决定。
  */
 @Singleton
 class DemoMediaRepository @Inject constructor(
@@ -29,6 +32,17 @@ class DemoMediaRepository @Inject constructor(
     private val allMedia: List<V2Media> = DemoMediaCatalog.buildMedia()
     private val mediaById: Map<String, V2Media> = allMedia.associateBy { it.id }
 
+    /** 文件夹 + 内置统计（Demo 端内存统计；Server 端为服务端聚合）。 */
+    private val foldersWithCounts: List<V2Folder> by lazy {
+        allFolders.map { folder ->
+            val inFolder = allMedia.filter { it.folderId == folder.id }
+            folder.copy(
+                count = inFolder.size,
+                imageCount = inFolder.count { it.type == V2MediaType.IMAGE },
+            )
+        }
+    }
+
     private val favoriteState = mutableMapOf<String, Boolean>()
     private val reviewedState = mutableMapOf<String, Boolean>()
     private val pendingDeleteState = mutableSetOf<String>()
@@ -38,11 +52,27 @@ class DemoMediaRepository @Inject constructor(
     // 之后全部命中内存缓存（key = manifest asset 路径）。
     private val spriteManifestCache = mutableMapOf<String, V2SpriteManifest?>()
 
-    override val mode: AppMode = AppMode.DEMO
+    override val mode: V2DataMode = V2DataMode.DEMO
 
-    override suspend fun folders(): List<V2Folder> = allFolders
+    override suspend fun folders(): List<V2Folder> = foldersWithCounts
 
     override suspend fun media(): List<V2Media> = allMedia.applyOverridesState()
+
+    /** Demo 分页：内存排序/过滤后切片（Server 模式由服务端执行同样的查询语义）。 */
+    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
+        val q = query.search?.trim().orEmpty()
+        val filtered = allMedia.applyOverridesState()
+            .filter { query.folderId == null || it.folderId == query.folderId }
+            .filter { q.isEmpty() || it.matches(q) }
+            .sorted(query.spec)
+        val from = ((query.page - 1).coerceAtLeast(0)) * query.pageSize
+        return V2MediaPage(
+            items = filtered.drop(from).take(query.pageSize),
+            page = query.page,
+            pageSize = query.pageSize,
+            total = filtered.size,
+        )
+    }
 
     override suspend fun media(spec: V2SortSpec): List<V2Media> =
         allMedia.applyOverridesState().sorted(spec)
@@ -53,21 +83,19 @@ class DemoMediaRepository @Inject constructor(
     override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> {
         val q = query.trim()
         if (q.isEmpty()) return media(spec)
-        return allMedia.applyOverridesState()
-            .filter {
-                it.name.contains(q, ignoreCase = true) ||
-                    it.code.contains(q, ignoreCase = true) ||
-                    it.folderName.contains(q, ignoreCase = true)
-            }
-            .sorted(spec)
+        return allMedia.applyOverridesState().filter { it.matches(q) }.sorted(spec)
     }
 
     override fun mediaById(id: String): V2Media? =
         mediaById[id]?.let { applyOverrides(listOf(it)).firstOrNull() }
 
-    override suspend fun setFavorite(mediaId: String, favorite: Boolean) {
+    override suspend fun setFavorite(mediaId: String, favorite: Boolean): Boolean {
         favoriteState[mediaId] = favorite
+        return true
     }
+
+    override suspend fun favorites(): List<V2Media> =
+        allMedia.applyOverridesState().filter { it.isFavorite }
 
     override suspend fun markReviewed(mediaId: String) {
         reviewedState[mediaId] = true
@@ -83,6 +111,22 @@ class DemoMediaRepository @Inject constructor(
         reviewedState[mediaId] = false
     }
 
+    /** Demo 播放源：本地 res-raw + 空 headers，无续播位置（resume = 0）。 */
+    override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource {
+        val m = mediaById[mediaId] ?: throw IllegalStateException("媒体不存在：$mediaId")
+        return V2PlaybackSource(
+            mediaId = m.id,
+            title = m.name,
+            direct = V2PlaybackEndpoint(url = DemoAssets.playbackUri(m), headers = emptyMap()),
+            fallbackHls = null,
+            resumePositionMs = 0L,
+            durationMs = m.durationMs.takeIf { it > 0L },
+            width = m.naturalWidth.takeIf { it > 0 },
+            height = m.naturalHeight.takeIf { it > 0 },
+        )
+    }
+
+    /** 兼容路径（Review / Demo）：本地资源同步可解析，无需网络。 */
     override fun playbackUri(mediaId: String): String {
         val m = mediaById[mediaId] ?: return ""
         return DemoAssets.playbackUri(m)
@@ -139,6 +183,12 @@ class DemoMediaRepository @Inject constructor(
         }
 
     private fun List<V2Media>.applyOverridesState(): List<V2Media> = applyOverrides(this)
+
+    /** 搜索匹配（名称/编号/文件夹名）；与 Server 端 search 语义保持一致。 */
+    private fun V2Media.matches(query: String): Boolean =
+        name.contains(query, ignoreCase = true) ||
+            code.contains(query, ignoreCase = true) ||
+            folderName.contains(query, ignoreCase = true)
 
     private fun List<V2Media>.sorted(spec: V2SortSpec): List<V2Media> {
         var list = when (spec.typeFilter) {

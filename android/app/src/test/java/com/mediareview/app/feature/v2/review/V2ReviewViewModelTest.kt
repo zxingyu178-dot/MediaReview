@@ -1,13 +1,18 @@
 package com.mediareview.app.feature.v2.review
 
-import com.mediareview.app.feature.v2.AppMode
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.model.V2MediaPage
+import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2MediaType
+import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
+import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
+import com.mediareview.app.feature.v2.model.V2TypeFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -264,8 +269,18 @@ class V2ReviewViewModelTest {
             repeat(reviewedVideos) { i -> reviewed += "v$i" }
         }
 
-        override val mode: AppMode = AppMode.DEMO
+        override val mode: V2DataMode = V2DataMode.DEMO
         override suspend fun folders(): List<V2Folder> = emptyList()
+        override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
+            val items = media().let { list ->
+                when (query.spec.typeFilter) {
+                    V2TypeFilter.ALL -> list
+                    V2TypeFilter.VIDEO -> list.filter { it.isVideo }
+                    V2TypeFilter.IMAGE -> list.filter { !it.isVideo }
+                }
+            }
+            return V2MediaPage(items = items, page = 1, pageSize = query.pageSize, total = items.size)
+        }
         override suspend fun media(): List<V2Media> = catalog.map { m ->
             m.copy(
                 isFavorite = m.id in favorite,
@@ -276,9 +291,11 @@ class V2ReviewViewModelTest {
         override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> = media()
         override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> = media()
         override fun mediaById(id: String): V2Media? = catalog.find { it.id == id }
-        override suspend fun setFavorite(mediaId: String, isFav: Boolean) {
+        override suspend fun setFavorite(mediaId: String, isFav: Boolean): Boolean {
             if (isFav) favorite += mediaId else favorite -= mediaId
+            return true
         }
+        override suspend fun favorites(): List<V2Media> = media().filter { it.isFavorite }
         override suspend fun markReviewed(mediaId: String) { reviewed += mediaId }
         override suspend fun pendingDeleteIds(): Set<String> = pendingDelete.toSet()
         override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {
@@ -288,6 +305,11 @@ class V2ReviewViewModelTest {
             reviewed -= mediaId
             unmarked += mediaId
         }
+        override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource = V2PlaybackSource(
+            mediaId = mediaId,
+            title = mediaId,
+            direct = V2PlaybackEndpoint(url = "uri://$mediaId"),
+        )
         override fun playbackUri(mediaId: String): String = ""
         override fun playbackHeaders(mediaId: String): Map<String, String> =
             mapOf("X-Debug-Media" to mediaId)

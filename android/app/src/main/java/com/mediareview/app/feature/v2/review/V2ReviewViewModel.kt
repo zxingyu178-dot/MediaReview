@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.review
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2Media
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,14 @@ class V2ReviewViewModel @Inject constructor(
     private val _isComplete = MutableStateFlow(false)
     val isComplete: StateFlow<Boolean> = _isComplete.asStateFlow()
 
+    /**
+     * Server 模式下是否不支持真实批阅（Stage 8A §16 / §33）：
+     * 真实 Review Session（创建队列 / seen / position）属于 Stage 8B，
+     * 本阶段 Server 模式只显示"真实批阅接入将在 Stage 8B 完成"，且**不做任何批量 resolve**。
+     */
+    private val _serverModeUnsupported = MutableStateFlow(false)
+    val serverModeUnsupported: StateFlow<Boolean> = _serverModeUnsupported.asStateFlow()
+
     /** 离开前的会话快照（仅用于"完整播放器 Back 恢复"）。 */
     private var session: ReviewSession? = null
 
@@ -64,6 +73,15 @@ class V2ReviewViewModel @Inject constructor(
      */
     fun enterReview() {
         viewModelScope.launch {
+            // Server 模式：真实批阅会话（Stage 8B）尚未接入，直接进入占位页，
+            // 绝不在此批量解析播放地址（ReviewMediaSource 携带 URL 的模型只适用于 Demo）。
+            if (repository.mode == V2DataMode.SERVER) {
+                _serverModeUnsupported.value = true
+                _queue.value = emptyList()
+                _ready.value = false
+                return@launch
+            }
+            _serverModeUnsupported.value = false
             val saved = session
             if (leftForFullPlayer && saved != null) {
                 leftForFullPlayer = false

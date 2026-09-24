@@ -177,6 +177,23 @@ data class ProgressRequest(
     val is_paused: Boolean = false,
 )
 
+/**
+ * 布尔结果型变更接口的统一合同（Stage 8A 修正）。
+ *
+ * 服务端实际返回布尔字段，例如：
+ * - `POST /favorites/{id}` → `{"media_id": "...", "favorited": true, "created": true}`；
+ * - `POST /media/{id}/progress` → `{"media_id": "...", "reported": true}`。
+ * 早期客户端 DTO 用 `Map<String, String>` 接收，会把布尔值解析失败（收藏/进度静默失效）。
+ */
+@Serializable
+data class MutationResultDto(
+    val media_id: String = "",
+    val favorited: Boolean? = null,
+    val created: Boolean? = null,
+    val removed: Boolean? = null,
+    val reported: Boolean? = null,
+)
+
 /** 收藏项(GET /favorites)。 */
 @Serializable
 data class FavoriteItemDto(

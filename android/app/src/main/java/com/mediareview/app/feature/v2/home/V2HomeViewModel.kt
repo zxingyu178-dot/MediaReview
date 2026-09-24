@@ -5,35 +5,103 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mediareview.app.feature.connect.data.PairingRepository
+import com.mediareview.app.feature.connect.normalizeBaseUrl
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
+import com.mediareview.app.feature.v2.data.V2DataMode
+import com.mediareview.app.feature.v2.data.V2DataModeStore
+import com.mediareview.app.feature.v2.data.server.V2ServerHealthMonitor
+import com.mediareview.app.feature.v2.data.server.V2ServerSession
+import com.mediareview.app.feature.v2.data.server.V2ServerSessionBootstrap
+import com.mediareview.app.feature.v2.data.server.V2ServerStatus
+import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2ContextQueue
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /** 首页/书架模式切换。 */
 enum class V2HomeTab { MEDIA, SHELF }
 
+/** 数据源 Sheet 的"连接服务器"表单状态（第一版：手动 IP + 配对码）。 */
+data class V2ServerConnectState(
+    val address: String = "",
+    val code: String = "",
+    val busy: Boolean = false,
+    val error: String? = null,
+    val message: String? = null,
+)
+
 /**
  * V2 首页共享 ViewModel（Activity 作用域）：
- * 持有文件夹、排序/过滤、搜索、当前列表与页面上下文队列。
+ * 持有数据源模式、文件夹、排序/过滤、搜索、分页列表、收藏与页面上下文队列。
+ *
+ * Stage 8A 要点：
+ * - 启动只读本地数据源模式（DataStore），**不等待 Server**：DEMO 立刻可用，
+ *   SERVER 模式下健康探测在后台进行（顶部轻量状态提示），不 Blocking 页面；
+ * - 列表走统一分页接口 [MediaRepository.mediaPage]：Server 模式由服务端执行
+ *   search / sort / filter / page（50 条/页，滚动加载下一页），Demo 模式内存分页；
+ * - 收藏以服务器确认为准：失败不改变 UI 状态并给出提示（禁止假成功）。
  */
 @HiltViewModel
 class V2HomeViewModel @Inject constructor(
     private val repository: MediaRepository,
     private val searchHistory: SearchHistoryStore,
+    private val modeStore: V2DataModeStore,
+    private val bootstrap: V2ServerSessionBootstrap,
+    private val healthMonitor: V2ServerHealthMonitor,
+    private val statusStore: V2ServerStatusStore,
+    private val pairingRepository: PairingRepository,
 ) : ViewModel() {
+
+    // ---------- 数据源 / Server 状态 ----------
+
+    val dataMode: StateFlow<V2DataMode> = modeStore.mode
+    val serverStatus: StateFlow<V2ServerStatus> = statusStore.status
+
+    private val _serverSession = MutableStateFlow(V2ServerSession())
+    val serverSession: StateFlow<V2ServerSession> = _serverSession.asStateFlow()
+
+    private val _initializing = MutableStateFlow(true)
+    val initializing: StateFlow<Boolean> = _initializing.asStateFlow()
+
+    private val _listLoading = MutableStateFlow(false)
+    val listLoading: StateFlow<Boolean> = _listLoading.asStateFlow()
+
+    private val _listError = MutableStateFlow<String?>(null)
+    val listError: StateFlow<String?> = _listError.asStateFlow()
+
+    private val _hasMore = MutableStateFlow(false)
+    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
+
+    private val _totalCount = MutableStateFlow(0)
+    val totalCount: StateFlow<Int> = _totalCount.asStateFlow()
+
+    private val _connectState = MutableStateFlow(V2ServerConnectState())
+    val connectState: StateFlow<V2ServerConnectState> = _connectState.asStateFlow()
+
+    /** 一次性用户提示（Snackbar 用；收藏失败 / 连接结果等）。 */
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val messages: SharedFlow<String> = _messages
+
+    val isServerMode: Boolean get() = repository.mode == V2DataMode.SERVER
+
+    // ---------- 首页状态 ----------
 
     private val _folders = MutableStateFlow<List<V2Folder>>(emptyList())
     val folders: StateFlow<List<V2Folder>> = _folders.asStateFlow()
@@ -77,13 +145,18 @@ class V2HomeViewModel @Inject constructor(
     private val _albums = MutableStateFlow<List<V2Album>>(emptyList())
     val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
 
-    // Stage6：列表刷新 Job 竞态控制。
-    // 只有最后一次触发的 refreshList 生效（连点文件夹/排序/输入搜索词时，
-    // 旧一次的结果不得覆盖新一次）；搜索输入走防抖路径。
+    // 列表刷新 Job 竞态控制：只有最后一次触发的刷新生效（连点文件夹/排序/输入搜索词时，
+    // 旧一次的结果不得覆盖新一次）；搜索输入走防抖路径，分页加载用 generation 丢弃过期响应。
     private var listRefreshJob: Job? = null
+    private var listGeneration = 0
+    private var loadedPage = 1
 
     /** 搜索防抖窗口（输入停顿该时长后才真正查询）。 */
     private val searchDebounceMs = 300L
+
+    /** 当前列表是否为空且仍在加载（首页空态文案用）。 */
+    val loadingFirstPage: Boolean
+        get() = _listLoading.value && _currentList.value.isEmpty()
 
     // ---------- 雪碧图预览单实例状态 ----------
 
@@ -103,15 +176,126 @@ class V2HomeViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            _folders.value = repository.folders()
-            _albums.value = repository.albums()
-            refreshList()
+            // 只读本地持久化模式：不联网、不等待 Server，首页立即可用
+            val mode = modeStore.bootstrap()
+            if (mode == V2DataMode.SERVER) {
+                _serverSession.value = bootstrap.restore()
+                // 后台快速探测（不阻塞启动 / 不阻塞首页）
+                viewModelScope.launch { healthMonitor.probe() }
+            } else {
+                statusStore.update(V2ServerStatus.Unconfigured)
+            }
+            reloadAll()
+            _initializing.value = false
         }
         // 搜索历史从 DataStore 恢复（App 重启后仍在）
         viewModelScope.launch {
             recentSearches = searchHistory.current()
         }
     }
+
+    // ---------- 数据源切换 / 服务器连接 ----------
+
+    /** 切换数据源（设置里的 ● Demo / ○ 我的服务器）。Server 挂了也能随时切回 Demo。 */
+    fun setDataMode(mode: V2DataMode) {
+        viewModelScope.launch {
+            if (mode == repository.mode) return@launch
+            modeStore.set(mode)
+            if (mode == V2DataMode.SERVER) {
+                _serverSession.value = bootstrap.restore()
+                viewModelScope.launch { healthMonitor.probe() }
+            }
+            resetPager()
+            _currentList.value = emptyList()
+            _favorites.value = emptyList()
+            _albums.value = emptyList()
+            reloadAll()
+            emitMessage(if (mode == V2DataMode.SERVER) "已切换到我的服务器" else "已切换到演示数据")
+        }
+    }
+
+    fun onConnectAddressChange(value: String) {
+        _connectState.value = _connectState.value.copy(address = value, error = null, message = null)
+    }
+
+    fun onConnectCodeChange(value: String) {
+        _connectState.value = _connectState.value.copy(code = value, error = null, message = null)
+    }
+
+    /**
+     * 首次 Server 配置（V2 内部 Sheet，不跳出 V2）：
+     * 手动输入地址 → 复用 1.1 的 PairingRepository.checkHealthy / verifyAndPair → 配对待 token。
+     */
+    fun connectServer() {
+        val state = _connectState.value
+        if (state.busy) return
+        val address = runCatching { normalizeBaseUrl(state.address) }.getOrElse { error ->
+            _connectState.value = state.copy(error = error.message ?: "服务器地址无效")
+            return
+        }
+        if (state.code.isBlank()) {
+            _connectState.value = state.copy(error = "请输入配对码")
+            return
+        }
+        _connectState.value = state.copy(busy = true, error = null, message = null)
+        viewModelScope.launch {
+            when (val healthy = pairingRepository.checkHealthy(address)) {
+                is PairingRepository.Result.Failure -> {
+                    _connectState.value = _connectState.value.copy(
+                        busy = false,
+                        error = healthy.message,
+                    )
+                    return@launch
+                }
+                else -> Unit
+            }
+            when (val paired = pairingRepository.verifyAndPair(address, _connectState.value.code)) {
+                is PairingRepository.Result.Paired -> {
+                    _connectState.value = _connectState.value.copy(
+                        busy = false,
+                        message = "配对成功",
+                        error = null,
+                    )
+                    // 配对成功后 TokenProvider 已由 PairingRepository 更新；刷新内存会话
+                    _serverSession.value = bootstrap.refresh()
+                    modeStore.set(V2DataMode.SERVER)
+                    resetPager()
+                    _currentList.value = emptyList()
+                    reloadAll()
+                    viewModelScope.launch { healthMonitor.probe() }
+                    emitMessage("已连接服务器")
+                }
+                is PairingRepository.Result.Failure -> {
+                    _connectState.value = _connectState.value.copy(
+                        busy = false,
+                        error = paired.message,
+                    )
+                }
+                else -> _connectState.value = _connectState.value.copy(busy = false)
+            }
+        }
+    }
+
+    /** 手动重试后台健康探测。 */
+    fun probeServer() {
+        viewModelScope.launch { healthMonitor.probe() }
+    }
+
+    /** 断开服务器配置（保留 Demo 可用）。 */
+    fun clearServerConfig() {
+        viewModelScope.launch {
+            pairingRepository.clear()
+            _serverSession.value = V2ServerSession()
+            statusStore.update(V2ServerStatus.Unconfigured)
+            modeStore.set(V2DataMode.DEMO)
+            resetPager()
+            _currentList.value = emptyList()
+            reloadAll()
+            emitMessage("已断开服务器，切回演示数据")
+        }
+    }
+
+    // ---------- 列表 / 分页 ----------
 
     fun folderCount(folderId: String): Int = _folderCounts.value[folderId] ?: 0
 
@@ -134,7 +318,10 @@ class V2HomeViewModel @Inject constructor(
     fun selectRecent() {
         selectedRecent = true
         _selectedFolderId.value = null
-        _sortSpec.value = _sortSpec.value.copy(field = com.mediareview.app.feature.v2.model.V2SortField.RECENT, order = com.mediareview.app.feature.v2.model.V2SortOrder.DESC)
+        _sortSpec.value = _sortSpec.value.copy(
+            field = com.mediareview.app.feature.v2.model.V2SortField.RECENT,
+            order = com.mediareview.app.feature.v2.model.V2SortOrder.DESC,
+        )
         refreshList()
     }
 
@@ -155,7 +342,7 @@ class V2HomeViewModel @Inject constructor(
 
     fun updateSearchQuery(q: String) {
         searchQuery = q
-        // 输入防抖：停顿 300ms 后才真正查询，避免每个字符都触发一次全量过滤
+        // 输入防抖：停顿 300ms 后才真正查询（Server 模式下避免每个字符都发请求）
         refreshList(debounceMs = searchDebounceMs)
     }
 
@@ -176,10 +363,51 @@ class V2HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 滚动到底部时加载下一页（Server 模式：服务端分页；Demo：内存分页）。
+     * 同一时刻只允许一个加载，过期响应按 generation 丢弃。
+     */
+    fun loadNextPage() {
+        if (_listLoading.value || !_hasMore.value) return
+        val generation = listGeneration
+        val nextPage = loadedPage + 1
+        viewModelScope.launch {
+            _listLoading.value = true
+            try {
+                val page = repository.mediaPage(query(nextPage))
+                if (generation != listGeneration) return@launch
+                val existing = _currentList.value.map { it.id }.toSet()
+                _currentList.value = _currentList.value + page.items.filter { it.id !in existing }
+                loadedPage = page.page
+                _totalCount.value = page.total
+                _hasMore.value = page.hasMore
+                _listError.value = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (generation == listGeneration) {
+                    _listError.value = error.message ?: "加载失败"
+                }
+            } finally {
+                if (generation == listGeneration) _listLoading.value = false
+            }
+        }
+    }
+
+    /** 手动重试当前列表（网络失败后）。 */
+    fun retryList() {
+        refreshList()
+    }
+
     fun setFavorite(mediaId: String, favorite: Boolean) {
         viewModelScope.launch {
-            repository.setFavorite(mediaId, favorite)
-            refreshList()
+            val confirmed = repository.setFavorite(mediaId, favorite)
+            if (confirmed) {
+                applyFavoriteLocally(mediaId, favorite)
+            } else {
+                // 服务器未确认：保持原状态（从未乐观更新），只提示
+                emitMessage(if (favorite) "收藏失败：服务器未确认" else "取消收藏失败：服务器未确认")
+            }
         }
     }
 
@@ -249,7 +477,7 @@ class V2HomeViewModel @Inject constructor(
     /** 统一封面 URI（视频→Poster、图片→缩略图；UI 全用这个，不感知数据来源）。 */
     fun coverUri(media: V2Media): String = repository.coverUri(media)
 
-    /** 图片原图 URI（薄委托，加载逻辑在数据层）。 */
+    /** 图片原图 URI（薄委托，加载逻辑在数据层；Server 模式为原图代理 URL）。 */
     fun imageUri(media: V2Media): String = repository.imageUri(media)
 
     fun spriteUri(media: V2Media): String? = repository.spriteUri(media)
@@ -257,54 +485,133 @@ class V2HomeViewModel @Inject constructor(
     fun spriteManifest(media: V2Media): com.mediareview.app.feature.v2.model.V2SpriteManifest? =
         repository.spriteManifest(media)
 
-    fun playbackUri(mediaId: String): String = repository.playbackUri(mediaId)
-
-    /** 播放请求头（Demo 空；未来 Server 直连传入鉴权头），UI 不感知差异。 */
-    fun playbackHeaders(mediaId: String): Map<String, String> = repository.playbackHeaders(mediaId)
-
     fun mediaById(id: String): V2Media? = repository.mediaById(id)
 
     // ---------- 相册能力 ----------
 
     fun refreshAlbums() {
         viewModelScope.launch {
-            _albums.value = repository.albums()
+            _albums.value = runCatching { repository.albums() }.getOrDefault(emptyList())
         }
     }
 
     /** 相册内照片（IMAGE ONLY）；用于 AlbumScreen 与相册 Viewer 队列。 */
     suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        repository.imagesInAlbum(albumId, spec)
+        runCatching { repository.imagesInAlbum(albumId, spec) }.getOrDefault(emptyList())
 
     /** 用户选择相册封面（校验后持久化），随后刷新书架。 */
     fun setAlbumCover(albumId: String, mediaId: String) {
         viewModelScope.launch {
             repository.setAlbumCover(albumId, mediaId)
-            _albums.value = repository.albums()
+            _albums.value = runCatching { repository.albums() }.getOrDefault(emptyList())
         }
     }
 
+    // ---------- 内部 ----------
+
+    /** 重新加载全部首页数据（切数据源 / 进入 Server 模式后调用）。 */
+    private suspend fun reloadAll() {
+        if (repository.mode == V2DataMode.SERVER && !_serverSession.value.configured) {
+            // Server 模式但没有配置：不发起任何请求，UI 引导去"连接服务器"
+            _folders.value = emptyList()
+            _folderCounts.value = emptyMap()
+            _albums.value = emptyList()
+            _favorites.value = emptyList()
+            _currentList.value = emptyList()
+            _totalCount.value = 0
+            _hasMore.value = false
+            _listError.value = null
+            statusStore.update(V2ServerStatus.Unconfigured)
+            return
+        }
+        loadFolders()
+        refreshAlbumsNow()
+        refreshFavorites()
+        refreshList()
+    }
+
+    private suspend fun loadFolders() {
+        val folders = runCatching { repository.folders() }.getOrElse { error ->
+            _listError.value = error.message ?: "文件夹加载失败"
+            _folders.value = emptyList()
+            _folderCounts.value = emptyMap()
+            return
+        }
+        _folders.value = folders
+        // 文件夹计数来自数据源聚合（Server 由服务端 count 下发，App 不做 N+1）
+        _folderCounts.value = folders.associate { it.id to it.count }
+    }
+
+    private suspend fun refreshAlbumsNow() {
+        _albums.value = runCatching { repository.albums() }.getOrDefault(emptyList())
+    }
+
+    private suspend fun refreshFavorites() {
+        _favorites.value = runCatching { repository.favorites() }.getOrDefault(emptyList())
+    }
+
+    private fun query(page: Int): V2MediaQuery = V2MediaQuery(
+        page = page,
+        pageSize = V2MediaQuery.DEFAULT_PAGE_SIZE,
+        folderId = _selectedFolderId.value,
+        search = if (searchActive) searchQuery.trim().takeIf { it.isNotEmpty() } else null,
+        spec = _sortSpec.value,
+    )
+
+    private fun resetPager() {
+        listGeneration++
+        loadedPage = 1
+        _hasMore.value = false
+        _totalCount.value = 0
+    }
+
+    /** 收藏成功后本地同步（Server 已确认；不做乐观更新，失败即保持原状态）。 */
+    private fun applyFavoriteLocally(mediaId: String, favorite: Boolean) {
+        _currentList.value = _currentList.value.map { media ->
+            if (media.id == mediaId) media.copy(isFavorite = favorite) else media
+        }
+        if (!favorite) {
+            _favorites.value = _favorites.value.filterNot { it.id == mediaId }
+        } else if (_favorites.value.none { it.id == mediaId }) {
+            repository.mediaById(mediaId)?.let { media ->
+                _favorites.value = _favorites.value + media.copy(isFavorite = true)
+            }
+        }
+    }
+
+    private fun emitMessage(message: String) {
+        _messages.tryEmit(message)
+    }
+
     /**
-     * 刷新媒体列表（mapLatest 语义：取消上一次未完成的刷新，只保留最新一次）。
+     * 刷新媒体列表（只保留最新一次；分页 = 每页 50 条滚动加载，绝不一次拉全量）。
      * [debounceMs] > 0 时先等待该时长（用于搜索输入节流）。
      */
     private fun refreshList(debounceMs: Long = 0L) {
         listRefreshJob?.cancel()
+        resetPager()
+        val generation = listGeneration
         listRefreshJob = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
-            val spec = _sortSpec.value
-            val folder = _selectedFolderId.value
-            val query = searchQuery.trim()
-            val list = when {
-                searchActive && query.isNotEmpty() -> repository.search(query, spec)
-                folder != null -> repository.mediaInFolder(folder, spec)
-                else -> repository.media(spec)
+            _listLoading.value = true
+            try {
+                val page = repository.mediaPage(query(page = 1))
+                if (generation != listGeneration) return@launch
+                _currentList.value = page.items
+                loadedPage = page.page
+                _totalCount.value = page.total
+                _hasMore.value = page.hasMore
+                _listError.value = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (generation == listGeneration) {
+                    _currentList.value = emptyList()
+                    _listError.value = error.message ?: "加载失败"
+                }
+            } finally {
+                if (generation == listGeneration) _listLoading.value = false
             }
-            _currentList.value = list
-            // 更新各文件夹计数（供书架显示）
-            val all = repository.media()
-            _folderCounts.value = all.groupingBy { it.folderId }.eachCount()
-            _favorites.value = all.filter { it.isFavorite }
         }
     }
 }

@@ -15,8 +15,13 @@ import androidx.compose.ui.test.waitUntilExactlyOneExists
 
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
+import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
+import com.mediareview.app.feature.v2.model.V2PlaybackSource
+import com.mediareview.app.feature.v2.model.V2PlaybackStage
+import com.mediareview.app.feature.v2.player.V2PlaybackUiState
+import com.mediareview.app.feature.v2.player.V2PlayerState
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
+import com.mediareview.app.feature.v2.player.native.state.PlaybackQueueItem
 import com.mediareview.app.ui.theme.MediaReviewTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -40,21 +45,44 @@ class GsyNativePlayerLayoutTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private fun demoRequest(index: Int, rawName: String, title: String) = GsyPlaybackRequest(
+    private fun demoItem(index: Int, title: String) = PlaybackQueueItem(
         mediaId = "demo-$index",
         title = title,
-        url = "android.resource://com.mediareview.app/raw/$rawName",
+    )
+
+    private fun demoSource(index: Int, rawName: String, title: String) = V2PlaybackSource(
+        mediaId = "demo-$index",
+        title = title,
+        direct = V2PlaybackEndpoint(url = "android.resource://com.mediareview.app/raw/$rawName"),
     )
 
     private fun launchPlayer(startIndex: Int = 0) {
-        val list = listOf(
-            demoRequest(5, "demo_05_longer", "AI视频-测试 005"),
-            demoRequest(6, "demo_06_wide", "AI视频-测试 006"),
+        val queue = listOf(
+            demoItem(5, "AI视频-测试 005"),
+            demoItem(6, "AI视频-测试 006"),
         )
+        // Stage 8A：播放源由 ViewModel 异步解析后以 Ready 状态下发，测试直接构造 Ready。
+        val source = if (startIndex == 0) {
+            demoSource(5, "demo_05_longer", "AI视频-测试 005")
+        } else {
+            demoSource(6, "demo_06_wide", "AI视频-测试 006")
+        }
+        val endpoint = source.direct
         compose.setContent {
             MediaReviewTheme {
                 GsyNativePlayerScreen(
-                    playbackContext = PlaybackContext(mediaList = list, currentIndex = startIndex),
+                    state = V2PlayerState(
+                        context = PlaybackContext(queue = queue, currentIndex = startIndex),
+                        ui = V2PlaybackUiState.Ready(
+                            source = source,
+                            stage = V2PlaybackStage.DIRECT,
+                            endpoint = endpoint,
+                        ),
+                    ),
+                    onRequestIndex = {},
+                    onPlaybackFailed = {},
+                    onRetry = {},
+                    onReportProgress = { _, _ -> },
                     onBack = {},
                     modifier = Modifier.fillMaxSize(),
                 )

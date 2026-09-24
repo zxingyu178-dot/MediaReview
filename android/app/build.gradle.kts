@@ -125,6 +125,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.paging.testing)
+    // Stage 8A：Production Repository 合同测试（MockWebServer 真实 HTTP）
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.espresso)
     androidTestImplementation(platform(libs.androidx.compose.bom))

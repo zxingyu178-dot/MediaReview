@@ -189,7 +189,9 @@ fun MediaCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${media.code} · ${media.folderName}",
+                    text = listOf(media.code, media.folderName)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MediaTextSecondary,
                     maxLines = 1,

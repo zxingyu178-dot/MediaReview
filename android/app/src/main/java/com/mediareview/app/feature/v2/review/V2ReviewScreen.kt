@@ -62,13 +62,14 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mediareview.app.BuildConfig
+import com.mediareview.app.feature.v2.player.native.state.awaitPlayerHostReady
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import com.shuyu.gsyvideoplayer.builder.GSYVideoOptionBuilder
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayState
-import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerController
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerSurface
 import com.shuyu.gsyvideoplayer.compose.native_.rememberGSYPlayerController
 import com.shuyu.gsyvideoplayer.utils.GSYVideoType
@@ -85,19 +86,24 @@ private const val POSTER_FADE_MS = 200
 private const val PLAYBACK_READY_TIMEOUT_MS = 10_000L
 
 /**
- * "画面确实在输出"判定（Playback-ready reveal）：
+ * "画面确实在输出"判定（Playback-ready reveal，Stage 8A §17.2 修正）：
  * - Playing：要求播放位置已前进（currentPosition > 0）——位置前进说明帧在解码输出，
  *   避免 state==Playing 但首帧尚未渲染时的黑帧窗口；
- * - Paused / Completed：已渲染过（此前 Playing 阶段已完成首帧）。
+ * - Paused / Completed：**只有当前源曾经真的播过（Playing + position > 0，即
+ *   [hasPlaybackAdvanced]）** 才认为画面已输出。
+ *   旧实现无条件返回 true，会出现"还没首帧 → 被暂停 → Poster 提前淡出 → 黑屏"；
+ * - 换媒体时 [hasPlaybackAdvanced] 必须重置为 false。
+ *
  * 说明：这是当前 GSY 能力下的"播放状态可用 + 输出推进"判定，不是原生 first-frame 回调；
  * 若后续找到 GSY 渲染首帧回调则优先替换。
  */
 private fun isPlaybackVisible(
     state: GSYPlayState,
     currentPositionMs: Long,
+    hasPlaybackAdvanced: Boolean,
 ): Boolean = when (state) {
     GSYPlayState.Playing -> currentPositionMs > 0L
-    GSYPlayState.Paused, GSYPlayState.Completed -> true
+    GSYPlayState.Paused, GSYPlayState.Completed -> hasPlaybackAdvanced
     else -> false
 }
 
@@ -130,6 +136,17 @@ fun V2ReviewScreen(
     val context = LocalContext.current
 
     LaunchedEffect(Unit) { vm.enterReview() }
+
+    // Stage 8A §16 / §33：Server 模式下真实批阅会话（Stage 8B）尚未接入。
+    // 这里明确显示占位说明，且不建立任何队列 / 不做批量播放地址解析。
+    val serverUnsupported by vm.serverModeUnsupported.collectAsState()
+    if (serverUnsupported) {
+        ReviewServerModePlaceholder(
+            onBack = onBack,
+            modifier = modifier.fillMaxSize(),
+        )
+        return
+    }
 
     if (!ready) {
         Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground))
@@ -180,6 +197,9 @@ fun V2ReviewScreen(
     var currentLoadedMediaId by remember { mutableStateOf("") }
     // 已完成"播放可用"揭示、允许 Poster 淡出的页面（-1 = 无）。
     var revealedPage by remember { mutableIntStateOf(-1) }
+    // Stage 8A §17.2：当前源是否真的出现过画面（Playing 且 position > 0）。
+    // Paused / Completed 只有在它为 true 时才允许 Poster 淡出，避免"未首帧被暂停 → 黑屏"。
+    var hasPlaybackAdvanced by remember { mutableStateOf(false) }
     // 重新批阅的显式重载令牌：变化强制换页 effect 重跑（单条队列 scrollToPage 无变化也生效）。
     var playRequestToken by remember { mutableStateOf(0) }
     // 480ms 稳定停留判定（纯逻辑，事件驱动）。
@@ -209,28 +229,44 @@ fun V2ReviewScreen(
         val media = queue.getOrNull(page) ?: return@LaunchedEffect
         revealedPage = -1
         if (media.mediaId != currentLoadedMediaId) {
-            // Critical 3：Headers 必须与 URL 一起切换（先 headers 后 setUp）。
-            controller.setHeaders(media.headers.ifEmpty { null })
-            controller.setUp(media.playbackUrl, false, media.title, false)
+            // Critical 3（Stage 8A 实测修正）：Headers 必须与 URL 一起进 GSYVideoOptionBuilder。
+            // 只调用 controller.setHeaders(...) 会被随后的 setUp 覆盖（实测直连请求完全没有该头）。
+            val option = GSYVideoOptionBuilder()
+                .setUrl(media.playbackUrl)
+                .setCacheWithPlay(false)
+                .setVideoTitle(media.title)
+                .setMapHeadData(media.headers.ifEmpty { null })
+            controller.setUp(option, false)
             currentLoadedMediaId = media.mediaId
+            // Stage 8A §17.2：换媒体即重置"曾经出现过画面"判定（否则新源会被旧源的
+            // Paused 状态误判为已渲染，Poster 提前淡出 → 黑屏）。
+            hasPlaybackAdvanced = false
             logSourceState("switch page=$page", media, currentLoadedMediaId)
         }
         // 明确收敛的 host 等待：可取消、2s 超时；超时保留 Poster（不堆 postDelayed）。
         val hostReady = awaitPlayerHostReady(controller)
         if (!hostReady) return@LaunchedEffect
-        controller.withHost { host ->
-            host.postDelayed({ controller.play() }, 120L)
-            true
+        // Stage 8A §17.1：这里改为协程 delay，不再使用 host.postDelayed——
+        // 换页 / 退出时所在 LaunchedEffect 协程被取消，delay 自动取消，不会留下 stale Play。
+        delay(120L)
+        // 取消保护 + 二次确认：仍是同一页、且播放器里仍是同一条媒体才真正 play。
+        if (pagerState.settledPage != page || currentLoadedMediaId != media.mediaId) {
+            return@LaunchedEffect
         }
+        controller.play()
         // 画面确实在输出后才淡出 Poster（避免 Playing 但首帧未渲染的黑帧窗口）：
         // 切换全程用户看到的永远是 旧视频画面 / 新 Poster / 新视频画面 之一，不出现黑屏空窗。
         // 措辞：Playback-ready reveal（GSY 能力下的"播放状态可用 + 输出推进"，非原生 first-frame 回调）。
         val playReady = withTimeoutOrNull(PLAYBACK_READY_TIMEOUT_MS) {
             var s = controller.snapshot.value
-            while (!isPlaybackVisible(s.state, s.currentPosition)) {
+            while (!isPlaybackVisible(s.state, s.currentPosition, hasPlaybackAdvanced)) {
+                if (s.state == GSYPlayState.Playing && s.currentPosition > 0L) {
+                    hasPlaybackAdvanced = true
+                }
                 delay(50L)
                 s = controller.snapshot.value
             }
+            hasPlaybackAdvanced = true
             true
         }
         if (BuildConfig.DEBUG) {
@@ -238,7 +274,7 @@ fun V2ReviewScreen(
             android.util.Log.d(
                 "MRReview",
                 "PlaybackReady[page=$page] ok=$playReady state=${s.state} posMs=${s.currentPosition} " +
-                    "mediaId=${media.mediaId}"
+                    "mediaId=${media.mediaId} advanced=$hasPlaybackAdvanced"
             )
         }
         if (playReady == true) revealedPage = page
@@ -525,6 +561,7 @@ fun V2ReviewScreen(
                         stableGate.reset()
                         revealedPage = -1
                         currentLoadedMediaId = "" // 强制下一次 effect 对本条重新 setHeaders + setUp
+                        hasPlaybackAdvanced = false // 重新批阅 = 重新判定"是否已出现画面"
                         playRequestToken++
                         scope.launch { pagerState.scrollToPage(0) }
                     },
@@ -622,27 +659,6 @@ private fun fingerprint(url: String): String {
     val cleaned = url.removePrefix("android.resource://")
     val path = cleaned.substringBefore('?').substringBefore('#')
     return path.substringAfterLast('/')
-}
-
-/**
- * 等待 GSY host（GSYPlayerSurface 的 AndroidView）attach 且完成首次布局。
- * 可取消（所在协程取消即停止）、明确 2s 超时，超时返回 false。
- */
-private suspend fun awaitPlayerHostReady(
-    controller: GSYPlayerController,
-    timeoutMs: Long = 2000L,
-): Boolean {
-    val done = withTimeoutOrNull(timeoutMs) {
-        var ready = false
-        while (!ready) {
-            ready = controller.withHost { host ->
-                host.isAttachedToWindow && host.width > 0 && host.height > 0
-            } ?: false
-            if (!ready) delay(40L)
-        }
-        true
-    }
-    return done ?: false
 }
 
 /** 抖音式右侧动作按钮：圆形半透明底 + 图标 + 小字。 */
@@ -781,6 +797,55 @@ private fun ReviewCompleteOverlay(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
                 )
             }
+        }
+    }
+}
+
+/** 带返回的占位页标题栏（Server 模式批阅未接入提示用）。 */
+@Composable
+private fun ReviewServerModePlaceholder(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.background(MediaImmersiveBackground),
+        contentAlignment = Alignment.Center,
+    ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding(),
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "返回",
+                tint = MediaTextPrimary,
+            )
+        }
+        Column(
+            modifier = Modifier.padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = null,
+                tint = MediaTextSecondary,
+                modifier = Modifier.size(44.dp),
+            )
+            Text(
+                text = "真实批阅接入将在 Stage 8B 完成",
+                style = MaterialTheme.typography.titleMedium,
+                color = MediaTextPrimary,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+            Text(
+                text = "当前服务器模式已支持媒体浏览、图片查看与视频播放；" +
+                    "批阅会话（队列 / 已看 / 断点）属于 Stage 8B 范围。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MediaTextSecondary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }

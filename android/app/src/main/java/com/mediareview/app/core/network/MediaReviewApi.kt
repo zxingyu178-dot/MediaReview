@@ -15,6 +15,7 @@ import com.mediareview.app.core.model.JellyfinStatusOut
 import com.mediareview.app.core.model.MediaFolderItem
 import com.mediareview.app.core.model.MediaPage
 import com.mediareview.app.core.model.MediaSummary
+import com.mediareview.app.core.model.MutationResultDto
 import com.mediareview.app.core.model.PairingStatusOut
 import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ProgressRequest
@@ -109,7 +110,7 @@ interface MediaReviewApi {
     suspend fun reportProgress(
         @Path("media_id") mediaId: String,
         @Body body: ProgressRequest,
-    ): Envelope<Map<String, String>>
+    ): Envelope<MutationResultDto>
 
     @POST("/api/v1/review/sessions")
     suspend fun createReviewSession(@Body body: ReviewCreateRequest): Envelope<ReviewSessionDto>
@@ -140,10 +141,10 @@ interface MediaReviewApi {
     suspend fun listFavorites(): Envelope<List<FavoriteItemDto>>
 
     @POST("/api/v1/favorites/{media_id}")
-    suspend fun addFavorite(@Path("media_id") mediaId: String): Envelope<Map<String, String>>
+    suspend fun addFavorite(@Path("media_id") mediaId: String): Envelope<MutationResultDto>
 
     @DELETE("/api/v1/favorites/{media_id}")
-    suspend fun removeFavorite(@Path("media_id") mediaId: String): Envelope<Map<String, String>>
+    suspend fun removeFavorite(@Path("media_id") mediaId: String): Envelope<MutationResultDto>
 
     @GET("/api/v1/delete-queue")
     suspend fun listDeleteQueue(): Envelope<List<DeleteQueueItemDto>>

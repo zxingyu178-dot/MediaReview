@@ -54,6 +54,9 @@ data class GsyNativeSeekHint(
 /**
  * 播放器中央指示器：Loading（>200ms 防闪）、Seek 提示、亮度/音量浮层、临时 2x、
  * Completed（重播/下一条）、Error（重试/返回）。
+ *
+ * [errorMessage] 为播放源解析 / 播放失败的具体原因（Stage 8A：Direct 与 HLS 都失败时的提示），
+ * 为 null 时只显示通用"播放失败"。
  */
 @Composable
 fun GsyNativeIndicators(
@@ -69,6 +72,7 @@ fun GsyNativeIndicators(
     onRetry: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    errorMessage: String? = null,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         if (overlay == CenterOverlay.LOADING) {
@@ -122,6 +126,7 @@ fun GsyNativeIndicators(
             CenterOverlay.ERROR -> ErrorOverlay(
                 onRetry = onRetry,
                 onBack = onBack,
+                message = errorMessage,
                 modifier = Modifier.align(Alignment.Center),
             )
             else -> Unit
@@ -227,6 +232,7 @@ private fun CompletedOverlay(
 private fun ErrorOverlay(
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    message: String?,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -237,6 +243,15 @@ private fun ErrorOverlay(
             color = MediaTextPrimary,
             modifier = Modifier.padding(top = 12.dp),
         )
+        message?.takeIf { it.isNotBlank() }?.let { detail ->
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MediaTextSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 6.dp, start = 32.dp, end = 32.dp),
+            )
+        }
         Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onRetry) {
                 Icon(Icons.Default.Refresh, "重试", tint = MediaTextPrimary, modifier = Modifier.size(18.dp))

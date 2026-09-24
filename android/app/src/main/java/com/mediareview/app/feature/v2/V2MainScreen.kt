@@ -25,12 +25,17 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,11 +58,13 @@ import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SortSpec
-import com.mediareview.app.feature.v2.player.gsy.GsyPlaybackRequest
+import com.mediareview.app.feature.v2.player.V2NativePlayerViewModel
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
+import com.mediareview.app.feature.v2.player.native.state.PlaybackQueueItem
 import com.mediareview.app.feature.v2.review.V2ReviewScreen
 import com.mediareview.app.feature.v2.review.V2ReviewViewModel
+import com.mediareview.app.feature.v2.settings.V2DataSourceSheet
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.feature.v2.viewer.V2ImageViewer
@@ -89,12 +96,21 @@ fun V2MainScreen(
     val currentRoute = backStack?.destination?.route
     val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
 
+    // 数据源设置（Demo / 我的服务器 + 首次配置）：V2 内部 Sheet，任何时候都能切换
+    var dataSourceSheetOpen by remember { mutableStateOf(false) }
+    // 一次性用户提示（收藏失败等）统一在根 Scaffold 上显示，任何页面都能看到
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        vm.messages.collect { message -> snackbar.showSnackbar(message) }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MediaBackground,
         // 页面顶部各自的 statusBarsPadding、BottomNav 内部 navigationBarsPadding 已处理 inset；
         // Scaffold 只负责下发 bottomBar 高度，避免双重 padding 或底部大块空白。
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             if (showBottomBar) {
                 V2BottomNavBar(
@@ -133,6 +149,7 @@ fun V2MainScreen(
                         vm.stopSpritePreview()
                         MediaNavigator.navigateAlbum(navController, albumId)
                     },
+                    onOpenDataSource = { dataSourceSheetOpen = true },
                 )
             }
             composable(MediaNavigator.ROUTE_REVIEW) {
@@ -162,7 +179,10 @@ fun V2MainScreen(
                 )
             }
             composable(MediaNavigator.ROUTE_ORGANIZE) {
-                OrganizePage(vm = vm)
+                OrganizePage(
+                    vm = vm,
+                    onOpenDataSource = { dataSourceSheetOpen = true },
+                )
             }
             composable(MediaNavigator.ROUTE_FOLDER) { entry ->
                 val folderId = entry.arguments?.getString("folderId") ?: ""
@@ -205,33 +225,34 @@ fun V2MainScreen(
                 val mediaId = entry.arguments?.getString("mediaId") ?: ""
                 val media = vm.mediaById(mediaId)
                 if (media != null) {
-                    // Stage2.2：正式运行路径进入 GSY Native Compose 播放器；
-                    // 旧 V2PlayerScreen 与 Stage2.1 Wrapper 均保留源码但不再调用。
+                    // Stage 8A：正式播放路径进入 GSY Native Compose 播放器。
                     // 队列优先取 contextQueue（批阅/收藏/相册进入时按来源限定），
-                    // 兜底取首页当前列表视频，保证上下条正确且不串库。
+                    // 兜底取首页当前列表视频；队列只保存 id / 标题，
+                    // URL 与 headers 由 ViewModel 按需异步解析（resolvePlayback），
+                    // 绝不为整个队列一次性请求 PlaybackInfo。
                     val videos = remember(mediaId) {
                         val ids = vm.contextQueue?.mediaIds?.takeIf { it.isNotEmpty() }
                             ?: vm.currentList.value.filter { it.isVideo }.map { it.id }
-                        // 队列只取视频（contextQueue 可能含图片，进入播放器只按视频上下条）
                         ids.mapNotNull { id -> vm.mediaById(id)?.takeIf { it.isVideo } }
                     }
-                    val playbackContext = remember(mediaId) {
+                    val playbackContext = remember(videos, mediaId) {
                         PlaybackContext(
-                            mediaList = videos.map { m ->
-                                GsyPlaybackRequest(
-                                    mediaId = m.id,
-                                    title = m.name,
-                                    // 播放源抽象：URL / Headers 由 Repository 解析（Demo 本地 / 未来 Server 直连）
-                                    url = vm.playbackUri(m.id),
-                                    headers = vm.playbackHeaders(m.id),
-                                )
-                            },
+                            queue = videos.map { PlaybackQueueItem(mediaId = it.id, title = it.name) },
                             currentIndex = videos.indexOfFirst { it.id == mediaId }.coerceAtLeast(0),
-                            source = "demo",
+                            source = if (vm.isServerMode) "server" else "demo",
                         )
                     }
+                    val playerViewModel: V2NativePlayerViewModel = hiltViewModel()
+                    LaunchedEffect(playbackContext) { playerViewModel.open(playbackContext) }
+                    val playerState by playerViewModel.state.collectAsState()
                     GsyNativePlayerScreen(
-                        playbackContext = playbackContext,
+                        state = playerState,
+                        onRequestIndex = { index -> playerViewModel.moveTo(index) },
+                        onPlaybackFailed = { playerViewModel.onPlaybackFailed() },
+                        onRetry = { playerViewModel.retry() },
+                        onReportProgress = { positionMs, isPaused ->
+                            playerViewModel.reportProgress(positionMs, isPaused)
+                        },
                         onBack = { navController.popBackStack() },
                     )
                 }
@@ -245,6 +266,14 @@ fun V2MainScreen(
                 )
             }
         }
+    }
+
+    // 数据源设置 Sheet（V2 内部，不跳出 V2）：Demo / 我的服务器 + 首次连接服务器
+    if (dataSourceSheetOpen) {
+        V2DataSourceSheet(
+            vm = vm,
+            onDismiss = { dataSourceSheetOpen = false },
+        )
     }
 }
 
@@ -308,15 +337,17 @@ private fun FavoritesPage(
     }
 }
 
-/** 整理页：按妙搭原型显示 Mock 卡片（待删除/重复媒体/已批阅/媒体库管理）。 */
+/** 整理页：按妙搭原型显示 Mock 卡片（待删除/重复媒体/已批阅/媒体库管理）+ 数据源入口。 */
 @Composable
 private fun OrganizePage(
     vm: V2HomeViewModel,
+    onOpenDataSource: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val all = vm.currentList.collectAsState().value
     val total = remember { 60 }
     val reviewedCount = all.count { it.isReviewed }
+    val dataMode = vm.dataMode.collectAsState().value
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
         Box(
             modifier = Modifier
@@ -337,6 +368,19 @@ private fun OrganizePage(
             contentPadding = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl),
             verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
         ) {
+            item {
+                OrganizeCard(
+                    icon = Icons.Default.Folder,
+                    title = "数据源",
+                    subtitle = if (dataMode == com.mediareview.app.feature.v2.data.V2DataMode.SERVER) {
+                        "我的服务器"
+                    } else {
+                        "演示数据（离线）"
+                    },
+                    tint = MediaTextPrimary,
+                    onClick = onOpenDataSource,
+                )
+            }
             item { OrganizeCard(Icons.Default.DeleteSweep, "待删除", "0 项待最终删除", MediaTextSecondary) }
             item { OrganizeCard(Icons.Default.CopyAll, "重复媒体", "2 组疑似重复（Mock）", MediaTextSecondary) }
             item { OrganizeCard(Icons.Default.CheckCircle, "已批阅", "$reviewedCount 项已批阅", MediaTextSecondary) }
@@ -351,13 +395,14 @@ private fun OrganizeCard(
     title: String,
     subtitle: String,
     tint: Color,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(V2Radius.Card))
             .background(MediaSurfaceRaised)
-            .clickable(enabled = false) {}
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
             .padding(V2Spacing.Lg),
         verticalAlignment = Alignment.CenterVertically,
     ) {
