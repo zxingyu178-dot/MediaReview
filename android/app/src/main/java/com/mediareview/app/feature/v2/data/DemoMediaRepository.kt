@@ -88,6 +88,8 @@ class DemoMediaRepository @Inject constructor(
         return DemoAssets.playbackUri(m)
     }
 
+    override fun playbackHeaders(mediaId: String): Map<String, String> = emptyMap()
+
     override fun thumbUri(media: V2Media): String = DemoAssets.thumbUri(media)
 
     override fun coverUri(media: V2Media): String = DemoAssets.coverUri(media)

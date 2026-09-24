@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -184,6 +185,39 @@ class V2ReviewViewModelTest {
         assertEquals(0, vm.currentIndex.value)
     }
 
+    @Test
+    fun `Headers 与对应媒体一一对应不串源`() = runTest {
+        val repo = FakeRepo(videos = 2, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        val a = vm.queue.value[0]
+        val b = vm.queue.value[1]
+        // 每条媒体的 header 都携带各自的 mediaId（Demo debug header 语义）
+        assertEquals(a.mediaId, a.headers["X-Debug-Media"])
+        assertEquals(b.mediaId, b.headers["X-Debug-Media"])
+        // A 的 Header 不会出现在 B 上
+        assertNotEquals(a.headers, b.headers)
+        assertEquals(1, a.headers.keys.size)
+        assertEquals(1, b.headers.keys.size)
+    }
+
+    @Test
+    fun `单视频队列浏览完成后重新批阅回到可审`() = runTest {
+        val repo = FakeRepo(videos = 1, reviewedVideos = 0, images = 0)
+        val vm = V2ReviewViewModel(repo)
+        vm.enterReview()
+        assertEquals(1, vm.queue.value.size)
+        // 浏览完成：标记该条 → complete
+        vm.markReviewed(vm.queue.value.first().mediaId)
+        assertTrue(vm.isComplete.value)
+        // 完成页"重新批阅"（restartCurrentSession）：
+        vm.restartCurrentSession()
+        assertTrue(vm.reviewedIds.value.isEmpty())
+        assertFalse(vm.isComplete.value)
+        assertEquals(0, vm.currentIndex.value)
+        assertTrue(vm.queue.value.single().mediaId in repo.unmarked)
+    }
+
     /** 内存仓库：可控视频/已审/图片数量；可查询/修改外部状态。 */
     private class FakeRepo(
         videos: Int,
@@ -255,6 +289,8 @@ class V2ReviewViewModelTest {
             unmarked += mediaId
         }
         override fun playbackUri(mediaId: String): String = ""
+        override fun playbackHeaders(mediaId: String): Map<String, String> =
+            mapOf("X-Debug-Media" to mediaId)
         override fun thumbUri(media: V2Media): String = ""
         override fun coverUri(media: V2Media): String = ""
         override fun imageUri(media: V2Media): String = ""
