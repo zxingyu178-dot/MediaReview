@@ -1514,3 +1514,101 @@ Real-device Performance: NOT VERIFIED（等待用户真机验收）。
 模拟器 QA：播放动态 3.76% / 暂停静止 0%；页2/3/5 源一致；FullPlayer Back 源正确且播放；
 双声源日志顺序无 resume→pause；完成页重批回第 1 条 posMs=0；空队列重批保留。
 遗留：模拟器 MediaCodec→TextureView 纹理偶发黑屏（环境，见 04_KNOWN_ISSUES）；Real-device NOT VERIFIED。
+
+---
+
+## V2 Stage 8A — Production Data Bridge（真实 Server 数据接入第一阶段）（2026-09-24）
+
+分支：feature/mediareview-v2-stage8a-production-bridge（base 27727bf = Stage 7.1 HEAD）
+
+### 目标与范围
+
+第一次建立真正的 V2 → Production Repository → 现有 MediaReview API → FastAPI → Jellyfin 通道：
+真实 Server 模式下可完成媒体分页读取、文件夹、搜索、排序、真实封面、原图 Viewer、真实视频播放
+（Direct Play + 一次 HLS fallback + Headers + resume），同时 DEMO 离线模式完整保留。
+本阶段**不接**真实 Review Session（Stage 8B）、不做 Organize 真实能力。
+
+### 数据层（Android）
+
+- `V2DataMode { DEMO, SERVER }` + `V2DataModeStore`（DataStore 持久化，默认 DEMO）：取代 Stage 1 写死的
+  `V2AppMode.CURRENT`；启动只读本地值，不联网、不等待 Server、不被 ConnectScreen 阻塞。
+- `V2MediaRepositoryRouter`：Hilt 仍然只绑定 `MediaRepository`，由路由按运行时模式委托
+  Demo / Server 实现（不再"接 Server 就退回旧 UI"）。
+- `feature/v2/data/server/`：
+  - `V2ServerMediaRepository`（分页列表 / 文件夹 / 收藏服务器确认制 / resolvePlayback /
+    reportProgress / 相册；Review 相关方法在 8A 显式不做并注释）；
+  - `V2MediaMapper`（MediaSummary → V2Media，Server 资源 URL 只进 `V2ServerResourceCache`，
+    不写入 Demo 语义字段 assetPath/thumbPath/sprite*）；
+  - `V2PlaybackResolver`（Direct 必存在的 fail-closed + 唯一一次 HLS 回退合同）；
+  - `V2ServerSessionBootstrap`（只读 profile + 恢复 TokenProvider，不做 health/pairing/Jellyfin/media 串行检查）；
+  - `V2ServerStatus` + `V2ServerStatusStore` + `V2ServerHealthMonitor`（后台轻量探测：在线 / 重新连接中 /
+    离线 / 未配置 / 认证失效）。
+- 列表统一走 `mediaPage(V2MediaQuery)`：Server 模式 search/sort/media_type/folder_id/page 全部交给
+  `GET /api/v1/media`（50 条/页，滚动加载下一页，禁止全量读取）；Demo 仍内存排序后分页。
+- 收藏：`setFavorite` 返回服务器确认结果；失败不改 UI 状态并 Snackbar 提示（禁止假成功）。
+
+### 播放（Android）
+
+- 新增 `suspend fun resolvePlayback(mediaId): V2PlaybackSource`（Direct / fallback_hls / resume / 尺寸）。
+- `PlaybackContext` 只保存 `mediaId + title + 队列 id + currentIndex`；URL / headers 由
+  `V2NativePlayerViewModel` 按需异步解析（Loading / Ready / Error 三态），
+  **禁止一次解析整个队列**（允许预取下一条，窗口 ≤ 2）。
+- `GsyNativePlayerScreen` 不再自己构造播放地址：Ready 到达时成对 `setHeaders` + `setUp`；
+  内核 Error → 同源切 HLS（不重新请求）→ 再失败进 Error；resume_position_ms 在 Prepared 后 seek；
+  进度按 开始 / 暂停 / 退出 / 每 15s 上报 `POST /media/{id}/progress`。
+
+### UI
+
+- `V2DataSourceSheet`：数据源 ● 演示数据 / ○ 我的服务器 + 首次配置（手动地址 + 配对码，
+  复用 `PairingRepository.checkHealthy / verifyAndPair`）+ 状态行 + 重新检测 / 断开连接。
+- 首页顶部轻量数据源状态条（Demo 显示"演示数据离线"；Server 显示在线/离线/认证失效/重新连接中/未配置）。
+- 整理页新增"数据源"入口卡片；根 Scaffold 统一 Snackbar。
+
+### Server（Python）
+
+- `GET /api/v1/media/folders`：新增 `image_count` / `cover_media_id` / `cover_url`（最新一张 IMAGE 作封面对其
+  求 cover_url 走既有缩略图代理），用一条窗口函数查询完成，避免服务端 N+1。
+- `MediaSummary`：新增 `folder_id` / `folder_name`（与文件夹接口同源；只下发显示名，绝不下发路径）。
+
+### Review（Stage 7.1 收尾）
+
+- §17.1：`host.postDelayed { controller.play() }` 改为协程 `delay(120)` + 取消后二次确认
+  （page 仍是 settledPage 且 mediaId 未变），换页取消不再留下 stale Play。
+- §17.2：新增 `hasPlaybackAdvanced`（当前源是否真的 Playing 且 position>0），Paused/Completed 只有在
+  它为 true 时才允许 Poster 淡出；换媒体 / 重新批阅重置，杜绝"未首帧被暂停 → 黑屏"。
+- Server 模式显示"真实批阅接入将在 Stage 8B 完成"占位页，不建立队列、不做批量播放地址解析。
+
+### 真实环境暴露并修复的两个缺陷（模拟器 + Mock Server 端到端复验）
+
+1. **GSY 播放 headers 丢失（严重）**：只调用 `controller.setHeaders(...)` 会被随后的 `setUp(url, …)` 覆盖，
+   实测 Direct/HLS 请求完全没有 `X-Emby-Token`（服务端 403 → 播放失败）。
+   修复：headers 进 `GSYVideoOptionBuilder.setMapHeadData(...)` 后再 `setUp(builder, false)`；
+   `GsyNativePlayerScreen`（正式路径）与 `V2ReviewScreen`（换源路径）统一处理。
+   证据：修复前 `MRPlayer applySource headers=[]` + `/stream/… stream_header=None → 403`；
+   修复后 `headers=[X-Emby-Token]` + `STREAM … OK`。
+2. **收藏 / 进度接口 DTO 合同错误**：服务端返回布尔（`favorited` / `reported`），
+   客户端用 `Map<String, String>` 接收 → 解析失败 → 收藏静默失效。
+   修复：新增 `MutationResultDto`，`addFavorite` / `removeFavorite` / `reportProgress` 改用它。
+
+### 测试与验证
+
+- Android JVM：`326 tests / 0 failures`（新增 `V2ServerMediaRepositoryContractTest`：列表映射 / 文件夹映射 /
+  search & sort & media_type & folder_id 参数 / 分页 hasMore / 封面与原图 URL 解析 / 收藏成功与失败 /
+  **收藏与进度布尔结果解析** / 401 认证失效 / 网络不可达离线 / 未配置 fail-fast / playback direct+HLS+resume /
+  **headers 真实 HTTP A→B 不串源** / Server 模式同步播放地址 fail-fast）。
+- Android：`:app:assembleDebug` PASS；`:app:lintDebug` 0 errors / 43 warnings（与 Stage 7.1 同）。
+- Server：`tests/test_media_api.py` 29 passed；全量 `360 tests / 1 failed`（既有失败：
+  `test_deployment_contract_11` 断言 versionCode=6 / 1.1.0，与本阶段无关）；ruff check 通过。
+- 模拟器 DEMO V2 UI：13/16 passed；3 个失败在 base 代码上同样失败（已 `git stash` 复验基线，属既有问题）。
+- 模拟器 Server 模式端到端（Mock Server，非真实 Jellyfin）：**4/4 passed**
+  （分页 / 文件夹 / 封面 Coil 真加载 / 原图 / 播放 headers / 收藏 / 媒体墙渲染 / 服务端筛选与搜索）。
+- 真实 App（非测试进程）Server 模式手动流程：数据源 Sheet 连接（服务器在线 / 已配对）→ 媒体墙真实封面 →
+  Viewer `照片 30 | 1 / 30` → 视频播放至 Completed；Mock 审计日志见交接包 logs/。
+- DEMO 回归：模拟器批阅页自动播放 `PlaybackReady ok=true state=Playing posMs=167 advanced=true`。
+
+### 遗留 / 未做
+
+- REAL SERVER TEST（真实 Jellyfin）：NOT TESTED（本机无可用且允许使用的真实环境），
+  已用 Mock Server 完成等价 HTTP 合同端到端，并在报告中标明"MOCK"。
+- 真实手机（物理设备）：NOT VERIFIED。
+- 播放进度上报节流写死 15 秒；Review Server Session、Organize 真实能力按计划留到后续阶段。

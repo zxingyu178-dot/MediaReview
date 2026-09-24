@@ -380,3 +380,35 @@
 - [x] 动态/静止证明：Playing 3.76% / Paused 0%（26_PLAYBACK_VISIBILITY_QA）
 - [x] Fresh：308 tests PASS / assemble PASS / lint 0 errors
 - [ ] 真机验收（用户）：播放纹理/流畅度/体验 —— NOT VERIFIED
+
+---
+
+# V2 Stage 8A — Production Data Bridge（真实 Server 数据接入第一阶段）（2026-09-24）
+
+> 分支 feature/mediareview-v2-stage8a-production-bridge（base 27727bf = Stage 7.1 HEAD）。
+
+- [x] 建立分支（不从 main 开始）；V2 仍是唯一正式 UI（MainActivity 只进 V2MainScreen）
+- [x] AppMode 不再写死：V2DataMode + DataStore（默认 DEMO），启动不被 ConnectScreen / 健康检查阻塞
+- [x] V2MediaRepositoryRouter（DI 不硬替换 Demo/Server）；UI 只依赖 MediaRepository
+- [x] 复用既有网络层（ServerProfileStore / TokenProvider / ApiFactory / MediaUrlResolver / MediaReviewApi），未新建 Retrofit / Token / Jellyfin 客户端
+- [x] V2ServerMediaRepository + V2MediaMapper + V2PlaybackResolver + V2ServerSessionBootstrap + V2ServerModels
+- [x] MediaSummary → V2Media 独立 Mapper；Server URL 只进资源缓存，不塞 Demo 字段
+- [x] resolvePlayback 异步接口（Demo 本地 + 空 headers；Server Direct + 一次 HLS + headers + resume）
+- [x] PlaybackContext 只存 id/title/queue/index；Player 三态 UiState；只解析当前条 + 预取下一条
+- [x] 媒体真实分页（50/页滚动加载）；search / sort / media_type / folder_id 由 Server 执行
+- [x] 文件夹真实加载（folder_id 不透明 ID）；相册封面/图片数来自服务端聚合（无 App 端 N+1）
+- [x] 收藏接真实 Server（成功才确认；失败保持原状态 + Snackbar）
+- [x] 图片 Viewer 走真实 original_url；封面走 cover_url（经 MediaUrlResolver，不自行拼 IP）
+- [x] 数据源切换 UI（设置 Sheet）+ 首次配置（手动 IP + 配对码）+ 后台 health 状态提示
+- [x] Stage 7.1 §17.1 postDelayed 竞态消除（协程 delay + 二次确认）
+- [x] Stage 7.1 §17.2 hasPlaybackAdvanced（未首帧的 Paused 不再提前淡出 Poster）
+- [x] Server 模式 Review 占位（Stage 8B 完成），不做批量 playback 解析
+- [x] Server：folders 增加 image_count / cover_media_id / cover_url；MediaSummary 增加 folder_id / folder_name
+- [x] MockWebServer 合同测试 + Headers 真实 HTTP A→B 不串源
+- [x] JVM 325 tests / 0 fail；assembleDebug PASS；lint 0 errors；server 29 passed（media_api）
+- [ ] 模拟器 + 真实 Server 端到端（REAL SERVER TEST）—— 见 04_NETWORK_QA（不具备真实 Jellyfin 环境时 NOT TESTED）
+- [ ] 真机验收（用户）：真实媒体浏览 / 播放 / 收藏体验 —— NOT VERIFIED
+- [x] **修复 GSY headers 丢失**：headers 改走 `GSYVideoOptionBuilder.setMapHeadData`（播放器 + 批阅换源）；真实 HTTP 证据 STREAM OK
+- [x] **修复收藏/进度 DTO 合同**：新增 `MutationResultDto`（服务端返回布尔，原 `Map<String,String>` 解析失败）
+- [x] 模拟器 Server 模式端到端（Mock Server，非真实 Jellyfin）4/4 PASS；真机 App 手动流程通过
+- [x] 既有 3 个 Instrumentation 失败已用基线 stash 复验（非本阶段回归），记入 05_KNOWN_ISSUES

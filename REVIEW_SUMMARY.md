@@ -1,131 +1,114 @@
-# REVIEW_SUMMARY — MediaReview 1.1 Task G：全量验收与正式发布准备（1.1.0-rc1）
+# REVIEW_SUMMARY — MediaReview 2.0 V2 Stage 8A（Production Data Bridge）
 
-## 阶段编号与名称
+- 阶段编号与名称：**Stage 8A — Production Data Bridge / V2 真实 Server 数据接入第一阶段**
+- 分支：`feature/mediareview-v2-stage8a-production-bridge`（base：Stage 7.1 HEAD `27727bf`）
+- 日期：2026-09-24
+- 目标：第一次打通 V2 UI → V2 Production Repository → 现有 MediaReview API → FastAPI → Jellyfin，
+  同时完整保留 DEMO 离线模式；**V2 仍是唯一正式 UI**；本阶段不接真实 Review Session。
 
-- 阶段 G（takeover plan `docs/superpowers/plans/2026-08-30-mediareview-1.1-takeover.md`）
-- 名称：全量验收与正式发布（clean 门禁、生产备份/回滚演练、100k 性能、真实 Jellyfin 冒烟、
-  设备侧受限记录、最终独立审查、产物重建与校验、`1.1.0-rc1` 标记）
-- 提交：`52b5234`（branding 测试同步 1.1.0/versionCode 6）+ `49d45c5`
-  （Jellyfin client 忽略环境代理 trust_env=False + 回归测试）+ `dae857b`
-  （G 阶段文档/审查/证据收口）
-- 基线：`93613ab`（Task F 终点）；标签：`1.1.0-rc1` → `dae857b`
-- 独立审查：`.superpowers/sdd/task-g-independent-review.md`，结论 **CLEAN（0C/0I/2M）**
+## 1. 实际完成内容（是否达到目标）
 
-## 阶段目标
+达到（就"真实 Server 数据接入第一阶段"而言完整达成）：
 
-按 `docs/ACCEPTANCE.md` P0/P1 完成全量验收，交付可发布的 `1.1.0-rc1`：clean 全量门禁、
-生产配置/DB 备份（无明文密钥）+ 升级/回滚演练、56k/100k 性能验证、真实 Jellyfin 集成冒烟、
-设备侧能力如实受限记录、最终独立审查、从已审查提交重建产物并回验校验和。**约束：无真实手机
-验收最多标记 rc1，不 tag `1.1.0`**；正式 `1.1.0` 待真机门通过。
+1. **数据源不再写死**：`V2DataMode { DEMO, SERVER }` + `V2DataModeStore`（DataStore，默认 DEMO）；
+   启动只读本地值，不联网、不被 ConnectScreen / 健康检查阻塞；`MainActivity` 只进 V2。
+2. **Repository Router**：Hilt 绑定不变（仍是 `MediaRepository`），`V2MediaRepositoryRouter` 按模式委托
+   Demo / Server 实现；不存在"接 Server 就回退旧 UI"的路径。
+3. **Server 仓库分层**：`V2ServerMediaRepository` / `V2MediaMapper` / `V2PlaybackResolver` /
+   `V2ServerSessionBootstrap` / `V2ServerModels`（+ 资源缓存）/ `V2ServerStatus`(+HealthMonitor)；
+   复用既有 `ApiFactory` / `TokenProvider` / `ServerProfileStore` / `MediaUrlResolver` / `MediaReviewApi`，
+   **未新建任何 Retrofit / Token / Jellyfin 客户端**。
+4. **分页与查询下推**：`mediaPage(V2MediaQuery)` 为正式列表路径（50 条/页 + 滚动加载）：
+   search / sort / media_type / folder_id / page 全部由 Server 执行；Demo 仍内存排序后分页。
+5. **文件夹与书架**：`GET /media/folders` 提供 `count` / `image_count` / `cover_media_id` / `cover_url`；
+   App 端不做 N+1；书架相册封面优先用户本地选择，否则用服务端代表封面。
+6. **资源解析**：cover / original 经 `MediaUrlResolver` 解析为绝对地址并只存于资源缓存；
+   `V2Media` 的 Demo 语义字段在 Server 模式保持空（不把 URL 塞进 Demo 字段）。
+7. **播放异步化**：`suspend fun resolvePlayback()`；`PlaybackContext` 只存 id/title/queue/index；
+   `V2NativePlayerViewModel` 收敛 Loading/Ready/Error；只解析当前条 + 预取下一条（窗口 ≤2）；
+   Direct → 一次 HLS → Error；`resume_position_ms` Prepared 后 seek；进度按 开始/暂停/退出/15s 上报。
+8. **收藏**：服务器确认制（成功才改 UI，失败保持原状态 + Snackbar）。
+9. **UI**：顶部轻量数据源状态条 + `V2DataSourceSheet`（Demo / 我的服务器 + 手动 IP + 配对码，
+   复用 `PairingRepository.checkHealthy / verifyAndPair`）+ 整理页数据源入口 + 根 Snackbar。
+10. **Stage 7.1 两个竞态修复**：§17.1 postDelayed 改协程 `delay(120)` + 取消后二次确认；
+    §17.2 `hasPlaybackAdvanced` 判定（Paused/Completed 不再无条件认为已出画）。
+11. **Review 保持 Demo**：Server 模式显示"真实批阅接入将在 Stage 8B 完成"占位，不建立队列、不批量 resolve。
+12. **Server 合同扩展**：`MediaSummary` + `folder_id`/`folder_name`；`FolderSummary` + 3 个字段（窗口函数一次查询）。
 
-## 实际完成内容
+## 2. 主要新增 / 修改文件
 
-- **G1 clean 门禁**（证据 `review_meta/g1_server_pytest.txt`、`g1_android_gate.txt`、
-  `g1_android_jvm_lint.txt`、`server_lint.txt`、`server_format.txt`）：Server 全量 pytest 通过
-  （351 passed, exit 0）+ ruff check/format 全绿；Android `testDebugUnitTest`/`assembleDebug`/
-  `assembleRelease`/`lintDebug` 全部 BUILD SUCCESSFUL；迁移升级/回滚与部署契约（24 例）随
-  Server 全量 pytest 覆盖；`git diff --check` 通过。
-- **G2 生产配置/DB 备份 + 升级/回滚演练**（`review_meta/g2_backup_manifest.txt`、
-  `g2_config_masked.json`、`g2_sandbox_lifecycle.txt`）：备份清单只含脱敏配置；沙箱
-  install/upgrade/rollback/uninstall 实测通过。
-- **G3 56k/100k 性能验证**（`review_meta/g3_perf_100k.txt`、`g3_refresh_sync.txt`）：缓存分页
-  P95<1s（实测单页 0.031-0.06s）、DB 查询<250ms、refresh 响应<500ms、列表请求零 Jellyfin 扫描、
-  同步失败保留旧缓存可浏览。
-- **G4 真机连接验证**：**受限（无设备）**。环境核查：`adb devices` 无设备、`.android\avd`
-  为空、SDK 无 emulator 二进制。服务端 UDP 发现/手动 IP 规范化/重复配对单记录/撤销重配对/
-  回环 URL 禁发均已有 pytest 覆盖；设备侧留待真机。
-- **G5 媒体与组织验证**：服务端侧 pytest 全覆盖；**真实 Jellyfin 集成冒烟通过**
-  （`review_meta/g5_real_jellyfin.txt`）：健康检查 + 配对 + 读取真实库 20 个 + 1967 条媒体同步 +
-  Direct/HLS 播放合同。冒烟发现并修复 **Jellyfin client 采信环境代理**问题（`49d45c5`）：
-  部署机存在 `all_proxy=socks5://…` 时，httpx 因缺 socksio 在构造期抛 ImportError 导致全部
-  Jellyfin 调用 500；加 `trust_env=False`（V1 仅局域网/回环直连，不采信环境代理）+ 回归测试
-  `test_client_ignores_env_proxy_trust_env_false`。已知限制：当前真实 Jellyfin 实例
-  `/Auth/Keys` 返回 500（服务端实例问题），设备级播放凭据签发记为 rc1 known limitation。
-- **G6 无障碍与布局**：**受限（无设备）**，记录待真机（360/390/740 宽、font≥1.3、TalkBack、
-  48dp 触控、中文标签）；代码层响应式与 48dp 触控门槛已由既有 JVM/Compose 测试覆盖。
-- **G7 最终独立审查 + 产物重建 + rc1 标记**：
-  - 独立审查 CLEAN（0C/0I/2M；M-1 docstring 机制描述不精确但断言有效、M-2 trust_env 同时禁用
-    环境 CA 变量信任）。
-  - Android 最终门禁 BUILD SUCCESSFUL（`review_meta/g7_android_gate.txt`）。
-  - 产物重建（`scripts/build_deploy.py`，先删旧 dist 强制重建 EXE 含代理修复）：新 EXE 冒烟
-    通过（迁移 0001→0014、health ok/version 1.1.0、日志密钥扫描 0 命中，
-    `review_meta/g7_exe_smoke.txt`）；部署包
-    `deploy_handoff/MediaReview_Migration_1.1.0_20260903_0036.zip`（100,697,221 字节，
-    SHA-256 18A2E836…），外部解包逐文件回验 SHA256SUMS **VERIFIED=163 BAD=0**、密钥扫描
-    CLEAN（`review_meta/g7_deploy_zip.txt`）。
-  - **标记 `1.1.0-rc1`**（`dae857b`）；真机门未过不 tag `1.1.0`。
-- **G8 交付产物**：Release APK（家庭媒体管家 1.1.0/versionCode 6）、迁移部署包 + SHA256SUMS、
-  文档（README/LICENSE/THIRD_PARTY_NOTICES/HANDOVER/UPGRADE_ROLLBACK）、
-  ACCEPTANCE.md 逐项服务端已验/待真机标注、测试/性能/真机报告（review_meta/）。
+**新增（Android）**：`feature/v2/data/V2DataMode.kt`、`V2MediaRepositoryRouter.kt`、
+`feature/v2/data/server/{V2ServerMediaRepository,V2MediaMapper,V2PlaybackResolver,V2ServerSessionBootstrap,V2ServerModels,V2ServerStatus}.kt`、
+`feature/v2/model/V2Playback.kt`、`feature/v2/player/V2NativePlayerViewModel.kt`、
+`feature/v2/player/native/state/PlayerHostReadiness.kt`、`feature/v2/settings/V2DataSourceSheet.kt`、
+测试：`V2ServerMediaRepositoryContractTest.kt`、`V2TestViewModels.kt`、`Stage8AServerModeTest.kt`。
 
-## 主要新增/修改文件
+**修改（Android）**：`MainActivity`、`feature/v2/{V2MainScreen,V2Models,MediaRepository}`、
+`data/{DemoMediaRepository,V2DataModule}`、`home/{HomeScreen,V2HomeViewModel,MediaCard}`、
+`player/native/{GsyNativePlayerScreen,GsyNativePlayerScreen 依赖的 PlaybackContext,ui/GsyNativeIndicators}`、
+`review/{V2ReviewScreen,V2ReviewViewModel}`、`core/model/{MediaModels,ApiModels}`、`core/network/MediaReviewApi`、
+`app/build.gradle.kts`、`gradle/libs.versions.toml`；删除 `feature/v2/V2AppMode.kt`。
 
-- `server/app/adapters/jellyfin/client.py`：`trust_env=False`（修复环境代理劫持）。
-- `server/tests/test_jellyfin_client.py`：+1 回归测试（15 passed）。
-- `android/app/src/test/java/com/mediareview/app/BrandingResourceTest.kt`：版本断言同步
-  versionCode 6 / versionName "1.1.0"。
-- `docs/ACCEPTANCE.md`：P0/P1 逐项标注服务端已验/待真机；`docs/DEV_LOG.md`、`TASKS.md`：
-  G1-G9 状态与证据；`.superpowers/sdd/task-g-independent-review.md`：独立审查报告。
-- `review_meta/`（git 忽略，随验收 ZIP 打包）：G1/G2/G3/G5/G7 证据文件。
+**修改（Server）**：`app/services/media_index.py`、`app/api/v1/media.py`、`tests/test_media_api.py`。
 
-## 核心架构变化、API 变化、数据库变化
+## 3. 核心架构变化
 
-- 无 API / 数据库 schema 变化（G 阶段为验收与收口，非功能开发）。
-- 架构级行为收敛：JellyfinClient 不再采信环境代理（`trust_env=False`），消除部署机带
-  SOCKS/HTTP 代理变量时的启动/调用失败，同时使携带 API key 的请求头不再经代理转发
-  （安全收窄）。
+- 单一 UI + 双数据源实现（Router 委托），模式是**运行时状态**而非编译期常量；
+- 播放源从"同步 URL/headers 快照"改为"异步解析 + UiState 三态"，播放器组合函数不发网络请求；
+- 数据合同（列表/文件夹/播放/收藏/进度）全部有 MockWebServer 合同测试与真实 HTTP 证据；
+- 新增 2 个必须修复的真实缺陷（见 §5）。
 
-## Android UI/交互变化
+## 4. API / 数据库变化
 
-- 无用户可见 UI 变化。品牌测试断言与 `1.1.0`/versionCode 6 对齐（仅测试同步）。
+- Server：`FolderSummary` + `image_count`/`cover_media_id`/`cover_url`；`MediaSummary` + `folder_id`/`folder_name`（均可空、向后兼容）；
+- Android 共享层：`addFavorite`/`removeFavorite`/`reportProgress` 的 DTO 由 `Map<String,String>` 改为 `MutationResultDto`（布尔结果）；
+- **数据库：无 schema 变更、无 migration**。
+- 详见 `07_SHARED_API_CHANGES.md`。
 
-## 已执行测试、测试结果、lint / format / type check 结果
+## 5. Android UI / 交互变化
 
-- Server 全量 pytest：**351 passed, exit 0**（含迁移升级/回滚、部署契约 24 例、Jellyfin
-  client 回归；`g1_server_pytest.txt`）。
-- ruff check：**All checks passed**；ruff format：**94 files already formatted**。
-- Android：**BUILD SUCCESSFUL**（testDebugUnitTest + assembleDebug + assembleRelease +
-  lintDebug，`g7_android_gate.txt`）。
-- `git diff --check`：通过（仅 LF→CRLF 提示）。
-- 独立审查：CLEAN（0C/0I/2M）。
-- EXE 冒烟：迁移 0001→0014 + health ok + 日志密钥扫描 0 命中。
-- 部署包外部回验：SHA256SUMS 163/163 一致；密钥/绝对路径扫描 CLEAN。
+- 首页顶部新增数据源状态条（点击打开数据源 Sheet）；媒体墙底部新增分页状态（加载中 / 继续下滑 / 已加载全部 N 项）；
+- 数据源 Sheet：Demo ↔ 我的服务器、首次配置（地址 + 配对码）、状态行、重新检测 / 断开连接；
+- 整理页新增"数据源"卡片入口；
+- 播放器：加载中 / 播放失败（含原因文案 + 重试）三态；图片 Viewer / 批阅 UI 未改手势与布局。
 
-## 已知问题 / 遗留 TODO
+## 6. 已执行测试与结果（真实输出见 02_TEST_REPORT.md 与 logs/）
 
-- **无真机/模拟器**：`.android\avd` 为空、SDK 无 emulator。Android 设备侧全部验收（真机连接、
-  媒体墙/播放器/批阅操作体验、无障碍与布局、Direct<3s/HLS<8s、真机 in-place 升级指纹比对）
-  留待真机环境，产物为 `1.1.0-rc1`。
-- 当前真实 Jellyfin 实例 `/Auth/Keys` 返回 500（服务端实例问题），设备级播放凭据签发在 rc1
-  记为 known limitation。
-- M-1/M-2（审查 Minor）：回归测试 docstring 机制描述不精确（断言有效）；trust_env=False 禁用
-  环境 CA 变量信任（依赖系统信任库者不受影响），建议部署文档注明。
-- F 阶段 10 Minor 与 E 阶段 3 Minor 记录在案不阻塞。
+| 项目 | 命令 | 结果 |
+|---|---|---|
+| Android JVM | `gradlew :app:testDebugUnitTest` | 326 tests / 0 failures |
+| Android 构建 | `gradlew :app:assembleDebug` | BUILD SUCCESSFUL |
+| Android Lint | `gradlew :app:lintDebug` | 0 errors / 43 warnings（与 Stage 7.1 同） |
+| Server 单文件 | `pytest tests/test_media_api.py -q` | 29 passed |
+| Server 全量 | `pytest -q` | 360 tests / 1 failed（既有无关失败） |
+| Server Lint | `ruff check app tests` | All checks passed |
+| 模拟器 DEMO V2 UI | `connectedDebugAndroidTest`（3 个类） | 13/16（3 项在 base 上同样失败，已复验） |
+| 模拟器 Server 模式端到端 | `Stage8AServerModeTest`（Mock Server） | 4/4 passed |
+| 真机 App 手动流程 | 数据源连接 → 媒体墙 → Viewer → 播放 | 通过（Mock Server） |
+| DEMO 批阅回归 | 模拟器实测 | `PlaybackReady ok=true advanced=true` |
 
-## 是否建议进入下一阶段
+## 7. 已知问题与遗留 TODO
 
-G 阶段收口完成，代码与产物达到 rc1 发布就绪（0C/0I、全部门禁绿、校验和完整）。**正式
-`1.1.0` 的发布门 = 真机验收**（连接链路、媒体体验、无障碍布局、in-place 升级指纹比对），
-无法在本机无设备条件下完成，需用户提供真机或模拟器环境后执行。建议：先交付 rc1 产物给用户
-真机试装；真机门通过后再 tag `1.1.0` 并走最终发布与 Hermes 交付。
+见 `05_KNOWN_ISSUES.md`。要点：真实 Jellyfin 端到端 NOT TESTED（Mock Server 已覆盖合同）、
+真机 NOT VERIFIED、3 个既有 Instrumentation 失败（非本阶段回归）、兼容路径有界 200 条、
+其它布尔结果型接口（delete-queue / duplicates / review seen）存在同类 DTO 风险待后续统一修复。
 
-## Agent 自认为风险最高的 3 个点
+## 8. 是否建议进入下一阶段
 
-1. **设备侧验收缺失**：无真机/模拟器，Android 全部 P0/P1 设备侧项（连接/媒体墙/播放器/批阅/
-   无障碍/布局）未经真实设备验证。代码与状态机有 JVM/Compose 测试覆盖，但「自动化测试通过
-   ≠ 真机可用」；这是 rc1 不能升级为正式 1.1.0 的核心原因。
-2. **真实 Jellyfin `/Auth/Keys` 500**：当前实例无法签发设备级播放凭据，播放合同回退到无凭据
-   direct URL（依赖 Jellyfin 对局域网游客开放）。换一个正常的 Jellyfin 实例后需重验
-   Direct/HLS 端到端播放与凭据签发/撤销闭环。
-3. **干净 Windows 管理员级部署未实测**：F 阶段沙箱为非管理员环境，防火墙/计划任务创建
-   （NETWORK SERVICE 运行权限、icacls ACL）在真实干净 Windows 上未管理员级实测；沙箱 24/24
-   与部署契约 24 例只能静态保障，真实部署行为需在目标机 install.ps1 实测。
+**建议**：先由用户在真实 Jellyfin 与真机上验证本期（浏览 / 播放 / 收藏 / 数据源切换），
+通过后进入 **Stage 8B — Production Review Session**。
 
-## 敏感信息说明
+## 9. Agent 自认为风险最高的 3 个点
 
-本阶段未提交/打包任何真实密钥、Token、密码、绝对路径：`key.properties`/`keystore/*.jks`
-git 忽略且不在部署包清单；`config.example.json` 的 `api_key` 为占位符；部署包解包密钥扫描
-CLEAN（0 命中）；Jellyfin 冒烟使用临时 API key 未入库、未打包；测试全部使用一次性临时数据根/
-端口。本机 `C:\ProgramData\MediaReview` 存在 F 阶段沙箱部署残留（非生产数据，未触碰）。
+1. **真实 Jellyfin 差异**：Mock 验证的是 MediaReview 合同；真实 Jellyfin 的 Direct URL/Headers/转码行为
+   仍可能带来播放差异（尤其 HLS 回退成功路径未在真实转码环境验证）。
+2. **GSY headers 时序**：本次修复依赖 `GSYVideoOptionBuilder.setMapHeadData`；若后续升级 GSY 或改变换源顺序，
+   需要用 `logs/` 中的真实 HTTP 证据重新验证（已加入合同测试，但播放器层仍属经验性修复）。
+3. **大库体验**：分页与滚动加载逻辑在新库可用，但几千条媒体的封面并发、内存（资源缓存 LRU 2048）
+   与相册窗口（200 条上限）在真实大库下的表现需真机验证。
 
-阶段结论：合格（rc1；正式 1.1.0 待真机门通过）
+---
+
+**阶段结论：有条件合格**
+
+（条件：真实 Jellyfin / 真机验证尚未完成；Mock Server 端到端与全部自动化测试已 PASS。）
