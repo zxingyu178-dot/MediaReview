@@ -1493,3 +1493,24 @@ More/信息 sheet、完整播放器深链返回原页、转场无黑屏）。
 Real-device Performance: NOT VERIFIED（等待用户真机验收）。
 
 交接：temp/MediaReview_Stage7_Handoff_20260923_43025d3.zip（2.07MB）+ temp/MediaReview-v2-stage7-review-hardening.apk
+
+---
+
+## V2 Stage 7.1 — Review Playback Correctness + Handoff Integrity（2026-09-24）
+
+分支：feature/mediareview-v2-stage7.1-review-correctness（base 61ebc32 = Stage7 HEAD，已 push）
+源码提交 d3564ea（唯一代码 HEAD；最终 +docs 提交后 HEAD 见 HANDOFF）。
+
+修复摘要（仅正确性，不加功能）：
+- Poster 整层由 posterAlpha 控制（Black/AsyncImage/Scrim/Icon），淡出后 GSYPlayerSurface 完全露出。
+- Controller 首始源 = queue[currentIndex]（恢复第 N 条即播第 N 条）；currentLoadedMediaId 事实源，
+  首次也完整 setUp；换源 setHeaders→setUp 顺序应用 Headers。
+- Sheet 关闭两语义（closeSheetAndResume / closeSheetWithoutResume）；打开完整播放器无瞬间 resume。
+- 480ms 计时仅内容可见（revealedPage==page）后开始；重新批阅显式重载（单条队列也可重播）。
+- Playback-ready reveal 措辞（Playing 且 currentPosition>0）；Debug SourceState/PlaybackReady 日志。
+- Demo playbackHeaders 显式空（GSY 对本地源非空头限制，实测）；相关单测（Headers 不串源 / 单条重启）。
+
+验证（Fresh，--rerun-tasks）：JVM 308 tests / 0 fail；assembleDebug PASS；lint 0 errors / 43 warnings。
+模拟器 QA：播放动态 3.76% / 暂停静止 0%；页2/3/5 源一致；FullPlayer Back 源正确且播放；
+双声源日志顺序无 resume→pause；完成页重批回第 1 条 posMs=0；空队列重批保留。
+遗留：模拟器 MediaCodec→TextureView 纹理偶发黑屏（环境，见 04_KNOWN_ISSUES）；Real-device NOT VERIFIED。

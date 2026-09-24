@@ -362,3 +362,21 @@
 - [x] 测试：JVM 306 passed（新增 12 项 Review 用例）；assembleDebug PASS；lint 0 errors
 - [x] 模拟器实测：自动播放/单击/完成页暂停与重阅/空队列重阅 1/22/More 与信息 Sheet/完整播放器深链返回/转场无黑屏
 - [ ] 真机验收（用户）：滑动流畅度、播放性能、双声道、体验确认 —— NOT VERIFIED
+
+---
+
+# V2 Stage 7.1 — Review Playback Correctness + Handoff Integrity（2026-09-24）
+
+> 分支 feature/mediareview-v2-stage7.1-review-correctness（base 61ebc32 / 代码 HEAD d3564ea）。
+> 结果：READY_FOR_USER_VALIDATION（Real-device NOT VERIFIED）。
+
+- [x] Git 基线：Stage7 分支 push GitHub，ls-remote 一致后开 7.1
+- [x] Poster 整层真淡出（Surface 完全露出）
+- [x] Controller 首始源 = 当前页；第 N 页播第 N 个媒体 + 源一致性 Debug（SourceState 日志）
+- [x] Playback Headers 换源时与 URL 一起应用 + 单测不串源
+- [x] 打开完整播放器无瞬间 resume（Sheet 双关闭语义 + 日志顺序证据）
+- [x] 480ms 仅内容可见后计时；快滑不误批
+- [x] 重新批阅显式重载（单条队列可再播放）；空队列重批正常；完成页暂停正常
+- [x] 动态/静止证明：Playing 3.76% / Paused 0%（26_PLAYBACK_VISIBILITY_QA）
+- [x] Fresh：308 tests PASS / assemble PASS / lint 0 errors
+- [ ] 真机验收（用户）：播放纹理/流畅度/体验 —— NOT VERIFIED
