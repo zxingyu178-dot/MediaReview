@@ -1612,3 +1612,42 @@ Real-device Performance: NOT VERIFIED（等待用户真机验收）。
   已用 Mock Server 完成等价 HTTP 合同端到端，并在报告中标明"MOCK"。
 - 真实手机（物理设备）：NOT VERIFIED。
 - 播放进度上报节流写死 15 秒；Review Server Session、Organize 真实能力按计划留到后续阶段。
+
+## 运维控制台"加载中…"修复（2026-09-26）
+
+### 现象
+
+`http://127.0.0.1:8766/admin` 页面框架渲染完成，但数据区永久停在"加载中…"，所有面板空白；
+ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
+
+### 根因（两个相互独立的问题）
+
+1. **端口冲突（先前已修）**：一个交互模式 `MediaReviewServer` 进程占用 8766，
+   WinSW 托管的服务实例反复 `bind 0.0.0.0:8766 → Errno 10048` 失败，
+   服务停在 STOPPED(WIN32_EXIT_CODE 1067)；且 ControlHub 探针契约要求
+   `instance_mode=windows_service`，而端口上实际是 `interactive` 实例 → 判定"信号缺失"。
+2. **运维控制台内联 JS 语法错误（本次修复）**：`app/admin.py` 用**普通三引号字符串**定义 `_PAGE`，
+   页面内联 JS 中本意为 JS 转义的 `\"` 被 Python 解析成 `"`，实际输出
+   `"<tr><th scope="row">"` —— 提前闭合 JS 字符串字面量，
+   整个 `<script>` 报 `SyntaxError: missing ) after argument list`，
+   **脚本一行都不执行**，页面因此永远停在初始态；`join("\n")` 同类（真实换行未闭合字符串）。
+
+### 修复
+
+- `_PAGE = """…"""` → `_PAGE = r"""…"""`（原始字符串），一行根治整类转义缺陷。
+- 新增回归测试 `test_admin_page_inline_script_keeps_attribute_quotes_escaped`
+  （守护"JS 字符串内 HTML 属性引号必须保持转义"）。
+
+### 验证
+
+- 内联 JS 语法：修复前 `node --check` 报 SyntaxError，修复后 exit 0；
+  裸属性引号由 46 处降为 0 处。
+- 服务端测试：`tests/test_ops_console_11.py` **19 passed**；全量 **180 项仅 1 项失败**，
+  且该失败为既有问题（`test_deployment_contract_11` 读取外部 `D:\MediaReview_1.1_Handoff\`
+  并断言 versionName=1.1.0），与本次改动无关。
+- 就地升级本机服务（停服务 → 备份 104 个文件 → 覆盖替换 → 启服务）后复测：
+  `/admin` 内联 JS 合法；`pairing/code` 与自动配对 200；此前 401 的三个面板接口
+  带令牌后全部 200；stage8a 文件夹合同随包上线（374 个文件夹含
+  `image_count` / `cover_media_id` / `cover_url`），媒体带 `folder_id` / `folder_name`。
+- 部署日志 `C:\ProgramData\MediaReview\deploy_opsconsole_20260926_233613.log`；
+  回滚备份 `C:\ProgramData\MediaReview\backup\opsconsole-fix-20260926_233613`。

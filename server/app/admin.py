@@ -23,7 +23,10 @@ from fastapi.responses import HTMLResponse
 
 from app.api.v1.auth import require_localhost_or_auth
 
-_PAGE = """<!DOCTYPE html>
+# 必须使用原始字符串: 页面内联 JS 里的 HTML 属性引号写作 \" ,
+# 若用普通三引号字符串, Python 会把 \" 解析成 " , 输出 "{attr="value"" 提前闭合 JS 字符串,
+# 导致整个 <script> 语法错误、脚本完全不执行, 页面永远停在"加载中…"。
+_PAGE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">

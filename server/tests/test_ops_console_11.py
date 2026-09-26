@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from pathlib import Path
 
@@ -346,3 +347,25 @@ def test_admin_page_redacts_no_secrets(pair_client: TestClient) -> None:
     assert _API_KEY not in html
     assert _PAIR_CODE not in html
     assert _MEDIA_ABS_PATH not in html
+
+
+def test_admin_page_inline_script_keeps_attribute_quotes_escaped(
+    pair_client: TestClient,
+) -> None:
+    """回归: 内联 JS 中 HTML 属性引号必须保持转义(\\"), 否则整个脚本无法解析。
+
+    历史缺陷: `_PAGE` 曾使用普通三引号字符串, Python 把 `\\"` 解析成 `"`,
+    实际输出形如 `"<tr><th scope="row">"` —— 提前闭合 JS 字符串,
+    整个 `<script>` 语法错误(SyntaxError: missing ) after argument list),
+    脚本完全不执行, 页面永远停在"加载中…", 所有面板空白。
+    """
+    html = pair_client.get("/admin").text
+    script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+    # 属性引号必须保留反斜杠转义
+    assert 'scope=\\"row\\"' in script
+    assert 'class=\\"muted\\"' in script
+    # 不得出现被吞掉转义的裸属性引号(会破坏所在 JS 字符串字面量)
+    bare = re.findall(r"[A-Za-z][A-Za-z0-9-]*=\"", script)
+    assert bare == [], f"内联 JS 存在未转义的属性引号: {bare[:5]}"
+    # join() 的换行必须是转义形式, 不能是真实换行(否则字符串未闭合)
+    assert 'join("\\n")' in script
