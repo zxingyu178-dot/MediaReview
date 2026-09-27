@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -294,6 +295,7 @@ private fun FavoritesPage(
     modifier: Modifier = Modifier,
 ) {
     val favorites by vm.favorites.collectAsState()
+    val favoritesError by vm.favoritesError.collectAsState()
     // Stage 8A.1: 收藏列表首次进入本页才加载,不参与首页启动
     LaunchedEffect(Unit) { vm.ensureFavoritesLoaded() }
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
@@ -313,26 +315,66 @@ private fun FavoritesPage(
         }
         if (favorites.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("暂无收藏内容", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                if (favoritesError != null) {
+                    // 阶段 8A.1.1 §3: 首次加载失败不再永久锁死，提供真正可用的重试
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "收藏加载失败",
+                            color = MediaTextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = favoritesError.orEmpty(),
+                            color = MediaTextSecondary,
+                            style = MaterialTheme.typography.labelSmall,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = V2Spacing.Xs, start = V2Spacing.Lg, end = V2Spacing.Lg),
+                        )
+                        TextButton(onClick = { vm.retryFavorites() }) {
+                            Text("重新加载", color = MediaTextPrimary)
+                        }
+                    }
+                } else {
+                    Text("暂无收藏内容", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl),
-                horizontalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-                verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-            ) {
-                items(favorites, key = { it.id }) { media ->
-                    com.mediareview.app.feature.v2.home.MediaCard(
-                        media = media,
-                        coverUri = vm.coverUri(media),
-                        spriteUri = vm.spriteUri(media),
-                        manifest = vm.spriteManifest(media),
-                        isSpritePreviewing = false,
-                        onSpritePreviewRequest = {},
-                        onClick = { onOpenMedia(media) },
-                    )
+            Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (favoritesError != null) {
+                    // 已有成功数据时临时失败：保留旧数据，只给一条可重试的提示
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "收藏刷新失败，显示的是上次结果",
+                            color = MediaTextSecondary,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { vm.retryFavorites() }) {
+                            Text("重新加载", color = MediaTextPrimary)
+                        }
+                    }
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl),
+                    horizontalArrangement = Arrangement.spacedBy(V2Spacing.Md),
+                    verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
+                ) {
+                    items(favorites, key = { it.id }) { media ->
+                        com.mediareview.app.feature.v2.home.MediaCard(
+                            media = media,
+                            coverUri = vm.coverUri(media),
+                            spriteUri = vm.spriteUri(media),
+                            manifest = vm.spriteManifest(media),
+                            isSpritePreviewing = false,
+                            onSpritePreviewRequest = {},
+                            onClick = { onOpenMedia(media) },
+                        )
+                    }
                 }
             }
         }

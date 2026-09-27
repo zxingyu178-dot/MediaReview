@@ -102,10 +102,10 @@ fun ZoomableImage(
     val previewReady = previewState is AsyncImagePainter.State.Success
     val previewFailed = previewState is AsyncImagePainter.State.Error
 
-    // 性能打点: 当前页第一帧封面可见(感知加载速度的关键指标)
+    // 性能打点: 当前页第一帧封面可见(相对 viewer 会话,不是 home 会话)
     LaunchedEffect(previewReady, isCurrent) {
-        if (isCurrent && previewReady && V2Perf.claimViewerPreview()) {
-            V2Perf.mark("viewer_preview_visible", V2Perf.homeEnterNanos().takeIf { it > 0 })
+        if (isCurrent && previewReady) {
+            V2Perf.viewer()?.markOnce("preview_visible", "viewer_preview_visible")
         }
     }
 
@@ -224,8 +224,8 @@ fun ZoomableImage(
             val fullFailed = fullState is AsyncImagePainter.State.Error
             // 性能打点: 原图就绪(渐进加载的"清晰度提升"时刻)
             LaunchedEffect(fullReady) {
-                if (fullReady && V2Perf.claimViewerFull()) {
-                    V2Perf.mark("viewer_full_image_ready", V2Perf.homeEnterNanos().takeIf { it > 0 })
+                if (fullReady) {
+                    V2Perf.viewer()?.markOnce("full_ready", "viewer_full_image_ready")
                 }
             }
             when {

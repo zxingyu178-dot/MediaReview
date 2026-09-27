@@ -82,8 +82,8 @@ fun V2ImageViewer(
         viewerState.updateCurrentIndex(pagerState.currentPage)
     }
 
-    // Stage 8A.1 §3: Viewer 打开时刻(viewer_preview_visible / viewer_full_image_ready 在其后)
-    LaunchedEffect(Unit) { V2Perf.viewerOpen() }
+    // Stage 8A.1.1: 每次打开 Viewer 都新建测量会话，preview/full 相对 viewer_open 计时
+    LaunchedEffect(Unit) { V2Perf.openViewer() }
 
     // 沉浸式：进入隐藏系统栏 + 常亮；离开恢复（不污染首页）
     DisposableEffect(Unit) {

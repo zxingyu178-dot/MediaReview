@@ -3,6 +3,7 @@ package com.mediareview.app
 import android.app.Application
 import coil.Coil
 import coil.ImageLoader
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.player.gsy.GsyPlayerInitializer
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -20,6 +21,8 @@ class MediaReviewApp : Application() {
     lateinit var imageLoader: ImageLoader
 
     override fun onCreate() {
+        // Stage 8A.1.1: 进程起点必须在这里最早记录（不是 V2Perf 类初始化时间）
+        V2Perf.onProcessStart()
         super.onCreate()
         Coil.setImageLoader(imageLoader)
         // Stage2.1：应用级 GSY 统一初始化，固定 Exo2PlayerManager 内核

@@ -94,17 +94,24 @@ class V2ServerMediaRepository internal constructor(
     private val resources = V2ServerResourceCache()
 
     /**
-     * 文件夹短时缓存（Stage 8A.1）。
+     * 文件夹短时缓存（Stage 8A.1 / 8A.1.1）。
      *
      * 背景：首页启动会同时需要 folders（文件夹栏）与 albums（书架），
      * 而 `albums()` 内部也调用 `folders()`，导致启动过程重复请求 `GET /media/folders`。
      *
-     * 方案：短 TTL + 单飞（mutex 跨网络请求持有）。同一次刷新的多个调用者
-     * 只会产生一次 HTTP；TTL 到期后自然重新拉取，保证不是永久陈旧数据。
+     * 方案：短 TTL + 单飞（mutex 跨网络请求持有）。
+     *
+     * 阶段 8A.1.1 §4：缓存**必须绑定 server 身份** —— 只靠 TTL 不够，
+     * 用户从 Server A 切到 Server B 时（仍在 TTL 内）也必须重新请求。
      */
+    private data class FoldersCacheEntry(
+        val baseUrl: String,
+        val loadedAtMs: Long,
+        val data: List<V2Folder>,
+    )
+
     private val foldersMutex = Mutex()
-    private var foldersCache: List<V2Folder>? = null
-    private var foldersCachedAtMs = 0L
+    private var foldersCacheEntry: FoldersCacheEntry? = null
 
     // ---------- 访问层 ----------
 
@@ -161,19 +168,34 @@ class V2ServerMediaRepository internal constructor(
     }
 
     override suspend fun folders(): List<V2Folder> {
+        val baseUrl = profilePort.baseUrl()
+        require(baseUrl.isNotBlank()) { "尚未连接服务器" }
         foldersMutex.lock()
         try {
-            val cached = foldersCache
-            if (cached != null && nowMs() - foldersCachedAtMs <= FOLDERS_CACHE_TTL_MS) {
-                return cached
+            val cached = foldersCacheEntry
+            // TTL 只对同一个服务器有效：换服务器后即使仍在 TTL 内也必须重新请求
+            if (cached != null &&
+                cached.baseUrl == baseUrl &&
+                nowMs() - cached.loadedAtMs <= FOLDERS_CACHE_TTL_MS
+            ) {
+                return cached.data
             }
             val loaded = call { api, _ -> unwrap(api.mediaFolders()).map(mapper::mapFolder) }
-            foldersCache = loaded
-            foldersCachedAtMs = nowMs()
+            foldersCacheEntry = FoldersCacheEntry(baseUrl, nowMs(), loaded)
             return loaded
         } finally {
             foldersMutex.unlock()
         }
+    }
+
+    /**
+     * 失效辅助数据缓存（文件夹/书架）。
+     *
+     * 阶段 8A.1.1 §4：切换数据源 / 切换服务器地址 / 断开连接 / 重新配对时必须调用，
+     * 否则可能命中另一个服务器的缓存。
+     */
+    override fun invalidateAuxiliaryCache() {
+        foldersCacheEntry = null
     }
 
     override suspend fun media(): List<V2Media> =

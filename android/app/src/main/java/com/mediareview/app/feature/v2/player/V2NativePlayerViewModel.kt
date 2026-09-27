@@ -75,7 +75,7 @@ class V2NativePlayerViewModel @Inject constructor(
     fun open(context: PlaybackContext) {
         val existing = _state.value
         if (existing.context == context && existing.ui !is V2PlaybackUiState.Failed) return
-        V2Perf.playerOpen(context.queue.getOrNull(context.currentIndex)?.mediaId.orEmpty())
+        V2Perf.openPlayer(context.queue.getOrNull(context.currentIndex)?.mediaId.orEmpty())
         prefetched.clear()
         currentSource = null
         stage = V2PlaybackStage.DIRECT
@@ -162,10 +162,8 @@ class V2NativePlayerViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 ui = V2PlaybackUiState.Ready(source, stage, endpoint),
             )
-            // Stage 8A.1 §33 性能指标: 播放地址就绪(其后 first_frame 由播放内核进度回调记录)
-            if (V2Perf.claimPlaybackInfo()) {
-                V2Perf.mark("playback_info_ready", V2Perf.homeEnterNanos().takeIf { it > 0 })
-            }
+            // Stage 8A.1.1 性能指标: 播放地址就绪(相对 player 会话；first_frame 由播放内核进度回调记录)
+            V2Perf.player()?.markOnce("playback_info_ready", "playback_info_ready")
             if (allowPrefetch) prefetchNext()
         }
     }

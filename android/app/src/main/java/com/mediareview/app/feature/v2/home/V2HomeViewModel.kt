@@ -147,6 +147,22 @@ class V2HomeViewModel @Inject constructor(
     val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
 
     /**
+     * P1 辅助数据的独立错误态（阶段 8A.1.1 §2）。
+     *
+     * 规则：媒体列表（P0）与文件夹/书架/收藏（P1）**完全分离**。
+     * `GET /media?page=1` 成功后，即使 folders/albums 失败，媒体墙仍必须正常显示，
+     * 不得在媒体墙底部出现"加载失败，点击重试"。
+     */
+    private val _folderError = MutableStateFlow<String?>(null)
+    val folderError: StateFlow<String?> = _folderError.asStateFlow()
+
+    private val _albumError = MutableStateFlow<String?>(null)
+    val albumError: StateFlow<String?> = _albumError.asStateFlow()
+
+    private val _favoritesError = MutableStateFlow<String?>(null)
+    val favoritesError: StateFlow<String?> = _favoritesError.asStateFlow()
+
+    /**
      * 文件夹/书架补齐 Job（P1）。
      *
      * Stage 8A.1 启动优先级：首屏媒体（P0）绝不等待文件夹与书架；
@@ -188,7 +204,7 @@ class V2HomeViewModel @Inject constructor(
     }
 
     init {
-        V2Perf.homeEnter()
+        V2Perf.openHome()
         viewModelScope.launch {
             // 只读本地持久化模式：不联网、不等待 Server，首页立即可用
             val mode = modeStore.bootstrap()
@@ -214,6 +230,8 @@ class V2HomeViewModel @Inject constructor(
     fun setDataMode(mode: V2DataMode) {
         viewModelScope.launch {
             if (mode == repository.mode) return@launch
+            // 阶段 8A.1.1 §4: 切换数据源必须失效辅助缓存
+            repository.invalidateAuxiliaryCache()
             modeStore.set(mode)
             if (mode == V2DataMode.SERVER) {
                 _serverSession.value = bootstrap.restore()
@@ -272,6 +290,8 @@ class V2HomeViewModel @Inject constructor(
                     )
                     // 配对成功后 TokenProvider 已由 PairingRepository 更新；刷新内存会话
                     _serverSession.value = bootstrap.refresh()
+                    // 阶段 8A.1.1 §4: 连到（可能是另一个）服务器必须失效辅助缓存
+                    repository.invalidateAuxiliaryCache()
                     modeStore.set(V2DataMode.SERVER)
                     resetPager()
                     _currentList.value = emptyList()
@@ -299,6 +319,8 @@ class V2HomeViewModel @Inject constructor(
     fun clearServerConfig() {
         viewModelScope.launch {
             pairingRepository.clear()
+            // 阶段 8A.1.1 §4: 断开连接必须失效辅助缓存,避免下次连别的服务器命中旧数据
+            repository.invalidateAuxiliaryCache()
             _serverSession.value = V2ServerSession()
             statusStore.update(V2ServerStatus.Unconfigured)
             modeStore.set(V2DataMode.DEMO)
@@ -387,11 +409,8 @@ class V2HomeViewModel @Inject constructor(
         val nextPage = loadedPage + 1
         viewModelScope.launch {
             _listLoading.value = true
-            val started = V2Perf.now()
-            val isFirstPageTwo = V2Perf.claimFirstPageTwo()
-            if (isFirstPageTwo) {
-                V2Perf.mark("next_page_request_start", V2Perf.homeEnterNanos().takeIf { it > 0 })
-            }
+            // PAGING 会话: page_request → page_response 相对本次请求计时(§1.1)
+            val pagingSession = V2Perf.openPaging(nextPage)
             try {
                 val page = repository.mediaPage(query(nextPage))
                 if (generation != listGeneration) return@launch
@@ -401,9 +420,7 @@ class V2HomeViewModel @Inject constructor(
                 _totalCount.value = page.total
                 _hasMore.value = page.hasMore
                 _listError.value = null
-                if (isFirstPageTwo) {
-                    V2Perf.mark("next_page_response", started, { "page=$nextPage items=${page.items.size}" })
-                }
+                pagingSession.mark("page_response", { "page=$nextPage items=${page.items.size}" })
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -557,6 +574,9 @@ class V2HomeViewModel @Inject constructor(
         }
         favoritesLoaded = false
         _favorites.value = emptyList()
+        _favoritesError.value = null
+        _folderError.value = null
+        _albumError.value = null
 
         // P0: 首屏媒体最先开始,且绝不等待文件夹 / 书架 / 收藏
         refreshList()
@@ -571,40 +591,68 @@ class V2HomeViewModel @Inject constructor(
 
     /**
      * 收藏页首次进入时懒加载（Stage 8A.1 §6：收藏不得阻塞首屏）。
-     * 已加载过则不再重复请求。
+     *
+     * 阶段 8A.1.1 §3 修正：失败不再被永久锁死 —— 只有成功才置 favoritesLoaded；
+     * [force] = true 供"重新加载"按钮使用。
      */
-    fun ensureFavoritesLoaded() {
-        if (favoritesLoaded || favoritesLoading) return
+    fun ensureFavoritesLoaded(force: Boolean = false) {
+        if (favoritesLoading) return
+        if (favoritesLoaded && !force) return
         favoritesLoading = true
         viewModelScope.launch {
             try {
-                refreshFavorites()
-                favoritesLoaded = true
+                favoritesLoaded = refreshFavorites()
             } finally {
                 favoritesLoading = false
             }
         }
     }
 
+    /** 收藏加载失败后的"重新加载"。 */
+    fun retryFavorites() {
+        ensureFavoritesLoaded(force = true)
+    }
+
     private suspend fun loadFolders() {
         val folders = runCatching { repository.folders() }.getOrElse { error ->
-            _listError.value = error.message ?: "文件夹加载失败"
-            _folders.value = emptyList()
-            _folderCounts.value = emptyMap()
+            // P1 失败只写自己的错误态：绝不污染 P0 媒体列表的 listError
+            _folderError.value = error.message ?: "文件夹加载失败"
             return
         }
         _folders.value = folders
         // 文件夹计数来自数据源聚合（Server 由服务端 count 下发，App 不做 N+1）
         _folderCounts.value = folders.associate { it.id to it.count }
+        _folderError.value = null
     }
 
     private suspend fun refreshAlbumsNow() {
-        _albums.value = runCatching { repository.albums() }.getOrDefault(emptyList())
+        val albums = runCatching { repository.albums() }.getOrElse { error ->
+            _albumError.value = error.message ?: "书架加载失败"
+            return
+        }
+        _albums.value = albums
+        _albumError.value = null
     }
 
-    private suspend fun refreshFavorites() {
-        _favorites.value = runCatching { repository.favorites() }.getOrDefault(emptyList())
-    }
+    /**
+     * 收藏加载（阶段 8A.1.1 §3）。
+     *
+     * - **只有服务端明确成功返回**才返回 true（调用方据此置 favoritesLoaded）；
+     * - 失败时**不清空**已有收藏列表（临时故障不应让界面退化），只写 favoritesError；
+     * - 首次失败后再次进入收藏页会重新请求（不再被永久锁死）。
+     */
+    private suspend fun refreshFavorites(): Boolean =
+        runCatching { repository.favorites() }.fold(
+            onSuccess = { items ->
+                _favorites.value = items
+                _favoritesError.value = null
+                true
+            },
+            onFailure = { error ->
+                _favoritesError.value = error.message ?: "收藏加载失败"
+                false
+            },
+        )
 
     private fun query(page: Int): V2MediaQuery = V2MediaQuery(
         page = page,
@@ -650,11 +698,8 @@ class V2HomeViewModel @Inject constructor(
         listRefreshJob = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
             _listLoading.value = true
-            val started = V2Perf.now()
-            val isFirst = V2Perf.claimFirstMediaRequest()
-            if (isFirst) {
-                V2Perf.mark("first_media_request_start", V2Perf.homeEnterNanos().takeIf { it > 0 })
-            }
+            val session = V2Perf.home()
+            session?.markOnce("first_media_request", "first_media_request")
             try {
                 val page = repository.mediaPage(query(page = 1))
                 if (generation != listGeneration) return@launch
@@ -663,9 +708,11 @@ class V2HomeViewModel @Inject constructor(
                 _totalCount.value = page.total
                 _hasMore.value = page.hasMore
                 _listError.value = null
-                if (isFirst) {
-                    V2Perf.mark("first_media_response", started, { "items=${page.items.size} total=${page.total}" })
-                }
+                session?.markOnce(
+                    "first_media_response",
+                    "first_media_response",
+                    { "items=${page.items.size} total=${page.total}" },
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {

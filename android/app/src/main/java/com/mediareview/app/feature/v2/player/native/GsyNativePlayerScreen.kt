@@ -420,8 +420,8 @@ fun GsyNativePlayerScreen(
                 // GSY 进度回调为 4 参: (curProgress, duration, currPosition, bufferedPosition)。
                 // 播放位置首次 >0 即"首帧已呈现"; duration 不参与判定以免准备完成即误报。
                 .setGSYVideoProgressListener { curProgress, _duration, currPosition, _buffer ->
-                    if ((curProgress > 0 || currPosition > 0) && V2Perf.claimFirstFrame()) {
-                        V2Perf.mark("first_frame", V2Perf.homeEnterNanos().takeIf { it > 0 })
+                    if (curProgress > 0 || currPosition > 0) {
+                        V2Perf.player()?.markOnce("first_frame", "first_frame")
                     }
                 }
             controller.setUp(option, false)

@@ -469,10 +469,10 @@ fun MediaGrid(
     val total by vm.totalCount.collectAsState()
     val error by vm.listError.collectAsState()
 
-    // 首屏媒体真正渲染出来的时刻（与 home_enter 对齐，单调时钟）
+    // 首屏媒体真正渲染出来的时刻（相对 home 会话起点，单调时钟）
     LaunchedEffect(list.isEmpty()) {
-        if (list.isNotEmpty() && V2Perf.claimFirstMediaRender()) {
-            V2Perf.mark("first_media_render", V2Perf.homeEnterNanos().takeIf { it > 0 })
+        if (list.isNotEmpty()) {
+            V2Perf.home()?.markOnce("first_media_render", "first_media_render")
         }
     }
 

@@ -20,6 +20,14 @@ interface MediaRepository {
     /** 当前生效的数据源模式。 */
     val mode: V2DataMode
 
+    /**
+     * 失效辅助数据缓存（文件夹/书架）。
+     *
+     * 阶段 8A.1.1 §4：切换数据源、切换服务器地址、断开连接、重新配对时必须调用，
+     * 否则可能命中另一个服务器的缓存。Demo 实现无远程缓存，默认空实现。
+     */
+    fun invalidateAuxiliaryCache() {}
+
     suspend fun folders(): List<V2Folder>
 
     /**

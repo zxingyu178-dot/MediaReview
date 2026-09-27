@@ -35,6 +35,12 @@ class V2MediaRepositoryRouter @Inject constructor(
     private fun active(): MediaRepository =
         if (modeStore.mode.value == V2DataMode.SERVER) server else demo
 
+    /** 切换数据源/服务器时必须两侧都失效，避免命中另一个服务器的缓存。 */
+    override fun invalidateAuxiliaryCache() {
+        demo.invalidateAuxiliaryCache()
+        server.invalidateAuxiliaryCache()
+    }
+
     override suspend fun folders(): List<V2Folder> = active().folders()
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = active().mediaPage(query)
