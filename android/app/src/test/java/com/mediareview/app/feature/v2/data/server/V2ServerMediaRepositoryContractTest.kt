@@ -1,4 +1,4 @@
-﻿package com.mediareview.app.feature.v2.data.server
+package com.mediareview.app.feature.v2.data.server
 
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.MediaUrlResolver
@@ -281,7 +281,8 @@ class V2ServerMediaRepositoryContractTest {
                   "media_id": "m9",
                   "media": {
                     "media_id": "m9", "name": "收藏视频", "media_type": "video",
-                    "cover_url": "/api/v1/media/m9/thumbnail", "folder_id": "f_abc", "folder_name": "海边"
+                    "cover_url": "/api/v1/media/m9/thumbnail", "folder_id": "f_abc", "folder_name": "海边",
+                    "is_favorite": true
                   }
                 }
               ]
