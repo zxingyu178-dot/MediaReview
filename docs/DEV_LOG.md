@@ -1651,3 +1651,63 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
   `image_count` / `cover_media_id` / `cover_url`），媒体带 `folder_id` / `folder_name`。
 - 部署日志 `C:\ProgramData\MediaReview\deploy_opsconsole_20260926_233613.log`；
   回滚备份 `C:\ProgramData\MediaReview\backup\opsconsole-fix-20260926_233613`。
+
+
+## V2 Stage 8A.1 — Loading Pipeline Optimization（2026-09-27）
+
+基线 `30ce89e`（Stage 8A + OpsConsole 修复），分支 `feature/mediareview-v2-stage8a.1-loading-pipeline`。
+
+### 目标
+
+真机反馈"功能可用但加载明显偏慢"。本阶段不开发新功能，只减少等待。
+
+### Server 侧
+
+- **Jellyfin 客户端长生命周期**：新增 `JellyfinClientManager`，在 FastAPI lifespan 创建/关闭；
+  `jellyfin_client` 依赖不再 `async with` 每请求新建。httpx 连接池显式配置
+  `max_connections=32 / max_keepalive=16 / keepalive_expiry=30s`；
+  host/api_key/user_id 变化时关闭旧客户端重建（绝不沿用旧凭据）。
+- **缩略图磁盘缓存**：新增 `ThumbnailCacheService`，接入既有 `cache/thumbnails/<xx>/<key>/` 分片；
+  key = `sha256(media_id + 源指纹 + 变体)`（指纹含 jellyfin_id/modified_at/size_bytes）；
+  原子写入 + single-flight；响应带 `Cache-Control` / `ETag` / `X-MediaReview-Cache`，支持 304。
+  缩略图尺寸改 `maxWidth=480&maxHeight=270`（竖图不再传 480×850 再由客户端裁）。
+- **`MediaSummary.is_favorite`**：一次 `WHERE media_id IN (...)` 批量取回；客户端不再预取整个收藏列表。
+- **`/original` 流式**：改 `StreamingResponse` + `ImageStream`，边读边转发；
+  状态码/非图片/重定向/25MB 上限等安全约束全部保留。
+- **`MR_PERF` 打点**：`/media`、`/media/folders`、`/favorites`、`/thumbnail`、`/original`、`/playback`
+  记录 `duration_ms` / 缓存命中 / 字节数（单调时钟，不含凭据）。
+
+### Android 侧
+
+- **启动优先级**：`reloadAll` 改为 P0 先发 `GET /media?page=1`（不 await），
+  P1 folders+albums 放同一后台 Job 并行补齐；收藏改为 `ensureFavoritesLoaded()` 懒加载。
+  废弃原 `folders → albums → favorites → media` 顺序。
+- **folders 去重**：Repository 短时缓存 + 单飞，启动期 `GET /media/folders` 只 1 次。
+- **收藏状态**：DTO 加 `is_favorite`；`V2MediaMapper` 直接取 `summary.is_favorite`；
+  删除 `favoriteIdSet(api)` 预取。
+- **分页预取**：`PREFETCH_DISTANCE_ITEMS = 16`（原 4），抽 `shouldLoadNextPage` 纯函数。
+- **封面管线**：`MediaCard` 的 `SubcomposeAsyncImage` → `rememberAsyncImagePainter + Image`；
+  Skeleton 固定铺底；新增停止滚动时的下一屏 6~8 张低并发预取（复用全局单例 ImageLoader，
+  重新滑动即取消）。
+- **Viewer 渐进加载**：`ZoomableImage(previewUri, fullUri, loadFullResolution)`；
+  第一帧显示已缓存封面（不黑屏），原图仅当前页后台加载后就地替换；
+  邻页 `model=null` → 不发原图请求。
+- **`V2Perf`**：tag=`MR_PERF`，仅 Debug 输出，单调时钟；覆盖 home/media/cover/paging/viewer/player。
+
+### 测试与验证
+
+- Server：新增 `tests/test_loading_pipeline_8a1.py` **12 项全过**；全量 **192 项仅 1 项既有失败**
+  （`test_deployment_contract_11` 读外部 1.1 交接目录）；`ruff check` 全过。
+- Android JVM：**337 项全过**（新增 `Stage8A1LoadingPipelineTest` 7 项）。
+- Android instrumentation（模拟器 `MediaReview_Test`）：32 项 19 过 13 失败 ——
+  3 项 Stage 8A 已确认的既有失败、4 项缺宿主机 Mock Server、6 项 1.1 壳层测试（本次未复验基线）；
+  **新增 `HomeStartupPriorityTest` 通过**。
+- Lint：`0 errors, 43 warnings`（与基线一致，无新增 error）。
+- APK：`versionCode=8 / versionName=2.0.0-alpha1`，SHA-256 `fbb6dea7…`。
+
+### 未做 / 未验证
+
+- 真机 + 真实 Jellyfin 的冷/热性能计时：**NOT MEASURED**（无设备连接；新构建未部署到生产服务）。
+- 预取距离 12/16/20 真机对比：**NOT EXECUTED**（代码取文档建议值 16）。
+- Room 本地缓存（Stage 8A.2 预留）、Review Session（Stage 8B）、Organize、雪碧图 Server 接入：
+  按 §31~§34/§45 明确不做。

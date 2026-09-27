@@ -412,3 +412,22 @@
 - [x] **修复收藏/进度 DTO 合同**：新增 `MutationResultDto`（服务端返回布尔，原 `Map<String,String>` 解析失败）
 - [x] 模拟器 Server 模式端到端（Mock Server，非真实 Jellyfin）4/4 PASS；真机 App 手动流程通过
 - [x] 既有 3 个 Instrumentation 失败已用基线 stash 复验（非本阶段回归），记入 05_KNOWN_ISSUES
+
+
+## Stage 8A.1 — Loading Pipeline Optimization（2026-09-27）
+
+- [x] 建立基线分支 `feature/mediareview-v2-stage8a.1-loading-pipeline`（base `30ce89e`）
+- [x] Server：Jellyfin 客户端长生命周期 + 连接池（lifespan 单例、配置变化重建）
+- [x] Server：Thumbnail 磁盘缓存（指纹 key / 原子写 / single-flight / ETag / HIT-MISS 头）
+- [x] Server：`MediaSummary.is_favorite` 批量查询 + `/original` 流式响应
+- [x] Server：`MR_PERF` 性能日志（单调时钟）
+- [x] Android：启动优先级 P0/P1 + folders 去重 + 收藏懒加载
+- [x] Android：封面管线（AsyncImage 替换 Subcompose、预取窗口、PREFETCH_DISTANCE=16）
+- [x] Android：Viewer 渐进加载（preview→full，邻页不发原图）
+- [x] Android：`V2Perf` 打点（含播放器首帧）
+- [x] 测试：Server 12 项 + Android JVM 7 项 + instrumentation `HomeStartupPriorityTest`
+- [x] 验证：Build PASS / JVM 337 PASS / Server 192(1 既有失败) / Lint 0 errors
+- [x] 交接包 `MediaReview_Stage8A1_Handoff_20260927_783452b.zip` + APK
+- [ ] **等待用户真机验收**（冷/热启动计时、滚动、Viewer、二次打开）
+- [ ] 待定：部署优化后的 Server 构建到本机服务（需用户批准）
+- [ ] 待定：全量 instrumentation 基线复验（MainShell* 6 项归因）
