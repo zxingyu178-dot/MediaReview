@@ -1711,3 +1711,73 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 - 预取距离 12/16/20 真机对比：**NOT EXECUTED**（代码取文档建议值 16）。
 - Room 本地缓存（Stage 8A.2 预留）、Review Session（Stage 8B）、Organize、雪碧图 Server 接入：
   按 §31~§34/§45 明确不做。
+
+
+## V2 Stage 8A.1.1 — Loading Pipeline Closure（2026-09-27）
+
+基线 `b264eaa`（Stage 8A.1 加载管线），分支 `feature/mediareview-v2-stage8a.1.1-loading-closure`。
+
+### 性能打点时间源修正（§1）
+
+- 不再把 `V2Perf` object 类初始化时间当作 Process Start：改由 `MediaReviewApp.onCreate`
+  第一行调用 `V2Perf.onProcessStart()`。
+- 改为**独立测量会话**：Home / Paging / Viewer / Player 各自计时，不再全部相对 `home_enter`。
+  - APP：`app_start → home_enter`
+  - HOME：`home_enter → first_media_request → first_media_response → first_media_render /
+    first_cover_success / visible_8_covers_ready`
+  - PAGING：`page_request → page_response`（每次请求新页新建会话）
+  - VIEWER：`viewer_open → preview_visible → full_image_ready`
+  - PLAYER：`player_open → playback_info_ready → first_frame`
+- 全局 claim flag 全部移除；每次打开 Viewer / Player 重建会话，上一条媒体的状态不会污染下一条。
+
+### P0/P1 状态解耦（§2）
+
+- 新增 `folderError` / `albumError` / `favoritesError`。
+- `loadFolders` 失败不再写 `listError`（原先会把文件夹故障显示成媒体墙"加载失败"）。
+
+### 收藏懒加载可重试（§3）
+
+- 只有服务端明确成功才置 `favoritesLoaded`；失败保持 false，下次进入收藏页会重新请求。
+- 失败不清空已有收藏数据；新增 `retryFavorites()` 与收藏页"重新加载"入口。
+
+### Folders 缓存绑定 server 身份（§4）
+
+- 缓存条目改为 `(baseUrl, loadedAtMs, data)`；TTL 只对同一服务器有效。
+- `MediaRepository.invalidateAuxiliaryCache()`（Demo 空实现，Router 两侧失效）；
+  ViewModel 在 `setDataMode` / `connectServer` / `clearServerConfig` 主动失效。
+- 新增**真实并发** single-flight 测试（`Dispatchers.Default` 下 `async×4` → 仍只 1 次 HTTP）。
+
+### Server 侧
+
+- **缩略图几何**：grid cover 改为 Jellyfin `fillWidth=480&fillHeight=270`，
+  消除"9:16 竖图只有约 152×270 再被客户端放大 3 倍"的模糊路径；
+  四种宽高比（16:9 / 9:16 / 4:3 / 1:1）断言上游参数一致。
+- **URL 版本化**：`/media`、`/media/folders`、`/review queue` 的 `cover_url` 统一带
+  `?v=<source_version>`（sha256(源指纹)[:16]，不含任何敏感信息），
+  客户端与 Server 失效逻辑一致。
+- **缓存容量收口**：`stats()` / `prune()`，默认上限 1 GiB 按 mtime 淘汰，
+  每 32 次写入检查一次并放到线程执行。
+- **磁盘/上游耗时**：`disk_read_ms` / `disk_write_ms` / `upstream_ms` 进入 `MR_PERF`。
+- 修正缩略图读回 content-type：`image/jpg` → `image/jpeg`。
+
+### 测试规模核实（§9，纠正此前错误数字）
+
+- Server：`pytest --collect-only -q` 实测 **377 collected / 377 executed / 376 passed / 1 failed**
+  （既有失败 `test_deployment_contract_11`，读外部 1.1 交接目录）。
+  **Stage 8A/8A.1 曾报告"全量 192 项"，该数字有误。**
+- Android JVM：**338 collected / 338 executed / 338 passed / 0 failed**（60 个测试文件，
+  由 test-results XML 汇总）。
+- Android instrumentation（定向 `feature.v2.loading` 包）：**6 discovered / 6 executed / 6 passed**。
+
+### 性能测量（模拟器，§10）
+
+- DEMO 冷启动 RUN 1 取得完整 HOME 指标（见 `03_PERFORMANCE_REPORT.md`）。
+- RUN 2..5 **不可用**：模拟器在同一会话内严重退化（`app_start → home_enter`
+  由 1.76 s 恶化到 14.8 s，且 adb 守护进程中途崩溃），采集窗口内无任何 `MR_PERF` 输出。
+  因此 **p50/p95/min/max 不成立（只有 1 个有效样本）**，如实标注。
+- REAL PHONE / REAL SERVER / DEV MACHINE：**NOT MEASURED**（无真机；按 §11 未部署生产服务）。
+
+### 部署
+
+按 §11 **未部署**：未替换正式 Windows Service、未重启正式 MediaReview Server、
+未修改 ControlHub。新 Server 构建仅存在于仓库与交接包中，等待用户批准。

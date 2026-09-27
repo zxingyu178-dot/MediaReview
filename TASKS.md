@@ -431,3 +431,20 @@
 - [ ] **等待用户真机验收**（冷/热启动计时、滚动、Viewer、二次打开）
 - [ ] 待定：部署优化后的 Server 构建到本机服务（需用户批准）
 - [ ] 待定：全量 instrumentation 基线复验（MainShell* 6 项归因）
+
+
+## Stage 8A.1.1 — Loading Pipeline Closure（2026-09-27）
+
+- [x] V2Perf 时间源修正：真实 process start + Home/Paging/Viewer/Player 独立会话
+- [x] P0/P1 状态解耦（folderError / albumError / favoritesError）
+- [x] 收藏懒加载失败可重试；失败不清空旧数据
+- [x] Folders 缓存绑定 server 身份 + 切换/断开主动失效 + 真实并发 single-flight 测试
+- [x] Server：16:9 fill grid cover（四种宽高比验证）
+- [x] Server：缩略图 URL 版本化 `?v=<source_version>`
+- [x] Server：缓存统计 + prune（默认上限 1 GiB）
+- [x] Server：磁盘读/写/上游耗时测量
+- [x] 测试规模核实：Server 377 / Android JVM 338 / 定向 instrumentation 6（均记录 collected/executed/passed）
+- [x] 收口交接包（<10 MB，不含 APK、不含完整源码树）
+- [ ] **等待用户批准部署新 Server**
+- [ ] **等待真实 LAN + 真机性能验收**（p50/p95/min/max 需要 ≥5 次有效采样）
+- [ ] 待定：全量 instrumentation 基线复验（MainShell* 6 项归因）
