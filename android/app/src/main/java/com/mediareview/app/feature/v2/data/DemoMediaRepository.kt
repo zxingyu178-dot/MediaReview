@@ -156,10 +156,30 @@ class DemoMediaRepository @Inject constructor(
         return buildAlbums(allFolders, state, userCovers)
     }
 
-    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        allMedia.applyOverridesState()
+    /**
+     * 相册分页（阶段 8B §12）：Demo 为内存排序后切片。
+     * 结束判断以 total 为准，与 Server 合同一致（绝不本地截断）。
+     */
+    override suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): V2MediaPage {
+        val all = allMedia.applyOverridesState()
             .filter { it.folderId == albumId && it.type == V2MediaType.IMAGE }
             .sorted(spec)
+        val safePage = page.coerceAtLeast(1)
+        val safeSize = pageSize.coerceAtLeast(1)
+        val from = ((safePage - 1) * safeSize).coerceAtMost(all.size)
+        val to = (from + safeSize).coerceAtMost(all.size)
+        return V2MediaPage(
+            items = all.subList(from, to),
+            page = safePage,
+            pageSize = safeSize,
+            total = all.size,
+        )
+    }
 
     override suspend fun setAlbumCover(albumId: String, mediaId: String) {
         val media = mediaById[mediaId] ?: return

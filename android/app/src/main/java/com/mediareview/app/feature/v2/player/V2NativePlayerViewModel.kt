@@ -45,12 +45,16 @@ data class V2PlayerState(
 }
 
 /**
- * 完整播放器 ViewModel（Stage 8A §14 / §15）：
+ * 完整播放器 ViewModel（Stage 8A §14 / §15，Stage 8B §6~§9 正确性修正）：
  *
  * - 播放源异步解析（[MediaRepository.resolvePlayback]）全部在本 ViewModel 内完成，
  *   Compose 只消费 [V2PlaybackUiState]；
- * - **只解析当前条目**：上一条 / 下一条只有真正切过去时才解析（允许预取下一条，禁止整队列解析）；
- * - Direct Play → 失败时最多一次 HLS 回退（[onPlaybackFailed]）→ 再失败进入 Error，禁止无限切换。
+ * - **只解析当前条目**：上一条 / 下一条只有真正切过去时才解析（只允许预取"下一条"一条，
+ *   禁止整队列解析）；
+ * - 播放语义（Direct → 一次 HLS → Error、stale source guard、retry 回 Direct）全部委托给
+ *   [V2PlaybackSourceController]，与批阅模式共享同一套实现；
+ * - 内核报错必须带上"报错时播放器里实际装载的 mediaId"（[onPlaybackFailed]）：
+ *   旧媒体的迟到错误会被判定为过期事件并忽略，绝不写进新媒体的 UI。
  */
 @HiltViewModel
 class V2NativePlayerViewModel @Inject constructor(
@@ -60,13 +64,10 @@ class V2NativePlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow(V2PlayerState())
     val state: StateFlow<V2PlayerState> = _state.asStateFlow()
 
+    private val sources = V2PlaybackSourceController()
+
     private var resolveJob: Job? = null
-
-    /** 预取下一条（mediaId → 已解析播放源），切过去时直接命中，不重复请求。 */
-    private val prefetched = mutableMapOf<String, V2PlaybackSource>()
-
-    private var currentSource: V2PlaybackSource? = null
-    private var stage: V2PlaybackStage = V2PlaybackStage.DIRECT
+    private var prefetchJob: Job? = null
 
     /**
      * 打开播放器（队列 + 起始索引）。
@@ -76,9 +77,8 @@ class V2NativePlayerViewModel @Inject constructor(
         val existing = _state.value
         if (existing.context == context && existing.ui !is V2PlaybackUiState.Failed) return
         V2Perf.openPlayer(context.queue.getOrNull(context.currentIndex)?.mediaId.orEmpty())
-        prefetched.clear()
-        currentSource = null
-        stage = V2PlaybackStage.DIRECT
+        sources.moveTo("")
+        sources.clearPrefetch()
         _state.value = V2PlayerState(context = context, ui = V2PlaybackUiState.Loading)
         load(context.currentIndex)
     }
@@ -89,7 +89,6 @@ class V2NativePlayerViewModel @Inject constructor(
         if (context.queue.isEmpty()) return
         val target = index.coerceIn(0, context.queue.lastIndex)
         if (target == context.currentIndex && _state.value.ui is V2PlaybackUiState.Ready) return
-        stage = V2PlaybackStage.DIRECT
         _state.value = _state.value.copy(
             context = context.moveTo(target),
             ui = V2PlaybackUiState.Loading,
@@ -98,31 +97,23 @@ class V2NativePlayerViewModel @Inject constructor(
     }
 
     /**
-     * 播放内核报错（GSY Error）：Direct 失败 → 用同一个已解析源切到 HLS（不重新请求）；
-     * HLS 再失败 → Error（不再回退，禁止无限切换）。
+     * 播放内核报错（GSY Error）。
+     *
+     * @param failingMediaId 报错时播放器内核里**实际装载**的媒体 id（由播放层提供）。
+     * 只有它等于当前媒体时才处理；否则视为旧媒体的迟到错误直接忽略（§7）。
      */
-    fun onPlaybackFailed() {
-        val source = currentSource
-        val nextStage = source?.nextStageAfterFailure(stage)
-        val endpoint = nextStage?.let { source.endpointFor(it) }
-        if (source != null && nextStage != null && endpoint != null) {
-            stage = nextStage
-            _state.value = _state.value.copy(
-                ui = V2PlaybackUiState.Ready(source, nextStage, endpoint),
-            )
-            return
-        }
-        _state.value = _state.value.copy(
-            ui = V2PlaybackUiState.Failed(
-                repository.mode.let { mode ->
-                    if (mode == V2DataMode.SERVER) "播放失败，服务器未提供可用地址" else "播放失败"
-                },
-            ),
-        )
+    fun onPlaybackFailed(failingMediaId: String) {
+        if (failingMediaId.isBlank()) return
+        apply(sources.onPlaybackFailed(sources.token, failingMediaId))
     }
 
-    /** 用户在 Error 层重试：重新解析当前条目（从 Direct 重新开始）。 */
+    /**
+     * 用户在 Error 层重试（§6）：重新解析当前条目，并且**必须从 Direct 重新开始**
+     * （[V2PlaybackSourceController.moveTo] 在解析前就清空旧 source、回到 Direct、
+     * 作废旧令牌），不从上一次的 HLS 状态继续。
+     */
     fun retry() {
+        _state.value = _state.value.copy(ui = V2PlaybackUiState.Loading)
         load(_state.value.context.currentIndex, allowPrefetch = false)
     }
 
@@ -139,49 +130,55 @@ class V2NativePlayerViewModel @Inject constructor(
     private fun load(index: Int, allowPrefetch: Boolean = true) {
         val item = _state.value.context.queue.getOrNull(index) ?: return
         resolveJob?.cancel()
+        prefetchJob?.cancel()
+        // Source Identity: 解析开始前就切换身份并清空上一视频的 Source（§7 / §8）
+        val eventToken = sources.moveTo(item.mediaId)
         resolveJob = viewModelScope.launch {
-            val source = prefetched.remove(item.mediaId)
+            val resolved = sources.takePrefetched(item.mediaId)
                 ?: try {
                     repository.resolvePlayback(item.mediaId)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
-                    _state.value = _state.value.copy(
-                        ui = V2PlaybackUiState.Failed(error.message ?: "无法获取播放地址"),
-                    )
+                    apply(sources.onResolveFailed(eventToken, error.message))
                     return@launch
                 }
-            val endpoint = source.endpointFor(stage)
-            if (endpoint == null) {
-                _state.value = _state.value.copy(
-                    ui = V2PlaybackUiState.Failed("服务器未提供可用的播放地址"),
-                )
-                return@launch
-            }
-            currentSource = source
-            _state.value = _state.value.copy(
-                ui = V2PlaybackUiState.Ready(source, stage, endpoint),
-            )
-            // Stage 8A.1.1 性能指标: 播放地址就绪(相对 player 会话；first_frame 由播放内核进度回调记录)
-            V2Perf.player()?.markOnce("playback_info_ready", "playback_info_ready")
+            apply(sources.onResolved(eventToken, resolved))
             if (allowPrefetch) prefetchNext()
         }
     }
 
-    /** 预取下一条（仅一条，不解析整个队列）。 */
-    private fun prefetchNext() {
-        val context = _state.value.context
-        val next = context.queue.getOrNull(context.currentIndex + 1) ?: return
-        if (prefetched.containsKey(next.mediaId)) return
-        if (prefetched.size > MAX_PREFETCH) prefetched.clear()
-        viewModelScope.launch {
-            val resolved = runCatching { repository.resolvePlayback(next.mediaId) }.getOrNull() ?: return@launch
-            prefetched[next.mediaId] = resolved
+    /** 写出一次播放决策（过期事件不写任何状态）。 */
+    private fun apply(decision: V2PlaybackDecision) {
+        when (decision) {
+            V2PlaybackDecision.Ignore -> return
+            is V2PlaybackDecision.Play -> {
+                val source = sources.source ?: return
+                _state.value = _state.value.copy(
+                    ui = V2PlaybackUiState.Ready(source, decision.stage, decision.endpoint),
+                )
+                // Stage 8A.1.1 性能指标: 播放地址就绪(相对 player 会话；first_frame 由播放内核进度回调记录)
+                V2Perf.player()?.markOnce("playback_info_ready", "playback_info_ready")
+            }
+            is V2PlaybackDecision.Fail -> {
+                _state.value = _state.value.copy(
+                    ui = V2PlaybackUiState.Failed(decision.message ?: defaultFailureMessage()),
+                )
+            }
         }
     }
 
-    private companion object {
-        /** 预取窗口上限：只允许少量前瞻，避免变相"整队列解析"。 */
-        const val MAX_PREFETCH = 2
+    /** 预取"下一条"的一个播放源（单槽；切换媒体时取消上一条预取任务）。 */
+    private fun prefetchNext() {
+        val context = _state.value.context
+        val next = context.queue.getOrNull(context.currentIndex + 1) ?: return
+        prefetchJob = viewModelScope.launch {
+            val resolved = runCatching { repository.resolvePlayback(next.mediaId) }.getOrNull()
+                ?: return@launch
+            sources.prefetch(next.mediaId, resolved)
+        }
     }
+
+    private fun defaultFailureMessage(): String =
+        if (repository.mode == V2DataMode.SERVER) "播放失败，服务器未提供可用地址" else "播放失败"
 }

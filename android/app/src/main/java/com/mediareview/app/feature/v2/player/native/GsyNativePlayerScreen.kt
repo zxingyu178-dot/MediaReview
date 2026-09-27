@@ -101,7 +101,11 @@ private const val PROGRESS_REPORT_INTERVAL_MS = 15_000L
 fun GsyNativePlayerScreen(
     state: V2PlayerState,
     onRequestIndex: (Int) -> Unit,
-    onPlaybackFailed: () -> Unit,
+    /**
+     * 内核报错上报（Stage 8B §7）：必须带上"报错时播放器实际装载的 mediaId"，
+     * 让 ViewModel 能识别并丢弃旧媒体的迟到错误（禁止串媒体）。
+     */
+    onPlaybackFailed: (String) -> Unit,
     onRetry: () -> Unit,
     onReportProgress: (Long, Boolean) -> Unit,
     onBack: () -> Unit,
@@ -192,7 +196,8 @@ fun GsyNativePlayerScreen(
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("MRPlayer", "kernelError mediaId=$loadedMediaId stage=$loadedStage")
                     }
-                    onPlaybackFailed()
+                    // 带上播放器实际装载的媒体 id：ViewModel 会据此丢弃旧媒体的迟到错误
+                    onPlaybackFailed(loadedMediaId)
                 }
             }
     }

@@ -126,8 +126,20 @@ interface MediaRepository {
     /** 照片相册列表：只能由 IMAGE 构成；无照片的文件夹不出现在书架。 */
     suspend fun albums(): List<V2Album>
 
-    /** 相册内照片（IMAGE ONLY，已应用排序；不受首页过滤状态污染）。 */
-    suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media>
+    /**
+     * 相册内照片**分页**（IMAGE ONLY，已应用排序；不受首页过滤状态污染）。
+     *
+     * 阶段 8B §12：相册必须支持真实分页 —— 旧实现固定 `page=1 / pageSize=200`，
+     * 任何超过 200 张的相册都会被永久截断（产品缺陷）。
+     * 复用统一分页合同 [V2MediaPage]/[V2MediaQuery]（§13），不新造第二套分页 DTO：
+     * Server 走 `GET /media?folder_id=…&media_type=image&page=…`，Demo 走内存切片。
+     */
+    suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): V2MediaPage
 
     /**
      * 用户设置相册封面。

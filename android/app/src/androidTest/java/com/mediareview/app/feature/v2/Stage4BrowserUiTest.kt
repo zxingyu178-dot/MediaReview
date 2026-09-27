@@ -217,8 +217,15 @@ private class BrowserFakeRepository : MediaRepository {
     override suspend fun albums(): List<com.mediareview.app.feature.v2.model.V2Album> =
         listOf(com.mediareview.app.feature.v2.model.V2Album("f1", "f1", "收藏", 1, "i1"))
 
-    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        catalog.filter { it.type == V2MediaType.IMAGE }
+    override suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): com.mediareview.app.feature.v2.model.V2MediaPage {
+        val all = catalog.filter { it.type == V2MediaType.IMAGE }
+        return com.mediareview.app.feature.v2.model.V2MediaPage(all, page, pageSize, all.size)
+    }
 
     override suspend fun setAlbumCover(albumId: String, mediaId: String) {}
 

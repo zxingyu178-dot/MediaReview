@@ -319,7 +319,13 @@ class V2ReviewViewModelTest {
         override fun spriteUri(media: V2Media): String? = null
         override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
         override suspend fun albums(): List<V2Album> = emptyList()
-        override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> = emptyList()
+        override suspend fun albumPage(
+            albumId: String,
+            page: Int,
+            pageSize: Int,
+            spec: V2SortSpec,
+        ): com.mediareview.app.feature.v2.model.V2MediaPage =
+            com.mediareview.app.feature.v2.model.V2MediaPage(emptyList(), page, pageSize, 0)
         override suspend fun setAlbumCover(albumId: String, mediaId: String) {}
 
         fun isVideo(id: String): Boolean = catalog.find { it.id == id }?.isVideo == true

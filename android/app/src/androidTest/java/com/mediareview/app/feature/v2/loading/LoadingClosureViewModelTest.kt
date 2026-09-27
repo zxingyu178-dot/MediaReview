@@ -211,8 +211,13 @@ private class ClosureRepository : MediaRepository {
 
     override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
 
-    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        listOf(media)
+    override suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): com.mediareview.app.feature.v2.model.V2MediaPage =
+        com.mediareview.app.feature.v2.model.V2MediaPage(listOf(media), page, pageSize, 1)
 
     override suspend fun setAlbumCover(albumId: String, mediaId: String) = Unit
 }

@@ -20,6 +20,7 @@ import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2ContextQueue
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.model.V2MediaPage
 import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
@@ -457,10 +458,18 @@ class V2HomeViewModel @Inject constructor(
         }
     }
 
-    /** 打开媒体：记录当前队列与索引，供播放器/查看器携带上下文。 */
-    fun openMedia(mediaId: String) {
+    /**
+     * 在首页当前列表中打开某条媒体（建立 Viewer/Player 的上下文队列）。
+     *
+     * 阶段 8B §10：找不到 mediaId 时**不得**静默打开第 1 项
+     * （旧实现 `indexOfFirst(...).coerceAtLeast(0)` 会把"未找到"变成第 0 项）。
+     *
+     * @return true = 已建立上下文；false = 目标不在当前列表中（不建立上下文，由调用方提示）
+     */
+    fun openMedia(mediaId: String): Boolean {
         val list = _currentList.value
-        val index = list.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
+        val index = list.indexOfFirst { it.id == mediaId }
+        if (index < 0) return false
         contextQueue = V2ContextQueue(
             folderId = _selectedFolderId.value,
             sortField = _sortSpec.value.field,
@@ -469,13 +478,17 @@ class V2HomeViewModel @Inject constructor(
             mediaIds = list.map { it.id },
             currentIndex = index,
         )
+        return true
     }
 
     /**
      * 在指定媒体序列中打开某张图片（用于相册：Viewer 只在当前相册照片间翻页）。
+     *
+     * 阶段 8B §10：找不到 mediaId 时不建立上下文、不静默指向第 1 项。
      */
-    fun openMediaIn(list: List<V2Media>, mediaId: String) {
-        val index = list.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
+    fun openMediaIn(list: List<V2Media>, mediaId: String): Boolean {
+        val index = list.indexOfFirst { it.id == mediaId }
+        if (index < 0) return false
         contextQueue = V2ContextQueue(
             folderId = _selectedFolderId.value,
             sortField = _sortSpec.value.field,
@@ -484,15 +497,19 @@ class V2HomeViewModel @Inject constructor(
             mediaIds = list.map { it.id },
             currentIndex = index,
         )
+        return true
     }
 
     /**
      * 在指定视频队列中打开（批阅页 → 完整播放器：Player 按此队列上下条，
      * 返回时依旧回到批阅原位置）。
+     *
+     * 阶段 8B §10：找不到 mediaId 时不建立上下文、不静默指向第 1 项。
      */
-    fun openMediaInVideoQueue(queue: List<V2Media>, mediaId: String) {
+    fun openMediaInVideoQueue(queue: List<V2Media>, mediaId: String): Boolean {
         val videos = queue.filter { it.isVideo }
-        val index = videos.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
+        val index = videos.indexOfFirst { it.id == mediaId }
+        if (index < 0) return false
         contextQueue = V2ContextQueue(
             folderId = null,
             sortField = V2SortSpec().field,
@@ -501,12 +518,18 @@ class V2HomeViewModel @Inject constructor(
             mediaIds = videos.map { it.id },
             currentIndex = index,
         )
+        return true
     }
 
-    /** 由播放器/查看器更新队列（如左右翻页后同步索引）。 */
+    /**
+     * 由播放器/查看器更新队列（如左右翻页后同步索引）。
+     *
+     * 阶段 8B §11：空队列时 `coerceIn(0, -1)` 是非法的，必须先判空直接返回。
+     */
     fun updateQueueIndex(index: Int) {
         val q = contextQueue ?: return
-        contextQueue = q.copy(currentIndex = index.coerceIn(0, q.mediaIds.size - 1))
+        val clamped = q.clampIndex(index) ?: return
+        contextQueue = q.copy(currentIndex = clamped)
     }
 
     // ---------- URI 能力（委托数据层，UI 不感知数据来源） ----------
@@ -534,9 +557,13 @@ class V2HomeViewModel @Inject constructor(
         }
     }
 
-    /** 相册内照片（IMAGE ONLY）；用于 AlbumScreen 与相册 Viewer 队列。 */
-    suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        runCatching { repository.imagesInAlbum(albumId, spec) }.getOrDefault(emptyList())
+    /**
+     * 相册内照片分页（IMAGE ONLY，阶段 8B §12）：AlbumScreen 滚动加载下一页，
+     * 大相册（>200 张）不再被截断。失败返回空页（不抛异常给 Compose）。
+     */
+    suspend fun albumPage(albumId: String, page: Int, spec: V2SortSpec): V2MediaPage =
+        runCatching { repository.albumPage(albumId, page, ALBUM_PAGE_SIZE, spec) }
+            .getOrElse { V2MediaPage(items = emptyList(), page = page, pageSize = ALBUM_PAGE_SIZE, total = 0) }
 
     /** 用户选择相册封面（校验后持久化），随后刷新书架。 */
     fun setAlbumCover(albumId: String, mediaId: String) {
@@ -724,5 +751,10 @@ class V2HomeViewModel @Inject constructor(
                 if (generation == listGeneration) _listLoading.value = false
             }
         }
+    }
+
+    companion object {
+        /** 相册每页条数（阶段 8B §12：第一页 50，接近底部继续加载下一页）。 */
+        const val ALBUM_PAGE_SIZE = 50
     }
 }

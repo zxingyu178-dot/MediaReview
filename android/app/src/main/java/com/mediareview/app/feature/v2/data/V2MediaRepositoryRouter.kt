@@ -90,8 +90,12 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override suspend fun albums(): List<V2Album> = active().albums()
 
-    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        active().imagesInAlbum(albumId, spec)
+    override suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): V2MediaPage = active().albumPage(albumId, page, pageSize, spec)
 
     override suspend fun setAlbumCover(albumId: String, mediaId: String) =
         active().setAlbumCover(albumId, mediaId)

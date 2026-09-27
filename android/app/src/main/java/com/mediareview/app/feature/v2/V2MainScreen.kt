@@ -35,7 +35,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +57,6 @@ import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
 import com.mediareview.app.feature.v2.model.V2Media
-import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.player.V2NativePlayerViewModel
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
@@ -73,7 +71,6 @@ import com.mediareview.app.ui.theme.MediaBackground
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
-import kotlinx.coroutines.launch
 
 /**
  * V2 主界面（Root Scaffold + NavHost）：
@@ -92,7 +89,6 @@ fun V2MainScreen(
 ) {
     val reviewViewModel: V2ReviewViewModel = hiltViewModel()
     val navController = rememberNavController()
-    val scope = rememberCoroutineScope()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
@@ -139,8 +135,8 @@ fun V2MainScreen(
                     vm = vm,
                     onOpenMedia = { m ->
                         vm.stopSpritePreview()
-                        vm.openMedia(m.id)
-                        MediaNavigator.openMedia(navController, m)
+                        // 阶段 8B §10：建立上下文失败（目标不在当前列表）时不静默打开第 1 项
+                        if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
                     },
                     onOpenFolder = { f ->
                         vm.stopSpritePreview()
@@ -157,14 +153,15 @@ fun V2MainScreen(
                 V2ReviewScreen(
                     vm = reviewViewModel,
                     onOpenFullPlayer = { mediaId ->
-                        // deep-link 完整播放器：队列 = 批阅队列（上下条正确），返回仍回批阅原页
+                        // 完整播放器：队列 = 批阅**已加载窗口**（§38：绝不为了上下条拉完整队列），
+                        // 返回仍回批阅原页
                         val media = vm.mediaById(mediaId)
                         if (media != null) {
-                            vm.openMediaInVideoQueue(
-                                reviewViewModel.queue.value.mapNotNull { m -> vm.mediaById(m.mediaId) },
-                                mediaId,
-                            )
-                            MediaNavigator.openMedia(navController, media)
+                            val windowVideos = reviewViewModel.queue.value
+                                .mapNotNull { item -> vm.mediaById(item.mediaId) }
+                            if (vm.openMediaInVideoQueue(windowVideos, mediaId)) {
+                                MediaNavigator.openMedia(navController, media)
+                            }
                         }
                     },
                     onBack = { navController.popBackStack() },
@@ -174,8 +171,7 @@ fun V2MainScreen(
                 FavoritesPage(
                     vm = vm,
                     onOpenMedia = { m ->
-                        vm.openMedia(m.id)
-                        MediaNavigator.openMedia(navController, m)
+                        if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
                     },
                 )
             }
@@ -194,8 +190,7 @@ fun V2MainScreen(
                     folderName = folderName,
                     onBack = { navController.popBackStack() },
                     onOpenMedia = { m ->
-                        vm.openMedia(m.id)
-                        MediaNavigator.openMedia(navController, m)
+                        if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
                     },
                 )
             }
@@ -205,18 +200,9 @@ fun V2MainScreen(
                     vm = vm,
                     albumId = albumId,
                     onBack = { navController.popBackStack() },
-                    onOpenImage = { m ->
-                        // Viewer 队列 = 当前相册照片（IMAGE ONLY），左右滑只在相册内翻页
-                        scope.launch {
-                            val albumImages = vm.imagesInAlbum(
-                                albumId,
-                                V2SortSpec(
-                                    field = com.mediareview.app.feature.v2.model.V2SortField.RECENT,
-                                    order = com.mediareview.app.feature.v2.model.V2SortOrder.DESC,
-                                    typeFilter = com.mediareview.app.feature.v2.model.V2TypeFilter.IMAGE,
-                                ),
-                            )
-                            vm.openMediaIn(albumImages, m.id)
+                    onOpenImage = { m, window ->
+                        // Viewer 队列 = 相册**已加载窗口**（IMAGE ONLY，§12），左右滑只在窗口内翻页
+                        if (vm.openMediaIn(window, m.id)) {
                             MediaNavigator.openMedia(navController, m)
                         }
                     },
@@ -249,7 +235,9 @@ fun V2MainScreen(
                     GsyNativePlayerScreen(
                         state = playerState,
                         onRequestIndex = { index -> playerViewModel.moveTo(index) },
-                        onPlaybackFailed = { playerViewModel.onPlaybackFailed() },
+                        onPlaybackFailed = { failingMediaId ->
+                            playerViewModel.onPlaybackFailed(failingMediaId)
+                        },
                         onRetry = { playerViewModel.retry() },
                         onReportProgress = { positionMs, isPaused ->
                             playerViewModel.reportProgress(positionMs, isPaused)

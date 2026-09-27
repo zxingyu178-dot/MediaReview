@@ -80,7 +80,7 @@ class GsyNativePlayerLayoutTest {
                         ),
                     ),
                     onRequestIndex = {},
-                    onPlaybackFailed = {},
+                    onPlaybackFailed = { _ -> },
                     onRetry = {},
                     onReportProgress = { _, _ -> },
                     onBack = {},

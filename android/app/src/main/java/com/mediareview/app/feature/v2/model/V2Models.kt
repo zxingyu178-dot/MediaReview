@@ -84,7 +84,16 @@ data class V2ContextQueue(
     val typeFilter: V2TypeFilter,
     val mediaIds: List<String>,
     val currentIndex: Int,
-)
+) {
+    /**
+     * 播放器/查看器回写索引时的收敛（阶段 8B §11）。
+     *
+     * 旧实现 `index.coerceIn(0, size - 1)` 在空队列时得到非法的 `coerceIn(0, -1)`。
+     * 空队列必须返回 null，表示"不允许写入"。
+     */
+    fun clampIndex(index: Int): Int? =
+        if (mediaIds.isEmpty()) null else index.coerceIn(0, mediaIds.size - 1)
+}
 
 /** 统一排序参数。 */
 data class V2SortSpec(

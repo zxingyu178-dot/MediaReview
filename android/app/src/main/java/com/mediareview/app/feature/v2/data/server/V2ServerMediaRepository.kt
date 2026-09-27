@@ -325,15 +325,24 @@ class V2ServerMediaRepository internal constructor(
         }
     }
 
-    override suspend fun imagesInAlbum(albumId: String, spec: V2SortSpec): List<V2Media> =
-        mediaPage(
-            V2MediaQuery(
-                page = 1,
-                pageSize = COMPAT_PAGE_SIZE,
-                folderId = albumId,
-                spec = spec.copy(typeFilter = V2TypeFilter.IMAGE),
-            ),
-        ).items
+    /**
+     * 相册分页（阶段 8B §12 / §13）：复用统一分页接口
+     * `GET /media?folder_id=…&media_type=image&page=…&page_size=…`，
+     * 服务端执行排序与分页；相册再也不受旧的 200 条上限截断。
+     */
+    override suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): V2MediaPage = mediaPage(
+        V2MediaQuery(
+            page = page,
+            pageSize = pageSize,
+            folderId = albumId,
+            spec = spec.copy(typeFilter = V2TypeFilter.IMAGE),
+        ),
+    )
 
     override suspend fun setAlbumCover(albumId: String, mediaId: String) {
         val cached = resources.media(mediaId) ?: return
