@@ -37,6 +37,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.mediareview.app.BuildConfig
 import com.mediareview.app.feature.v2.model.V2PlaybackStage
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.player.V2PlaybackUiState
 import com.mediareview.app.feature.v2.player.V2PlayerState
 import com.mediareview.app.feature.v2.player.native.state.BackNavigationLogic
@@ -415,6 +416,14 @@ fun GsyNativePlayerScreen(
                 .setCacheWithPlay(false)
                 .setVideoTitle(current.source.title)
                 .setMapHeadData(current.endpoint.headers.ifEmpty { null })
+                // Stage 8A.1 §33: 只加性能指标,不改播放器行为。
+                // GSY 进度回调为 4 参: (curProgress, duration, currPosition, bufferedPosition)。
+                // 播放位置首次 >0 即"首帧已呈现"; duration 不参与判定以免准备完成即误报。
+                .setGSYVideoProgressListener { curProgress, _duration, currPosition, _buffer ->
+                    if ((curProgress > 0 || currPosition > 0) && V2Perf.claimFirstFrame()) {
+                        V2Perf.mark("first_frame", V2Perf.homeEnterNanos().takeIf { it > 0 })
+                    }
+                }
             controller.setUp(option, false)
             loadedMediaId = current.source.mediaId
             loadedStage = current.stage

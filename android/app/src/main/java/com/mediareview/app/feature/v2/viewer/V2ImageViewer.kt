@@ -28,6 +28,7 @@ import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.model.V2MediaType
 import com.mediareview.app.feature.v2.model.V2SortField
 import com.mediareview.app.feature.v2.model.V2SortOrder
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerContext
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerState
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
@@ -81,6 +82,9 @@ fun V2ImageViewer(
         viewerState.updateCurrentIndex(pagerState.currentPage)
     }
 
+    // Stage 8A.1 §3: Viewer 打开时刻(viewer_preview_visible / viewer_full_image_ready 在其后)
+    LaunchedEffect(Unit) { V2Perf.viewerOpen() }
+
     // 沉浸式：进入隐藏系统栏 + 常亮；离开恢复（不污染首页）
     DisposableEffect(Unit) {
         val window = activity?.window
@@ -111,7 +115,10 @@ fun V2ImageViewer(
             val media = ids.getOrNull(page)?.let { vm.mediaById(it) }
             if (media != null) {
                 ZoomableImage(
-                    uri = vm.imageUri(media),
+                    // 渐进加载: 先显示媒体墙已缓存的封面,原图仅当前页后台加载
+                    previewUri = vm.coverUri(media),
+                    fullUri = vm.imageUri(media),
+                    loadFullResolution = shouldLoadFullResolution(page, pagerState.currentPage),
                     isCurrent = page == pagerState.currentPage,
                     naturalWidth = media.naturalWidth,
                     naturalHeight = media.naturalHeight,

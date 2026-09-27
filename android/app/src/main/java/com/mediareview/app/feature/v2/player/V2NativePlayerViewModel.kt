@@ -7,6 +7,7 @@ import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2PlaybackStage
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
 import com.mediareview.app.feature.v2.player.native.state.PlaybackQueueItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -74,6 +75,7 @@ class V2NativePlayerViewModel @Inject constructor(
     fun open(context: PlaybackContext) {
         val existing = _state.value
         if (existing.context == context && existing.ui !is V2PlaybackUiState.Failed) return
+        V2Perf.playerOpen(context.queue.getOrNull(context.currentIndex)?.mediaId.orEmpty())
         prefetched.clear()
         currentSource = null
         stage = V2PlaybackStage.DIRECT
@@ -160,6 +162,10 @@ class V2NativePlayerViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 ui = V2PlaybackUiState.Ready(source, stage, endpoint),
             )
+            // Stage 8A.1 §33 性能指标: 播放地址就绪(其后 first_frame 由播放内核进度回调记录)
+            if (V2Perf.claimPlaybackInfo()) {
+                V2Perf.mark("playback_info_ready", V2Perf.homeEnterNanos().takeIf { it > 0 })
+            }
             if (allowPrefetch) prefetchNext()
         }
     }

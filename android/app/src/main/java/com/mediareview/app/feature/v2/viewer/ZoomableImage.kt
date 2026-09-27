@@ -1,5 +1,6 @@
 package com.mediareview.app.feature.v2.viewer
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -38,21 +39,42 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 
 /**
- * 可缩放图片：
- * - 单击显隐 UI；双击 1.0x ↔ 2.5x 且以点击点为中心；
+ * 该页是否应加载原图（§27~§28）。
+ *
+ * 只有**当前页**允许请求 full original；邻页即使被 Pager 预组合
+ * （`beyondViewportPageCount = 2`）也只显示已缓存的封面，
+ * 避免 N-2..N+2 五张原图同时下载抢带宽。
+ */
+fun shouldLoadFullResolution(page: Int, currentPage: Int): Boolean = page == currentPage
+
+/**
+ * 可缩放图片（Stage 8A.1 渐进加载）：
+ * - 单击显隐 UI；双击 1.0x ↔ 2.5x 且以点击中心为焦点；
  * - 双指缩放 1.0x ~ 5.0x；放大后单指拖动（带边界 clamp）；
  * - scale == 1 时不消费手势，交给 Pager 翻页；scale 回到 1 时 offset 归零；
  * - 成为当前页时重置缩放状态。
+ *
+ * 渐进加载（§26~§29）：
+ * - [previewUri] 是媒体墙已经缓存过的封面 —— **第一帧就显示它**，绝不再黑屏等待；
+ * - [loadFullResolution] 为 true（当前页）时才在后台加载 [fullUri]，就绪后无感替换；
+ * - 邻页 [loadFullResolution] = false，`fullUri` 对应请求以 null model 下发，
+ *   Coil 不会发起任何原图请求 —— 不再出现"N-2..N+2 五张原图同时下载"。
  */
 @Composable
 fun ZoomableImage(
-    uri: String,
+    previewUri: String,
+    fullUri: String,
+    loadFullResolution: Boolean,
     isCurrent: Boolean,
     naturalWidth: Int,
     naturalHeight: Int,
@@ -66,6 +88,26 @@ fun ZoomableImage(
     var retryKey by remember { mutableIntStateOf(0) }
     val scaleRef = rememberUpdatedState(scale)
     val offsetRef = rememberUpdatedState(offset)
+
+    // 封面(媒体墙已缓存)作为渐进加载的第一帧: 进入 Viewer 立即有内容,不黑屏
+    val context = LocalContext.current
+    val previewPainter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data(previewUri.takeIf { it.isNotBlank() })
+            .crossfade(false)
+            .build(),
+        contentScale = ContentScale.Fit,
+    )
+    val previewState = previewPainter.state
+    val previewReady = previewState is AsyncImagePainter.State.Success
+    val previewFailed = previewState is AsyncImagePainter.State.Error
+
+    // 性能打点: 当前页第一帧封面可见(感知加载速度的关键指标)
+    LaunchedEffect(previewReady, isCurrent) {
+        if (isCurrent && previewReady && V2Perf.claimViewerPreview()) {
+            V2Perf.mark("viewer_preview_visible", V2Perf.homeEnterNanos().takeIf { it > 0 })
+        }
+    }
 
     // graphicsLayer 默认 TransformOrigin.Center => origin = viewport 中心
     fun viewportOrigin(v: Size): Offset = Offset(v.width / 2f, v.height / 2f)
@@ -88,7 +130,7 @@ fun ZoomableImage(
             .fillMaxSize()
             .clipToBounds()
             .onSizeChanged { viewport = Size(it.width.toFloat(), it.height.toFloat()) }
-            .pointerInput(uri) {
+            .pointerInput(previewUri, fullUri) {
                 var lastDist = 0f
                 var multiTouch = false
                 awaitEachGesture {
@@ -138,7 +180,7 @@ fun ZoomableImage(
                     }
                 }
             }
-            .pointerInput(uri) {
+            .pointerInput(previewUri, fullUri) {
                 detectTapGestures(
                     onTap = { onTap() },
                     onDoubleTap = { pos ->
@@ -160,42 +202,67 @@ fun ZoomableImage(
             },
     ) {
         key(retryKey) {
-            SubcomposeAsyncImage(
-                model = uri,
-                contentDescription = "图片",
+            val imageLayer = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scaleRef.value
+                    scaleY = scaleRef.value
+                    translationX = offsetRef.value.x
+                    translationY = offsetRef.value.y
+                }
+            // 原图请求: 仅当前页发起(邻页 model = null,Coil 不会请求)
+            val fullModel = if (loadFullResolution) fullUri else null
+            val fullPainter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(context)
+                    .data(fullModel)
+                    .crossfade(false)
+                    .build(),
                 contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scaleRef.value
-                        scaleY = scaleRef.value
-                        translationX = offsetRef.value.x
-                        translationY = offsetRef.value.y
-                    },
-                loading = {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = MediaTextPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                },
-                error = {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                    ) {
-                        Text("图片加载失败", style = MaterialTheme.typography.bodyMedium, color = MediaTextSecondary)
-                        TextButton(onClick = { retryKey++ }) {
-                            Icon(Icons.Default.Refresh, null, tint = MediaTextPrimary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("重试", color = MediaTextPrimary)
-                        }
-                    }
-                },
             )
+            val fullState = fullPainter.state
+            val fullReady = fullState is AsyncImagePainter.State.Success
+            val fullFailed = fullState is AsyncImagePainter.State.Error
+            // 性能打点: 原图就绪(渐进加载的"清晰度提升"时刻)
+            LaunchedEffect(fullReady) {
+                if (fullReady && V2Perf.claimViewerFull()) {
+                    V2Perf.mark("viewer_full_image_ready", V2Perf.homeEnterNanos().takeIf { it > 0 })
+                }
+            }
+            when {
+                // 原图就绪 → 无感替换(同尺寸 Fit,不产生跳变)
+                fullReady -> Image(
+                    painter = fullPainter,
+                    contentDescription = "图片",
+                    contentScale = ContentScale.Fit,
+                    modifier = imageLayer,
+                )
+                // 第一帧立即显示已缓存的封面,避免黑屏等待(§29)
+                previewReady -> Image(
+                    painter = previewPainter,
+                    contentDescription = "图片",
+                    contentScale = ContentScale.Fit,
+                    modifier = imageLayer,
+                )
+                previewFailed && fullFailed -> Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                ) {
+                    Text("图片加载失败", style = MaterialTheme.typography.bodyMedium, color = MediaTextSecondary)
+                    TextButton(onClick = { retryKey++ }) {
+                        Icon(Icons.Default.Refresh, null, tint = MediaTextPrimary, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("重试", color = MediaTextPrimary)
+                    }
+                }
+                else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        color = MediaTextPrimary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
         }
     }
 }

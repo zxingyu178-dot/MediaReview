@@ -1,5 +1,6 @@
 package com.mediareview.app.feature.v2.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -20,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,10 +37,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -57,8 +61,8 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
  */
 
 /** 封面轻量解码目标尺寸（像素）：约 176dp 双列卡，不按 1920×1080 原始尺寸解码。 */
-private const val COVER_TARGET_WIDTH = 484
-private const val COVER_TARGET_HEIGHT = 272
+internal const val COVER_TARGET_WIDTH = 484
+internal const val COVER_TARGET_HEIGHT = 272
 @Composable
 fun MediaCard(
     media: V2Media,
@@ -127,14 +131,31 @@ fun MediaCard(
                     .clip(RoundedCornerShape(topStart = V2Radius.Card, topEnd = V2Radius.Card))
                     .background(V2Colors.CardScrim),
             ) {
-                SubcomposeAsyncImage(
+                // Skeleton 固定铺底：不依赖 Subcompose slot，图片就绪后自然盖住它。
+                // Stage 8A.1 §11：LazyVerticalGrid 卡片内不再使用 SubcomposeAsyncImage
+                // （Subcompose 会在滚动时阻塞测量，是"封面一张张慢慢冒出来"的主因之一）。
+                CoverSkeleton()
+                val coverPainter = rememberAsyncImagePainter(
                     model = coverRequest,
+                    contentScale = ContentScale.Crop,
+                )
+                // Stage 8A.1 性能打点: 首张封面请求 → 首批 8 张封面就绪(单调时钟)
+                LaunchedEffect(coverPainter.state) {
+                    when (coverPainter.state) {
+                        is AsyncImagePainter.State.Loading -> V2Perf.coverRequest(media.id)
+                        is AsyncImagePainter.State.Success -> V2Perf.coverSuccess(media.id)
+                        else -> Unit
+                    }
+                }
+                Image(
+                    painter = coverPainter,
                     contentDescription = media.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
-                    loading = { CoverSkeleton() },
-                    error = { CoverPlaceholder() },
                 )
+                if (coverPainter.state is AsyncImagePainter.State.Error) {
+                    CoverPlaceholder()
+                }
 
                 // 时长胶囊（视频）
                 if (media.isVideo) {
