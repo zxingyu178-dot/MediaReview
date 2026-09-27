@@ -34,6 +34,7 @@ from app.services.thumbnail_cache import (
     VARIANT_GRID,
     ThumbnailCacheService,
     media_source_fingerprint,
+    source_version,
     thumbnail_cache_key,
 )
 
@@ -105,14 +106,24 @@ class MediaRefreshBody(BaseModel):
     force: bool = False
 
 
-def media_thumbnail_url(media_id: str) -> str:
-    return f"/api/v1/media/{media_id}/thumbnail"
+def media_thumbnail_url(media_id: str, version: str | None = None) -> str:
+    """缩略图代理 URL。
+
+    阶段 8A.1.1 §6: 带 `?v=<source_version>` —— 客户端(Coil/OkHttp)与 Server 的
+    失效逻辑据此完全一致。`source_version` 只由内容指纹派生,不含任何敏感信息。
+    """
+    base = f"/api/v1/media/{media_id}/thumbnail"
+    return f"{base}?v={version}" if version else base
 
 
 def media_original_url(item) -> str | None:
     if item.media_type != "image":
         return None
     return f"/api/v1/media/{item.media_id}/original"
+
+
+def row_source_version(row) -> str:
+    return source_version(media_source_fingerprint(row))
 
 
 def _summary_from_row(
@@ -180,13 +191,17 @@ async def list_media_folders(
         exclude_favorites=exclude_favorites,
     )
     # cover_url 复用既有缩略图代理路径约定;无图片封面时 cover_url 为 None。
+    # 文件夹封面版本号用 cover_media_id:代表封面换成更新的一张图时 URL 自然变化,
+    # 客户端缓存随之失效(无需额外查询)。
     log_perf("media_folders", start=started, folders=len(folders))
     return ok(
         [
             FolderSummary(
                 **f,
                 cover_url=(
-                    media_thumbnail_url(f["cover_media_id"]) if f["cover_media_id"] else None
+                    media_thumbnail_url(f["cover_media_id"], f["cover_media_id"])
+                    if f["cover_media_id"]
+                    else None
                 ),
             )
             for f in folders
@@ -259,7 +274,7 @@ async def list_media(
         items=[
             _summary_from_row(
                 row,
-                cover_url=media_thumbnail_url(row.media_id),
+                cover_url=media_thumbnail_url(row.media_id, row_source_version(row)),
                 original_url=media_original_url(row),
                 is_favorite=row.media_id in favorite_ids,
             )
@@ -314,7 +329,7 @@ async def get_media(
         raise MediaNotFoundError()
     summary = _summary_from_row(
         row,
-        cover_url=media_thumbnail_url(row.media_id),
+        cover_url=media_thumbnail_url(row.media_id, row_source_version(row)),
         original_url=media_original_url(row),
         is_favorite=media_id in media_index.favorite_media_ids(db, [media_id]),
     )
@@ -339,9 +354,11 @@ def _thumbnail_cache(request: Request) -> ThumbnailCacheService:
     return cache
 
 
-# 媒体卡目标约 480x270;竖图不再传输 480x850 再由客户端裁掉大部分。
-THUMBNAIL_MAX_WIDTH = 480
-THUMBNAIL_MAX_HEIGHT = 270
+# 媒体卡是 16:9: 由 Jellyfin 直接 fill 出 480x270 的 grid cover(§5)。
+# 旧实现用 maxWidth/maxHeight 等比缩放,9:16 竖图只能拿到约 152x270,
+# Android 再放大 3 倍填满卡片 → 明显模糊。改 fill 后竖图不再是低分辨率放大路径。
+GRID_COVER_WIDTH = 480
+GRID_COVER_HEIGHT = 270
 
 
 @router.get("/{media_id}/thumbnail", response_class=Response)
@@ -374,24 +391,32 @@ async def get_media_thumbnail(
         headers["X-MediaReview-Cache"] = "HIT"
         return Response(status_code=304, headers=headers)
 
-    payload, content_type, hit = await cache.get_or_create(
+    result = await cache.get_or_create(
         key,
         lambda: client.thumbnail_image(
             row.jellyfin_id,
-            max_width=THUMBNAIL_MAX_WIDTH,
-            max_height=THUMBNAIL_MAX_HEIGHT,
+            max_width=GRID_COVER_WIDTH,
+            max_height=GRID_COVER_HEIGHT,
+            fill=True,
         ),
     )
     cache.prune_locks()
-    headers["X-MediaReview-Cache"] = "HIT" if hit else "MISS"
+    headers["X-MediaReview-Cache"] = "HIT" if result.hit else "MISS"
     log_perf(
         "thumbnail",
         start=started,
-        cache="HIT" if hit else "MISS",
-        bytes=len(payload),
+        cache="HIT" if result.hit else "MISS",
+        bytes=len(result.payload),
+        disk_read_ms=result.disk_read_ms,
+        disk_write_ms=result.disk_write_ms,
+        upstream_ms=result.upstream_ms,
         media_id=media_id,
     )
-    return Response(content=payload, media_type=content_type, headers=headers)
+    return Response(
+        content=result.payload,
+        media_type=result.content_type,
+        headers=headers,
+    )
 
 
 @router.get("/{media_id}/original", response_class=Response)

@@ -23,6 +23,7 @@ from app.api.v1.media import (
     _summary_from_row,
     media_original_url,
     media_thumbnail_url,
+    row_source_version,
 )
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from app.core.responses import Envelope, ok
@@ -134,7 +135,11 @@ def _queue_urls(request: Request, media) -> tuple[str | None, str | None]:
     settings = request.app.state.settings.jellyfin
     if not settings.is_configured() or not media.jellyfin_id:
         return None, None
-    return media_thumbnail_url(media.media_id), media_original_url(media)
+    # 阶段 8A.1.1 §6: 与 /media 一致带上 source_version,保证客户端缓存失效逻辑相同
+    return (
+        media_thumbnail_url(media.media_id, row_source_version(media)),
+        media_original_url(media),
+    )
 
 
 @router.get("/sessions/{session_id}/queue", response_model=Envelope[ReviewQueuePage])

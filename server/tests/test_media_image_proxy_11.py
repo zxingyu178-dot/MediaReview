@@ -163,13 +163,16 @@ def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image
             f"{name}: {value}" for name, value in response.headers.items()
         )
     queue_media = [item["media"] for item in queue.json()["data"]["items"]]
+    # 阶段 8A.1.1: cover_url 带 ?v=<source_version>，只断言基础路径与版本参数存在
     assert all(
-        item["cover_url"] == f"/api/v1/media/{item['media_id']}/thumbnail" for item in queue_media
+        item["cover_url"].startswith(f"/api/v1/media/{item['media_id']}/thumbnail")
+        and "?v=" in item["cover_url"]
+        for item in queue_media
     )
     assert next(item for item in queue_media if item["media_id"] == "img-ok")["original_url"] == (
         "/api/v1/media/img-ok/original"
     )
-    assert detail.json()["data"]["cover_url"] == "/api/v1/media/img-ok/thumbnail"
+    assert detail.json()["data"]["cover_url"].startswith("/api/v1/media/img-ok/thumbnail")
     assert detail.json()["data"]["original_url"] == "/api/v1/media/img-ok/original"
     playback_data = playback.json()["data"]
     assert playback_data["requires_jellyfin_auth"] is False

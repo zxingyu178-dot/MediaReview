@@ -178,7 +178,9 @@ def test_media_original_url_image_present_video_null(jellyfin_api_client) -> Non
     assert images, "照片库应返回图片"
     for img in images:
         assert img["media_type"] == "image"
-        assert img["cover_url"] == f"/api/v1/media/{img['media_id']}/thumbnail"
+        assert img["cover_url"].startswith(f"/api/v1/media/{img['media_id']}/thumbnail")
+        # 阶段 8A.1.1 §6: 客户端缓存失效所需的 source_version
+        assert "?v=" in img["cover_url"]
         assert img["original_url"] == f"/api/v1/media/{img['media_id']}/original"
         assert "api_key=" not in str(img)
 
@@ -555,7 +557,7 @@ def test_media_folders_cover_latest_image(jellyfin_api_client) -> None:
     assert album_a["count"] == 3
     assert album_a["image_count"] == 2
     assert album_a["cover_media_id"] == "img-new"
-    assert album_a["cover_url"] == "/api/v1/media/img-new/thumbnail"
+    assert album_a["cover_url"].startswith("/api/v1/media/img-new/thumbnail")
     # 响应仍不含 Windows 路径
     assert "D:/" not in str(album_a) and "Covers" not in str(album_a)
 

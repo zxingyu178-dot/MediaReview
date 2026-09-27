@@ -237,7 +237,7 @@ def test_thumbnail_single_flight_collapses_concurrent_misses(tmp_path) -> None:
     assert calls == 1, "并发 MISS 必须只回源一次"
     assert service.misses == 1
     assert service.hits == 5
-    assert all(payload == b"payload" for payload, _ct, _hit in results)
+    assert all(r.payload == b"payload" and r.content_type == "image/jpeg" for r in results)
 
 
 def test_thumbnail_cache_write_is_atomic(tmp_path) -> None:
