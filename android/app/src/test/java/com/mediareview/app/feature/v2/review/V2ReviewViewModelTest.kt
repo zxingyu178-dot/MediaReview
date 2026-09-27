@@ -298,8 +298,9 @@ class V2ReviewViewModelTest {
         override suspend fun favorites(): List<V2Media> = media().filter { it.isFavorite }
         override suspend fun markReviewed(mediaId: String) { reviewed += mediaId }
         override suspend fun pendingDeleteIds(): Set<String> = pendingDelete.toSet()
-        override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {
+        override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean {
             if (pending) pendingDelete += mediaId else pendingDelete -= mediaId
+            return true
         }
         override suspend fun unmarkReviewed(mediaId: String) {
             reviewed -= mediaId

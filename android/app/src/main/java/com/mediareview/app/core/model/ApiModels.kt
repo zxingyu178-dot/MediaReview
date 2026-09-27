@@ -1,5 +1,6 @@
 package com.mediareview.app.core.model
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
@@ -158,9 +159,17 @@ data class ReviewCreateRequest(
 )
 
 /** 标记已看/未看请求。 */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
 data class ReviewSeenRequest(
     val media_id: String = "",
+    /**
+     * 已看标记。
+     *
+     * 必须**显式发送**：项目 Json 配置 `encodeDefaults = false`，不加 [EncodeDefault]
+     * 时 `seen=true` 会被省略，语义将隐式依赖服务端默认值（Stage 8B 起 seen 是批阅核心状态）。
+     */
+    @EncodeDefault
     val seen: Boolean = true,
 )
 
@@ -168,6 +177,32 @@ data class ReviewSeenRequest(
 @Serializable
 data class ReviewPositionRequest(
     val index: Int = 0,
+)
+
+/**
+ * 批阅进度摘要（Stage 8B 修正）：
+ * `POST /review/sessions/{id}/position|advance|complete` 的真实响应是
+ * `{session_id, status, current_index, total_count, seen_count, ...}`，
+ * 其中含整数与时间字段——**不能**用 `Map<String, Any>` 接收（会解析失败）。
+ */
+@Serializable
+data class ReviewProgressDto(
+    val session_id: String = "",
+    val status: String = "",
+    val current_index: Int = 0,
+    val total_count: Int = 0,
+    val seen_count: Int = 0,
+)
+
+/**
+ * 已看标记结果（Stage 8B 修正）：
+ * 服务端返回 `{"media_id": "...", "seen": true}`——`seen` 是布尔，
+ * 早期客户端用 `Map<String, String>` 接收会解析失败（seen 静默失效）。
+ */
+@Serializable
+data class ReviewSeenResultDto(
+    val media_id: String = "",
+    val seen: Boolean = true,
 )
 
 /** 播放进度上报请求。 */
@@ -192,6 +227,12 @@ data class MutationResultDto(
     val created: Boolean? = null,
     val removed: Boolean? = null,
     val reported: Boolean? = null,
+    /**
+     * 待删除队列结果（Stage 8B §35）：
+     * `POST /delete-queue/{id}` → `{"media_id": "...", "queued": true}`；
+     * `DELETE /delete-queue/{id}` → `{"media_id": "...", "queued": false}`。
+     */
+    val queued: Boolean? = null,
 )
 
 /** 收藏项(GET /favorites)。 */

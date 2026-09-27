@@ -63,6 +63,13 @@ class V2ServerMediaRepository internal constructor(
     private val playbackResolver: V2PlaybackResolver,
     private val albumCoverPort: V2ServerAlbumCoverPort,
     private val statusStore: V2ServerStatusStore,
+    /**
+     * Server 资源缓存（封面 / 原图 / 已映射媒体）。
+     *
+     * 阶段 8B 起由 Hilt 提供**单例**并被 Review 会话仓库共享：批阅队列里的媒体
+     * 也必须出现在同一份缓存里，完整播放器才能通过 `mediaById` 打开当前媒体。
+     */
+    private val resources: V2ServerResourceCache = V2ServerResourceCache(),
 ) : MediaRepository {
 
     @Inject
@@ -73,6 +80,7 @@ class V2ServerMediaRepository internal constructor(
         playbackResolver: V2PlaybackResolver,
         albumCoverStore: AlbumCoverStore,
         statusStore: V2ServerStatusStore,
+        resources: V2ServerResourceCache,
     ) : this(
         profilePort = object : V2ServerProfilePort {
             override suspend fun baseUrl(): String = profileStore.current().baseUrl
@@ -86,12 +94,10 @@ class V2ServerMediaRepository internal constructor(
                 albumCoverStore.setCover(folderId, mediaId)
         },
         statusStore = statusStore,
+        resources = resources,
     )
 
     override val mode: V2DataMode = V2DataMode.SERVER
-
-    /** Server 资源缓存：封面 / 原图绝对 URL 与已映射媒体（UI 不接触 DTO）。 */
-    private val resources = V2ServerResourceCache()
 
     /**
      * 文件夹短时缓存（Stage 8A.1 / 8A.1.1）。
@@ -242,21 +248,41 @@ class V2ServerMediaRepository internal constructor(
         mapAndCache(items, base)
     }
 
-    // ---------- Review 兼容路径（Stage 8A 不接服务器 Review Session） ----------
+    // ---------- Review 待删除（Stage 8B §35：Server 模式真正接通 delete-queue） ----------
 
     override suspend fun markReviewed(mediaId: String) {
-        // Stage 8B 才接 /review/sessions（Demo 语义 isReviewed 与 Server seen 生命周期不同）。
-        // Server 模式下 V2ReviewScreen 显示"真实批阅接入将在 Stage 8B 完成"，不会走到这里。
+        // 批阅"已看"属于 Review Session（Stage 8B 起由 V2ReviewSessionRepository 走
+        // POST /review/sessions/{id}/seen），这里保持空实现，不伪造本地批阅状态。
     }
 
-    override suspend fun pendingDeleteIds(): Set<String> = emptySet()
+    /**
+     * 待删除集合：`GET /delete-queue`。
+     *
+     * 失败时上抛（调用方决定提示与重试），**绝不返回空集假装成功** ——
+     * 空集会让 UI 认为"没有任何待删除"，从而丢失服务端已有的待删除标记。
+     */
+    override suspend fun pendingDeleteIds(): Set<String> = call { api, _ ->
+        unwrap(api.listDeleteQueue()).mapNotNull { it.media_id.ifBlank { null } }.toSet()
+    }
 
-    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {
-        // 同上：待删除队列属于 Review Session / delete-queue 对接，Stage 8B 处理。
+    /**
+     * 加入 / 移除待删除：`POST /delete-queue/{id}` / `DELETE /delete-queue/{id}`。
+     * 只有服务器确认成功才返回 true（§36：失败 UI 不变 + Snackbar）。
+     */
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = try {
+        call { api, _ ->
+            if (pending) unwrap(api.enqueueDelete(mediaId)) else unwrap(api.dequeueDelete(mediaId))
+        }
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        false
     }
 
     override suspend fun unmarkReviewed(mediaId: String) {
-        // 同上：Stage 8B。
+        // 重新批阅在 Server 模式 = 新建 Review Session（由 V2ReviewSessionRepository 处理），
+        // 不逐项重置旧会话（§39）。
     }
 
     // ---------- 播放 ----------

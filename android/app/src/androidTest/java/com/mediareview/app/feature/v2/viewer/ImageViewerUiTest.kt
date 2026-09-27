@@ -143,7 +143,7 @@ private class FakeViewerRepository : MediaRepository {
     override suspend fun favorites(): List<V2Media> = applyOverrides(catalog).filter { it.isFavorite }
     override suspend fun markReviewed(mediaId: String) {}
     override suspend fun pendingDeleteIds(): Set<String> = emptySet()
-    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {}
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = true
     override suspend fun unmarkReviewed(mediaId: String) {}
     override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource = V2PlaybackSource(
         mediaId = mediaId,

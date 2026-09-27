@@ -233,12 +233,42 @@ class V2ServerMediaRepositoryContractTest {
         assertEquals("m2", albums.first().coverImageId)
     }
 
+    // ---------- 待删除队列（Stage 8B §35/§36） ----------
+
+    @Test
+    fun `待删除集合来自服务端而不是空集`() = runTest {
+        router.deleteQueueBody = """
+            {
+              "success": true,
+              "data": [
+                {"media_id": "m1", "status": "pending", "size_bytes": 1024},
+                {"media_id": "m2", "status": "pending", "size_bytes": 2048}
+              ]
+            }
+        """.trimIndent()
+
+        assertEquals(setOf("m1", "m2"), repository.pendingDeleteIds())
+    }
+
+    @Test
+    fun `加入与撤销待删除只有服务器确认才返回true`() = runTest {
+        assertTrue(repository.setPendingDelete("m1", true))
+        assertTrue(repository.setPendingDelete("m1", false))
+        val enqueue = router.requests.first { it.path == "/api/v1/delete-queue/m1" && it.method == "POST" }
+        val dequeue = router.requests.first { it.path == "/api/v1/delete-queue/m1" && it.method == "DELETE" }
+        assertEquals("POST", enqueue.method)
+        assertEquals("DELETE", dequeue.method)
+
+        // 服务端失败 → 返回 false（UI 必须保持原状态，禁止假成功）
+        router.failDeleteMutation = true
+        assertFalse(repository.setPendingDelete("m2", true))
+    }
+
     // ---------- 收藏 ----------
 
     @Test
     fun `收藏成功由服务器确认`() = runTest {
         router.favoritesBody = """{"success": true, "data": []}"""
-
         assertTrue(repository.setFavorite("m1", true))
         val add = router.requests.first { it.path == "/api/v1/favorites/m1" }
         assertEquals("POST", add.method)
@@ -493,6 +523,8 @@ class V2ServerMediaRepositoryContractTest {
         var mediaBody: String = """{"success": true, "data": {"items": [], "total": 0, "page": 1, "page_size": 50, "sync": {"state": "idle", "stale": false, "processed": 0, "total": 0, "message": ""}}}"""
         var foldersBody: String = """{"success": true, "data": []}"""
         var favoritesBody: String = """{"success": true, "data": []}"""
+        var deleteQueueBody: String = """{"success": true, "data": []}"""
+        var failDeleteMutation: Boolean = false
         var playbackBody: String = """{"success": true, "data": {"media_id": "m", "title": "t", "direct": {"url": "", "headers": {}}}}"""
         val playbackBodies = mutableMapOf<String, String>()
         var forceStatus: Int? = null
@@ -519,6 +551,17 @@ class V2ServerMediaRepositoryContractTest {
                 }
                 path.endsWith("/progress") -> json("""{"success": true, "data": {"media_id": "m", "reported": true}}""")
                 path.startsWith("/api/v1/favorites") -> json(favoritesBody)
+                path.startsWith("/api/v1/delete-queue/") && request.method != "GET" -> {
+                    if (failDeleteMutation) {
+                        json("""{"success": false, "error": {"code": "e", "message": "fail"}}""", 500)
+                    } else {
+                        // 与真实服务端一致：布尔字段 queued（不是字符串 Map）
+                        val mediaId = path.removePrefix("/api/v1/delete-queue/")
+                        val queued = request.method == "POST"
+                        json("""{"success": true, "data": {"media_id": "$mediaId", "queued": $queued}}""")
+                    }
+                }
+                path.startsWith("/api/v1/delete-queue") -> json(deleteQueueBody)
                 path.startsWith("/api/v1/media/folders") -> json(foldersBody)
                 path.startsWith("/api/v1/media/") && path.endsWith("/playback") -> {
                     val mediaId = path.removePrefix("/api/v1/media/").removeSuffix("/playback")

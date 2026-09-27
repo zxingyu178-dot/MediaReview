@@ -103,8 +103,10 @@ class DemoMediaRepository @Inject constructor(
 
     override suspend fun pendingDeleteIds(): Set<String> = pendingDeleteState.toSet()
 
-    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) {
+    /** Demo 的待删除是内存状态：本地必然成功（无网络确认环节）。 */
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean {
         if (pending) pendingDeleteState += mediaId else pendingDeleteState -= mediaId
+        return true
     }
 
     override suspend fun unmarkReviewed(mediaId: String) {

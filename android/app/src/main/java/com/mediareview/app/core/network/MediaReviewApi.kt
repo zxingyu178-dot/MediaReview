@@ -21,8 +21,10 @@ import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ProgressRequest
 import com.mediareview.app.core.model.ReviewCreateRequest
 import com.mediareview.app.core.model.ReviewPositionRequest
+import com.mediareview.app.core.model.ReviewProgressDto
 import com.mediareview.app.core.model.ReviewQueuePageDto
 import com.mediareview.app.core.model.ReviewSeenRequest
+import com.mediareview.app.core.model.ReviewSeenResultDto
 import com.mediareview.app.core.model.ReviewSessionDto
 import com.mediareview.app.core.model.SpriteEnsureOut
 import com.mediareview.app.core.model.SpriteManifestDto
@@ -129,13 +131,20 @@ interface MediaReviewApi {
     suspend fun markSeen(
         @Path("session_id") sessionId: String,
         @Body body: ReviewSeenRequest,
-    ): Envelope<Map<String, String>>
+    ): Envelope<ReviewSeenResultDto>
 
     @POST("/api/v1/review/sessions/{session_id}/position")
     suspend fun setReviewPosition(
         @Path("session_id") sessionId: String,
         @Body body: ReviewPositionRequest,
-    ): Envelope<Map<String, Any>>
+    ): Envelope<ReviewProgressDto>
+
+    /**
+     * 手动完成批阅会话（Stage 8B §40/§16）：
+     * 队列全部项稳定批阅后调用，长期状态以服务端为准（不靠本地 last page 判断）。
+     */
+    @POST("/api/v1/review/sessions/{session_id}/complete")
+    suspend fun completeReviewSession(@Path("session_id") sessionId: String): Envelope<ReviewProgressDto>
 
     @GET("/api/v1/favorites")
     suspend fun listFavorites(): Envelope<List<FavoriteItemDto>>
@@ -150,10 +159,10 @@ interface MediaReviewApi {
     suspend fun listDeleteQueue(): Envelope<List<DeleteQueueItemDto>>
 
     @POST("/api/v1/delete-queue/{media_id}")
-    suspend fun enqueueDelete(@Path("media_id") mediaId: String): Envelope<Map<String, String>>
+    suspend fun enqueueDelete(@Path("media_id") mediaId: String): Envelope<MutationResultDto>
 
     @DELETE("/api/v1/delete-queue/{media_id}")
-    suspend fun dequeueDelete(@Path("media_id") mediaId: String): Envelope<Map<String, String>>
+    suspend fun dequeueDelete(@Path("media_id") mediaId: String): Envelope<MutationResultDto>
 
     @POST("/api/v1/delete-queue/commit/prepare")
     suspend fun prepareDeleteCommit(): Envelope<DeleteCommitPrepDto>

@@ -173,7 +173,7 @@ private class ContextRepository : MediaRepository {
 
     override suspend fun pendingDeleteIds(): Set<String> = emptySet()
 
-    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) = Unit
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = true
 
     override suspend fun unmarkReviewed(mediaId: String) = Unit
 

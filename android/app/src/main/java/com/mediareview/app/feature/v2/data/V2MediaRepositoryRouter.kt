@@ -66,7 +66,7 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override suspend fun pendingDeleteIds(): Set<String> = active().pendingDeleteIds()
 
-    override suspend fun setPendingDelete(mediaId: String, pending: Boolean) =
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean =
         active().setPendingDelete(mediaId, pending)
 
     override suspend fun unmarkReviewed(mediaId: String) = active().unmarkReviewed(mediaId)

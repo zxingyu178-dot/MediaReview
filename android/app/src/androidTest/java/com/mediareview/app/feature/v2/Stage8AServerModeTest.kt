@@ -25,6 +25,7 @@ import com.mediareview.app.feature.v2.data.server.V2MediaMapper
 import com.mediareview.app.feature.v2.data.server.V2PlaybackResolver
 import com.mediareview.app.feature.v2.data.server.V2ServerHealthMonitor
 import com.mediareview.app.feature.v2.data.server.V2ServerMediaRepository
+import com.mediareview.app.feature.v2.data.server.V2ServerResourceCache
 import com.mediareview.app.feature.v2.data.server.V2ServerSessionBootstrap
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import com.mediareview.app.feature.v2.home.HomeScreen
@@ -121,6 +122,8 @@ class Stage8AServerModeTest {
             playbackResolver = V2PlaybackResolver(MediaUrlResolver()),
             albumCoverStore = albumCoverStore,
             statusStore = serverStatus,
+            // 阶段 8B：资源缓存由 Hilt 提供单例并与 Review 会话仓库共享；测试里单独构造即可
+            resources = V2ServerResourceCache(),
         )
     }
 
