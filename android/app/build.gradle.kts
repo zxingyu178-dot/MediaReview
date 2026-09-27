@@ -67,6 +67,16 @@ android {
         compose = true
         buildConfig = true
     }
+
+    /**
+     * JVM 单测（`testDebugUnitTest`）没有 Android 运行时：
+     * `android.util.Log` 等系统类默认会抛 "not mocked"。
+     * 性能打点 [com.mediareview.app.feature.v2.perf.V2Perf] 会在 Debug 构建调用 Log.i，
+     * 这里按 AGP 标准做法返回默认值，避免测试因为"日志"而失败（不改变任何生产行为）。
+     */
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {

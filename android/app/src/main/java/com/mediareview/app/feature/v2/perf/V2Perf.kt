@@ -36,6 +36,7 @@ object V2Perf {
     private val pagingSession = AtomicReference<TimingSession?>(null)
     private val viewerSession = AtomicReference<TimingSession?>(null)
     private val playerSession = AtomicReference<TimingSession?>(null)
+    private val reviewSession = AtomicReference<TimingSession?>(null)
 
     private val coverReadyIds: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
 
@@ -109,6 +110,20 @@ object V2Perf {
     }
 
     fun player(): TimingSession? = playerSession.get()
+
+    /**
+     * REVIEW（Stage 8B §50）：review_open → session_restore → queue_page → playback_info_ready。
+     *
+     * 每次真正进入批阅（含"重新批阅"新建会话）重建，避免上一次会话的数据污染本次。
+     */
+    fun openReview(): TimingSession {
+        val session = TimingSession(name = "review", baseNanos = 0L)
+        reviewSession.set(session)
+        log("review_open", null)
+        return session
+    }
+
+    fun review(): TimingSession? = reviewSession.get()
 
     // ---------- 封面（归属 home 会话） ----------
 

@@ -62,6 +62,7 @@ import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
 import com.mediareview.app.feature.v2.player.native.state.PlaybackQueueItem
 import com.mediareview.app.feature.v2.review.V2ReviewScreen
+import com.mediareview.app.feature.v2.review.V2ReviewUiState
 import com.mediareview.app.feature.v2.review.V2ReviewViewModel
 import com.mediareview.app.feature.v2.settings.V2DataSourceSheet
 import com.mediareview.app.feature.v2.ui.V2Radius
@@ -157,8 +158,10 @@ fun V2MainScreen(
                         // 返回仍回批阅原页
                         val media = vm.mediaById(mediaId)
                         if (media != null) {
-                            val windowVideos = reviewViewModel.queue.value
-                                .mapNotNull { item -> vm.mediaById(item.mediaId) }
+                            val windowVideos = (reviewViewModel.state.value as? V2ReviewUiState.Ready)
+                                ?.items
+                                ?.mapNotNull { item -> vm.mediaById(item.mediaId) }
+                                .orEmpty()
                             if (vm.openMediaInVideoQueue(windowVideos, mediaId)) {
                                 MediaNavigator.openMedia(navController, media)
                             }

@@ -12,7 +12,13 @@ import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
-import com.mediareview.app.feature.v2.model.V2TypeFilter
+import com.mediareview.app.feature.v2.review.data.ReviewQueueItemUi
+import com.mediareview.app.feature.v2.review.data.ReviewQueuePageResult
+import com.mediareview.app.feature.v2.review.data.ReviewQueueWindow
+import com.mediareview.app.feature.v2.review.data.ReviewSessionInfo
+import com.mediareview.app.feature.v2.review.data.ReviewSessionOpen
+import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -22,21 +28,20 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Review Session / 队列生命周期的 JVM 逻辑测试（Stage 7）。
- * 校验：
- * - 队列 = 未审视频（不含已审/图片）；
- * - 再次进入 Review（enterReview）能看到最新未审队列（不再依赖 loadIfNeeded 偶然状态）；
- * - 空队列"重新批阅"可真正重建全量队列（restartAllVideos）；
- * - 完成条件 = 队列全部已批阅；缺任一未审条目不完成（取代旧"末页已批阅"弱判定）；
- * - 完整播放器返回（onLeaveForFullPlayer → enterReview）恢复原 Session（页/已批阅）；
- * - pendingDelete 与 reviewed 独立、可撤销；
- * - restart 后所有 Session 条目回到未审。
+ * 批阅会话 ViewModel 的 JVM 逻辑测试（Stage 8B §17 / §21 / §24 / §26 / §28 / §33 / §37 / §39 / §40 / §47）。
+ *
+ * 直接给 ViewModel 注入可控的 [V2ReviewSessionRepository]：
+ * - 无 active → 新建；有 active → 恢复；latest 失败 → 不新建（§17）；
+ * - 深位置恢复定位（§21）；
+ * - seen 服务端确认制（§26）、position latest-wins（§28）、P0/P1 播放解析上限（§5/§33）；
+ * - 待删除 / 收藏的确认制（§34/§36）、完整播放器返回不重建会话（§37）、重新批阅 = 新建会话（§39）、
+ *   队列走到底 + 末项已确认 → 服务端 complete（§40）。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class V2ReviewViewModelTest {
@@ -53,283 +58,473 @@ class V2ReviewViewModelTest {
         Dispatchers.resetMain()
     }
 
-    @Test
-    fun `队列只含未审视频`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 1, images = 2)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        assertTrue(vm.ready.value)
-        val queue = vm.queue.value
-        assertEquals(2, queue.size)
-        assertTrue(queue.all { repo.isVideo(it.mediaId) && !repo.isReviewedById(it.mediaId) })
-    }
+    // ---------- §17 会话进入 ----------
 
     @Test
-    fun `再次进入 Review 能看到最新未审队列`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        assertEquals(listOf("v0", "v1", "v2"), vm.queue.value.map { it.mediaId })
-        // 外部（如首页）标记 v1 已批阅
-        repo.markReviewed("v1")
-        vm.enterReview()
-        assertEquals(listOf("v0", "v2"), vm.queue.value.map { it.mediaId })
-    }
-
-    @Test
-    fun `空队列重新批阅可真正重建全量队列`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 3, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        assertTrue(vm.queue.value.isEmpty())
-        assertTrue(vm.ready.value)
-        // 空队列页"重新批阅"：清除全部视频已批阅并重建全量队列
-        vm.restartAllVideos()
-        assertEquals(listOf("v0", "v1", "v2"), vm.queue.value.map { it.mediaId })
-        assertTrue(vm.queue.value.all { !vm.isReviewed(it.mediaId) })
-        assertTrue(vm.reviewedIds.value.isEmpty())
-        assertEquals(0, vm.currentIndex.value)
-    }
-
-    @Test
-    fun `最后一条已批阅但前面还有未审_NOT_complete`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        assertFalse(vm.isComplete.value)
-        vm.markReviewed("v2") // 只有最后一条已审
-        assertFalse(vm.isComplete.value)
-        // 补齐其余两条后才完成
-        vm.markReviewed("v0")
-        vm.markReviewed("v1")
-        assertTrue(vm.isComplete.value)
-    }
-
-    @Test
-    fun `全部已批阅才 complete`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        vm.queue.value.forEach { vm.markReviewed(it.mediaId) }
-        assertTrue(vm.isComplete.value)
-        assertTrue(repo.reviewed == vm.queue.value.map { it.mediaId }.toSet())
-    }
-
-    @Test
-    fun `待删除与已批阅相互独立且可撤销`() = runTest {
-        val repo = FakeRepo(videos = 2, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        val target = vm.queue.value.first().mediaId
-        vm.addPendingDelete(target)
-        assertTrue(target in vm.pendingDeleteIds.value)
-        // 待删除不改变批阅状态
-        vm.markReviewed(target)
-        assertTrue(vm.isReviewed(target))
-        assertTrue(vm.isPendingDelete(target))
-        // 撤销后从集合移除
-        vm.undoPendingDelete(target)
-        assertTrue(target !in vm.pendingDeleteIds.value)
-        assertEquals(emptySet<String>(), repo.pendingDeleteIds())
-    }
-
-    @Test
-    fun `restartCurrentSession 清空本次队列已批阅标记`() = runTest {
-        val repo = FakeRepo(videos = 2, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        vm.queue.value.forEach { vm.markReviewed(it.mediaId) }
-        assertTrue(vm.reviewedIds.value.size == 2)
-        vm.restartCurrentSession()
-        assertTrue(vm.reviewedIds.value.isEmpty())
-        assertEquals(vm.queue.value.map { it.mediaId }.toSet(), repo.unmarked)
-        assertFalse(vm.isComplete.value)
-    }
-
-    @Test
-    fun `restartAllVideos 后所有视频回到未审`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 1, images = 1)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        assertEquals(2, vm.queue.value.size)
-        vm.markReviewed(vm.queue.value.first().mediaId)
-        vm.restartAllVideos()
-        // 全量视频均已清除批阅标记
-        assertEquals(repo.allMediaIds, repo.unmarked)
-        assertEquals(3, vm.queue.value.size)
-        assertTrue(vm.queue.value.all { !vm.isReviewed(it.mediaId) })
-        assertEquals(0, vm.currentIndex.value)
-    }
-
-    @Test
-    fun `完整播放器返回恢复原 Session 不重建队列`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        vm.onPageSettled(1)
-        vm.markReviewed("v0") // 已看第 1 条
-        vm.onLeaveForFullPlayer()
-        // 模拟完整播放器返回：恢复会话，不重建队列、不跳回第 1 条
-        vm.enterReview()
-        assertEquals(3, vm.queue.value.size)
-        assertEquals(1, vm.currentIndex.value)
-        assertTrue("v0" in vm.reviewedIds.value)
-        assertFalse(vm.isComplete.value)
-    }
-
-    @Test
-    fun `离开Tab再进入重建最新队列且回到第1条`() = runTest {
-        val repo = FakeRepo(videos = 3, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        vm.onPageSettled(1)
-        vm.markReviewed("v0")
-        // 正常离开（非完整播放器）后再次进入：刷新队列
-        vm.enterReview()
-        assertEquals(2, vm.queue.value.size) // v0 已审，不在新队列
-        assertEquals(0, vm.currentIndex.value)
-    }
-
-    @Test
-    fun `Headers 与对应媒体一一对应不串源`() = runTest {
-        val repo = FakeRepo(videos = 2, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        val a = vm.queue.value[0]
-        val b = vm.queue.value[1]
-        // 每条媒体的 header 都携带各自的 mediaId（Demo debug header 语义）
-        assertEquals(a.mediaId, a.headers["X-Debug-Media"])
-        assertEquals(b.mediaId, b.headers["X-Debug-Media"])
-        // A 的 Header 不会出现在 B 上
-        assertNotEquals(a.headers, b.headers)
-        assertEquals(1, a.headers.keys.size)
-        assertEquals(1, b.headers.keys.size)
-    }
-
-    @Test
-    fun `单视频队列浏览完成后重新批阅回到可审`() = runTest {
-        val repo = FakeRepo(videos = 1, reviewedVideos = 0, images = 0)
-        val vm = V2ReviewViewModel(repo)
-        vm.enterReview()
-        assertEquals(1, vm.queue.value.size)
-        // 浏览完成：标记该条 → complete
-        vm.markReviewed(vm.queue.value.first().mediaId)
-        assertTrue(vm.isComplete.value)
-        // 完成页"重新批阅"（restartCurrentSession）：
-        vm.restartCurrentSession()
-        assertTrue(vm.reviewedIds.value.isEmpty())
-        assertFalse(vm.isComplete.value)
-        assertEquals(0, vm.currentIndex.value)
-        assertTrue(vm.queue.value.single().mediaId in repo.unmarked)
-    }
-
-    /** 内存仓库：可控视频/已审/图片数量；可查询/修改外部状态。 */
-    private class FakeRepo(
-        videos: Int,
-        reviewedVideos: Int,
-        images: Int,
-    ) : MediaRepository {
-        private val catalog = buildList {
-            repeat(videos) { i ->
-                add(V2Media(
-                    id = "v$i", code = "V$i", name = "视频 $i",
-                    folderId = "f", folderName = "F",
-                    type = V2MediaType.VIDEO, durationMs = 10_000L,
-                    sizeBytes = 1000L, dateMillis = 100L + i,
-                    isFavorite = false, isReviewed = false,
-                    assetPath = "demo_media/videos/01_landscape.mp4",
-                    thumbPath = "", spritePath = null, spriteManifestPath = null,
-                    naturalWidth = 1280, naturalHeight = 720,
-                ))
-            }
-            repeat(images) { i ->
-                add(V2Media(
-                    id = "img$i", code = "I$i", name = "图片 $i",
-                    folderId = "f", folderName = "F",
-                    type = V2MediaType.IMAGE, durationMs = 0L,
-                    sizeBytes = 500L, dateMillis = 200L + i,
-                    isFavorite = false, isReviewed = false,
-                    assetPath = "demo_media/images/img_landscape_01.jpg",
-                    thumbPath = "", spritePath = null, spriteManifestPath = null,
-                    naturalWidth = 1280, naturalHeight = 720,
-                ))
-            }
+    fun `没有active会话时进入会新建会话`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(sessionId = "new", total = 30, currentIndex = 0)
         }
+        val vm = vm(sessions)
 
-        val allMediaIds: Set<String> = catalog.filter { it.isVideo }.map { it.id }.toSet()
+        vm.enterReview()
 
-        private val favorite = mutableSetOf<String>()
-        val reviewed = mutableSetOf<String>()
-        private val pendingDelete = mutableSetOf<String>()
+        assertEquals(listOf(false), sessions.enterForceNew)
+        val state = vm.state.value as? V2ReviewUiState.Ready ?: error("期望 Ready，实际 ${vm.state.value}")
+        assertEquals("new", state.sessionId)
+        assertEquals(30, state.totalCount)
+    }
 
-        val unmarked = mutableSetOf<String>()
-
-        init {
-            // 初始已批阅（完全由 reviewed 集合驱动，unmarkReviewed 才能真正清除）
-            repeat(reviewedVideos) { i -> reviewed += "v$i" }
-        }
-
-        override val mode: V2DataMode = V2DataMode.DEMO
-        override suspend fun folders(): List<V2Folder> = emptyList()
-        override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
-            val items = media().let { list ->
-                when (query.spec.typeFilter) {
-                    V2TypeFilter.ALL -> list
-                    V2TypeFilter.VIDEO -> list.filter { it.isVideo }
-                    V2TypeFilter.IMAGE -> list.filter { !it.isVideo }
-                }
-            }
-            return V2MediaPage(items = items, page = 1, pageSize = query.pageSize, total = items.size)
-        }
-        override suspend fun media(): List<V2Media> = catalog.map { m ->
-            m.copy(
-                isFavorite = m.id in favorite,
-                isReviewed = m.id in reviewed,
+    @Test
+    fun `有active会话时恢复并定位到current_index所在页`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(
+                sessionId = "active",
+                total = 1000,
+                currentIndex = 637,
+                window = window(count = 50, baseIndex = 600, total = 1000, startId = 601),
             )
         }
-        override suspend fun media(spec: V2SortSpec): List<V2Media> = media()
-        override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> = media()
-        override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> = media()
-        override fun mediaById(id: String): V2Media? = catalog.find { it.id == id }
-        override suspend fun setFavorite(mediaId: String, isFav: Boolean): Boolean {
-            if (isFav) favorite += mediaId else favorite -= mediaId
-            return true
+        val vm = vm(sessions)
+
+        vm.enterReview()
+
+        val state = vm.state.value as V2ReviewUiState.Ready
+        assertEquals(637, state.absoluteCurrentIndex)
+        assertEquals("pager 必须定位到 637 在窗口内的本地索引", 37, state.localCurrentIndex)
+        assertEquals(600, state.window.baseIndex)
+    }
+
+    @Test
+    fun `latest失败时不新建会话且显示可重试错误`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = ReviewSessionOpen.Failed("无法恢复批阅")
         }
-        override suspend fun favorites(): List<V2Media> = media().filter { it.isFavorite }
-        override suspend fun markReviewed(mediaId: String) { reviewed += mediaId }
-        override suspend fun pendingDeleteIds(): Set<String> = pendingDelete.toSet()
-        override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean {
-            if (pending) pendingDelete += mediaId else pendingDelete -= mediaId
-            return true
+        val vm = vm(sessions)
+
+        vm.enterReview()
+
+        val state = vm.state.value
+        assertTrue("必须是错误态（绝不自动新建会话）", state is V2ReviewUiState.Error)
+        assertEquals(listOf(false), sessions.enterForceNew)
+    }
+
+    @Test
+    fun `空队列进入显示空态`() = runTest {
+        val sessions = FakeSessions().apply { entryResult = ReviewSessionOpen.Empty }
+        val vm = vm(sessions)
+
+        vm.enterReview()
+
+        assertEquals(V2ReviewUiState.Empty, vm.state.value)
+    }
+
+    // ---------- §26 seen 服务端确认制 ----------
+
+    @Test
+    fun `seen只有服务端确认成功才更新本地`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 3)
+            seenResult = true
         }
-        override suspend fun unmarkReviewed(mediaId: String) {
-            reviewed -= mediaId
-            unmarked += mediaId
+        val vm = vm(sessions)
+        vm.enterReview()
+
+        vm.markSeen(0)
+        waitUntil("seen 确认") { vm.isSeen("v1") }
+
+        assertEquals(listOf("v1"), sessions.seenCalls)
+        val state = vm.state.value as V2ReviewUiState.Ready
+        assertEquals("seenCount 起点 0 + 本次 1", 1, state.seenCount)
+    }
+
+    @Test
+    fun `seen失败不假成功`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 3)
+            seenResult = false
         }
-        override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource = V2PlaybackSource(
+        val vm = vm(sessions)
+        vm.enterReview()
+
+        vm.markSeen(0)
+        waitUntil("seen 失败被调用") { sessions.seenCalls.isNotEmpty() }
+
+        assertFalse("服务端未确认时必须保持未批阅", vm.isSeen("v1"))
+        val state = vm.state.value as V2ReviewUiState.Ready
+        assertEquals(0, state.seenCount)
+    }
+
+    // ---------- §28 position latest-wins ----------
+
+    @Test
+    fun `position只在settled页变化时上报且旧请求被取消`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 5)
+            positionGate = gate
+        }
+        val vm = vm(sessions)
+        vm.enterReview()
+
+        vm.onPageSettled(0)
+        vm.onPageSettled(1)
+        gate.complete(Unit)
+        waitUntil("第二次位置上报完成") { sessions.positionCompleted.isNotEmpty() }
+
+        // latest-wins：只保留最后一次（第一次在 gate 上被取消，不会写入服务端）
+        assertEquals(listOf(1), sessions.positionCompleted)
+    }
+
+    // ---------- §5/§33 播放解析上限 ----------
+
+    @Test
+    fun `进入后只解析当前项与下一条`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 10)
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 10, window = window(count = 10, total = 10))
+        }
+        val vm = V2ReviewViewModel(repo, sessions)
+
+        vm.enterReview()
+        waitUntil("当前项解析完成") { (vm.playback.value as? com.mediareview.app.feature.v2.player.V2PlaybackUiState.Ready) != null }
+        waitUntil("下一条预取完成") { repo.resolvedMediaIds.size >= 2 }
+
+        assertTrue(
+            "只允许 P0 当前 + P1 下一条（绝不批量 resolvePlayback），实际 ${repo.resolvedMediaIds}",
+            repo.resolvedMediaIds.size <= 2,
+        )
+        assertEquals(listOf("v1", "v2"), repo.resolvedMediaIds)
+    }
+
+    @Test
+    fun `切页后播放源切换为新页媒体`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 10)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, window = window(count = 10, total = 10)) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        waitUntil("首条就绪") { playbackMediaId(vm) == "v1" }
+
+        vm.onPageSettled(1)
+        waitUntil("切页后新源就绪") { playbackMediaId(vm) == "v2" }
+
+        assertEquals("v2", playbackMediaId(vm))
+    }
+
+    // ---------- §34/§36 收藏与待删除确认制 ----------
+
+    @Test
+    fun `待删除成功才更新且失败保持原状态`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 3)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 3) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+
+        vm.addPendingDelete("v1")
+        waitUntil("待删除成功") { vm.isPendingDelete("v1") }
+
+        vm.undoPendingDelete("v1")
+        waitUntil("撤销成功") { !vm.isPendingDelete("v1") }
+
+        // 服务端失败：UI 必须保持原状态
+        repo.pendingDeleteResult = false
+        vm.addPendingDelete("v1")
+        waitUntil("待删除失败调用") { repo.pendingDeleteCalls.size >= 3 }
+        assertFalse("失败不得假成功", vm.isPendingDelete("v1"))
+    }
+
+    @Test
+    fun `收藏失败不改本地状态`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 3)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 3) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+
+        repo.favoriteResult = false
+        vm.toggleFavorite("v1")
+        waitUntil("收藏调用") { repo.favoriteCalls.isNotEmpty() }
+        assertFalse(vm.isFavorite("v1"))
+
+        repo.favoriteResult = true
+        vm.toggleFavorite("v1")
+        waitUntil("收藏成功") { vm.isFavorite("v1") }
+    }
+
+    // ---------- §37 完整播放器返回 ----------
+
+    @Test
+    fun `完整播放器返回恢复原会话与原位置且不重建`() = runTest {
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, window = window(count = 10, total = 10)) }
+        val vm = vm(sessions)
+        vm.enterReview()
+        vm.onPageSettled(3)
+        waitUntil("位置写入") { vm.state.value.let { it is V2ReviewUiState.Ready && it.absoluteCurrentIndex == 3 } }
+
+        vm.onLeaveForFullPlayer()
+        vm.enterReview()
+
+        val state = vm.state.value as V2ReviewUiState.Ready
+        assertEquals("返回后必须仍在原位置", 3, state.absoluteCurrentIndex)
+        assertEquals("不得重新创建会话（只进入一次）", listOf(false), sessions.enterForceNew)
+    }
+
+    // ---------- §39/§40 重新批阅与完成 ----------
+
+    @Test
+    fun `重新批阅创建新会话`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(sessionId = "s1", total = 3)
+        }
+        val vm = vm(sessions)
+        vm.enterReview()
+
+        sessions.entryResult = readyOpen(sessionId = "s2", total = 3)
+        vm.restart()
+        waitUntil("新建会话") { (vm.state.value as? V2ReviewUiState.Ready)?.sessionId == "s2" }
+
+        assertEquals("重新批阅必须是 forceNew", listOf(false, true), sessions.enterForceNew)
+    }
+
+    @Test
+    fun `队列走到底且末项已确认seen才调用complete`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 2, window = window(count = 2, total = 2))
+        }
+        val vm = vm(sessions)
+        vm.enterReview()
+
+        // 只批阅第 1 条：不得完成
+        vm.markSeen(0)
+        waitUntil("第 1 条确认") { vm.isSeen("v1") }
+        assertEquals(0, sessions.completeCalls)
+
+        // 末项确认后才调用服务端 complete
+        vm.markSeen(1)
+        waitUntil("会话完成调用") { sessions.completeCalls == 1 }
+        waitUntil("进入完成页") { vm.state.value is V2ReviewUiState.Complete }
+        assertEquals(V2ReviewUiState.Complete(2), vm.state.value)
+    }
+
+    @Test
+    fun `complete失败不进入完成页`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 1, window = window(count = 1, total = 1))
+            completeResult = false
+        }
+        val vm = vm(sessions)
+        vm.enterReview()
+
+        vm.markSeen(0)
+        waitUntil("complete 被调用") { sessions.completeCalls == 1 }
+
+        assertTrue("服务端未确认时不得假装完成", vm.state.value is V2ReviewUiState.Ready)
+    }
+
+    // ---------- helpers ----------
+
+    private fun vm(sessions: FakeSessions): V2ReviewViewModel =
+        V2ReviewViewModel(FakeMediaRepository(mediaCount = 16), sessions)
+
+    private fun playbackMediaId(vm: V2ReviewViewModel): String? =
+        (vm.playback.value as? com.mediareview.app.feature.v2.player.V2PlaybackUiState.Ready)?.source?.mediaId
+
+    private fun readyOpen(
+        sessionId: String = "s1",
+        total: Int = 3,
+        currentIndex: Int = 0,
+        window: ReviewQueueWindow = window(count = total, baseIndex = 0, total = total),
+    ): ReviewSessionOpen = ReviewSessionOpen.Ready(
+        session = ReviewSessionInfo(sessionId = sessionId, totalCount = total, currentIndex = currentIndex, seenCount = 0),
+        window = window,
+    )
+
+    private fun window(count: Int, baseIndex: Int = 0, total: Int = count, startId: Int = 1): ReviewQueueWindow =
+        ReviewQueueWindow(
+            items = (0 until count).map { offset ->
+                val absolute = baseIndex + offset
+                val id = "v${startId + offset}"
+                ReviewQueueItemUi(
+                    absoluteIndex = absolute,
+                    mediaId = id,
+                    title = "视频 $id",
+                    code = "",
+                    folderName = "文件夹",
+                    durationMs = 12_000L,
+                    naturalWidth = 1920,
+                    naturalHeight = 1080,
+                    coverUrl = "http://host/$id.jpg",
+                    favorite = false,
+                )
+            },
+            baseIndex = baseIndex,
+            totalCount = total,
+            page = baseIndex / 50 + 1,
+        )
+
+    private fun waitUntil(label: String, timeoutMs: Long = 3_000, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return
+            Thread.sleep(10)
+        }
+        throw AssertionError("等待超时: $label")
+    }
+}
+
+/** 可控批阅会话仓库：精确记录每一次调用，便于断言"绝不做多余请求"。 */
+private class FakeSessions : V2ReviewSessionRepository {
+    var entryResult: ReviewSessionOpen = ReviewSessionOpen.Empty
+    var loadNextResult: ReviewQueuePageResult? = null
+    var loadPrevResult: ReviewQueuePageResult? = null
+    var seenResult = true
+    var completeResult = true
+    var positionGate: CompletableDeferred<Unit>? = null
+
+    val enterForceNew = mutableListOf<Boolean>()
+    val seenCalls = mutableListOf<String>()
+    val positionStarted = mutableListOf<Int>()
+    val positionCompleted = mutableListOf<Int>()
+    var completeCalls = 0
+
+    override suspend fun enterSession(forceNew: Boolean): ReviewSessionOpen {
+        enterForceNew += forceNew
+        return entryResult
+    }
+
+    override suspend fun loadNextPage(): ReviewQueuePageResult? = loadNextResult
+
+    override suspend fun loadPrevPage(): ReviewQueuePageResult? = loadPrevResult
+
+    override suspend fun markSeen(mediaId: String): Boolean {
+        seenCalls += mediaId
+        return seenResult
+    }
+
+    override suspend fun savePosition(absoluteIndex: Int) {
+        positionStarted += absoluteIndex
+        positionGate?.await()
+        positionCompleted += absoluteIndex
+    }
+
+    override suspend fun completeSession(): Boolean {
+        completeCalls += 1
+        return completeResult
+    }
+
+    override suspend fun restart(): ReviewSessionOpen {
+        enterForceNew += true
+        return entryResult
+    }
+
+    override suspend fun restartAll(): ReviewSessionOpen {
+        enterForceNew += true
+        return entryResult
+    }
+}
+
+/** 只提供媒体 / 收藏 / 待删除 / 播放解析的最小仓库（记录播放解析次数）。 */
+private class FakeMediaRepository(private val mediaCount: Int) : MediaRepository {
+
+    var favoriteResult = true
+    var pendingDeleteResult = true
+
+    val resolvedMediaIds = mutableListOf<String>()
+    val favoriteCalls = mutableListOf<Pair<String, Boolean>>()
+    val pendingDeleteCalls = mutableListOf<Pair<String, Boolean>>()
+    private val pendingDelete = mutableSetOf<String>()
+    private val favorites = mutableSetOf<String>()
+
+    private val catalog: List<V2Media> = (1..mediaCount).map { index ->
+        val id = "v$index"
+        V2Media(
+            id = id,
+            code = "",
+            name = "视频 $id",
+            folderId = "f1",
+            folderName = "文件夹",
+            type = V2MediaType.VIDEO,
+            durationMs = 12_000L,
+            sizeBytes = 1024L,
+            dateMillis = 0L,
+            isFavorite = false,
+            isReviewed = false,
+            assetPath = "",
+            thumbPath = "",
+            spritePath = null,
+            spriteManifestPath = null,
+            naturalWidth = 1920,
+            naturalHeight = 1080,
+        )
+    }
+
+    override val mode: V2DataMode = V2DataMode.DEMO
+
+    override suspend fun folders(): List<V2Folder> = emptyList()
+
+    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage =
+        V2MediaPage(catalog, 1, query.pageSize, catalog.size)
+
+    override suspend fun media(): List<V2Media> = catalog
+
+    override suspend fun media(spec: V2SortSpec): List<V2Media> = catalog
+
+    override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> = catalog
+
+    override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> = emptyList()
+
+    override fun mediaById(id: String): V2Media? = catalog.find { it.id == id }
+
+    override suspend fun setFavorite(mediaId: String, favorite: Boolean): Boolean {
+        favoriteCalls += mediaId to favorite
+        if (!favoriteResult) return false
+        if (favorite) favorites += mediaId else favorites -= mediaId
+        return true
+    }
+
+    override suspend fun favorites(): List<V2Media> = catalog.filter { it.id in favorites }
+
+    override suspend fun markReviewed(mediaId: String) = Unit
+
+    override suspend fun pendingDeleteIds(): Set<String> = pendingDelete.toSet()
+
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean {
+        pendingDeleteCalls += mediaId to pending
+        if (!pendingDeleteResult) return false
+        if (pending) pendingDelete += mediaId else pendingDelete -= mediaId
+        return true
+    }
+
+    override suspend fun unmarkReviewed(mediaId: String) = Unit
+
+    override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource {
+        resolvedMediaIds += mediaId
+        return V2PlaybackSource(
             mediaId = mediaId,
             title = mediaId,
-            direct = V2PlaybackEndpoint(url = "uri://$mediaId"),
+            direct = V2PlaybackEndpoint(url = "http://127.0.0.1:1/$mediaId"),
         )
-        override fun playbackUri(mediaId: String): String = ""
-        override fun playbackHeaders(mediaId: String): Map<String, String> =
-            mapOf("X-Debug-Media" to mediaId)
-        override fun thumbUri(media: V2Media): String = ""
-        override fun coverUri(media: V2Media): String = ""
-        override fun imageUri(media: V2Media): String = ""
-        override fun spriteUri(media: V2Media): String? = null
-        override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
-        override suspend fun albums(): List<V2Album> = emptyList()
-        override suspend fun albumPage(
-            albumId: String,
-            page: Int,
-            pageSize: Int,
-            spec: V2SortSpec,
-        ): com.mediareview.app.feature.v2.model.V2MediaPage =
-            com.mediareview.app.feature.v2.model.V2MediaPage(emptyList(), page, pageSize, 0)
-        override suspend fun setAlbumCover(albumId: String, mediaId: String) {}
-
-        fun isVideo(id: String): Boolean = catalog.find { it.id == id }?.isVideo == true
-        fun isReviewedById(id: String): Boolean = id in reviewed
     }
+
+    override fun playbackUri(mediaId: String): String = ""
+
+    override fun thumbUri(media: V2Media): String = ""
+
+    override fun coverUri(media: V2Media): String = ""
+
+    override fun imageUri(media: V2Media): String = ""
+
+    override fun spriteUri(media: V2Media): String? = null
+
+    override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
+
+    override suspend fun albums(): List<V2Album> = emptyList()
+
+    override suspend fun albumPage(
+        albumId: String,
+        page: Int,
+        pageSize: Int,
+        spec: V2SortSpec,
+    ): V2MediaPage = V2MediaPage(emptyList(), page, pageSize, 0)
+
+    override suspend fun setAlbumCover(albumId: String, mediaId: String) = Unit
 }

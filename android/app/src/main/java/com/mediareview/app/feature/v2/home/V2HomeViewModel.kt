@@ -451,13 +451,6 @@ class V2HomeViewModel @Inject constructor(
         }
     }
 
-    fun markReviewed(mediaId: String) {
-        viewModelScope.launch {
-            repository.markReviewed(mediaId)
-            refreshList()
-        }
-    }
-
     /**
      * 在首页当前列表中打开某条媒体（建立 Viewer/Player 的上下文队列）。
      *

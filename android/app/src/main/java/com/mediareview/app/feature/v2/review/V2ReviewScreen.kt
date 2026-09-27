@@ -22,8 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
@@ -40,6 +40,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -54,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -62,7 +64,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mediareview.app.BuildConfig
+import com.mediareview.app.feature.v2.player.V2PlaybackUiState
 import com.mediareview.app.feature.v2.player.native.state.awaitPlayerHostReady
+import com.mediareview.app.feature.v2.review.data.ReviewQueueItemUi
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
@@ -93,9 +97,6 @@ private const val PLAYBACK_READY_TIMEOUT_MS = 10_000L
  *   [hasPlaybackAdvanced]）** 才认为画面已输出。
  *   旧实现无条件返回 true，会出现"还没首帧 → 被暂停 → Poster 提前淡出 → 黑屏"；
  * - 换媒体时 [hasPlaybackAdvanced] 必须重置为 false。
- *
- * 说明：这是当前 GSY 能力下的"播放状态可用 + 输出推进"判定，不是原生 first-frame 回调；
- * 若后续找到 GSY 渲染首帧回调则优先替换。
  */
 private fun isPlaybackVisible(
     state: GSYPlayState,
@@ -108,20 +109,19 @@ private fun isPlaybackVisible(
 }
 
 /**
- * 批阅模式（抖音式）：竖屏 VerticalPager，视频优先（VIDEO ONLY）。Stage 7.1 正确性修正。
+ * 批阅模式（抖音式）：竖屏 VerticalPager，视频优先（VIDEO ONLY）。
  *
- * - 播放生命周期：Controller 首始源 = `queue[currentIndex]`（恢复第 N 条即播放第 N 条）；
- *   维护 [currentLoadedMediaId]，settledPage 变化且 mediaId 不同时才 setHeaders + setUp（不依赖
- *   lastPlayedId 空分支）；
- * - Poster 整层淡出：[posterAlpha] 控制 Black/AsyncImage/Scrim/Icon 整层，淡出后底层
- *   GSYPlayerSurface 完全露出（用户真的看到视频，而非静态封面）；
- * - Playback Headers：每次换源前 `controller.setHeaders(media.headers)` 与 URL 一起切换（Critical 3）；
- * - 稳定批阅计时：仅当 page == settledPage && !scrolling && revealedPage == page（内容可见）开始计时，
- *   任何滚动/换页/未揭示立即取消（High 2）；
- * - 重新批阅显式重启：重置 reveal / gate / loadedId，强制第 1 条 setHeaders+setUp+play（High 3，
- *   单条队列同样生效）；
- * - Sheet 关闭两个语义：视频信息→closeSheetAndResume（按原状态恢复）；打开完整播放器→
- *   closeSheetWithoutResume（不瞬间恢复播放，避免 resume→pause 抖动）。
+ * Stage 8B：**Server 模式不再有占位页** —— 队列来自真实 Review Session（分页窗口 +
+ * 绝对索引），播放地址按需解析（当前 P0、下一条 P1），seen / position 写回服务端。
+ *
+ * - 队列项只含 Metadata（[ReviewQueueItemUi]），播放源由 ViewModel 解析成
+ *   [V2PlaybackUiState]（与完整播放器同一套 Direct → 一次 HLS → Error 语义）；
+ * - 换页 effect 依据"当前页 item 的 mediaId == 已解析源的 mediaId"才 setUp，
+ *   源还没到时保持 Poster（不黑屏、不串媒体）；
+ * - Poster 整层淡出：[posterAlpha] 控制 Black/AsyncImage/Scrim/Icon 整层；
+ * - Playback Headers：每次换源前与 URL 一起进 GSYVideoOptionBuilder（Critical 3）；
+ * - 稳定批阅计时：page == settledPage && !scrolling && revealedPage == page 才计时（High 2）；
+ * - 完整播放器返回：恢复原会话与原绝对位置，不重建会话（§37）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,132 +131,166 @@ fun V2ReviewScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val queue by vm.queue.collectAsState()
-    val ready by vm.ready.collectAsState()
+    val state by vm.state.collectAsState()
+    val playback by vm.playback.collectAsState()
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { vm.enterReview() }
 
-    // Stage 8A §16 / §33：Server 模式下真实批阅会话（Stage 8B）尚未接入。
-    // 这里明确显示占位说明，且不建立任何队列 / 不做批量播放地址解析。
-    val serverUnsupported by vm.serverModeUnsupported.collectAsState()
-    if (serverUnsupported) {
-        ReviewServerModePlaceholder(
-            onBack = onBack,
-            modifier = modifier.fillMaxSize(),
+    // 一次性提示（含"撤销待删除"：只有服务端确认成功才会有这条提示）
+    LaunchedEffect(Unit) {
+        vm.messages.collect { message ->
+            val result = snackbar.showSnackbar(
+                message = message.text,
+                actionLabel = if (message.undoMediaId != null) "撤销" else null,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                message.undoMediaId?.let { vm.undoPendingDelete(it) }
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
+        when (val current = state) {
+            V2ReviewUiState.Idle,
+            V2ReviewUiState.LoadingSession,
+            V2ReviewUiState.LoadingQueue,
+            -> ReviewLoadingPage(onBack = onBack)
+
+            is V2ReviewUiState.Error -> ReviewErrorPage(
+                message = current.message,
+                onRetry = { vm.retryEnter() },
+                onBack = onBack,
+            )
+
+            V2ReviewUiState.Empty -> ReviewCompletePage(
+                emptyQueue = true,
+                total = 0,
+                onRestart = { vm.restartAll() },
+                onBack = onBack,
+            )
+
+            is V2ReviewUiState.Complete -> ReviewCompletePage(
+                emptyQueue = false,
+                total = current.totalCount,
+                onRestart = { vm.restart() },
+                onBack = onBack,
+            )
+
+            is V2ReviewUiState.Ready -> ReviewPagerContent(
+                vm = vm,
+                state = current,
+                playback = playback,
+                context = context,
+                onOpenFullPlayer = onOpenFullPlayer,
+                onBack = onBack,
+            )
+        }
+
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
         )
-        return
     }
+}
 
-    if (!ready) {
-        Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground))
-        return
-    }
-
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReviewPagerContent(
+    vm: V2ReviewViewModel,
+    state: V2ReviewUiState.Ready,
+    playback: V2PlaybackUiState,
+    context: android.content.Context,
+    onOpenFullPlayer: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val items = state.items
     val pendingDeleteIds by vm.pendingDeleteIds.collectAsState()
     val favoriteIds by vm.favoriteIds.collectAsState()
-    val currentIndex by vm.currentIndex.collectAsState()
-    val allDone by vm.isComplete.collectAsState()
 
-    var infoMedia by remember { mutableStateOf<ReviewMediaSource?>(null) }
+    var infoMedia by remember { mutableStateOf<ReviewQueueItemUi?>(null) }
     var moreSheet by remember { mutableStateOf(false) }
     // Sheet 流程（更多 / 视频信息）打开时暂停；关闭按语义恢复。
     var sheetOpen by remember { mutableStateOf(false) }
     var sheetResumePlay by remember { mutableStateOf(false) }
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    val playbackReady = playback as? V2PlaybackUiState.Ready
+    val playbackFailure = playback as? V2PlaybackUiState.Failed
 
-    // 无未审视频 → 空队列页（"重新批阅"必须重新建立全量队列）
-    if (queue.isEmpty()) {
-        ReviewCompletePage(
-            emptyQueue = true,
-            total = 0,
-            onRestart = { vm.restartAllVideos() },
-            modifier = modifier.fillMaxSize(),
-        )
-        return
-    }
+    val pagerState = rememberPagerState(initialPage = state.localCurrentIndex) { items.size }
 
-    val pagerState = rememberPagerState(
-        initialPage = currentIndex.coerceIn(0, queue.lastIndex),
-    ) { queue.size }
-
-    // Critical 2：Controller 首始源 = 当前页，而不是 queue.first()。
-    // 恢复第 N 条时 currentIndex == N → 页面与播放器都在第 N 条。
-    val initialMedia = queue[currentIndex.coerceIn(0, queue.lastIndex)]
+    // Critical 2：Controller 首始源 = 当前页（恢复第 N 条即播放第 N 条）。
+    val initialItem = items.getOrNull(state.localCurrentIndex)
     val controller = rememberGSYPlayerController(
-        url = initialMedia.playbackUrl,
+        url = playbackReady?.endpoint?.url,
         cacheWithPlay = false,
-        title = initialMedia.title,
+        title = initialItem?.title.orEmpty(),
         autoPlay = false,
         autoPauseResume = true,
     )
     // 当前已加载进播放器的 mediaId（source 一致性的事实源；""=尚未加载）。
-    // 初始置空：首条进入也走一次完整 setUp（GSY autoPlay=false 时 play() 需要先 setUp
-    // 合成源，单纯构造 URL 不保证可启动）。
     var currentLoadedMediaId by remember { mutableStateOf("") }
     // 已完成"播放可用"揭示、允许 Poster 淡出的页面（-1 = 无）。
     var revealedPage by remember { mutableIntStateOf(-1) }
     // Stage 8A §17.2：当前源是否真的出现过画面（Playing 且 position > 0）。
-    // Paused / Completed 只有在它为 true 时才允许 Poster 淡出，避免"未首帧被暂停 → 黑屏"。
     var hasPlaybackAdvanced by remember { mutableStateOf(false) }
     // 重新批阅的显式重载令牌：变化强制换页 effect 重跑（单条队列 scrollToPage 无变化也生效）。
     var playRequestToken by remember { mutableStateOf(0) }
     // 480ms 稳定停留判定（纯逻辑，事件驱动）。
     val stableGate = remember { ReviewStableGate() }
-    // snapshot 是 compose State：组合路径读取自动重组。
     val snapshot = controller.snapshot.value
     val isPlaying = snapshot.isPlaying
 
-    // 单击 = 播放/暂停（抖音式；完成页 / Sheet 前景不响应）。
+    // 单击 = 播放/暂停（抖音式；Sheet 前景不响应）。
     fun togglePlayPause() {
-        if (!allDone && !sheetOpen) controller.togglePlayPause()
+        if (!sheetOpen) controller.togglePlayPause()
     }
 
     // 进入时固定视觉策略（Review 统一 FIT）。
-    // Headers 不需要在此预置：首条源与 controller 初始化一致（Demo 为空），
-    // 换源时 setHeaders 会与 setUp 一起应用（见下方换源 effect）。
-    // 注意：不要在播放启动路径之外调用 setHeaders，GSY 的 reapplyPendingSetters
-    // 时序与本组合的 play 启动存在竞态（实测会打断首次自动播放）。
     LaunchedEffect(Unit) {
         GSYVideoType.setShowType(GSYVideoType.SCREEN_TYPE_DEFAULT)
-        logSourceState("initial", initialMedia, currentLoadedMediaId)
+        logSourceState("initial", initialItem, currentLoadedMediaId)
     }
 
-    // ---------- 换页：source 一致性 + 换源(headers) + 等 play 可用后揭示 ----------
-    LaunchedEffect(pagerState.settledPage, playRequestToken) {
-        val page = pagerState.settledPage
-        val media = queue.getOrNull(page) ?: return@LaunchedEffect
+    // 换页立即隐藏 Poster（新页内容尚未揭示）；setUp 由下方 effect 在源到达后执行。
+    LaunchedEffect(pagerState.settledPage) {
         revealedPage = -1
-        if (media.mediaId != currentLoadedMediaId) {
-            // Critical 3（Stage 8A 实测修正）：Headers 必须与 URL 一起进 GSYVideoOptionBuilder。
-            // 只调用 controller.setHeaders(...) 会被随后的 setUp 覆盖（实测直连请求完全没有该头）。
+    }
+
+    // ---------- 换页 / 源到达：setUp(headers) → 等 play 可用 → 揭示 ----------
+    LaunchedEffect(pagerState.settledPage, playRequestToken, playbackReady?.source?.mediaId, playbackReady?.stage) {
+        val page = pagerState.settledPage
+        val item = items.getOrNull(page) ?: return@LaunchedEffect
+        val ready = playbackReady ?: return@LaunchedEffect
+        // 源与当前页不是同一条：等待（禁止串媒体）
+        if (ready.source.mediaId != item.mediaId) return@LaunchedEffect
+        if (currentLoadedMediaId != item.mediaId) {
+            // Critical 3：Headers 必须与 URL 一起进 GSYVideoOptionBuilder（只 setHeaders 会被 setUp 覆盖）
             val option = GSYVideoOptionBuilder()
-                .setUrl(media.playbackUrl)
+                .setUrl(ready.endpoint.url)
                 .setCacheWithPlay(false)
-                .setVideoTitle(media.title)
-                .setMapHeadData(media.headers.ifEmpty { null })
+                .setVideoTitle(item.title)
+                .setMapHeadData(ready.endpoint.headers.ifEmpty { null })
             controller.setUp(option, false)
-            currentLoadedMediaId = media.mediaId
-            // Stage 8A §17.2：换媒体即重置"曾经出现过画面"判定（否则新源会被旧源的
-            // Paused 状态误判为已渲染，Poster 提前淡出 → 黑屏）。
+            currentLoadedMediaId = item.mediaId
+            // 换媒体即重置"曾经出现过画面"判定
             hasPlaybackAdvanced = false
-            logSourceState("switch page=$page", media, currentLoadedMediaId)
+            logSourceState("switch page=$page", item, currentLoadedMediaId)
         }
         // 明确收敛的 host 等待：可取消、2s 超时；超时保留 Poster（不堆 postDelayed）。
         val hostReady = awaitPlayerHostReady(controller)
         if (!hostReady) return@LaunchedEffect
-        // Stage 8A §17.1：这里改为协程 delay，不再使用 host.postDelayed——
-        // 换页 / 退出时所在 LaunchedEffect 协程被取消，delay 自动取消，不会留下 stale Play。
         delay(120L)
         // 取消保护 + 二次确认：仍是同一页、且播放器里仍是同一条媒体才真正 play。
-        if (pagerState.settledPage != page || currentLoadedMediaId != media.mediaId) {
+        if (pagerState.settledPage != page || currentLoadedMediaId != item.mediaId) {
             return@LaunchedEffect
         }
         controller.play()
-        // 画面确实在输出后才淡出 Poster（避免 Playing 但首帧未渲染的黑帧窗口）：
-        // 切换全程用户看到的永远是 旧视频画面 / 新 Poster / 新视频画面 之一，不出现黑屏空窗。
-        // 措辞：Playback-ready reveal（GSY 能力下的"播放状态可用 + 输出推进"，非原生 first-frame 回调）。
+        // 画面确实在输出后才淡出 Poster（避免 Playing 但首帧未渲染的黑帧窗口）。
         val playReady = withTimeoutOrNull(PLAYBACK_READY_TIMEOUT_MS) {
             var s = controller.snapshot.value
             while (!isPlaybackVisible(s.state, s.currentPosition, hasPlaybackAdvanced)) {
@@ -274,14 +308,14 @@ fun V2ReviewScreen(
             android.util.Log.d(
                 "MRReview",
                 "PlaybackReady[page=$page] ok=$playReady state=${s.state} posMs=${s.currentPosition} " +
-                    "mediaId=${media.mediaId} advanced=$hasPlaybackAdvanced"
+                    "mediaId=${item.mediaId} advanced=$hasPlaybackAdvanced",
             )
         }
         if (playReady == true) revealedPage = page
     }
 
-    // ---------- 自动批阅：内容可见（revealed）后才开始稳定 ~480ms 计时（High 2） ----------
-    LaunchedEffect(queue) {
+    // ---------- 自动批阅：内容可见（revealed）后才开始稳定 ~480ms 计时（High 2 语义不变） ----------
+    LaunchedEffect(items) {
         snapshotFlow {
             Triple(pagerState.settledPage, pagerState.isScrollInProgress, revealedPage)
         }
@@ -300,28 +334,26 @@ fun V2ReviewScreen(
                     val confirmed = stableGate.onEvent(page, false, SystemClock.uptimeMillis())
                     if (confirmed != null) {
                         stableGate.reset()
-                        vm.markReviewed(queue[page].mediaId)
+                        // seen 只在服务端确认成功后才会更新本地（§26）
+                        vm.markSeen(page)
                     }
                 }
             }
     }
 
-    // 完成状态：队列全部已批阅 → 立即暂停（完成页不能盖在还在播的视频上）。
-    LaunchedEffect(allDone) {
-        if (allDone) controller.pause()
-    }
-
-    // Session 同步：当前页变化 / 恢复定位。
+    // Session 同步：当前页变化（本地索引 → 绝对索引由 ViewModel 换算）。
     LaunchedEffect(pagerState.settledPage) {
         vm.onPageSettled(pagerState.settledPage)
     }
-    LaunchedEffect(ready, currentIndex) {
-        if (ready && currentIndex in 0..queue.lastIndex && pagerState.currentPage != currentIndex) {
-            pagerState.scrollToPage(currentIndex)
+
+    // 恢复定位 / 前置分页后的偏移补偿：ViewModel 的 localCurrentIndex 变化时对齐 pager。
+    LaunchedEffect(state.sessionId, state.localCurrentIndex, items.size) {
+        if (state.localCurrentIndex in 0..items.lastIndex && pagerState.currentPage != state.localCurrentIndex) {
+            pagerState.scrollToPage(state.localCurrentIndex)
         }
     }
 
-    // ---------- Sheet 关闭的两个语义（High 1） ----------
+    // Sheet 关闭的两个语义（High 1）
     fun openSheetFlow() {
         if (!sheetOpen) {
             sheetOpen = true
@@ -334,7 +366,6 @@ fun V2ReviewScreen(
     /** 正常关闭（外部点 / Back / 视频信息关闭）：按进入 Sheet 前的播放状态恢复。 */
     fun closeSheetAndResume() {
         sheetOpen = false
-        if (BuildConfig.DEBUG) android.util.Log.d("MRReview", "Sheet.closeAndResume resumePlay=$sheetResumePlay")
         if (sheetResumePlay) controller.play()
         sheetResumePlay = false
     }
@@ -342,35 +373,33 @@ fun V2ReviewScreen(
     /** 关闭且不恢复播放（进入完整播放器前）：杜绝 closeSheet 瞬间 resume → pause 抖动。 */
     fun closeSheetWithoutResume() {
         sheetOpen = false
-        if (BuildConfig.DEBUG) android.util.Log.d("MRReview", "Sheet.closeWithoutResume")
         sheetResumePlay = false
     }
 
-    // ---------- 布局 ----------
-    Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
-        // 常驻视频 Surface：换页时 setHeaders+setUp 换源（单 Controller，不做双 Player）。
+    Box(modifier = Modifier.fillMaxSize().background(MediaImmersiveBackground)) {
+        // 常驻视频 Surface：换页时 setUp 换源（单 Controller，不做双 Player）。
         GSYPlayerSurface(
             controller = controller,
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Pager：每页一个 Poster 层（Critical 1：posterAlpha 控制整个层，淡出后 Surface 完全露出）。
+        // Pager：每页一个 Poster 层（posterAlpha 控制整个层，淡出后 Surface 完全露出）。
         VerticalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
         ) { page ->
-            val media = queue[page]
+            val item = items[page]
             val isCurrent = page == pagerState.settledPage
             val posterAlpha by animateFloatAsState(
                 targetValue = if (isCurrent && page == revealedPage) 0f else 1f,
                 animationSpec = tween(POSTER_FADE_MS),
                 label = "reviewPosterFade",
             )
-            boxOfPosterStack(media, context, posterAlpha)
+            boxOfPosterStack(item, context, posterAlpha)
         }
 
         // 暂停态：中央轻量 ▶（单击 = 播放/暂停，抖音式，不整体隐藏 UI）。
-        if (!isPlaying && !allDone && !sheetOpen) {
+        if (!isPlaying && !sheetOpen) {
             Surface(
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.45f),
@@ -389,33 +418,66 @@ fun V2ReviewScreen(
             }
         }
 
-        // 顶部：返回 + 当前/总数（常驻；不显示"已批阅 N"，贴近抖音）。
-        if (!allDone) {
-            Box(
+        // 播放源失败：明确提示 + 重试（不假成功）。
+        playbackFailure?.let { failure ->
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Black.copy(alpha = 0.72f),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding(),
+                    .align(Alignment.Center)
+                    .padding(horizontal = 32.dp),
             ) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.align(Alignment.CenterStart),
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "返回",
-                        tint = MediaTextPrimary,
+                        imageVector = Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = MediaDanger,
+                        modifier = Modifier.size(30.dp),
                     )
+                    Text(
+                        text = failure.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MediaTextPrimary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    TextButton(onClick = { vm.retryPlayback() }) {
+                        Text("重试", color = V2Colors.Accent)
+                    }
                 }
-                Text(
-                    text = "${pagerState.settledPage + 1} / ${queue.size}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MediaTextPrimary,
-                    modifier = Modifier.align(Alignment.Center),
+            }
+        }
+
+        val currentItem = items.getOrNull(pagerState.settledPage)
+
+        // 顶部：返回 + 绝对进度（绝对索引 + 1 / total）。
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding(),
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "返回",
+                    tint = MediaTextPrimary,
                 )
             }
+            Text(
+                text = currentItem?.let { "${it.absoluteIndex + 1} / ${state.totalCount}" }.orEmpty(),
+                style = MaterialTheme.typography.titleMedium,
+                color = MediaTextPrimary,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
 
-            // 底部：标题 + 编号 · 文件夹 · 时长。
-            val media = queue[pagerState.settledPage]
+        // 底部：标题 + 编号 · 文件夹 · 时长。
+        currentItem?.let { item ->
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -424,14 +486,14 @@ fun V2ReviewScreen(
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
                 Text(
-                    text = media.title,
+                    text = item.title,
                     style = MaterialTheme.typography.titleMedium,
                     color = MediaTextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${media.code} · ${media.folderName} · ${media.durationSeconds}s",
+                    text = item.subtitle(),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MediaTextSecondary,
                     maxLines = 1,
@@ -449,32 +511,22 @@ fun V2ReviewScreen(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                val media = queue[pagerState.settledPage]
                 ReviewActionButton(
-                    icon = if (media.mediaId in favoriteIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    tint = if (media.mediaId in favoriteIds) V2Colors.Favorite else MediaTextPrimary,
-                    label = if (media.mediaId in favoriteIds) "已收藏" else "收藏",
-                    onClick = { vm.toggleFavorite(media.mediaId) },
+                    icon = if (item.mediaId in favoriteIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    tint = if (item.mediaId in favoriteIds) V2Colors.Favorite else MediaTextPrimary,
+                    label = if (item.mediaId in favoriteIds) "已收藏" else "收藏",
+                    onClick = { vm.toggleFavorite(item.mediaId) },
                 )
                 ReviewActionButton(
-                    icon = if (media.mediaId in pendingDeleteIds) Icons.Default.Undo else Icons.Default.DeleteOutline,
-                    tint = if (media.mediaId in pendingDeleteIds) MediaDanger else MediaTextPrimary,
-                    label = if (media.mediaId in pendingDeleteIds) "撤销" else "待删除",
+                    icon = if (item.mediaId in pendingDeleteIds) Icons.Default.Undo else Icons.Default.DeleteOutline,
+                    tint = if (item.mediaId in pendingDeleteIds) MediaDanger else MediaTextPrimary,
+                    label = if (item.mediaId in pendingDeleteIds) "撤销" else "待删除",
                     onClick = {
-                        if (media.mediaId in pendingDeleteIds) {
-                            vm.undoPendingDelete(media.mediaId)
+                        if (item.mediaId in pendingDeleteIds) {
+                            vm.undoPendingDelete(item.mediaId)
                         } else {
-                            vm.addPendingDelete(media.mediaId)
-                            scope.launch {
-                                val result = snackbar.showSnackbar(
-                                    message = "已加入待删除",
-                                    actionLabel = "撤销",
-                                    duration = SnackbarDuration.Short,
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    vm.undoPendingDelete(media.mediaId)
-                                }
-                            }
+                            // 成功提示（含"撤销"）由 ViewModel 在服务端确认后发出
+                            vm.addPendingDelete(item.mediaId)
                         }
                     },
                 )
@@ -490,36 +542,28 @@ fun V2ReviewScreen(
             }
         }
 
-        SnackbarHost(
-            hostState = snackbar,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding(),
-        )
-
         // 更多 → 统一 ModalBottomSheet（外部点击 / Back 可关闭）。
         if (moreSheet) {
             ModalBottomSheet(onDismissRequest = { moreSheet = false; closeSheetAndResume() }) {
-                val media = queue[pagerState.settledPage]
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
                     MoreSheetItem(
                         icon = Icons.Default.PlayArrow,
                         label = "打开完整播放器",
                         onClick = {
                             moreSheet = false
-                            // High 1：不恢复播放 → pause → 记录 Session → 导航（日志为
-                            // "Review pause / session snapshot / Navigate"，无 resume→pause 抖动）。
                             closeSheetWithoutResume()
+                            val item = items.getOrNull(pagerState.settledPage)
                             vm.onPageSettled(pagerState.settledPage)
                             controller.pause()
+                            // §37：离开前写回当前绝对位置；返回时恢复原会话（不重建）
                             vm.onLeaveForFullPlayer()
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "MRReview",
-                                    "FullPlayer.pause+sessionSnapshot+navigate mediaId=${media.mediaId}"
+                                    "FullPlayer.pause+positionSave+navigate mediaId=${item?.mediaId}",
                                 )
                             }
-                            onOpenFullPlayer(media.mediaId)
+                            item?.let { onOpenFullPlayer(it.mediaId) }
                         },
                     )
                     MoreSheetItem(
@@ -528,7 +572,7 @@ fun V2ReviewScreen(
                         onClick = {
                             moreSheet = false
                             // 仍在 Sheet 流程内：保持暂停，不提前恢复。
-                            infoMedia = media
+                            infoMedia = items.getOrNull(pagerState.settledPage)
                         },
                     )
                 }
@@ -546,55 +590,48 @@ fun V2ReviewScreen(
             )
         }
 
-        // 完成浮层：队列全部已批阅（视频已暂停）。
-        if (allDone) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(enabled = false) {},
-            ) {
-                ReviewCompleteOverlay(
-                    total = queue.size,
-                    onRestart = {
-                        // High 3：显式重新启动播放器（单条队列 scrollToPage(0) 不触发换页也生效）。
-                        vm.restartCurrentSession()
-                        stableGate.reset()
-                        revealedPage = -1
-                        currentLoadedMediaId = "" // 强制下一次 effect 对本条重新 setHeaders + setUp
-                        hasPlaybackAdvanced = false // 重新批阅 = 重新判定"是否已出现画面"
-                        playRequestToken++
-                        scope.launch { pagerState.scrollToPage(0) }
-                    },
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            }
-        }
-
         // 中央单击区（抖音式 播放/暂停）：置于最顶层以稳定命中，
-        // 但 padding 避开顶栏 / 底部信息 / 右侧动作栏，不干扰按钮点击；
-        // 完成页时整体移除，避免吞掉"重新批阅"按钮的点击。
-        if (!allDone) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(top = 64.dp, bottom = 240.dp, end = 140.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { togglePlayPause() })
-                    },
-            )
-        }
+        // 但 padding 避开顶栏 / 底部信息 / 右侧动作栏，不干扰按钮点击。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(top = 64.dp, bottom = 240.dp, end = 140.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { togglePlayPause() })
+                },
+        )
+    }
+
+    // 重新批阅（sessionId 变化 = 新建会话）：回到第 1 条并重置播放揭示状态。
+    var lastSessionId by remember { mutableStateOf(state.sessionId) }
+    LaunchedEffect(state.sessionId) {
+        if (state.sessionId == lastSessionId) return@LaunchedEffect
+        lastSessionId = state.sessionId
+        stableGate.reset()
+        revealedPage = -1
+        currentLoadedMediaId = ""
+        hasPlaybackAdvanced = false
+        playRequestToken++
+        scope.launch { pagerState.scrollToPage(0) }
     }
 }
+
+/** 队列项副标题：编号（可能为空）· 文件夹 · 时长。 */
+private fun ReviewQueueItemUi.subtitle(): String = listOfNotNull(
+    code.takeIf { it.isNotBlank() },
+    folderName.takeIf { it.isNotBlank() },
+    "${durationSeconds}s",
+).joinToString(" · ")
 
 /**
  * Poster Layer 组合：整个层由一个 [posterAlpha] 控制。
  * posterAlpha=1 → 不透明白底 + 封面 + 遮罩 + 播放标记；posterAlpha=0 → 整层透明，
- * 底层 [GSYPlayerSurface] 完全露出（Critical 1：真看到视频而非静态封面）。
+ * 底层 [GSYPlayerSurface] 完全露出（真看到视频而非静态封面）。
  */
 @Composable
 private fun boxOfPosterStack(
-    media: ReviewMediaSource,
+    item: ReviewQueueItemUi,
     context: android.content.Context,
     posterAlpha: Float,
 ) {
@@ -610,11 +647,11 @@ private fun boxOfPosterStack(
         )
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data(media.coverUrl)
+                .data(item.coverUrl)
                 .crossfade(false)
                 .size(720, 1280)
                 .build(),
-            contentDescription = media.title,
+            contentDescription = item.title,
             // 与视频画面同一视觉策略（Review Display Mode = FIT）。
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
@@ -642,29 +679,21 @@ private fun boxOfPosterStack(
 }
 
 /**
- * Source 一致性 Debug 证据（规格 六）：记录 UI 目标 mediaId、播放器当前加载
- * [loadedMediaId]、URL path 摘要、headers 键；不打印 query / token / 敏感头值。
+ * Source 一致性 Debug 证据：记录 UI 目标 mediaId、播放器当前加载 [loadedMediaId]；
+ * 不打印 URL / token / 敏感头值（Stage 8B：URL 只可能是临时播放端点的 path 摘要）。
  */
-private fun logSourceState(tag: String, media: ReviewMediaSource, loadedMediaId: String) {
+private fun logSourceState(tag: String, item: ReviewQueueItemUi?, loadedMediaId: String) {
     if (!BuildConfig.DEBUG) return
     android.util.Log.d(
         "MRReview",
-        "SourceState[$tag] UI/target mediaId=${media.mediaId} loadedInPlayer=$loadedMediaId " +
-            "urlPath=…/${fingerprint(media.playbackUrl)} headers=${media.headers.keys.sorted()}"
+        "SourceState[$tag] UI/target mediaId=${item?.mediaId} loadedInPlayer=$loadedMediaId",
     )
-}
-
-/** URL path 摘要（去协议/包名前缀，只取最后一段 path），不包含 query/token。 */
-private fun fingerprint(url: String): String {
-    val cleaned = url.removePrefix("android.resource://")
-    val path = cleaned.substringBefore('?').substringBefore('#')
-    return path.substringAfterLast('/')
 }
 
 /** 抖音式右侧动作按钮：圆形半透明底 + 图标 + 小字。 */
 @Composable
 private fun ReviewActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     tint: Color,
     label: String,
     onClick: () -> Unit,
@@ -689,7 +718,7 @@ private fun ReviewActionButton(
 /** 更多菜单条目：图标 + 文案，横向整行点击。 */
 @Composable
 private fun MoreSheetItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     onClick: () -> Unit,
 ) {
@@ -715,11 +744,11 @@ private fun MoreSheetItem(
     }
 }
 
-/** 视频信息 Sheet（Review 版本：数据全部来自 [ReviewMediaSource]，不接触 Demo 资源）。 */
+/** 视频信息 Sheet（数据全部来自 [ReviewQueueItemUi]，不接触 Demo 资源）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GsyNativeReviewInfoSheet(
-    media: ReviewMediaSource,
+    media: ReviewQueueItemUi,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -731,10 +760,14 @@ private fun GsyNativeReviewInfoSheet(
                 modifier = Modifier.padding(vertical = 12.dp),
             )
             InfoSheetRow("时长", "${media.durationSeconds}s")
-            InfoSheetRow("分辨率", if (media.naturalWidth > 0) "${media.naturalWidth} × ${media.naturalHeight}" else "未知")
-            InfoSheetRow("编号", media.code)
+            InfoSheetRow(
+                "分辨率",
+                if (media.naturalWidth > 0) "${media.naturalWidth} × ${media.naturalHeight}" else "未知",
+            )
+            if (media.code.isNotBlank()) InfoSheetRow("编号", media.code)
             InfoSheetRow("文件夹", media.folderName)
             InfoSheetRow("媒体 ID", media.mediaId)
+            InfoSheetRow("队列位置", "${media.absoluteIndex + 1}")
         }
     }
 }
@@ -750,67 +783,41 @@ private fun InfoSheetRow(label: String, value: String) {
     }
 }
 
-/** 完成浮层：批阅完成 + 重新批阅（进入时视频已暂停）。 */
+/** 进入批阅时的加载页（恢复会话 / 加载队列）。 */
 @Composable
-private fun ReviewCompleteOverlay(
-    total: Int,
-    onRestart: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Black.copy(alpha = 0.78f),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+private fun ReviewLoadingPage(onBack: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding(),
         ) {
             Icon(
-                imageVector = Icons.Default.ArrowUpward,
-                contentDescription = null,
-                tint = V2Colors.Accent,
-                modifier = Modifier.size(40.dp),
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "返回",
+                tint = MediaTextPrimary,
             )
-            Text(
-                text = "批阅完成",
-                style = MaterialTheme.typography.titleLarge,
-                color = MediaTextPrimary,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Text(
-                text = "共 $total 条视频已全部浏览",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MediaTextSecondary,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = V2Colors.Accent,
-                onClick = onRestart,
-                modifier = Modifier.padding(top = 18.dp),
-            ) {
-                Text(
-                    text = "重新批阅",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
-                )
-            }
         }
+        Text(
+            text = "正在恢复批阅…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MediaTextSecondary,
+        )
     }
 }
 
-/** 带返回的占位页标题栏（Server 模式批阅未接入提示用）。 */
+/**
+ * 进入失败页（§17）：latest 网络失败 / 分页失败时显示"无法恢复批阅 + 重新尝试"，
+ * **绝不**自动新建会话（会把用户进度重置）。
+ */
 @Composable
-private fun ReviewServerModePlaceholder(
+private fun ReviewErrorPage(
+    message: String,
+    onRetry: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier.background(MediaImmersiveBackground),
-        contentAlignment = Alignment.Center,
-    ) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         IconButton(
             onClick = onBack,
             modifier = Modifier
@@ -828,40 +835,66 @@ private fun ReviewServerModePlaceholder(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
-                imageVector = Icons.Default.MoreVert,
+                imageVector = Icons.Default.ErrorOutline,
                 contentDescription = null,
-                tint = MediaTextSecondary,
+                tint = MediaDanger,
                 modifier = Modifier.size(44.dp),
             )
             Text(
-                text = "真实批阅接入将在 Stage 8B 完成",
+                text = "无法恢复批阅",
                 style = MaterialTheme.typography.titleMedium,
                 color = MediaTextPrimary,
                 modifier = Modifier.padding(top = 14.dp),
             )
             Text(
-                text = "当前服务器模式已支持媒体浏览、图片查看与视频播放；" +
-                    "批阅会话（队列 / 已看 / 断点）属于 Stage 8B 范围。",
+                text = message,
                 style = MaterialTheme.typography.bodySmall,
                 color = MediaTextSecondary,
                 modifier = Modifier.padding(top = 8.dp),
             )
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = V2Colors.Accent,
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 18.dp),
+            ) {
+                Text(
+                    text = "重新尝试",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
+                )
+            }
         }
     }
 }
 
-/** 无未审视频时的完成页（"重新批阅"= 重建全量视频队列）。 */
+/** 完成页 / 空队列页（"重新批阅"在 Server 模式 = 新建会话，§39）。 */
 @Composable
 private fun ReviewCompletePage(
     emptyQueue: Boolean,
     total: Int,
     onRestart: () -> Unit,
-    modifier: Modifier = Modifier,
+    onBack: () -> Unit,
 ) {
     Box(
-        modifier = modifier.background(MediaImmersiveBackground),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MediaImmersiveBackground),
         contentAlignment = Alignment.Center,
     ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding(),
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "返回",
+                tint = MediaTextPrimary,
+            )
+        }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 imageVector = Icons.Default.Favorite,
@@ -885,7 +918,7 @@ private fun ReviewCompletePage(
                 shape = RoundedCornerShape(10.dp),
                 color = V2Colors.Accent,
                 onClick = onRestart,
-                modifier = Modifier.padding(top = 20.dp),
+                modifier = Modifier.padding(top = 18.dp),
             ) {
                 Text(
                     text = "重新批阅",

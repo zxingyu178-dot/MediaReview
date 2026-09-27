@@ -4,38 +4,54 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.V2DataMode
-import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.perf.V2Perf
+import com.mediareview.app.feature.v2.player.V2PlaybackDecision
+import com.mediareview.app.feature.v2.player.V2PlaybackSourceController
+import com.mediareview.app.feature.v2.player.V2PlaybackUiState
+import com.mediareview.app.feature.v2.review.data.ReviewQueuePageResult
+import com.mediareview.app.feature.v2.review.data.ReviewQueuePaging
+import com.mediareview.app.feature.v2.review.data.ReviewSessionOpen
+import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /**
- * 批阅模式（Stage7 收稳）ViewModel：
+ * 批阅模式 ViewModel（Stage 8B：真实 Server Review Session 接入）。
  *
- * 生命周期（替代 Stage6 的 loadIfNeeded）：
- * - 每次真正进入 Review 页面调用 [enterReview]——若刚打开过完整播放器（[onLeaveForFullPlayer]）
- *   则恢复该 Session（不重建队列、不跳回第 1 条）；否则重新检查 Repository 建立"最新未审队列"，
- *   不依赖 loadIfNeeded 的偶然状态；
- * - 队列 = 进入时刻的未审视频（视频优先）；已批阅不重排队列（避免跳动）；
- * - 页停稳 + 稳定 ~480ms 自动 [markReviewed]（进度持久化）；
- * - 完成条件 = 本次队列所有条目均已批阅（[isComplete]），不再依赖"末页已批阅"的弱判定；
- * - 收藏复用仓库状态；待删除用独立 [pendingDeleteIds]（与 reviewed 解耦，可撤销）；
- * - "重新批阅"显式拆两个入口：本次队列重审 [restartCurrentSession] / 全库重审 [restartAllVideos]。
- *   空队列完成页调用 [restartAllVideos]，保证"没有待批阅时点重新批阅"真正能生成全量队列。
+ * 会话 / 队列 / seen / position / complete 全部委托 [V2ReviewSessionRepository]
+ * （Server 或 Demo 由路由器按数据源模式决定，本 ViewModel 不感知模式）。
+ *
+ * 关键语义：
+ * - **进入**：恢复最新 active 会话；只有数据源明确"没有会话"才新建；latest 失败 → Error
+ *   （§17，绝不误建）；深位置恢复只拉包含 current_index 的那一页（§21）；
+ * - **播放**：只解析当前项（P0），最多预取"下一条"一条（P1），**绝不批量 resolvePlayback**（§5/§33）；
+ *   播放语义与完整播放器共用 [V2PlaybackSourceController]（Direct → 一次 HLS → Error + stale guard）；
+ * - **seen**：页面停稳 + 内容揭示后由 UI 触发；**服务端确认成功才更新本地**（§26），失败可重试；
+ * - **position**：settled 页变化才上报，latest-wins（取消旧请求，§28）；
+ * - **完成**：队列真正走到底且末项已确认批阅 → 调用服务端 complete，**服务端确认后**才进入完成页（§40）；
+ * - **完整播放器返回**：恢复原会话与原绝对位置，不重建会话（§37）。
  */
 @HiltViewModel
 class V2ReviewViewModel @Inject constructor(
     private val repository: MediaRepository,
+    private val sessions: V2ReviewSessionRepository,
 ) : ViewModel() {
 
-    private val _queue = MutableStateFlow<List<ReviewMediaSource>>(emptyList())
-    val queue: StateFlow<List<ReviewMediaSource>> = _queue.asStateFlow()
+    private val _state = MutableStateFlow<V2ReviewUiState>(V2ReviewUiState.Idle)
+    val state: StateFlow<V2ReviewUiState> = _state.asStateFlow()
 
-    private val _ready = MutableStateFlow(false)
-    val ready: StateFlow<Boolean> = _ready.asStateFlow()
+    /** 当前项的播放源状态（UI 只消费本状态，不直接发网络请求）。 */
+    private val _playback = MutableStateFlow<V2PlaybackUiState>(V2PlaybackUiState.Loading)
+    val playback: StateFlow<V2PlaybackUiState> = _playback.asStateFlow()
 
     private val _pendingDeleteIds = MutableStateFlow<Set<String>>(emptySet())
     val pendingDeleteIds: StateFlow<Set<String>> = _pendingDeleteIds.asStateFlow()
@@ -43,200 +59,398 @@ class V2ReviewViewModel @Inject constructor(
     private val _favoriteIds = MutableStateFlow<Set<String>>(emptySet())
     val favoriteIds: StateFlow<Set<String>> = _favoriteIds.asStateFlow()
 
-    private val _reviewedIds = MutableStateFlow<Set<String>>(emptySet())
-    val reviewedIds: StateFlow<Set<String>> = _reviewedIds.asStateFlow()
+    private val _messages = MutableSharedFlow<ReviewMessage>(extraBufferCapacity = 8)
+    val messages: SharedFlow<ReviewMessage> = _messages.asSharedFlow()
 
-    private val _currentIndex = MutableStateFlow(0)
-    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+    /** 播放源控制器：与完整播放器共享同一套 Direct / HLS / stale 语义。 */
+    private val sources = V2PlaybackSourceController()
 
-    private val _isComplete = MutableStateFlow(false)
-    val isComplete: StateFlow<Boolean> = _isComplete.asStateFlow()
+    private var resolveJob: Job? = null
+    private var prefetchJob: Job? = null
+    private var positionJob: Job? = null
+    private var leavePositionJob: Job? = null
+    private var enterJob: Job? = null
 
-    /**
-     * Server 模式下是否不支持真实批阅（Stage 8A §16 / §33）：
-     * 真实 Review Session（创建队列 / seen / position）属于 Stage 8B，
-     * 本阶段 Server 模式只显示"真实批阅接入将在 Stage 8B 完成"，且**不做任何批量 resolve**。
-     */
-    private val _serverModeUnsupported = MutableStateFlow(false)
-    val serverModeUnsupported: StateFlow<Boolean> = _serverModeUnsupported.asStateFlow()
+    /** 本次会话内已确认批阅的媒体 id（服务端确认成功才加入）。 */
+    private val confirmedSeen = mutableSetOf<String>()
 
-    /** 离开前的会话快照（仅用于"完整播放器 Back 恢复"）。 */
-    private var session: ReviewSession? = null
+    /** 会话建立时的服务端 seen_count 起点。 */
+    private var baseSeenCount = 0
 
-    /** 是否为"打开完整播放器后返回"：true 时 [enterReview] 恢复会话而非重建队列。 */
+    /** 是否为"打开完整播放器后返回"：true 时 [enterReview] 恢复会话而非重新进入。 */
     private var leftForFullPlayer = false
+    private var savedAbsoluteIndex = 0
+
+    // ---------- 进入 / 恢复 ----------
 
     /**
      * 进入批阅页面（每次组合进入都调用，含完整播放器返回）。
-     * - 刚从完整播放器返回：恢复原 Session（保持在原页、保留已批阅/待删除）；
-     * - 普通进入（含从其他 Tab 回来）：重新检查 Repository 建立最新未审队列。
+     * - 刚从完整播放器返回：恢复原会话与原绝对位置（不重建会话，§37）；
+     * - 普通进入：恢复最新 active 会话（没有才新建）。
      */
     fun enterReview() {
-        viewModelScope.launch {
-            // Server 模式：真实批阅会话（Stage 8B）尚未接入，直接进入占位页，
-            // 绝不在此批量解析播放地址（ReviewMediaSource 携带 URL 的模型只适用于 Demo）。
-            if (repository.mode == V2DataMode.SERVER) {
-                _serverModeUnsupported.value = true
-                _queue.value = emptyList()
-                _ready.value = false
-                return@launch
+        if (leftForFullPlayer) {
+            leftForFullPlayer = false
+            restoreAfterPlayerReturn()
+            return
+        }
+        openSession(forceNew = false)
+    }
+
+    /** Error 层的"重新尝试"。 */
+    fun retryEnter() {
+        openSession(forceNew = false)
+    }
+
+    private fun openSession(forceNew: Boolean) {
+        enterJob?.cancel()
+        enterJob = viewModelScope.launch {
+            _state.value = V2ReviewUiState.LoadingSession
+            _playback.value = V2PlaybackUiState.Loading
+            V2Perf.openReview()
+            val opened = try {
+                sessions.enterSession(forceNew)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
             }
-            _serverModeUnsupported.value = false
-            val saved = session
-            if (leftForFullPlayer && saved != null) {
-                leftForFullPlayer = false
-                restoreSession(saved, repository.pendingDeleteIds())
+            when (opened) {
+                is ReviewSessionOpen.Ready -> applyOpened(opened)
+                ReviewSessionOpen.Empty -> _state.value = V2ReviewUiState.Empty
+                is ReviewSessionOpen.Failed -> _state.value = V2ReviewUiState.Error(opened.message)
+            }
+        }
+    }
+
+    private suspend fun applyOpened(opened: ReviewSessionOpen.Ready) {
+        _state.value = V2ReviewUiState.LoadingQueue
+        V2Perf.review()?.markOnce(
+            "session_restore",
+            "session_restore",
+            { "total=${opened.session.totalCount}" },
+        )
+        V2Perf.review()?.markOnce(
+            "queue_page",
+            "queue_page",
+            {
+                "page=${opened.window.page} base=${opened.window.baseIndex} " +
+                    "items=${opened.window.items.size} total=${opened.window.totalCount}"
+            },
+        )
+        confirmedSeen.clear()
+        baseSeenCount = opened.session.seenCount
+        _pendingDeleteIds.value = runCatching { repository.pendingDeleteIds() }.getOrElse { error ->
+            // 待删除集合失败不能让批阅进不去；但要如实提示（不假装"没有待删除"）
+            _messages.tryEmit(ReviewMessage(error.message ?: "待删除状态获取失败"))
+            emptySet()
+        }
+        _favoriteIds.value = opened.window.items.filter { it.favorite }.map { it.mediaId }.toSet()
+        _state.value = V2ReviewUiState.Ready(
+            sessionId = opened.session.sessionId,
+            totalCount = opened.session.totalCount,
+            absoluteCurrentIndex = opened.session.currentIndex,
+            window = opened.window,
+            seenCount = opened.session.seenCount,
+        )
+        resolveCurrent(resolveNext = true)
+        maybeCompleteIfQueueFinished()
+    }
+
+    /** 完整播放器返回：恢复原窗口与原绝对位置，不重新创建会话（§37）。 */
+    private fun restoreAfterPlayerReturn() {
+        val ready = _state.value as? V2ReviewUiState.Ready
+        if (ready == null) {
+            // 进程被杀 / 状态丢失：走正常进入（服务端会返回同一个 active 会话）
+            openSession(forceNew = false)
+            return
+        }
+        val restored = if (ready.window.localIndexOf(savedAbsoluteIndex) != null) {
+            savedAbsoluteIndex
+        } else {
+            ready.absoluteCurrentIndex
+        }
+        _state.value = ready.copy(absoluteCurrentIndex = restored)
+        resolveCurrent(resolveNext = true)
+    }
+
+    // ---------- UI 事件 ----------
+
+    /**
+     * 页面停稳（pager settled）。[localIndex] 是 pager 的本地索引，
+     * 立即映射成绝对索引（§24：绝对索引才是身份）。
+     */
+    fun onPageSettled(localIndex: Int) {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val item = ready.items.getOrNull(localIndex) ?: return
+        val absolute = item.absoluteIndex
+        if (absolute != ready.absoluteCurrentIndex) {
+            _state.value = ready.copy(absoluteCurrentIndex = absolute)
+        }
+        // §28：只在 settled 页变化时上报位置；latest-wins（取消上一条请求）
+        positionJob?.cancel()
+        positionJob = viewModelScope.launch {
+            runCatching { sessions.savePosition(absolute) }
+        }
+        // §20/§22：接近边界时预加载相邻页（绝不一次拉全量）
+        maybeLoadAdjacent(ready, localIndex)
+        resolveCurrent(resolveNext = true)
+    }
+
+    /** 内容稳定揭示后自动批阅（§25：settle + 停止滚动 + 已揭示 + 稳定 ~480ms 后调用）。 */
+    fun markSeen(localIndex: Int) {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val item = ready.items.getOrNull(localIndex) ?: return
+        if (item.mediaId in confirmedSeen) return
+        viewModelScope.launch {
+            if (sessions.markSeen(item.mediaId)) {
+                confirmedSeen += item.mediaId
+                val current = _state.value as? V2ReviewUiState.Ready
+                if (current != null && current.sessionId == ready.sessionId) {
+                    _state.value = current.copy(seenCount = baseSeenCount + confirmedSeen.size)
+                }
+                maybeCompleteIfQueueFinished()
             } else {
-                refreshQueue()
+                // §26：不假成功 —— 保持未批阅，用户继续滑动/重试
+                _messages.tryEmit(ReviewMessage("批阅标记未保存，稍后重试"))
             }
         }
-    }
-
-    /** 打开完整播放器前调用：把当前进度记入 Session，返回后恢复而非重建队列。 */
-    fun onLeaveForFullPlayer() {
-        leftForFullPlayer = true
-        session = snapshotSession()
-    }
-
-    /** 页面停稳后由 UI 稳定判定触发自动批阅。 */
-    fun markReviewed(mediaId: String) {
-        viewModelScope.launch {
-            repository.markReviewed(mediaId)
-            _reviewedIds.value = _reviewedIds.value + mediaId
-            updateComplete()
-            snapshotSession()
-        }
-    }
-
-    /** 当前停稳页（UI 在 settle 后回调，用于 Session 记录与原页恢复）。 */
-    fun onPageSettled(index: Int) {
-        _currentIndex.value = index.coerceIn(0, _queue.value.lastIndex.coerceAtLeast(0))
-        snapshotSession()
     }
 
     fun toggleFavorite(mediaId: String) {
         viewModelScope.launch {
             val now = mediaId !in _favoriteIds.value
-            repository.setFavorite(mediaId, now)
-            _favoriteIds.value = if (now) _favoriteIds.value + mediaId
-            else _favoriteIds.value - mediaId
-            snapshotSession()
+            // §34：复用仓库的"服务器确认制"，失败不改 UI 状态
+            if (repository.setFavorite(mediaId, now)) {
+                _favoriteIds.value = if (now) _favoriteIds.value + mediaId
+                else _favoriteIds.value - mediaId
+            } else {
+                _messages.tryEmit(ReviewMessage(if (now) "收藏失败" else "取消收藏失败"))
+            }
         }
     }
 
-    /** 加入待删除（可撤销；与批阅状态独立）。 */
+    /** 加入待删除（§36：服务端确认成功才更新 UI；失败保持原状态 + 提示）。 */
     fun addPendingDelete(mediaId: String) {
         viewModelScope.launch {
-            repository.setPendingDelete(mediaId, true)
-            _pendingDeleteIds.value = _pendingDeleteIds.value + mediaId
-            snapshotSession()
+            if (repository.setPendingDelete(mediaId, true)) {
+                _pendingDeleteIds.value = _pendingDeleteIds.value + mediaId
+                _messages.tryEmit(ReviewMessage("已加入待删除", undoMediaId = mediaId))
+            } else {
+                _messages.tryEmit(ReviewMessage("加入待删除失败"))
+            }
         }
     }
 
-    /** 撤销待删除。 */
+    /** 撤销待删除（服务端确认成功才更新 UI）。 */
     fun undoPendingDelete(mediaId: String) {
         viewModelScope.launch {
-            repository.setPendingDelete(mediaId, false)
-            _pendingDeleteIds.value = _pendingDeleteIds.value - mediaId
-            snapshotSession()
-        }
-    }
-
-    /**
-     * 重新批阅"本次队列"：仅清除当前队列的已批阅标记并回到第 1 条。
-     * 不清除不在当前队列里的视频（语义收敛，避免误改）。
-     */
-    fun restartCurrentSession() {
-        viewModelScope.launch {
-            _queue.value.forEach { repository.unmarkReviewed(it.mediaId) }
-            _reviewedIds.value = emptySet()
-            _currentIndex.value = 0
-            _isComplete.value = false
-            snapshotSession()
-        }
-    }
-
-    /**
-     * 重新批阅"全部视频"：读取所有视频 → 清除每个视频的已批阅 →
-     * 重建全量队列 → 定位第 1 条。空队列完成页必须调用本方法
-     * （旧实现只操作 `_queue.value`，空队列时什么都不会做）。
-     */
-    fun restartAllVideos() {
-        viewModelScope.launch {
-            repository.media().filter { it.isVideo }.forEach { repository.unmarkReviewed(it.id) }
-            rebuildQueue(allVideos(), repository.pendingDeleteIds())
-            snapshotSession()
+            if (repository.setPendingDelete(mediaId, false)) {
+                _pendingDeleteIds.value = _pendingDeleteIds.value - mediaId
+            } else {
+                _messages.tryEmit(ReviewMessage("撤销待删除失败"))
+            }
         }
     }
 
     fun isFavorite(mediaId: String): Boolean = mediaId in _favoriteIds.value
+
     fun isPendingDelete(mediaId: String): Boolean = mediaId in _pendingDeleteIds.value
-    fun isReviewed(mediaId: String): Boolean = mediaId in _reviewedIds.value
 
-    // ---------- Session / 状态内部 ----------
+    fun isSeen(mediaId: String): Boolean = mediaId in confirmedSeen
 
-    /** 重新检查 Repository：重建"最新未审视频"队列（视频优先，VIDEO ONLY）。 */
-    private suspend fun refreshQueue() {
-        rebuildQueue(allVideos().filter { !it.isReviewed }, repository.pendingDeleteIds())
-        snapshotSession()
+    /**
+     * 打开完整播放器前调用（§37）：记录当前绝对位置并**写回服务端**，
+     * 返回时恢复原会话（不重新创建）。
+     */
+    fun onLeaveForFullPlayer() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        leftForFullPlayer = true
+        savedAbsoluteIndex = ready.absoluteCurrentIndex
+        // 独立 Job：不随后续 settled 上报被取消，保证"离开前的位置"确实写到服务端
+        leavePositionJob?.cancel()
+        leavePositionJob = viewModelScope.launch {
+            runCatching { sessions.savePosition(ready.absoluteCurrentIndex) }
+        }
     }
 
-    /** 从 Repository 拉取全部视频（已应用收藏/批阅等状态覆盖）。 */
-    private suspend fun allVideos(): List<V2Media> =
-        repository.media().filter { it.isVideo }
-
-    private fun rebuildQueue(videos: List<V2Media>, pendingDelete: Set<String>) {
-        _queue.value = videos.map { buildSource(it) }
-        val ids = _queue.value.map { it.mediaId }
-        _reviewedIds.value = videos.filter { it.isReviewed }.map { it.id }.toSet().intersect(ids.toSet())
-        _pendingDeleteIds.value = pendingDelete
-        _favoriteIds.value = videos.filter { it.isFavorite }.map { it.id }.toSet()
-        _currentIndex.value = 0
-        _ready.value = true
-        updateComplete()
+    /** 会话完成页"重新批阅"（§39：Server = 新建会话；Demo = 本队列重审）。 */
+    fun restart() {
+        openSession(forceNew = true)
     }
 
-    /** 队列全部已批阅才算完成（取代旧"末页已批阅"弱判定）。 */
-    private fun updateComplete() {
-        _isComplete.value = _queue.value.isNotEmpty() && _queue.value.all { it.mediaId in _reviewedIds.value }
+    /** 空队列完成页"重新批阅"（§39：Server = 新建会话；Demo = 全量重审）。 */
+    fun restartAll() {
+        enterJob?.cancel()
+        enterJob = viewModelScope.launch {
+            _state.value = V2ReviewUiState.LoadingSession
+            val opened = try {
+                sessions.restartAll()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                ReviewSessionOpen.Failed(error.message ?: "重建批阅队列失败")
+            }
+            when (opened) {
+                is ReviewSessionOpen.Ready -> applyOpened(opened)
+                ReviewSessionOpen.Empty -> _state.value = V2ReviewUiState.Empty
+                is ReviewSessionOpen.Failed -> _state.value = V2ReviewUiState.Error(opened.message)
+            }
+        }
+    }
+
+    // ---------- 播放（P0 当前 / P1 下一条） ----------
+
+    /** 重试当前项：必须真正回到 Direct 重新开始（与完整播放器同一套语义）。 */
+    fun retryPlayback() {
+        resolveCurrent(resolveNext = false)
+    }
+
+    /** 播放内核报错：带上"播放器里实际装载的 mediaId"，旧媒体的迟到错误会被忽略。 */
+    fun onPlaybackFailed(failingMediaId: String) {
+        if (failingMediaId.isBlank()) return
+        applyDecision(sources.onPlaybackFailed(sources.token, failingMediaId))
+    }
+
+    private fun resolveCurrent(resolveNext: Boolean) {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val item = ready.items.getOrNull(ready.localCurrentIndex) ?: return
+        resolveJob?.cancel()
+        prefetchJob?.cancel()
+        // §7/§8：解析开始前就切换 source identity（清空上一媒体的 source、回到 Direct）
+        val eventToken = sources.moveTo(item.mediaId)
+        _playback.value = V2PlaybackUiState.Loading
+        resolveJob = viewModelScope.launch {
+            val resolved = sources.takePrefetched(item.mediaId)
+                ?: try {
+                    repository.resolvePlayback(item.mediaId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    applyDecision(sources.onResolveFailed(eventToken, error.message))
+                    return@launch
+                }
+            applyDecision(sources.onResolved(eventToken, resolved))
+            if (resolveNext) prefetchNext()
+        }
+    }
+
+    private fun applyDecision(decision: V2PlaybackDecision) {
+        when (decision) {
+            V2PlaybackDecision.Ignore -> return
+            is V2PlaybackDecision.Play -> {
+                val source = sources.source ?: return
+                _playback.value = V2PlaybackUiState.Ready(source, decision.stage, decision.endpoint)
+                V2Perf.review()?.markOnce("playback_info_ready", "playback_info_ready")
+            }
+            is V2PlaybackDecision.Fail -> {
+                _playback.value = V2PlaybackUiState.Failed(decision.message ?: defaultFailureMessage())
+            }
+        }
+    }
+
+    /** P1：只预取"下一条"一个播放源（§33；快速滑动时旧预取自然作废）。 */
+    private fun prefetchNext() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val next = ready.items.getOrNull(ready.localCurrentIndex + 1) ?: return
+        prefetchJob = viewModelScope.launch {
+            val resolved = runCatching { repository.resolvePlayback(next.mediaId) }.getOrNull()
+                ?: return@launch
+            sources.prefetch(next.mediaId, resolved)
+        }
+    }
+
+    // ---------- 分页 / 完成 ----------
+
+    private fun maybeLoadAdjacent(ready: V2ReviewUiState.Ready, localIndex: Int) {
+        val window = ready.window
+        if (ReviewQueuePaging.shouldLoadNext(
+                lastVisibleLocalIndex = localIndex,
+                loadedCount = window.items.size,
+                atEnd = window.atEnd,
+                loading = ready.loadingNext,
+            )
+        ) {
+            loadNextPage()
+        }
+        if (ReviewQueuePaging.shouldLoadPrev(
+                firstVisibleLocalIndex = localIndex,
+                canLoadPrev = window.canLoadPrev,
+                loading = ready.loadingPrev,
+            )
+        ) {
+            loadPrevPage()
+        }
+    }
+
+    private fun loadNextPage() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        if (ready.loadingNext) return
+        _state.value = ready.copy(loadingNext = true)
+        viewModelScope.launch {
+            val result = sessions.loadNextPage()
+            applyPageResult(result, isNext = true)
+        }
+    }
+
+    private fun loadPrevPage() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        if (ready.loadingPrev) return
+        _state.value = ready.copy(loadingPrev = true)
+        viewModelScope.launch {
+            val result = sessions.loadPrevPage()
+            applyPageResult(result, isNext = false)
+        }
+    }
+
+    private fun applyPageResult(result: ReviewQueuePageResult?, isNext: Boolean) {
+        val current = _state.value as? V2ReviewUiState.Ready ?: return
+        if (result == null) {
+            // 失败 / 已到边界：只恢复 loading 标记（不假成功，UI 可再次触发）
+            _state.value = current.copy(
+                loadingNext = if (isNext) false else current.loadingNext,
+                loadingPrev = if (isNext) current.loadingPrev else false,
+            )
+            return
+        }
+        _state.value = current.copy(
+            window = result.window,
+            totalCount = result.window.totalCount,
+            loadingNext = false,
+            loadingPrev = false,
+        )
+        V2Perf.review()?.mark(
+            "queue_page",
+            {
+                "page=${result.window.page} base=${result.window.baseIndex} " +
+                    "items=${result.window.items.size} prepended=${result.prependedCount}"
+            },
+        )
+        // 前置分页后本地索引整体后移：absoluteCurrentIndex 不变，localCurrentIndex 自动右移
+        maybeCompleteIfQueueFinished()
     }
 
     /**
-     * 恢复会话：完整播放器返回场景。队列保持（进入完整播放器期间不被外部改动），
-     * 按 session 恢复已批阅 / 待删除 / 当前页。
+     * §40：队列真正走到底（已加载窗口到末尾且末项就是最后一条）**且**末项已确认批阅时，
+     * 调用服务端 complete；**只有服务端确认成功才进入完成页**（长期状态以服务端为准）。
      */
-    private fun restoreSession(saved: ReviewSession, pendingDelete: Set<String>) {
-        val idx = saved.currentMediaId?.let { mid -> _queue.value.indexOfFirst { it.mediaId == mid } } ?: 0
-        _currentIndex.value = idx.coerceAtLeast(0)
-        _pendingDeleteIds.value = pendingDelete + saved.pendingDeleteIds
-        _reviewedIds.value = saved.reviewedIds
-        _ready.value = true
-        updateComplete()
+    private fun maybeCompleteIfQueueFinished() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val last = ready.items.lastOrNull() ?: return
+        val reachedEnd = ready.window.atEnd && last.absoluteIndex == ready.totalCount - 1
+        if (!reachedEnd || last.mediaId !in confirmedSeen) return
+        viewModelScope.launch {
+            if (sessions.completeSession()) {
+                val current = _state.value as? V2ReviewUiState.Ready
+                if (current?.sessionId == ready.sessionId) {
+                    _state.value = V2ReviewUiState.Complete(ready.totalCount)
+                }
+            } else {
+                _messages.tryEmit(ReviewMessage("会话完成未保存，请稍后重试"))
+            }
+        }
     }
 
-    private fun snapshotSession(): ReviewSession {
-        val s = ReviewSession(
-            queueIds = _queue.value.map { it.mediaId },
-            currentMediaId = _queue.value.getOrNull(_currentIndex.value)?.mediaId,
-            reviewedIds = _reviewedIds.value,
-            pendingDeleteIds = _pendingDeleteIds.value,
-            sessionStarted = System.currentTimeMillis(),
-        )
-        session = s
-        return s
-    }
-
-    /** 由 V2Media 构建 UI 唯一可见的 [ReviewMediaSource]（URL 完全由 Repository 解析，UI 不接触 Demo 资源）。 */
-    private fun buildSource(m: V2Media): ReviewMediaSource = ReviewMediaSource(
-        mediaId = m.id,
-        title = m.name,
-        code = m.code,
-        folderName = m.folderName,
-        durationMs = m.durationMs,
-        naturalWidth = m.naturalWidth,
-        naturalHeight = m.naturalHeight,
-        playbackUrl = repository.playbackUri(m.id),
-        headers = repository.playbackHeaders(m.id),
-        coverUrl = repository.coverUri(m),
-    )
+    private fun defaultFailureMessage(): String =
+        if (repository.mode == V2DataMode.SERVER) "播放失败，服务器未提供可用地址" else "播放失败"
 }
