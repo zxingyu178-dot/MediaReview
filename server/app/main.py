@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
+from app.adapters.jellyfin.manager import JellyfinClientManager
 from app.admin import register_admin
 from app.api.v1 import api_router
 from app.core.config import AppConfig, load_config, resolve_data_root
@@ -35,6 +36,7 @@ from app.db.session import Database
 from app.media.ffmpeg import FfmpegExecutor
 from app.services import discovery, duplicate_scanner, hash_tasks, media_index, sprite
 from app.services.tasks import TaskManager
+from app.services.thumbnail_cache import ThumbnailCacheService
 
 logger = get_logger("main")
 
@@ -65,6 +67,11 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
         app.state.database = database
         if run_db_migrations:
             run_migrations(f"sqlite:///{paths.database_path}")
+
+        # Jellyfin 客户端: 进程级唯一,所有请求共享 Keep-Alive 连接池(见 manager 模块说明)
+        app.state.jellyfin_manager = JellyfinClientManager()
+        # 媒体墙缩略图磁盘缓存(cache/thumbnails),HIT 时完全不访问 Jellyfin
+        app.state.thumbnail_cache = ThumbnailCacheService(paths)
 
         # 后台任务引擎: 注册雪碧图生成处理器;features.sprites 关闭时跳过
         task_manager = TaskManager(database)
@@ -106,6 +113,7 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
         finally:
             responder.stop()
             await task_manager.stop()
+            await app.state.jellyfin_manager.aclose()
             database.dispose()
             logger.info("MediaReview Server 已停止")
 

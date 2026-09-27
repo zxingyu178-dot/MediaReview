@@ -479,6 +479,20 @@ def resolve_folder_dirname(
     return None
 
 
+def favorite_media_ids(session: Session, media_ids: Iterable[str]) -> set[str]:
+    """一次 SQL 取回给定媒体集合中「已收藏」的 id 集合。
+
+    阶段 8A.1: MediaSummary 需要直接带收藏状态。一页 50 条必须用
+    ``WHERE media_id IN (...)`` 一次查完,禁止逐条查询,也禁止让 App
+    为了渲染 50 个卡片先下载整个收藏列表。
+    """
+    ids = [media_id for media_id in media_ids if media_id]
+    if not ids:
+        return set()
+    rows = session.execute(sa.select(Favorite.media_id).where(Favorite.media_id.in_(ids)))
+    return {str(row) for (row,) in rows.all()}
+
+
 def list_cached_media(
     session: Session,
     *,

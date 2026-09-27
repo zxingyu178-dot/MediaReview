@@ -9,24 +9,33 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.adapters.jellyfin.client import JellyfinClient, JellyfinError
+from app.adapters.jellyfin.client import ImageStream, JellyfinClient, JellyfinError
 from app.adapters.jellyfin.models import MediaType
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
 from app.core.config import ensure_jellyfin_url_excludes_api_key
 from app.core.errors import ConfigError, MediaNotFoundError, ValidationFailedError
+from app.core.perf import log_perf, perf_now
 from app.core.responses import Envelope, ok
 from app.db.models import utc_now
 from app.db.session import get_db
 from app.services import media_index
 from app.services import tasks as task_service
+from app.services.thumbnail_cache import (
+    VARIANT_GRID,
+    ThumbnailCacheService,
+    media_source_fingerprint,
+    thumbnail_cache_key,
+)
 
 router = APIRouter(prefix="/media", tags=["media"])
 
@@ -54,6 +63,9 @@ class MediaSummary(BaseModel):
     folder_id: str | None = None
     # 与文件夹接口同源的显示名(仅显示名,绝不含 Windows 路径)；媒体无路径时为 None
     folder_name: str | None = None
+    # 收藏状态直接随列表下发(阶段 8A.1)。默认 False,保持向后兼容;
+    # 客户端不得再为了渲染卡片先拉取整个收藏列表。
+    is_favorite: bool = False
 
 
 class MediaSyncSummary(BaseModel):
@@ -104,7 +116,10 @@ def media_original_url(item) -> str | None:
 
 
 def _summary_from_row(
-    row, cover_url: str | None = None, original_url: str | None = None
+    row,
+    cover_url: str | None = None,
+    original_url: str | None = None,
+    is_favorite: bool = False,
 ) -> MediaSummary:
     # 文件夹身份与 GET /media/folders 同源;媒体无路径时为 (None, None)
     folder_id, folder_name = media_index.folder_identity_for_path(row.media_path)
@@ -124,6 +139,7 @@ def _summary_from_row(
         original_url=original_url,
         folder_id=folder_id,
         folder_name=folder_name,
+        is_favorite=is_favorite,
     )
 
 
@@ -147,6 +163,7 @@ async def list_media_folders(
     db: Session = Depends(get_db),
 ) -> Envelope[list[FolderSummary]]:
     """文件夹辅助视图(媒体墙内使用,非独立导航):按父目录聚合当前筛选范围内的媒体。"""
+    started = perf_now()
     _require_user_id(request)
     selected = set(media_index.selected_library_ids(db))
     if library_id:
@@ -163,6 +180,7 @@ async def list_media_folders(
         exclude_favorites=exclude_favorites,
     )
     # cover_url 复用既有缩略图代理路径约定;无图片封面时 cover_url 为 None。
+    log_perf("media_folders", start=started, folders=len(folders))
     return ok(
         [
             FolderSummary(
@@ -193,6 +211,7 @@ async def list_media(
     db: Session = Depends(get_db),
 ) -> Envelope[MediaPage]:
     """立即返回数据库分页；空索引只编排一次后台刷新。"""
+    started = perf_now()
     _require_user_id(request)
     selected = set(media_index.selected_library_ids(db))
     if library_id:
@@ -234,22 +253,33 @@ async def list_media(
         folder_dirname=folder_dirname,
     )
     sync = media_index.media_sync_view(db, targets, available_count=available_count)
-    return ok(
-        MediaPage(
-            items=[
-                _summary_from_row(
-                    row,
-                    cover_url=media_thumbnail_url(row.media_id),
-                    original_url=media_original_url(row),
-                )
-                for row in paged
-            ],
-            total=total,
-            page=page,
-            page_size=page_size,
-            sync=MediaSyncSummary.model_validate(sync),
-        )
+    # 收藏状态一次 SQL 批量取回(禁止逐条查询)
+    favorite_ids = media_index.favorite_media_ids(db, [row.media_id for row in paged])
+    payload = MediaPage(
+        items=[
+            _summary_from_row(
+                row,
+                cover_url=media_thumbnail_url(row.media_id),
+                original_url=media_original_url(row),
+                is_favorite=row.media_id in favorite_ids,
+            )
+            for row in paged
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+        sync=MediaSyncSummary.model_validate(sync),
     )
+    log_perf(
+        "media_page",
+        start=started,
+        page=page,
+        page_size=page_size,
+        items=len(paged),
+        total=total,
+        favorites=len(favorite_ids),
+    )
+    return ok(payload)
 
 
 @router.post("/refresh", status_code=202, response_model=Envelope[dict])
@@ -278,16 +308,18 @@ async def get_media(
     db: Session = Depends(get_db),
 ) -> Envelope[MediaSummary]:
     """按 media_id 读取单条媒体详情(来自本地缓存索引)。"""
+    started = perf_now()
     row = media_index.get_cached_media(db, media_id)
     if row is None:
         raise MediaNotFoundError()
-    return ok(
-        _summary_from_row(
-            row,
-            cover_url=media_thumbnail_url(row.media_id),
-            original_url=media_original_url(row),
-        )
+    summary = _summary_from_row(
+        row,
+        cover_url=media_thumbnail_url(row.media_id),
+        original_url=media_original_url(row),
+        is_favorite=media_id in media_index.favorite_media_ids(db, [media_id]),
     )
+    log_perf("media_detail", start=started, media_id=media_id)
+    return ok(summary)
 
 
 def _image_response(payload: bytes, content_type: str) -> Response:
@@ -298,18 +330,68 @@ def _image_response(payload: bytes, content_type: str) -> Response:
     )
 
 
+def _thumbnail_cache(request: Request) -> ThumbnailCacheService:
+    """媒体墙缩略图磁盘缓存;未经 lifespan 构造的应用也保持共享语义。"""
+    cache = getattr(request.app.state, "thumbnail_cache", None)
+    if cache is None:
+        cache = ThumbnailCacheService(request.app.state.paths)
+        request.app.state.thumbnail_cache = cache
+    return cache
+
+
+# 媒体卡目标约 480x270;竖图不再传输 480x850 再由客户端裁掉大部分。
+THUMBNAIL_MAX_WIDTH = 480
+THUMBNAIL_MAX_HEIGHT = 270
+
+
 @router.get("/{media_id}/thumbnail", response_class=Response)
 async def get_media_thumbnail(
     media_id: str,
+    request: Request,
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
 ) -> Response:
+    """封面缩略图: SQLite 取指纹 → 磁盘缓存 HIT 直接返回 / MISS 才回源 Jellyfin。"""
+    started = perf_now()
     row = media_index.get_cached_media(db, media_id)
     if row is None or not row.jellyfin_id:
         raise MediaNotFoundError()
-    payload, content_type = await client.thumbnail_image(row.jellyfin_id)
-    return _image_response(payload, content_type)
+
+    cache = _thumbnail_cache(request)
+    key = thumbnail_cache_key(
+        media_id=row.media_id,
+        fingerprint=media_source_fingerprint(row),
+        variant=VARIANT_GRID,
+    )
+    etag = f'"{key}"'
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=86400",
+        "ETag": etag,
+    }
+    if request.headers.get("if-none-match") == etag:
+        headers["X-MediaReview-Cache"] = "HIT"
+        return Response(status_code=304, headers=headers)
+
+    payload, content_type, hit = await cache.get_or_create(
+        key,
+        lambda: client.thumbnail_image(
+            row.jellyfin_id,
+            max_width=THUMBNAIL_MAX_WIDTH,
+            max_height=THUMBNAIL_MAX_HEIGHT,
+        ),
+    )
+    cache.prune_locks()
+    headers["X-MediaReview-Cache"] = "HIT" if hit else "MISS"
+    log_perf(
+        "thumbnail",
+        start=started,
+        cache="HIT" if hit else "MISS",
+        bytes=len(payload),
+        media_id=media_id,
+    )
+    return Response(content=payload, media_type=content_type, headers=headers)
 
 
 @router.get("/{media_id}/original", response_class=Response)
@@ -319,13 +401,36 @@ async def get_media_original(
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
 ) -> Response:
+    """原图代理: 边读上游边转发,不再整张缓冲完才开始响应。
+
+    安全约束保持不变: 状态码校验、非图片内容拒绝、重定向拒绝、大小上限
+    (在 ``ImageStream.aiter_bytes`` 中按累计字节强制)。
+    """
+    started = perf_now()
     row = media_index.get_cached_media(db, media_id)
     if row is None or not row.jellyfin_id:
         raise MediaNotFoundError()
     if row.media_type != "image":
         raise ValidationFailedError("仅图片支持原图读取")
-    payload, content_type = await client.original_image(row.jellyfin_id)
-    return _image_response(payload, content_type)
+    stream: ImageStream = await client.open_original_stream(row.jellyfin_id)
+    log_perf("original_opened", start=started, media_id=media_id)
+
+    async def _body() -> AsyncIterator[bytes]:
+        first_byte = True
+        try:
+            async for chunk in stream.aiter_bytes():
+                if first_byte:
+                    log_perf("original_first_byte", start=started, media_id=media_id)
+                    first_byte = False
+                yield chunk
+        finally:
+            await stream.aclose()
+
+    return StreamingResponse(
+        _body(),
+        media_type=stream.content_type,
+        headers={"X-Content-Type-Options": "nosniff", "X-MediaReview-Streamed": "1"},
+    )
 
 
 class PlaybackEndpoint(BaseModel):
@@ -407,6 +512,7 @@ async def get_playback_info(
     - 服务端自己的 API key 绝不出现在任何 URL/headers/序列化输出;
     - 中间层不转发视频流;仅视频支持播放;签发失败 fail-closed。
     """
+    started = perf_now()
     row = media_index.get_cached_media(db, media_id)
     if row is None:
         raise MediaNotFoundError()
@@ -441,6 +547,7 @@ async def get_playback_info(
     resume_position_ms = await client.item_resume_position_ms(
         jellyfin_settings.user_id or "", row.jellyfin_id
     )
+    log_perf("playback_info", start=started, media_id=media_id)
     return ok(
         PlaybackInfo(
             media_id=row.media_id,

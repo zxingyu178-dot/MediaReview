@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
 
@@ -38,6 +40,9 @@ _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 # 拉取大列表时的单页上限,防止一次请求过重
 _MAX_PAGE_LIMIT = 1000
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024
+# 连接池: 媒体墙缩略图会连续发起数十个请求,必须复用到 Jellyfin 的 Keep-Alive 连接,
+# 否则每个 thumbnail 都要重新 TCP + 认证握手。
+_LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16, keepalive_expiry=30.0)
 
 
 def _path_segment(value: str) -> str:
@@ -69,6 +74,34 @@ class JellyfinAuthError(JellyfinError):
     default_message = "Jellyfin 认证失败,请检查 API Key"
 
 
+@dataclass
+class ImageStream:
+    """上游图片流: 已通过状态/类型/长度校验,可边读边转发给客户端。
+
+    安全性约束与 ``_image_request`` 完全一致(状态码、非图片内容、重定向、大小上限),
+    区别只是不再把整张图缓冲进内存。
+    """
+
+    content_type: str
+    content_length: int | None = None
+    _response: Any = field(default=None, repr=False)
+    _context: Any = field(default=None, repr=False)
+    _max_bytes: int = _MAX_IMAGE_BYTES
+
+    async def aiter_bytes(self) -> AsyncIterator[bytes]:
+        total = 0
+        async for chunk in self._response.aiter_bytes():
+            total += len(chunk)
+            if total > self._max_bytes:
+                raise JellyfinError("Jellyfin 图片超过允许的大小")
+            yield chunk
+
+    async def aclose(self) -> None:
+        if self._context is not None:
+            await self._context.__aexit__(None, None, None)
+            self._context = None
+
+
 class JellyfinClient:
     def __init__(self, config: JellyfinConfig, transport: httpx.AsyncBaseTransport | None = None):
         self._config = config
@@ -80,6 +113,7 @@ class JellyfinClient:
             headers=self._auth_headers(),
             timeout=_TIMEOUT,
             transport=transport,
+            limits=_LIMITS,
             follow_redirects=False,
             # V1 仅局域网/回环直连 Jellyfin,不采信环境代理(如 all_proxy=socks5),
             # 避免部署机存在代理环境变量时因缺少 socksio 等扩展而启动即失败。
@@ -182,6 +216,47 @@ class JellyfinClient:
             raise
         except httpx.HTTPError as exc:
             raise JellyfinError("无法读取 Jellyfin 图片,请确认服务连接正常") from exc
+
+    async def _open_image_stream(self, path: str) -> ImageStream:
+        """打开上游图片流(不缓冲整图),校验规则与 _image_request 一致。"""
+        context = self._http.stream(
+            "GET",
+            path,
+            headers={"Accept": "image/*"},
+            follow_redirects=False,
+        )
+        try:
+            response = await context.__aenter__()
+        except httpx.HTTPError as exc:
+            raise JellyfinError("无法读取 Jellyfin 图片,请确认服务连接正常") from exc
+        try:
+            if response.status_code in (401, 403):
+                raise JellyfinAuthError()
+            if 300 <= response.status_code < 400:
+                raise JellyfinError("Jellyfin 图片接口不允许重定向")
+            if response.status_code >= 400:
+                raise JellyfinError(f"Jellyfin 图片接口返回异常状态 {response.status_code}")
+            content_type = response.headers.get("Content-Type", "").partition(";")[0].strip()
+            if not content_type.lower().startswith("image/"):
+                raise JellyfinError("Jellyfin 图片接口返回了非图片内容")
+            declared = response.headers.get("Content-Length")
+            content_length: int | None = None
+            if declared:
+                try:
+                    content_length = int(declared)
+                except ValueError:
+                    content_length = None
+                if content_length is not None and content_length > _MAX_IMAGE_BYTES:
+                    raise JellyfinError("Jellyfin 图片超过允许的大小")
+        except BaseException:
+            await context.__aexit__(None, None, None)
+            raise
+        return ImageStream(
+            content_type=content_type,
+            content_length=content_length,
+            _response=response,
+            _context=context,
+        )
 
     # ---- 系统与用户 ----
 
@@ -314,14 +389,44 @@ class JellyfinClient:
         except (TypeError, ValueError):
             return 0
 
-    async def thumbnail_image(self, item_id: str, max_width: int = 480) -> tuple[bytes, str]:
+    def _thumbnail_params(
+        self, *, max_width: int, max_height: int | None, fill: bool
+    ) -> dict[str, Any]:
+        """缩略图尺寸参数: 媒体卡约 480x270,竖图不应传输 480x850 再由客户端裁剪。
+
+        - 默认 maxWidth/maxHeight: Jellyfin 按比例缩放,不会放大;
+        - fill=True 时改用 fillWidth/fillHeight,由 Jellyfin 生成真正贴合卡片的构图。
+        """
+        params: dict[str, Any] = {"quality": 80}
+        if fill:
+            params["fillWidth"] = max_width
+            if max_height:
+                params["fillHeight"] = max_height
+        else:
+            params["maxWidth"] = max_width
+            if max_height:
+                params["maxHeight"] = max_height
+        return params
+
+    async def thumbnail_image(
+        self,
+        item_id: str,
+        *,
+        max_width: int = 480,
+        max_height: int | None = None,
+        fill: bool = False,
+    ) -> tuple[bytes, str]:
         return await self._image_request(
             f"/Items/{_path_segment(item_id)}/Images/Primary",
-            params={"maxWidth": max_width, "quality": 80},
+            params=self._thumbnail_params(max_width=max_width, max_height=max_height, fill=fill),
         )
 
     async def original_image(self, item_id: str) -> tuple[bytes, str]:
         return await self._image_request(f"/Items/{_path_segment(item_id)}/Download")
+
+    async def open_original_stream(self, item_id: str) -> ImageStream:
+        """打开原图上游流: 边读边转发,避免整张大图先缓冲进内存。"""
+        return await self._open_image_stream(f"/Items/{_path_segment(item_id)}/Download")
 
     # ---- 播放进度上报 ----
 
@@ -338,6 +443,7 @@ class JellyfinClient:
 
 
 __all__ = [
+    "ImageStream",
     "JellyfinAuthError",
     "JellyfinClient",
     "item_hls_url",

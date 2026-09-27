@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.auth import require_auth
 from app.api.v1.media import MediaSummary, _summary_from_row
 from app.core.errors import MediaNotFoundError
+from app.core.perf import log_perf, perf_now
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
 from app.services import favorites, media_index
@@ -30,16 +31,25 @@ class FavoriteItem(BaseModel):
 async def list_favorites(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[list[dict]]:
+    """收藏列表(阶段 8A.1 起只在用户首次进入收藏页时才请求,不再阻塞首页)。"""
+    started = perf_now()
     ids = favorites.list_ids(db)
+    favorite_ids = set(ids)
     result: list[dict] = []
     for media_id in ids:
         row = media_index.get_cached_media(db, media_id)
         result.append(
             {
                 "media_id": media_id,
-                "media": _summary_from_row(row) if row else None,
+                "media": _summary_from_row(
+                    row,
+                    is_favorite=media_id in favorite_ids,
+                )
+                if row
+                else None,
             }
         )
+    log_perf("favorites_list", start=started, count=len(result))
     return ok(result)
 
 
