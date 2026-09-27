@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -38,13 +39,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.snapshotFlow
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.settings.displayLabel
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.feature.v2.ui.V2Radius
@@ -54,7 +59,78 @@ import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+
+/**
+ * 下一页预取距离（单位：条）。
+ *
+ * Stage 8A.1 §9：一屏约 8~10 个媒体卡，原阈值 4 太小，实际使用中经常
+ * "已经滚到列表底才出现下一页 Loading"。16 ≈ 1.5~2 屏，为局域网请求与
+ * JSON 解析留出余量，让下一页在用户到达之前就准备好。
+ */
+const val PREFETCH_DISTANCE_ITEMS = 16
+
+/** 下一屏封面预取条数（§23：只预取 6~8 张，绝不一上来预取后面 50 张）。 */
+private const val PREFETCH_COVER_COUNT = 8
+
+/** 封面预取并发（§23：1~2，不与当前可见封面争抢全部连接）。 */
+private const val PREFETCH_COVER_CONCURRENCY = 2
+
+/**
+ * 是否应触发下一页加载（纯函数，便于测试）。
+ *
+ * 阈值见 [PREFETCH_DISTANCE_ITEMS]；`itemCount > 0` 避免空列表时 `-16` 误触发。
+ */
+fun shouldLoadNextPage(
+    lastVisible: Int,
+    itemCount: Int,
+    hasMore: Boolean,
+    loading: Boolean,
+): Boolean = hasMore && !loading && itemCount > 0 &&
+    lastVisible >= itemCount - PREFETCH_DISTANCE_ITEMS
+
+/**
+ * 下一屏封面预取（§23~§25）。
+ *
+ * 约束：
+ * - 只在**停止滚动**时执行；用户重新滑动会取消在途预取（由调用方 collectLatest 保证）；
+ * - 只预取下一屏 6~8 张，**按显示顺序**推进，不做随机并发；
+ * - 复用全局单例 [coil.ImageLoader]（不创建第二个），结果进入 Coil memory/disk cache；
+ * - 无 UI target 的 ImageRequest，解码尺寸与卡片一致，命中后可直接复用。
+ */
+private suspend fun prefetchNextCovers(
+    loader: coil.ImageLoader,
+    context: android.content.Context,
+    gridState: LazyGridState,
+    list: List<V2Media>,
+    coverUriOf: (V2Media) -> String,
+) {
+    val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return
+    val start = lastVisible + 1
+    val end = minOf(start + PREFETCH_COVER_COUNT - 1, list.lastIndex)
+    if (start > end) return
+    for (chunk in (start..end).chunked(PREFETCH_COVER_CONCURRENCY)) {
+        coroutineScope {
+            chunk.map { index ->
+                async {
+                    val uri = coverUriOf(list[index])
+                    if (uri.isBlank()) return@async
+                    loader.execute(
+                        ImageRequest.Builder(context)
+                            .data(uri)
+                            .crossfade(false)
+                            .size(COVER_TARGET_WIDTH, COVER_TARGET_HEIGHT)
+                            .build(),
+                    )
+                }
+            }.awaitAll()
+        }
+    }
+}
 
 /**
  * V2 首页：搜索栏 + 数据源状态 + 媒体/书架双模式 + 文件夹分类 + 排序/筛选 + 双列媒体网格。
@@ -393,11 +469,34 @@ fun MediaGrid(
     val total by vm.totalCount.collectAsState()
     val error by vm.listError.collectAsState()
 
+    // 首屏媒体真正渲染出来的时刻（与 home_enter 对齐，单调时钟）
+    LaunchedEffect(list.isEmpty()) {
+        if (list.isNotEmpty() && V2Perf.claimFirstMediaRender()) {
+            V2Perf.mark("first_media_render", V2Perf.homeEnterNanos().takeIf { it > 0 })
+        }
+    }
+
     // 用户开始滑动页面 → 立即恢复 Poster
     LaunchedEffect(gridState) {
         snapshotFlow { gridState.isScrollInProgress }
             .collect { scrolling ->
                 if (scrolling && vm.activePreviewMediaId != null) vm.stopSpritePreview()
+            }
+    }
+
+    // 停止滚动 → 低并发预取下一屏封面；重新滑动由 collectLatest 立即取消在途预取
+    val prefetchContext = LocalContext.current
+    LaunchedEffect(gridState, list) {
+        snapshotFlow { gridState.isScrollInProgress }
+            .collectLatest { scrolling ->
+                if (scrolling) return@collectLatest
+                prefetchNextCovers(
+                    loader = prefetchContext.imageLoader,
+                    context = prefetchContext,
+                    gridState = gridState,
+                    list = list,
+                    coverUriOf = vm::coverUri,
+                )
             }
     }
 
@@ -409,7 +508,7 @@ fun MediaGrid(
         }
             .distinctUntilChanged()
             .collect { (lastVisible, itemCount) ->
-                if (hasMore && !loading && itemCount > 0 && lastVisible >= itemCount - 4) {
+                if (shouldLoadNextPage(lastVisible, itemCount, hasMore, loading)) {
                     vm.loadNextPage()
                 }
             }

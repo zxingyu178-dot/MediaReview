@@ -23,6 +23,7 @@ import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
+import com.mediareview.app.feature.v2.perf.V2Perf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -145,6 +146,18 @@ class V2HomeViewModel @Inject constructor(
     private val _albums = MutableStateFlow<List<V2Album>>(emptyList())
     val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
 
+    /**
+     * 文件夹/书架补齐 Job（P1）。
+     *
+     * Stage 8A.1 启动优先级：首屏媒体（P0）绝不等待文件夹与书架；
+     * 它们在同一时刻后台并行加载，到达后各自刷新 UI。
+     */
+    private var folderJob: Job? = null
+
+    /** 收藏是否已从服务器加载过（收藏页首次进入才加载，见 [ensureFavoritesLoaded]）。 */
+    private var favoritesLoaded = false
+    private var favoritesLoading = false
+
     // 列表刷新 Job 竞态控制：只有最后一次触发的刷新生效（连点文件夹/排序/输入搜索词时，
     // 旧一次的结果不得覆盖新一次）；搜索输入走防抖路径，分页加载用 generation 丢弃过期响应。
     private var listRefreshJob: Job? = null
@@ -175,6 +188,7 @@ class V2HomeViewModel @Inject constructor(
     }
 
     init {
+        V2Perf.homeEnter()
         viewModelScope.launch {
             // 只读本地持久化模式：不联网、不等待 Server，首页立即可用
             val mode = modeStore.bootstrap()
@@ -373,6 +387,11 @@ class V2HomeViewModel @Inject constructor(
         val nextPage = loadedPage + 1
         viewModelScope.launch {
             _listLoading.value = true
+            val started = V2Perf.now()
+            val isFirstPageTwo = V2Perf.claimFirstPageTwo()
+            if (isFirstPageTwo) {
+                V2Perf.mark("next_page_request_start", V2Perf.homeEnterNanos().takeIf { it > 0 })
+            }
             try {
                 val page = repository.mediaPage(query(nextPage))
                 if (generation != listGeneration) return@launch
@@ -382,6 +401,9 @@ class V2HomeViewModel @Inject constructor(
                 _totalCount.value = page.total
                 _hasMore.value = page.hasMore
                 _listError.value = null
+                if (isFirstPageTwo) {
+                    V2Perf.mark("next_page_response", started, { "page=$nextPage items=${page.items.size}" })
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -509,10 +531,19 @@ class V2HomeViewModel @Inject constructor(
 
     // ---------- 内部 ----------
 
-    /** 重新加载全部首页数据（切数据源 / 进入 Server 模式后调用）。 */
+    /**
+     * 重新加载首页数据（切数据源 / 进入 Server 模式后调用）。
+     *
+     * Stage 8A.1 启动优先级（原实现 folders → albums → favorites → media 已废弃）：
+     * - **P0** `GET /media?page=1` 必须最先开始，首屏媒体到达后立即渲染媒体墙；
+     * - **P1** `GET /media/folders`（书架由同一份 FolderSummary 构建）后台并行补齐；
+     * - 收藏列表**不参与启动**，用户首次进入收藏页才加载（见 [ensureFavoritesLoaded]）。
+     */
     private suspend fun reloadAll() {
         if (repository.mode == V2DataMode.SERVER && !_serverSession.value.configured) {
             // Server 模式但没有配置：不发起任何请求，UI 引导去"连接服务器"
+            folderJob?.cancel()
+            favoritesLoaded = false
             _folders.value = emptyList()
             _folderCounts.value = emptyMap()
             _albums.value = emptyList()
@@ -524,10 +555,35 @@ class V2HomeViewModel @Inject constructor(
             statusStore.update(V2ServerStatus.Unconfigured)
             return
         }
-        loadFolders()
-        refreshAlbumsNow()
-        refreshFavorites()
+        favoritesLoaded = false
+        _favorites.value = emptyList()
+
+        // P0: 首屏媒体最先开始,且绝不等待文件夹 / 书架 / 收藏
         refreshList()
+
+        // P1: 文件夹 + 书架后台并行补齐(albums 复用 folders 的短时缓存,不重复 HTTP)
+        folderJob?.cancel()
+        folderJob = viewModelScope.launch {
+            loadFolders()
+            refreshAlbumsNow()
+        }
+    }
+
+    /**
+     * 收藏页首次进入时懒加载（Stage 8A.1 §6：收藏不得阻塞首屏）。
+     * 已加载过则不再重复请求。
+     */
+    fun ensureFavoritesLoaded() {
+        if (favoritesLoaded || favoritesLoading) return
+        favoritesLoading = true
+        viewModelScope.launch {
+            try {
+                refreshFavorites()
+                favoritesLoaded = true
+            } finally {
+                favoritesLoading = false
+            }
+        }
     }
 
     private suspend fun loadFolders() {
@@ -594,6 +650,11 @@ class V2HomeViewModel @Inject constructor(
         listRefreshJob = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
             _listLoading.value = true
+            val started = V2Perf.now()
+            val isFirst = V2Perf.claimFirstMediaRequest()
+            if (isFirst) {
+                V2Perf.mark("first_media_request_start", V2Perf.homeEnterNanos().takeIf { it > 0 })
+            }
             try {
                 val page = repository.mediaPage(query(page = 1))
                 if (generation != listGeneration) return@launch
@@ -602,6 +663,9 @@ class V2HomeViewModel @Inject constructor(
                 _totalCount.value = page.total
                 _hasMore.value = page.hasMore
                 _listError.value = null
+                if (isFirst) {
+                    V2Perf.mark("first_media_response", started, { "items=${page.items.size} total=${page.total}" })
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {

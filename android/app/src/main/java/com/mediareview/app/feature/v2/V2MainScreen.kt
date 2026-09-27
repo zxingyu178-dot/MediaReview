@@ -294,6 +294,8 @@ private fun FavoritesPage(
     modifier: Modifier = Modifier,
 ) {
     val favorites by vm.favorites.collectAsState()
+    // Stage 8A.1: 收藏列表首次进入本页才加载,不参与首页启动
+    LaunchedEffect(Unit) { vm.ensureFavoritesLoaded() }
     Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
         Box(
             modifier = Modifier

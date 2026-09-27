@@ -29,12 +29,13 @@ class V2MediaMapper @Inject constructor(
      * 单条媒体映射。
      *
      * @param serverOnlyHosts 服务端可控的"仅服务器可达"主机（与 1.1 媒体墙一致，用于本机回环兜底）
-     * @param isFavorite 收藏状态（来自 `GET /favorites`，Server 模式下收藏不是媒体自身字段）
+     *
+     * 收藏状态自 Stage 8A.1 起直接取 [MediaSummary.is_favorite]（服务端随列表批量下发），
+     * 不再依赖客户端预取整个收藏列表。
      */
     fun mapMedia(
         summary: MediaSummary,
         baseUrl: String,
-        isFavorite: Boolean,
         serverOnlyHosts: Set<String> = CONTROLLED_SERVER_ONLY_HOSTS,
     ): V2ServerResourceCache.Entry {
         val coverUrl = summary.cover_url?.takeIf { it.isNotBlank() }
@@ -52,7 +53,7 @@ class V2MediaMapper @Inject constructor(
             durationMs = summary.duration_ms ?: 0L,
             sizeBytes = summary.size_bytes ?: 0L,
             dateMillis = parseDateMillis(summary.created_at),
-            isFavorite = isFavorite,
+            isFavorite = summary.is_favorite,
             // 批阅状态属于 Review Session（Stage 8B），本阶段 Server 模式不伪造
             isReviewed = false,
             // Demo 语义字段在 Server 模式下保持空：资源 URL 只存在于 Resource Cache

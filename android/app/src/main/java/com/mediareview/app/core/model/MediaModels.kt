@@ -60,6 +60,13 @@ data class MediaSummary(
     val folder_id: String? = null,
     /** 所属文件夹显示名(仅显示名,绝不是文件系统路径);无路径信息时为 null。 */
     val folder_name: String? = null,
+    /**
+     * 收藏状态(Stage 8A.1 起随列表直接下发)。
+     *
+     * 服务端一次 `WHERE media_id IN (...)` 批量取回,客户端不得再为了渲染一页卡片
+     * 先拉取整个收藏列表。默认 false,兼容旧服务端。
+     */
+    val is_favorite: Boolean = false,
 ) {
     val isVideo: Boolean get() = media_type == "video"
 }

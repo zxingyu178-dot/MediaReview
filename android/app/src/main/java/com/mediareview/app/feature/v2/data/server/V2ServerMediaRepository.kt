@@ -22,6 +22,7 @@ import com.mediareview.app.feature.v2.model.V2TypeFilter
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * 服务器配置读取端口（生产实现读 DataStore；合同测试注入假实现，无需 Android Context）。
@@ -92,8 +93,18 @@ class V2ServerMediaRepository internal constructor(
     /** Server 资源缓存：封面 / 原图绝对 URL 与已映射媒体（UI 不接触 DTO）。 */
     private val resources = V2ServerResourceCache()
 
-    /** 收藏 id 集合：null = 尚未从服务器读取（读取一次后由收藏操作维护）。 */
-    private var favoriteIds: Set<String>? = null
+    /**
+     * 文件夹短时缓存（Stage 8A.1）。
+     *
+     * 背景：首页启动会同时需要 folders（文件夹栏）与 albums（书架），
+     * 而 `albums()` 内部也调用 `folders()`，导致启动过程重复请求 `GET /media/folders`。
+     *
+     * 方案：短 TTL + 单飞（mutex 跨网络请求持有）。同一次刷新的多个调用者
+     * 只会产生一次 HTTP；TTL 到期后自然重新拉取，保证不是永久陈旧数据。
+     */
+    private val foldersMutex = Mutex()
+    private var foldersCache: List<V2Folder>? = null
+    private var foldersCachedAtMs = 0L
 
     // ---------- 访问层 ----------
 
@@ -125,18 +136,10 @@ class V2ServerMediaRepository internal constructor(
         return resp.data ?: throw IllegalStateException("服务器返回空数据")
     }
 
-    private suspend fun favoriteIdSet(api: MediaReviewApi): Set<String> {
-        favoriteIds?.let { return it }
-        val loaded = runCatching { unwrap(api.listFavorites()).map { it.media_id }.toSet() }
-            .getOrDefault(emptySet())
-        favoriteIds = loaded
-        return loaded
-    }
-
     // ---------- 列表 / 文件夹 ----------
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = call { api, base ->
-        val favorites = favoriteIdSet(api)
+        // Stage 8A.1: 收藏状态随 MediaSummary 一起下发,不再先拉取整个收藏列表
         val envelope = api.media(
             libraryId = null,
             mediaType = V2ServerWire.mediaType(query.spec),
@@ -150,15 +153,27 @@ class V2ServerMediaRepository internal constructor(
         )
         val page = unwrap(envelope)
         V2MediaPage(
-            items = mapAndCache(page.items, base, favorites),
+            items = mapAndCache(page.items, base),
             page = page.page,
             pageSize = page.page_size,
             total = page.total,
         )
     }
 
-    override suspend fun folders(): List<V2Folder> = call { api, _ ->
-        unwrap(api.mediaFolders()).map(mapper::mapFolder)
+    override suspend fun folders(): List<V2Folder> {
+        foldersMutex.lock()
+        try {
+            val cached = foldersCache
+            if (cached != null && nowMs() - foldersCachedAtMs <= FOLDERS_CACHE_TTL_MS) {
+                return cached
+            }
+            val loaded = call { api, _ -> unwrap(api.mediaFolders()).map(mapper::mapFolder) }
+            foldersCache = loaded
+            foldersCachedAtMs = nowMs()
+            return loaded
+        } finally {
+            foldersMutex.unlock()
+        }
     }
 
     override suspend fun media(): List<V2Media> =
@@ -194,18 +209,15 @@ class V2ServerMediaRepository internal constructor(
             false
         }
         if (!confirmed) return false
-        favoriteIds = (favoriteIds ?: emptySet()).let {
-            if (favorite) it + mediaId else it - mediaId
-        }
+        // 只更新本地已缓存条目;后续 mediaPage 会以服务端 is_favorite 为准
         resources.updateFavorite(mediaId, favorite)
         return true
     }
 
     override suspend fun favorites(): List<V2Media> = call { api, base ->
-        val items = unwrap(api.listFavorites())
-        favoriteIds = items.map { it.media_id }.toSet()
-        val mapped = mapAndCache(items.mapNotNull { it.media }, base, favoriteIds.orEmpty())
-        mapped.map { it.copy(isFavorite = true) }
+        // 仅在用户首次进入收藏页时调用(不再阻塞首页);收藏状态由服务端随摘要下发
+        val items = unwrap(api.listFavorites()).mapNotNull { it.media }
+        mapAndCache(items, base)
     }
 
     // ---------- Review 兼容路径（Stage 8A 不接服务器 Review Session） ----------
@@ -313,18 +325,16 @@ class V2ServerMediaRepository internal constructor(
     private fun mapAndCache(
         summaries: List<MediaSummary>,
         baseUrl: String,
-        favorites: Set<String>,
     ): List<V2Media> {
         val entries = summaries.map { summary ->
-            mapper.mapMedia(
-                summary = summary,
-                baseUrl = baseUrl,
-                isFavorite = summary.media_id in favorites,
-            )
+            mapper.mapMedia(summary = summary, baseUrl = baseUrl)
         }
         resources.putAll(entries)
         return entries.map { it.media }
     }
+
+    /** 单调时钟（毫秒）：缓存新鲜度禁止用 wall clock 计算。 */
+    private fun nowMs(): Long = System.nanoTime() / 1_000_000
 
     private companion object {
         /**
@@ -332,5 +342,11 @@ class V2ServerMediaRepository internal constructor(
          * 正式列表（mediaPage + 滚动加载）不受此限制。真实库再大也不会被一次性拉全量。
          */
         const val COMPAT_PAGE_SIZE = 200
+
+        /**
+         * 文件夹短时缓存 TTL。首页启动时 folders 与 albums 会先后调用 `folders()`，
+         * 该窗口内共享同一次 HTTP（消除重复的 `GET /media/folders`）。
+         */
+        const val FOLDERS_CACHE_TTL_MS = 5_000L
     }
 }
