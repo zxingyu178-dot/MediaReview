@@ -1845,3 +1845,104 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 - 未做 Compose 手势级 UI 自动化；
 - 未做 Room / 离线批阅缓存（Stage 8A.2）；
 - 未改 Server Review 核心（本阶段 41 个改动文件全部在 `android/` 下）。
+
+---
+
+# Stage 8B.1 — Review Correctness & Delivery Closure
+
+- **基线**：`61832ed1664c5a38839cb765621357fa59932492`（feature/mediareview-v2-stage8b-review-session）
+- **分支**：`feature/mediareview-v2-stage8b.1-review-closure`
+- **范围**：只做「批阅正确性 + 分页正确性 + Server 状态权威性 + 测试/交付证据可信性」，
+  不新增任何产品功能（Room / SWR / 图片批阅 / 整理页 / 播放器 / 雪碧图 / 生产部署全部不做）。
+
+## 1. Server：状态权威化 + complete fail-closed
+
+- `GET /review/sessions/{id}/queue` 的每一项新增 **`seen`** 字段（会话状态，与媒体可用性无关），
+  客户端恢复后能知道"这条以前是否已批阅"。
+- `POST /review/sessions/{id}/seen` 现在返回**服务端权威进度**
+  `{media_id, seen, seen_count, total_count}`；重复标记幂等（不重复计数），
+  取消已看（`seen=false`）计数正确回退。Android 端不再自行 `+1`。
+- `POST /review/sessions/{id}/complete` **fail-closed**：`seen_count < total_count` 时返回
+  409 `CONFLICT`（中文 message：还有未批阅内容…），会话保持 `active`；全部已批阅才允许完成。
+- `advance` / `position` 的自动完成同样 fail-closed：位置到末尾但仍有未批阅时**保持 active**
+  （§20「还有未批阅内容」的前置条件），全部批阅后才允许自动完成。
+- 过时合同测试更新：`test_deployment_contract_11` 的 Android 版本断言由 `1.1.0 / versionCode=6`
+  改为当前产品线 `2.0.0-alpha1 / versionCode=8`（不再作为"既有失败"长期挂账）。
+
+## 2. Android：双向分页窗口 + 完成门槛 + latest-wins
+
+- **`ReviewQueueWindow` 重构**：`page/baseIndex` → `firstLoadedPage / lastLoadedPage /
+  pageSize / totalCount`；`next = lastLoadedPage+1`、`prev = firstLoadedPage-1`
+  （先 next 再 prev 不会再请求中间页，窗口按 absoluteIndex 去重 + 排序）。
+- **缺项修正**：`localIndexOf` 由 `absoluteIndex - baseIndex` 改为 `indexOfFirst` 搜索，
+  找不到返回 null（600/602/603 缺 601 时 602 的本地索引 = 1 而不是 2）。
+- **`atEnd` 改为页边界判断**：`lastLoadedPage * pageSize >= totalCount`，
+  队尾媒体失效（如 98/99 已删除）也能正确结束，不再"永远还有下一页"。
+- **空页推进**：整页不可用时推进页边界继续向后/向前找（单次最多扫描 8 页防请求风暴），
+  推进到末尾后返回窗口快照让 `atEnd` 生效，**不再 return null 死循环**。
+- **`current_index` 失效恢复（§7）**：优先"第一个 `absoluteIndex >= current_index` 的可用项"，
+  否则回退"`current_index` 之前最近的可用项"，并把恢复出的真实绝对索引**写回服务端 position**；
+  整个队列都不可用 → 空队列页（绝不悄悄从本地第 0 条开始播别的视频）。
+- **分页 single-flight**：Repository 内 `Mutex` 串行化 next/prev，绝不同时修改窗口。
+- **seen 权威 + in-flight 去重**：`markSeen` 返回 `ReviewSeenResult`（服务端 seen_count），
+  ViewModel 的 `seenCount` 完全采用服务端值（不再 `baseSeenCount + confirmedSeen.size` 推算）；
+  同一媒体并发只发一次 POST；成功后把该条目标记为已批阅。
+- **完成逻辑重做（§17/§18/§20/§21）**：`atEnd && seen_count == total_count` 才调用 complete；
+  到末尾但还有未批阅 → 提示一次"还有未批阅内容，会话未完成"并保持 active；
+  complete 加 single-flight（重复 stable 回调只发一次）。
+- **收藏跨页（§16）**：每次 `applyOpened` / `applyPageResult` 都把新增 `favorite=true`
+  的媒体并入本地收藏集合。
+- **position 序号化 latest-wins（§23）**：settled 变化进入串行写入器（合并中间值），
+  30→31→32 时服务端最终必然停在 32；会话切换时丢弃未写完的旧会话位置，
+  仓库侧同时把写入固定到调用时的 sessionId（迟到写只落到旧会话）。
+- **P1 预取身份校验（§22）**：写入单槽前确认"当前媒体 + next mediaId"都没变、
+  且 source identity 仍是当前媒体，否则 DROP STALE PREFETCH。
+
+## 3. 测试与证据可信性（§24~§33）
+
+- **新增 JVM 用例 25 项**（405 项全通过）：双向分页不重复页（两种顺序）、合并去重、
+  缺项 localIndex、失效锚点前后回退 + 写回 position、尾部失效仍 atEnd、空页推进、
+  并发 next/prev 互斥、队列 `seen` 恢复、seen 权威计数、seen 并发防重、
+  完成门槛（seen 未满不得完成 / 满后完成）、complete double-trigger 只发一次、
+  新分页收藏合并、stale P1 不覆盖新 P1、position 30→31→32 收敛。
+- **新增 Server 用例 8 项**（392 项全通过）：queue `seen` 字段、markSeen 权威计数、
+  重复 seen 不重复计数、complete 拒绝未批阅（409 CONFLICT）、全部 seen 允许完成、
+  position 到末尾但有未批阅保持 active、不可用尾项不压缩索引、服务层 fail-closed。
+- **Hilt harness 修复**：`Stage4BrowserUiTest` 的两个 favorites 导航用例（裸 `ComponentActivity`
+  却渲染 `hiltViewModel()`）改用 **`HiltTestActivity`（debug 源集 + debug manifest）** ——
+  测试 Activity 与 App 同进程、使用生产 `MediaReviewApp`（保留 GSY Exo2 内核注册）。
+  期间验证过错误方案并留证：把 Activity 放 androidTest manifest → 跨进程失败；
+  换 `HiltTestApplication` → 生产 Application 初始化被绕过、GSY 回退 IjkPlayerManager
+  缺 `libijkffmpeg.so`（7 项 native 失败），均已在注释中记录，避免后人重犯。
+- **Search / favorites 断言修正**：搜索用例原先"搜索激活时断言模式行存在"（设计上该行隐藏）
+  改为关闭搜索后断言；favorites 用例的 `onNodeWithText("收藏")` 歧义（首页还有同名文件夹卡）
+  改用 contentDescription 精确定位；视频收藏卡标题是媒体名"视频A"（"视频收藏"是文件夹名）。
+  搜索用例按 §27 复跑 **5/5 PASS**。
+- **Legacy 1.1 Shell 测试归置（§26）**：删除 `MainShellComposeTest`（4 项）与
+  `MainShellProductionIntegrationTest`（2 项）—— 先证明生产 Runtime 不再走旧 Shell：
+  `MainActivity` 只渲染 `V2MainScreen`；`mainShellGraph` / `MainShellScreen` /
+  `shouldShowMainChrome` 全项目仅 `MainShell.kt` 自身引用（无任何调用方）；
+  `SettingsScreen` 只被旧 Shell 图引用。删除而非 `@Ignore`，并在交接包 `05_KNOWN_ISSUES.md` 留证。
+- **交付证据重做**：`gradlew :app:clean :app:assembleDebug` 原始 stdout/stderr 落盘
+  `logs/assembleDebug_raw.txt`（exit_code=0）；APK 记录 size / mtime / SHA-256 并写入
+  `SHA256SUMS.txt`；`git/LOG.txt` 第一行 = 最终 HEAD（git evidence 在最终 commit+push 之后生成）；
+  ZIP 内确有 `logs/server_pytest_raw.txt`；全套有失败只写 PARTIAL；结果术语
+  `CODE_READY / USER_VALIDATION_PENDING`。
+
+## 4. 测试结果（真实执行）
+
+| 项目 | 结果 |
+|---|---|
+| Server pytest（全量） | **392 tests / 0 failed / 0 error，exit_code=0**（wrapper 追加 JUnit 计数，见 logs/server_pytest_raw.txt） |
+| Android JVM | **405 tests / 0 failed**（65 suites，test-results XML 汇总） |
+| Android instrumentation（模拟器 MediaReview_Test/API35） | **36/36 PASS（0 failed）**，源码 @Test 数与执行数一致；搜索用例另 5/5 复跑稳定 |
+| Lint | **0 errors**（41 warnings + 10 info；基线 43 warnings） |
+| assembleDebug | **exit_code=0**（`:app:clean :app:assembleDebug`，原始日志见交接包） |
+| 生产部署 | **NOT PERFORMED**（§36） |
+
+## 5. 明确未做 / 未验证
+
+- 未部署生产 Server（未替换 Windows Service / 未迁移生产 DB / 未重启 ControlHub）；
+- 真实手机 + 真实 Jellyfin 验收未做（`USER_VALIDATION_PENDING`）；
+- Compose 手势级 UI 自动化仍未做（设备侧测试驱动 ViewModel + 真实 HTTP）；
+- 未进入 Stage 8C（整理中心接 Server），按 §39 完成后停止。

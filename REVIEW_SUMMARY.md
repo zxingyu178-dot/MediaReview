@@ -1,108 +1,126 @@
-# MediaReview 2.0 — Stage 8A.1.1 评审摘要（Loading Pipeline Closure）
+# MediaReview 2.0 — Stage 8B.1 评审摘要（Review Correctness & Delivery Closure）
 
-- 日期：2026-09-27
-- 分支：`feature/mediareview-v2-stage8a.1.1-loading-closure`
-- Base Commit：`b264eaa`
-- Implementation Commit：`56fdef2`（Android）/ `5ff597a`（Server）
-- **Final HEAD：以交接包 `00_HANDOFF.md` 为准（由 `git rev-parse HEAD` 现场生成）**
+- 日期：2026-09-28
+- 分支：`feature/mediareview-v2-stage8b.1-review-closure`
+- Base Commit：`61832ed1664c5a38839cb765621357fa59932492`
+- **Head：以交接包 `00_HANDOFF.md` 为准（由 `git rev-parse HEAD` 现场生成）**
 - Git Status：CLEAN
-- **阶段结论：READY_FOR_USER_VALIDATION（有条件）**
+- 结果：**CODE_READY / USER_VALIDATION_PENDING**
+- **阶段结论：有条件合格**（代码、构建、自动测试全绿；真实手机 + 真实 Jellyfin 体验验收仍待用户）
 
-## 一、本阶段修掉了什么
+## 一、目标与完成度
 
-| # | 问题 | 修法 |
+目标（评审 §2）：只解决 **批阅正确性 + 分页正确性 + Server 状态权威性 + 测试/交付证据可信性**，
+不新增任何产品功能。
+
+| 评审意见 | 状态 | 修法摘要 |
 |---|---|---|
-| 1 | `V2Perf` 把 object 初始化时间叫 Process Start | `MediaReviewApp.onCreate` 第一行取真实进程起点 |
-| 2 | Viewer/Player 延迟相对 `home_enter`（错误基准） | 独立 Home/Paging/Viewer/Player 会话 |
-| 3 | 上一条媒体的 claim flag 污染下一条 | 会话重建，全局 flag 删除 |
-| 4 | folders 失败写进 `listError`（媒体墙误报"加载失败"） | `folderError` / `albumError` / `favoritesError` 解耦 |
-| 5 | 收藏首次失败后永久锁死 | 成功才置 loaded；新增可用的"重新加载" |
-| 6 | folders cache 只按 TTL，切服务器会命中旧数据 | 缓存绑定 `baseUrl` + 主动失效 |
-| 7 | 9:16 竖图 152×270 被放大 3 倍（模糊） | Jellyfin `fill` 480×270 生成 16:9 grid cover |
-| 8 | 客户端 URL 不变，源变了仍可能用旧缓存 | `?v=<source_version>` 三层失效一致 |
-| 9 | 缓存无上限、无统计 | `stats()` / `prune()`，默认 1 GiB 上限 |
-| 10 | 磁盘 IO 是否阻塞 event loop 只能靠猜 | `disk_read_ms` / `disk_write_ms` / `upstream_ms` 实测字段 |
+| §3 双向分页窗口 | 已修 | `ReviewQueueWindow` 改为 `firstLoadedPage/lastLoadedPage/pageSize/totalCount` |
+| §4 next 后再 prev 请求错页 | 已修 | `next = lastLoadedPage+1`、`prev = firstLoadedPage-1`（新增两种顺序的测试） |
+| §5 分页合并去重 | 已修 | `mergeItems` 按 absoluteIndex 去重 + 排序 |
+| §6 缺项 localIndexOf | 已修 | 改 `indexOfFirst` 搜索，找不到返回 null |
+| §7 失效 current_index 恢复 | 已修 | 先向后找 `>= current_index`，否则回退最近可用项，并把真实索引写回服务端 |
+| §8 atEnd 依赖最后可用媒体 | 已修 | 改为页边界：`lastLoadedPage * pageSize >= totalCount` |
+| §9 空页死循环 | 已修 | 空页推进页边界继续扫描（单次最多 8 页），到头返回窗口快照 |
+| §10 分页 single-flight | 已修 | Repository 内 `Mutex` 串行化 next/prev |
+| §11 Server queue 带 seen | 已修 | `QueueItem.seen` |
+| §12 Android queue item 带 seen | 已修 | `ReviewQueueItemUi.seen`（服务端权威） |
+| §13 seenCount 重复计算 | 已修 | 删除 `baseSeenCount + confirmedSeen.size` 推算 |
+| §14 markSeen 返回权威进度 | 已修 | 返回 `seen_count / total_count`，Android 直接采用 |
+| §15 markSeen in-flight 防重 | 已修 | `seenInFlight` 集合，同一媒体并发只发一次 |
+| §16 新分页收藏同步 | 已修 | `applyOpened` / `applyPageResult` 合并 `favorite=true` |
+| §17/§18 完成条件 | 已修 | `atEnd && seen_count == total_count` 才允许完成 |
+| §19 Server complete fail-closed | 已修 | 未批阅 → 409 CONFLICT，会话保持 active |
+| §20 到队尾但仍有未批阅 | 已修 | 提示"还有未批阅内容，会话未完成"，保持 active |
+| §21 complete single-flight | 已修 | `completeInFlight` |
+| §22 P1 预取身份校验 | 已修 | 写入单槽前校验当前 + next 身份与 source identity |
+| §23 position latest-wins | 已修 | 序号化串行写入（30→31→32 最终停在 32） |
+| §24 过时 version 合同 | 已修 | 合同测试更新为 `2.0.0-alpha1 / versionCode=8` |
+| §25 Hilt harness | 已修 | `HiltTestActivity`（debug 源集 + debug manifest，生产 Application） |
+| §26 Legacy Shell 测试 | 已归置 | 证明生产不走旧 Shell 后删除 6 项无意义合同（非 @Ignore） |
+| §27 Search flaky | 已修 + 复跑 | 断言修正（关闭搜索后断言模式行），5/5 PASS |
+| §28~§32 交付证据 | 已重做 | clean assembleDebug raw 日志 + exit_code=0 + APK SHA256 + git evidence 顺序修正 + pytest raw 日志 + PARTIAL 术语 |
+| §33/§34 新增测试 | 已完成 | JVM +25 项、Server +8 项（清单见 §三） |
 
-## 二、测试规模（§9，纠正既有错误）
+## 二、主要改动
 
-| 环境 | Collected | Executed | Passed | Failed |
-|---|---|---|---|---|
-| Server（pytest） | 377 | 377 | 376 | 1（既有） |
-| Android JVM | 338 | 338 | 338 | 0 |
-| Android instrumentation（定向 loading 包） | 6 | 6 | 6 | 0 |
+### Server（`server/`）
 
-> **纠正**：Stage 8A / 8A.1 报告中的"Server 全量 192 项"**有误**；
-> 本阶段以 `pytest --collect-only -q` 实测 377 项为准。
+- `app/services/review.py`：`mark_seen` 返回权威进度 dict；`complete` fail-closed（`UnfinishedReviewError`）；
+  `advance` / `set_position` 自动完成同样 fail-closed；`session_queue_page` 返回 `(index, seen, media)`。
+- `app/api/v1/review.py`：`QueueItem.seen`；seen 返回 `{media_id, seen, seen_count, total_count}`；
+  complete 捕获 `UnfinishedReviewError` → 409 CONFLICT（中文 message）。
+- 测试：新增 `tests/test_review_correctness_8b1.py`（8 项）；更新 `test_review_service.py`、
+  `test_phase456_api.py`、`test_deployment_contract_11.py`（过时版本合同）。
+- **API 变化**（向后兼容的新增/语义收紧）：queue item 新增 `seen`；seen 响应新增 `seen_count/total_count`；
+  complete 在未批阅时由 200 变为 409。**数据库无 schema 变化**（`ReviewSessionItem.seen` 早已存在）。
 
-## 三、性能数据（诚实边界）
+### Android（`android/`）
 
-- **EMULATOR**：仅 **1 个有效样本**（RUN 1，DEMO 冷启动）。模拟器随后严重退化
-  （`app_start → home_enter` 1.76 s → 14.8 s，adb 守护进程崩溃），RUN 2..5 无数据 →
-  **p50/p95/min/max 不成立**。
-- **REAL PHONE / REAL SERVER / DEV MACHINE**：**NOT MEASURED**（无真机；按 §11 未部署服务）。
+- `ReviewSessionModels.kt`：`ReviewQueueItemUi.seen`、`ReviewSeenResult`、`ReviewQueueWindow` 重构、
+  `ReviewQueuePaging`（page 边界 atEnd / mergeItems / firstAtOrAfter / nearestBefore / totalPages）。
+- `V2ServerReviewSessionRepository.kt`：双向分页 + 空页推进 + 合并去重 + `Mutex` single-flight +
+  失效锚点恢复与位置写回 + seen 权威结果 + 位置写入固定 sessionId。
+- `V2ReviewViewModel.kt`：seen 权威/in-flight 去重、完成门槛 + single-flight + 未批阅提示、
+  收藏跨页合并、position 序号化 latest-wins、P1 stale 身份校验。
+- `V2ReviewSessionRepository.kt` / `V2ReviewSessionRepositoryRouter.kt` / `DemoReviewSessionRepository.kt`：
+  `markSeen` 合同改为 `ReviewSeenResult?`；Demo 侧保持单页全量语义（pageSize=队列长度）。
+- `ApiModels.kt`：`ReviewQueueItemDto.seen`、`ReviewSeenResultDto.seen_count/total_count`。
+- `app/build.gradle.kts`：instrumentation runner 保持生产 Application；`src/debug/` 新增
+  `HiltTestActivity` + debug manifest（测试宿主，Release 不包含）。
+- 测试：`ReviewQueuePagingTest` / `V2ReviewViewModelTest` / `V2ServerReviewSessionRepositoryContractTest`
+  重写扩充；`Stage4BrowserUiTest` 宿主与断言修正；`Stage8BReviewServerFlowTest` 合同字段补齐。
 
-## 四、未做（按任务文档要求）
+### UI / 交互变化
 
-- **未部署生产 Server**（§11）：未替换 Windows Service、未重启正式服务、未动 ControlHub。
-- 未开发 Stage 8B / Room 缓存 / Organize / 雪碧图 Server 化 / 播放器 UI 改版 / Viewer 功能扩展。
+无新功能、无视觉变化。仅新增一条提示文案：到队尾仍有未批阅时 Snackbar
+「还有未批阅内容，会话未完成」（会话保持 active，不进入完成页）。
 
-## 五、下一步
+## 三、测试规模（真实执行结果）
 
-1. 批准后部署新 Server（缩略图缓存与 16:9 cover 才会真正生效）。
-2. 真机 + 真实 LAN 跑 ≥5 次冷/热启动，回填 `03_PERFORMANCE_REPORT.md`。
-3. 复核 9:16 竖图在 Viewer 从 16:9 裁剪预览切到完整原图时的构图变化是否可接受
-   （§5 要求人工视觉确认；若不可接受，改用 preview 变体方案 B）。
+| 环境 | 结果 |
+|---|---|
+| Server pytest（全量） | **392 tests / 0 failed / 0 error / exit_code=0** |
+| Android JVM | **405 tests / 0 failed**（65 suites） |
+| Instrumentation（模拟器 `MediaReview_Test` API35） | **36/36 PASS（0 failed）**；搜索用例 5/5 复跑 |
+| Lint | **0 errors**（41 warnings + 10 info） |
+| assembleDebug | `:app:clean :app:assembleDebug` **exit_code=0**（原始日志 `logs/assembleDebug_raw.txt`） |
 
-**本阶段到此停止；不进入 Stage 8B。**
+### 设备侧逐项状态（Stage 8B → 8B.1）
+
+| 项 | 8B | 8B.1 |
+|---|---|---|
+| Hilt harness（favorites×2） | FAIL（裸 ComponentActivity 无 Hilt 工厂） | **PASS**（HiltTestActivity） |
+| Legacy 1.1 Shell（6 项） | FAIL（旧壳触摸/布局断言） | **已删除**（证明不可达，见 05_KNOWN_ISSUES.md） |
+| Search 单输入框 | FAIL（断言与设计不符） | **PASS**（断言修正 + 5/5 复跑） |
+| 其余 27 项（含 Stage8A Server 模式 4 项、Stage8B 端到端 1 项、GSY 布局 8 项） | PASS | **PASS** |
+
+## 四、已知问题 / 遗留
+
+1. **真实手机 + 真实 Jellyfin 未验收** → `USER_VALIDATION_PENDING`（本阶段未部署生产 Server）。
+2. Compose 手势级 UI 自动化仍缺失（设备侧测试驱动 ViewModel + 真实 HTTP，不含手指上滑）。
+3. 空队列完成页的"重新批阅"在 Server 模式下会新建会话（既有语义，未改）。
+4. 到队尾仍有未批阅时只提示、不自动跳回第一条未看（评审 §20 明确本阶段不做）。
+5. 交付证据保留一项事实：pytest 终端日志缺少最终计数行，已在 raw 日志尾部**明确标注**追加
+   JUnit XML 计数与 exit_code（wrapper 脚本 `run_stage8b1_pytest.py`，证据自证）。
+6. 未进入 Stage 8C（整理中心去 Mock / 接 Server），按 §39 停止等待用户实机验收。
+
+## 五、风险最高的 3 个点（Agent 自评）
+
+1. **完成门槛收紧后的"不可达完成"边界**：若会话尾部媒体全部失效，`seen_count` 永远小于
+   `total_count`，会话将保持 active 并持续提示"还有未批阅内容"。这是评审 §18/§19/§20 明确要求的
+   fail-closed 语义，但真实 Jellyfin 上媒体频繁失效的场景需要产品确认是否需要"跳过失效项"的例外。
+2. **位置 latest-wins 的会话切换时序**：ViewModel 在会话切换时取消写入器 + 仓库侧固定 sessionId，
+   两处防线都做了，但"旧会话迟到写入"在极端网络下仍可能打到已完成的旧会话（被服务端拒绝）。
+   真实弱网需要实测确认无副作用。
+3. **设备侧测试的断言强度**：favorites/player 往返用例在"播放器进入播放失败错误层"时也视为
+   "已打开播放器"（测试注入的媒体不在生产演示库中）。导航契约成立，但"真实播放画面"仍须人工确认。
+
+## 六、是否建议进入下一阶段
+
+建议：**先由用户实机验收 Stage 8B.1 的批阅正确性**（恢复位置、完成门槛、跨页收藏、seen 提示），
+确认后再进入 Stage 8C（整理中心正式接 Server）。若要立刻推进，建议先做 8B.1 的真实环境验证
+（真机 + 真实 Server），而不是直接开 8C。
+
 ---
-
-# Stage 8B 阶段自评 —— Server Review Session / 真实批阅模式接入
-
-- **分支**：`feature/mediareview-v2-stage8b-review-session`
-- **基线**：`ce171936692ea94ddd1a8dc1454dff6b52a08fab`
-- **状态**：**READY_FOR_USER_VALIDATION**（等待真实 Server 实机验收；未进入 Stage 8A.2 Room）
-- **交接包**：`MediaReview_Stage8B_Handoff_YYYYMMDD_<shortsha>.zip` + `MediaReview-v2-stage8b-review-session.apk`
-
-## 一、本阶段做了什么
-
-1. **前置正确性修复（§6~§12，单独提交）**：播放语义抽成 `V2PlaybackSourceController`
-   （Source Identity / Direct→一次 HLS→Error / retry 回 DIRECT / P1 单槽）、
-   内核报错必须带实际装载的 mediaId、Context 边界（不再静默指向第 1 项，改为单条上下文）、
-   空队列拒绝写入、**相册取消 200 张截断**改为真实分页。
-2. **批阅数据层独立（§14/§15）**：`feature/v2/review/data`（Server 实现复用现有 Review API；
-   队列项只含 Metadata；绝对索引；每页 50；共享资源缓存）。
-3. **Server 模式真实批阅（§3/§17~§40）**：**删除占位页**；恢复/新建会话分流、
-   深位置恢复、P0/P1 播放、seen/position/complete 服务端确认制、
-   完整播放器返回不重建、重新批阅 = 新建会话。
-4. **待删除真正接通（§35/§36）**：GET/POST/DELETE delete-queue + 确认制 + 可撤销。
-5. **顺带修掉 4 个客户端合同缺陷**：`seen` / `index` 在 `encodeDefaults=false` 下被省略、
-   seen/position/complete 用 `Map` 接收布尔与整数、delete-queue 的 `queued` 布尔。
-
-## 二、验证（真实执行）
-
-- JVM：**380 项全通过**（新增 42 项）
-- 设备侧全量：**46 项 / 37 通过 / 9 失败**，9 项逐项归因见 `02_TEST_REPORT.md`，
-  **0 项可归因于本阶段代码**（5 项为已记录的环境 flaky / Hilt harness 限制，
-  #1/#7/#8 疑似环境或状态相关且不在 8B 改动路径）
-- 设备侧批阅端到端（模拟器内 MockWebServer，真实 HTTP）：全链路通过
-  （含"只解析 settle 过的条目 + 下一条"与"position 用绝对索引"两条硬断言）
-- Lint 0 errors；assembleDebug PASS
-- Server：**未改任何 Server 代码**；pytest 376 通过，2 项与本阶段无关
-
-## 三、明确未做 / 未验证
-
-- **未部署生产 Server**（§46）：未停止生产服务、未替换 EXE、未迁移 DB、未重启 ControlHub；
-- 未在真实 Jellyfin + 生产 Server 验收；
-- 未做 Compose 手势级 UI 自动化（上滑/下滑视觉链路需人工）；
-- 9:16 竖图 Viewer 构图跳变（§52）仍需你肉眼判定；
-- 性能结论**不改写**：Stage 8A.1.1 的"只有 1 个有效模拟器样本、真机/LAN 全部 NOT MEASURED"
-  继续有效（§51）。
-
-## 四、下一步（等待你的指令）
-
-1. 按 `05_USER_TEST_GUIDE.md` 在真实 Server 上走一遍批阅（重点：断点恢复、完整播放器往返、
-   待删除撤销、>200 张相册）；
-2. 批准后再做生产部署（独立步骤）；
-3. 不要自动进入 Stage 8A.2 Room。
-
-**本阶段到此停止。**
+阶段结论：有条件合格
