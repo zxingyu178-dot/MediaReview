@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stage 8B.1 §25：Compose instrumentation 测试宿主声明。
+  必须位于 debug 源集（App 进程内），androidTest 源集里声明会落到测试 APK 进程。
+  Release 构建不包含本文件与 HiltTestActivity。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.mediareview.app.HiltTestActivity"
+            android:exported="true" />
+    </application>
+</manifest>

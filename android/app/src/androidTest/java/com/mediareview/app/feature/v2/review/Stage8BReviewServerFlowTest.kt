@@ -85,7 +85,9 @@ class Stage8BReviewServerFlowTest {
                         json(queueBody(page, pageSize))
                     }
                     path.endsWith("/seen") -> json(
-                        """{"success": true, "data": {"media_id": "x", "seen": true}}""",
+                        // Stage 8B.1 §14:seen 响应必须带服务端权威 seen_count / total_count
+                        """{"success": true, "data": {"media_id": "x", "seen": true,
+                           "seen_count": 1, "total_count": $totalCount}}""".trimIndent(),
                     )
                     path.endsWith("/position") -> json(progressBody())
                     path.endsWith("/complete") -> json(progressBody())
@@ -268,6 +270,7 @@ class Stage8BReviewServerFlowTest {
             """
             {
               "index": $index,
+              "seen": false,
               "media": {
                 "media_id": "$mediaId", "name": "视频 $mediaId", "media_type": "video",
                 "library_id": "lib1", "duration_ms": 18000, "width": 1920, "height": 1080,

@@ -22,6 +22,9 @@ class DemoReviewSessionRepository @Inject constructor(
 
     private var currentQueue: List<ReviewQueueItemUi> = emptyList()
 
+    /** 本会话已确认批阅的媒体（Demo 无服务端，本地集合同样只增不重复）。 */
+    private val seenIds = mutableSetOf<String>()
+
     override suspend fun enterSession(forceNew: Boolean): ReviewSessionOpen {
         val videos = allVideos().filter { !it.isReviewed }
         return openQueue(videos)
@@ -31,9 +34,16 @@ class DemoReviewSessionRepository @Inject constructor(
 
     override suspend fun loadPrevPage(): ReviewQueuePageResult? = null
 
-    override suspend fun markSeen(mediaId: String): Boolean {
+    override suspend fun markSeen(mediaId: String): ReviewSeenResult? {
         repository.markReviewed(mediaId)
-        return true
+        seenIds += mediaId
+        // Demo 没有服务端：本地集合即权威（接口语义保持一致，调用方仍读 result.seenCount）
+        return ReviewSeenResult(
+            mediaId = mediaId,
+            seen = true,
+            seenCount = seenIds.size,
+            totalCount = currentQueue.size,
+        )
     }
 
     override suspend fun savePosition(absoluteIndex: Int) {
@@ -52,6 +62,7 @@ class DemoReviewSessionRepository @Inject constructor(
     override suspend fun restartAll(): ReviewSessionOpen = openQueue(allVideos())
 
     private suspend fun openQueue(videos: List<V2Media>): ReviewSessionOpen {
+        seenIds.clear()
         if (videos.isEmpty()) {
             currentQueue = emptyList()
             return ReviewSessionOpen.Empty
@@ -64,11 +75,13 @@ class DemoReviewSessionRepository @Inject constructor(
                 currentIndex = 0,
                 seenCount = 0,
             ),
+            // Demo 单页即全量：pageSize = 队列长度 → atEnd 恒为 true（不会被误判为"还有下一页"）
             window = ReviewQueueWindow(
                 items = currentQueue,
-                baseIndex = 0,
+                firstLoadedPage = 1,
+                lastLoadedPage = 1,
                 totalCount = currentQueue.size,
-                page = 1,
+                pageSize = currentQueue.size.coerceAtLeast(1),
             ),
         )
     }

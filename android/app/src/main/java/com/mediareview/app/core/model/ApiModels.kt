@@ -140,6 +140,8 @@ data class ReviewSourceDto(
 @Serializable
 data class ReviewQueueItemDto(
     val index: Int = 0,
+    /** 会话里这条是否已批阅(Stage 8B.1 §11:服务端权威状态,恢复后据此显示)。 */
+    val seen: Boolean = false,
     val media: MediaSummary? = null,
 )
 
@@ -203,14 +205,17 @@ data class ReviewProgressDto(
 )
 
 /**
- * 已看标记结果（Stage 8B 修正）：
- * 服务端返回 `{"media_id": "...", "seen": true}`——`seen` 是布尔，
- * 早期客户端用 `Map<String, String>` 接收会解析失败（seen 静默失效）。
+ * 已看标记结果（Stage 8B.1 §14：服务端**权威进度**）：
+ * 服务端返回 `{"media_id": "...", "seen": true, "seen_count": n, "total_count": m}`——
+ * `seen` 是布尔（早期客户端用 `Map<String, String>` 接收会解析失败）；
+ * `seen_count` / `total_count` 必须直接用服务端值，客户端不得自行推算。
  */
 @Serializable
 data class ReviewSeenResultDto(
     val media_id: String = "",
     val seen: Boolean = true,
+    val seen_count: Int = 0,
+    val total_count: Int = 0,
 )
 
 /** 播放进度上报请求。 */

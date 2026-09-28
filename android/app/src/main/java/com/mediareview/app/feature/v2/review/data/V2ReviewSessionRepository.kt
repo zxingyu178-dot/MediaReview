@@ -40,9 +40,12 @@ interface V2ReviewSessionRepository {
     suspend fun loadPrevPage(): ReviewQueuePageResult?
 
     /**
-     * 标记已看：**只有数据源确认成功才返回 true**（§26：失败不得假成功，可重试）。
+     * 标记已看：**只有数据源确认成功才返回结果**（§26：失败不得假成功，可重试）。
+     *
+     * 返回的是**服务端权威进度**（§14：`seen_count` / `total_count`），
+     * 调用方绝不自行 `+1` 推算（回看已 seen 的媒体会重复计数，§13）。
      */
-    suspend fun markSeen(mediaId: String): Boolean
+    suspend fun markSeen(mediaId: String): ReviewSeenResult?
 
     /**
      * 上报绝对位置（§27 / §28）：只在 settled page 变化时调用；

@@ -32,7 +32,7 @@ class V2ReviewSessionRepositoryRouter @Inject constructor(
 
     override suspend fun loadPrevPage(): ReviewQueuePageResult? = active().loadPrevPage()
 
-    override suspend fun markSeen(mediaId: String): Boolean = active().markSeen(mediaId)
+    override suspend fun markSeen(mediaId: String): ReviewSeenResult? = active().markSeen(mediaId)
 
     override suspend fun savePosition(absoluteIndex: Int) = active().savePosition(absoluteIndex)
 

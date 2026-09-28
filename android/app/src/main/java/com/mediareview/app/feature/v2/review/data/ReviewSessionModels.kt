@@ -22,6 +22,8 @@ data class ReviewQueueItemUi(
     /** 封面绝对 URL（由数据层解析，UI 不感知来源）。 */
     val coverUrl: String,
     val favorite: Boolean,
+    /** 服务端会话里这条是否已批阅（Stage 8B.1 §12：恢复后知道"以前是否看过"）。 */
+    val seen: Boolean = false,
 ) {
     val durationSeconds: Int get() = (durationMs / 1000L).toInt()
 }
@@ -35,27 +37,53 @@ data class ReviewSessionInfo(
 )
 
 /**
- * 已加载队列窗口。
+ * 已看标记结果（Stage 8B.1 §14）：**服务端权威进度**。
  *
- * `items[i]` 的绝对索引 = [baseIndex] + i —— 但**必须以 [ReviewQueueItemUi.absoluteIndex]
- * 为准**：服务端可能因为媒体不可用而跳过队列项（缺项不压缩绝对索引）。
+ * `seenCount` 直接来自服务端 `seen_count` —— Android 端绝不 `+1` 推算
+ * （回看已经 seen 的媒体会重复计数，评审 §13）。
+ */
+data class ReviewSeenResult(
+    val mediaId: String,
+    val seen: Boolean,
+    val seenCount: Int,
+    val totalCount: Int,
+)
+
+/**
+ * 已加载队列窗口（Stage 8B.1 §3：双向分页窗口）。
+ *
+ * 旧实现只有一个 `page` + `baseIndex`，无法表达"前后各加载过一页"的窗口
+ * （13 → next 14 → prev 12 会误请求 13）；这里显式记录
+ * [firstLoadedPage] / [lastLoadedPage]，页边界推进与 atEnd 判断都以它们为准。
+ *
+ * `items[i]` 的绝对索引**必须**以 [ReviewQueueItemUi.absoluteIndex] 为准：
+ * 服务端会跳过不可用媒体（缺项不压缩绝对索引）。
  */
 data class ReviewQueueWindow(
     val items: List<ReviewQueueItemUi>,
-    val baseIndex: Int,
+    val firstLoadedPage: Int,
+    val lastLoadedPage: Int,
     val totalCount: Int,
-    val page: Int,
+    val pageSize: Int = ReviewQueuePaging.PAGE_SIZE,
 ) {
-    /** 已加载窗口是否已到队列末尾（以真实绝对索引为准，见 [ReviewQueuePaging.isAtEnd]）。 */
+    /** 已加载窗口的第一项绝对索引（页边界换算，仅供诊断/日志）。 */
+    val baseIndex: Int get() = (firstLoadedPage - 1) * pageSize
+
+    /** 已加载窗口是否已到队列末尾（按**页边界**判断，见 [ReviewQueuePaging.isAtEnd]）。 */
     val atEnd: Boolean
-        get() = ReviewQueuePaging.isAtEnd(items.lastOrNull()?.absoluteIndex, totalCount)
+        get() = ReviewQueuePaging.isAtEnd(lastLoadedPage, pageSize, totalCount)
 
     /** 是否还能向前（向上）加载：尚未到达第一页。 */
-    val canLoadPrev: Boolean get() = baseIndex > 0
+    val canLoadPrev: Boolean get() = firstLoadedPage > 1
 
-    /** 绝对索引 → 本地 pager 索引；不在已加载窗口内时返回 null。 */
+    /**
+     * 绝对索引 → 本地 pager 索引；不在已加载窗口内时返回 null。
+     *
+     * 必须用 `indexOfFirst` 搜索（评审 §6）：存在缺项时
+     * `absoluteIndex - baseIndex` 会算错（600/602/603 缺 601 时 602 的本地索引是 1 而不是 2）。
+     */
     fun localIndexOf(absoluteIndex: Int): Int? =
-        (absoluteIndex - baseIndex).takeIf { it in items.indices }
+        items.indexOfFirst { it.absoluteIndex == absoluteIndex }.takeIf { it >= 0 }
 }
 
 /** 一页队列加载结果。 */
@@ -95,8 +123,10 @@ data class ReviewResumePlan(
 /**
  * 批阅队列分页纯逻辑（可 JVM 单测）。
  *
- * 移植自旧版 Review 已验证实现（§22），并修正一处边界：
- * 结束判断以**真实绝对索引**为准（缺项不压缩索引），而不是 `baseIndex + items.size`。
+ * Stage 8B.1 修正两处边界（评审 §6/§8/§9）：
+ * - 结束判断以**已加载页边界**为准（`lastLoadedPage * pageSize >= totalCount`），
+ *   而不是"最后一个可用媒体的绝对索引"——队尾媒体失效时后者永远不会认为到末尾；
+ * - 窗口合并必须按绝对索引去重并排序——重复页请求绝不产生重复条目。
  */
 object ReviewQueuePaging {
 
@@ -112,14 +142,40 @@ object ReviewQueuePaging {
         return ReviewResumePlan(page = page, baseIndex = base, localStart = safeIndex - base)
     }
 
+    /** 队列总页数（totalCount ≤ 0 时返回 1，避免 0 页窗口）。 */
+    fun totalPages(totalCount: Int, pageSize: Int = PAGE_SIZE): Int =
+        ((totalCount + pageSize - 1) / pageSize).coerceAtLeast(1)
+
     /**
-     * 结束判断：[lastLoadedAbsoluteIndex] 是已加载窗口最后一项的绝对索引
-     * （null = 还没有任何数据 → 视为结束，不再请求）。
+     * 结束判断（**按页边界**）：已加载到的最后一页 * 每页条数 >= 总数。
+     *
+     * @param lastLoadedPage 已加载窗口的最后一页（≤ 0 = 还没有任何数据 → 视为结束）。
      */
-    fun isAtEnd(lastLoadedAbsoluteIndex: Int?, totalCount: Int): Boolean {
-        if (lastLoadedAbsoluteIndex == null) return true
-        return lastLoadedAbsoluteIndex + 1 >= totalCount
+    fun isAtEnd(lastLoadedPage: Int, pageSize: Int = PAGE_SIZE, totalCount: Int): Boolean {
+        if (lastLoadedPage <= 0) return true
+        return lastLoadedPage.toLong() * pageSize >= totalCount
     }
+
+    /**
+     * 合并分页结果（评审 §5）：按绝对索引去重 + 升序排序。
+     *
+     * 禁止出现 `48 49 50 51 50 51 52` 这种重复窗口。
+     */
+    fun mergeItems(
+        existing: List<ReviewQueueItemUi>,
+        incoming: List<ReviewQueueItemUi>,
+    ): List<ReviewQueueItemUi> =
+        (existing + incoming)
+            .distinctBy { it.absoluteIndex }
+            .sortedBy { it.absoluteIndex }
+
+    /** 页内第一个 `absoluteIndex >= anchor` 的可用项（恢复定位：优先向后找）。 */
+    fun firstAtOrAfter(items: List<ReviewQueueItemUi>, anchor: Int): ReviewQueueItemUi? =
+        items.firstOrNull { it.absoluteIndex >= anchor }
+
+    /** `absoluteIndex < anchor` 中最近的可用项（恢复定位：向后找不到时向前回退）。 */
+    fun nearestBefore(items: List<ReviewQueueItemUi>, anchor: Int): ReviewQueueItemUi? =
+        items.lastOrNull { it.absoluteIndex < anchor }
 
     /** 接近底部时是否需要加载下一页（纯函数，避免"到最后才 loading"）。 */
     fun shouldLoadNext(
