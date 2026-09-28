@@ -141,6 +141,8 @@ dependencies {
     androidTestImplementation(libs.espresso)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
+    // Stage 8B：设备侧批阅会话端到端（MockWebServer 在模拟器内直接起服务，不依赖宿主机 Mock Server）
+    androidTestImplementation(libs.okhttp.mockwebserver)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
