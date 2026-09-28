@@ -44,18 +44,28 @@ class ContextBoundaryTest {
     }
 
     @Test
-    fun openMedia_目标不在当前列表时不建立上下文() {
-        val vm = vm()
-        assertFalse("找不到 mediaId 必须返回 false", vm.openMedia("不存在"))
-        assertNull("不得建立指向第 1 项的上下文", vm.contextQueue)
-    }
-
-    @Test
     fun openMedia_命中时建立上下文且索引正确() {
         val vm = vm()
         assertTrue(vm.openMedia("v2"))
+        // 上下文 = 当前列表的完整顺序（用户点击的是第 2 条）
+        assertEquals(listOf("v1", "v2", "v3", "i1", "i2"), vm.contextQueue?.mediaIds)
         assertEquals(1, vm.contextQueue?.currentIndex)
-        assertEquals(listOf("v1", "v2", "v3"), vm.contextQueue?.mediaIds)
+    }
+
+    @Test
+    fun openMedia_目标不在当前列表时退化为单条上下文而不是指向首项() {
+        val vm = vm()
+        // "v9" 不在首页列表里（例如从收藏页点进来的媒体）：上下文只含这一条，绝不指向 v1
+        assertTrue(vm.openMedia("v9"))
+        assertEquals(listOf("v9"), vm.contextQueue?.mediaIds)
+        assertEquals(0, vm.contextQueue?.currentIndex)
+    }
+
+    @Test
+    fun openMedia_数据源也查不到时才返回false() {
+        val vm = vm()
+        assertFalse(vm.openMedia("不存在"))
+        assertNull(vm.contextQueue)
     }
 
     @Test
@@ -94,10 +104,24 @@ class ContextBoundaryTest {
     @Test
     fun updateQueueIndex_单元素队列与越界输入都被收敛() {
         val vm = vm()
-        vm.openMedia("v1")
+        // 单条上下文（收藏页点进来的场景）
+        val single = listOf(ContextRepository().video("v9"))
+        assertTrue(vm.openMediaIn(single, "v9"))
+        assertEquals(0, vm.contextQueue?.currentIndex)
+
         vm.updateQueueIndex(9)
         assertEquals(0, vm.contextQueue?.currentIndex)
         vm.updateQueueIndex(-9)
+        assertEquals(0, vm.contextQueue?.currentIndex)
+    }
+
+    @Test
+    fun updateQueueIndex_多元素队列越界被收敛而不是非法值() {
+        val vm = vm()
+        vm.openMedia("v1") // 首页 5 条列表
+        vm.updateQueueIndex(9)
+        assertEquals(4, vm.contextQueue?.currentIndex)
+        vm.updateQueueIndex(-1)
         assertEquals(0, vm.contextQueue?.currentIndex)
     }
 }
@@ -144,12 +168,16 @@ private class ContextRepository : MediaRepository {
         naturalHeight = 1080,
     )
 
-    private val catalog = listOf(video("v1"), video("v2"), video("v3"), image("i1"), image("i2"))
+    /** 首页列表里可见的 5 条。 */
+    private val pageCatalog = listOf(video("v1"), video("v2"), video("v3"), image("i1"), image("i2"))
+
+    /** 数据源里还有一条不在首页列表（模拟"从收藏页点进来的媒体"）。 */
+    private val offListMedia = video("v9")
 
     override val mode: V2DataMode = V2DataMode.DEMO
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage =
-        V2MediaPage(items = catalog, page = 1, pageSize = query.pageSize, total = catalog.size)
+        V2MediaPage(items = pageCatalog, page = 1, pageSize = query.pageSize, total = pageCatalog.size)
 
     override suspend fun folders(): List<V2Folder> = emptyList()
 
@@ -157,15 +185,15 @@ private class ContextRepository : MediaRepository {
 
     override suspend fun favorites(): List<V2Media> = emptyList()
 
-    override suspend fun media(): List<V2Media> = catalog
+    override suspend fun media(): List<V2Media> = pageCatalog
 
-    override suspend fun media(spec: V2SortSpec): List<V2Media> = catalog
+    override suspend fun media(spec: V2SortSpec): List<V2Media> = pageCatalog
 
-    override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> = catalog
+    override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> = pageCatalog
 
     override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> = emptyList()
 
-    override fun mediaById(id: String): V2Media? = catalog.find { it.id == id }
+    override fun mediaById(id: String): V2Media? = (pageCatalog + offListMedia).find { it.id == id }
 
     override suspend fun setFavorite(mediaId: String, favorite: Boolean): Boolean = true
 

@@ -457,12 +457,27 @@ class V2HomeViewModel @Inject constructor(
      * 阶段 8B §10：找不到 mediaId 时**不得**静默打开第 1 项
      * （旧实现 `indexOfFirst(...).coerceAtLeast(0)` 会把"未找到"变成第 0 项）。
      *
-     * @return true = 已建立上下文；false = 目标不在当前列表中（不建立上下文，由调用方提示）
+     * 但也不能因此阻断打开（收藏页 / 文件夹页 / 相册页点进来的媒体常常不在首页列表里）：
+     * 目标不在当前列表时退化为**单条上下文**（只含被点击的那一条，绝不指向别的媒体）。
+     *
+     * @return true = 已建立上下文；false = 该 media 连数据源都查不到（不建立上下文，调用方应提示）
      */
     fun openMedia(mediaId: String): Boolean {
         val list = _currentList.value
         val index = list.indexOfFirst { it.id == mediaId }
-        if (index < 0) return false
+        if (index < 0) {
+            // 单条上下文：Context 里只有用户真正点击的那一条，播放器/查看器不会跳到别的媒体
+            val single = repository.mediaById(mediaId) ?: return false
+            contextQueue = V2ContextQueue(
+                folderId = single.folderId.takeIf { it.isNotBlank() },
+                sortField = _sortSpec.value.field,
+                sortOrder = _sortSpec.value.order,
+                typeFilter = if (single.isVideo) V2TypeFilter.VIDEO else V2TypeFilter.IMAGE,
+                mediaIds = listOf(single.id),
+                currentIndex = 0,
+            )
+            return true
+        }
         contextQueue = V2ContextQueue(
             folderId = _selectedFolderId.value,
             sortField = _sortSpec.value.field,
