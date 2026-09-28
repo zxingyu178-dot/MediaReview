@@ -103,6 +103,14 @@ class V2PlaybackSourceController {
         return hit
     }
 
+    /**
+     * 查看预取槽（不消费）：用于避免对同一条媒体重复发起预取请求。
+     *
+     * @return mediaId 命中时返回已解析源，否则 null。
+     */
+    fun peekPrefetched(mediaId: String): V2PlaybackSource? =
+        prefetchedSource?.takeIf { prefetchedMediaId == mediaId }
+
     /** 清空预取槽（退出播放器 / 重建上下文）。 */
     fun clearPrefetch() {
         prefetchedMediaId = null

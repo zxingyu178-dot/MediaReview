@@ -174,8 +174,16 @@ data class ReviewSeenRequest(
 )
 
 /** 批阅位置请求(断点恢复:随批阅移动更新 current_index)。 */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
 data class ReviewPositionRequest(
+    /**
+     * 绝对队列索引。
+     *
+     * 必须显式发送：项目 Json 配置 `encodeDefaults = false`，而 0 恰好是默认值 ——
+     * 不加 [EncodeDefault] 时"回到第 1 条"的位置上报会变成空 body。
+     */
+    @EncodeDefault
     val index: Int = 0,
 )
 

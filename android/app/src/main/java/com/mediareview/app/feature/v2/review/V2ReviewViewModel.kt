@@ -315,6 +315,16 @@ class V2ReviewViewModel @Inject constructor(
     private fun resolveCurrent(resolveNext: Boolean) {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         val item = ready.items.getOrNull(ready.localCurrentIndex) ?: return
+        // 同一条媒体已经解析完成（同一 settled 页重复 settle / 前置分页导致的重组）：
+        // 不重复请求 P0（§5 精神：每条媒体只解析一次），只补预取
+        val current = _playback.value
+        if (current is V2PlaybackUiState.Ready &&
+            current.source.mediaId == item.mediaId &&
+            sources.activeMediaId == item.mediaId
+        ) {
+            if (resolveNext) prefetchNext()
+            return
+        }
         resolveJob?.cancel()
         prefetchJob?.cancel()
         // §7/§8：解析开始前就切换 source identity（清空上一媒体的 source、回到 Direct）
@@ -353,6 +363,8 @@ class V2ReviewViewModel @Inject constructor(
     private fun prefetchNext() {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         val next = ready.items.getOrNull(ready.localCurrentIndex + 1) ?: return
+        // 预取槽里已有同一个 mediaId：不重复请求
+        if (sources.peekPrefetched(next.mediaId) != null) return
         prefetchJob = viewModelScope.launch {
             val resolved = runCatching { repository.resolvePlayback(next.mediaId) }.getOrNull()
                 ?: return@launch
