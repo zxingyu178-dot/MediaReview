@@ -35,8 +35,13 @@ def test_mark_seen_and_advance(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
     with db.session() as s:
         created = review.create_session(s, ["a", "b", "c"])
-        assert review.mark_seen(s, created.session_id, "b", True)
-        assert not review.mark_seen(s, created.session_id, "nope", True)
+        marked = review.mark_seen(s, created.session_id, "b", True)
+        # Stage 8B.1 §14: mark_seen 返回服务端权威进度(不再是裸布尔)
+        assert marked is not None
+        assert marked["media_id"] == "b"
+        assert marked["seen_count"] == 1
+        assert marked["total_count"] == 3
+        assert review.mark_seen(s, created.session_id, "nope", True) is None
         updated = review.advance(s, created.session_id)
         assert updated.current_index == 1
         assert updated.seen_count == 1
@@ -44,12 +49,21 @@ def test_mark_seen_and_advance(tmp_path: Path) -> None:
     db.dispose()
 
 
-def test_advance_to_end_auto_completes(tmp_path: Path) -> None:
+def test_advance_to_end_auto_completes_only_when_all_seen(tmp_path: Path) -> None:
+    """Stage 8B.1 §19/§20:advance 到末尾必须 fail-closed,仍有未批阅时保持 active。"""
     db = _make_db(tmp_path)
     with db.session() as s:
         created = review.create_session(s, ["a", "b"])
         for _ in range(2):
             review.advance(s, created.session_id)
+        waiting = review.get_session(s, created.session_id)
+        assert waiting.status == "active", "仍有未批阅时不得自动完成"
+        assert waiting.completed_at is None
+
+        # 全部批阅后再 advance 到末尾:允许完成
+        review.mark_seen(s, created.session_id, "a", True)
+        review.mark_seen(s, created.session_id, "b", True)
+        review.advance(s, created.session_id)
         done = review.get_session(s, created.session_id)
         assert done.status == "completed"
         assert done.completed_at is not None
@@ -62,6 +76,8 @@ def test_complete_and_latest_active(tmp_path: Path) -> None:
         s1 = review.create_session(s, ["a"])
         s2 = review.create_session(s, ["b", "c"])
         assert review.latest_active_session(s).session_id == s2.session_id
+        # Stage 8B.1 §19:complete 必须 fail-closed —— 先批阅完才允许完成
+        review.mark_seen(s, s1.session_id, "a", True)
         review.complete(s, s1.session_id)
         assert review.latest_active_session(s).session_id == s2.session_id
         view = review.session_view(review.get_session(s, s1.session_id))

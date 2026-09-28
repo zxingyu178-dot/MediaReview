@@ -22,6 +22,10 @@ _session_id_lock = threading.Lock()
 _last_session_stamp: str | None = None
 
 
+class UnfinishedReviewError(ValueError):
+    """会话仍有未批阅内容,拒绝完成(fail-closed)。"""
+
+
 def _new_session_id() -> str:
     """生成严格单调递增的会话 ID(秒+微秒时间戳 + 随机防碰撞后缀)。
 
@@ -267,8 +271,12 @@ def session_queue_page(
     *,
     page: int,
     page_size: int,
-) -> tuple[list[tuple[int, MediaCacheIndex]], int]:
-    """用 SQL 绝对队列分页并批量联结可用媒体；缺项不压缩绝对索引。"""
+) -> tuple[list[tuple[int, bool, MediaCacheIndex]], int]:
+    """用 SQL 绝对队列分页并批量联结可用媒体；缺项不压缩绝对索引。
+
+    每项返回 ``(index, seen, media)``：seen 是会话状态(客户端恢复后据此
+    判断当前条目以前是否已经批阅过),与媒体可用性无关。
+    """
     total = int(
         session.scalar(
             sa.select(sa.func.count())
@@ -281,6 +289,7 @@ def session_queue_page(
     queue_page = (
         sa.select(
             ReviewSessionItem.index.label("queue_index"),
+            ReviewSessionItem.seen.label("seen"),
             ReviewSessionItem.media_id.label("media_id"),
         )
         .where(ReviewSessionItem.session_id == session_id)
@@ -290,16 +299,20 @@ def session_queue_page(
         .subquery()
     )
     rows = session.execute(
-        sa.select(queue_page.c.queue_index, MediaCacheIndex)
+        sa.select(queue_page.c.queue_index, queue_page.c.seen, MediaCacheIndex)
         .join(MediaCacheIndex, MediaCacheIndex.media_id == queue_page.c.media_id)
         .where(MediaCacheIndex.is_available.is_(True))
         .order_by(queue_page.c.queue_index.asc())
     ).all()
-    return [(int(index), media) for index, media in rows], total
+    return [(int(index), bool(seen), media) for index, seen, media in rows], total
 
 
-def mark_seen(session: Session, session_id: str, media_id: str, seen: bool) -> bool:
-    """标记队列中某项已看/未看,返回是否存在该项。"""
+def mark_seen(session: Session, session_id: str, media_id: str, seen: bool) -> dict | None:
+    """标记队列中某项已看/未看,返回服务端权威进度;媒体不在会话中时返回 None。
+
+    幂等:已经是目标状态时不重复计数。返回 ``{media_id, seen, seen_count,
+    total_count}`` —— Android 端不得自行 +1,必须直接用这里的权威值。
+    """
     row = session.scalars(
         sa.select(ReviewSessionItem).where(
             ReviewSessionItem.session_id == session_id,
@@ -307,12 +320,20 @@ def mark_seen(session: Session, session_id: str, media_id: str, seen: bool) -> b
         )
     ).first()
     if row is None:
-        return False
+        return None
     if row.seen != seen:
         row.seen = seen
         _recount(session, session_id)
         session.flush()
-    return True
+    review = get_session(session, session_id)
+    if review is None:  # pragma: no cover - 队列项存在必然有会话
+        return None
+    return {
+        "media_id": media_id,
+        "seen": seen,
+        "seen_count": review.seen_count,
+        "total_count": review.total_count,
+    }
 
 
 def advance(session: Session, session_id: str) -> ReviewSession | None:
@@ -322,24 +343,35 @@ def advance(session: Session, session_id: str) -> ReviewSession | None:
         return None
     if review.current_index < review.total_count:
         review.current_index += 1
-        _recount(session, session_id)
-        # 到达末尾自动完成
-        if review.current_index >= review.total_count:
-            review.status = "completed"
-            review.completed_at = utc_now()
-        session.flush()
+    _recount(session, session_id)
+    # 到达末尾自动完成 —— 但必须 fail-closed:仍有未批阅时保持 active
+    if review.current_index >= review.total_count and review.seen_count >= review.total_count:
+        review.status = "completed"
+        review.completed_at = utc_now()
+    session.flush()
     return review
 
 
 def complete(session: Session, session_id: str) -> ReviewSession | None:
+    """完成会话(fail-closed)。
+
+    还有未批阅内容时抛 [UnfinishedReviewError],绝不关闭会话 ——
+    即使 Android 端有 Bug,服务端也不允许错误完成(评审 §19)。
+    已完成的会话幂等返回。
+    """
     review = get_session(session, session_id)
     if review is None:
         return None
-    review.status = "completed"
-    review.completed_at = utc_now()
-    review.updated_at = utc_now()
     _recount(session, session_id)
-    session.flush()
+    if review.seen_count < review.total_count:
+        raise UnfinishedReviewError(
+            f"还有未批阅内容({review.seen_count}/{review.total_count}),无法完成会话"
+        )
+    if review.status != "completed":
+        review.status = "completed"
+        review.completed_at = utc_now()
+        review.updated_at = utc_now()
+        session.flush()
     return review
 
 
@@ -356,17 +388,22 @@ def complete_all_active(session: Session) -> int:
 
 
 def set_position(session: Session, session_id: str, index: int) -> ReviewSession | None:
-    """设置批阅位置(断点恢复):随批阅移动更新 current_index。"""
+    """设置批阅位置(断点恢复):随批阅移动更新 current_index。
+
+    位置到达末尾时**只在全部批阅后才自动完成**(§20:还有未批阅时保持 active,
+    由客户端提示"还有未批阅内容")。
+    """
     review = get_session(session, session_id)
     if review is None or review.status != "active":
         return None
     clamped = max(0, min(int(index), review.total_count))
     review.current_index = clamped
     review.updated_at = utc_now()
-    # 位置已到末尾视为完成
     if clamped >= review.total_count:
-        review.status = "completed"
-        review.completed_at = utc_now()
+        _recount(session, session_id)
+        if review.seen_count >= review.total_count:
+            review.status = "completed"
+            review.completed_at = utc_now()
     session.flush()
     return review
 
@@ -414,6 +451,7 @@ def session_view(review: ReviewSession) -> dict:
 
 
 __all__ = [
+    "UnfinishedReviewError",
     "advance",
     "complete",
     "complete_all_active",

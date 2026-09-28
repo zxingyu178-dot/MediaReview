@@ -12,7 +12,7 @@
 - ``scripts/build_deploy.py`` 产出 ``MediaReview_Migration_1.1.0`` 根 + 8 脚本 +
   SHA-256 校验和。
 - PyInstaller spec 产物名为 ``MediaReviewServer.exe``。
-- Android applicationId/版本/名称与 1.1.0 一致；LICENSE 与 THIRD_PARTY_NOTICES 存在。
+- Android applicationId 与当前 2.0 产品线版本一致；LICENSE 与 THIRD_PARTY_NOTICES 存在。
 """
 
 from __future__ import annotations
@@ -204,10 +204,11 @@ def test_license_and_third_party_notices_exist() -> None:
 
 # ---------------------------------------------------------------- Android 产物(F6)
 def test_android_version_name_and_code_and_application_id() -> None:
+    """Stage 8B.1 §24:Android 版本合同更新为当前 2.0 产品线(不再断言过时的 1.1.0)。"""
     gradle = (ANDROID / "app" / "build.gradle.kts").read_text(encoding="utf-8")
     assert 'applicationId = "com.mediareview.app"' in gradle
-    assert 'versionName = "1.1.0"' in gradle
-    assert "versionCode = 6" in gradle, "versionCode 必须 > 5(现为 5)"
+    assert 'versionName = "2.0.0-alpha1"' in gradle
+    assert "versionCode = 8" in gradle, "versionCode 必须与当前 2.0 产品线一致(现为 8)"
 
 
 def test_android_app_name_is_zh() -> None:

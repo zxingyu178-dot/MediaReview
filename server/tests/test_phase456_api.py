@@ -92,15 +92,30 @@ def test_review_api_flow_source_based(jellyfin_api_client) -> None:
     )
     assert [item["index"] for item in last.json()["data"]["items"]] == [4]
 
-    # 标记已看并前进;到末尾自动完成
+    # 标记已看并前进(Stage 8B.1 §19:完成必须 fail-closed —— 仍有未批阅时保持 active)
     seen_id = qdata["items"][0]["media"]["media_id"]
     seen = client.post(
         f"/api/v1/review/sessions/{session_id}/seen",
         json={"media_id": seen_id, "seen": True},
     ).json()["data"]
     assert seen["seen"] is True
+    assert seen["seen_count"] == 1
+    assert seen["total_count"] == 5
     for _ in range(5):
         client.post(f"/api/v1/review/sessions/{session_id}/advance")
+    waiting = client.get(f"/api/v1/review/sessions/{session_id}").json()["data"]
+    assert waiting["status"] == "active", "还有未批阅内容时不得自动完成会话"
+
+    # 批阅剩余条目后再次 advance 到末尾:允许完成
+    all_items = client.get(
+        f"/api/v1/review/sessions/{session_id}/queue", params={"page": 1, "page_size": 5}
+    ).json()["data"]["items"]
+    for item in all_items:
+        client.post(
+            f"/api/v1/review/sessions/{session_id}/seen",
+            json={"media_id": item["media"]["media_id"], "seen": True},
+        )
+    client.post(f"/api/v1/review/sessions/{session_id}/advance")
     done = client.get(f"/api/v1/review/sessions/{session_id}").json()["data"]
     assert done["status"] == "completed"
 

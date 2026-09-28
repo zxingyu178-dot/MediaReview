@@ -3,10 +3,10 @@
 - POST /review/sessions                创建批阅会话(固化为一次性队列)
 - GET  /review/sessions/{session_id}   会话总览(source + progress)
 - GET  /review/sessions/latest         断点恢复: 最近活动会话
-- GET  /review/sessions/{session_id}/queue        队列媒体(排序后,含摘要)
-- POST /review/sessions/{session_id}/seen        标记某媒体已看/未看
+- GET  /review/sessions/{session_id}/queue        队列媒体(排序后,含摘要 + seen 状态)
+- POST /review/sessions/{session_id}/seen        标记某媒体已看/未看(返回权威 seen_count)
 - POST /review/sessions/{session_id}/advance     前进到下一项(当前项视为已看)
-- POST /review/sessions/{session_id}/complete    手动完成会话
+- POST /review/sessions/{session_id}/complete    手动完成会话(fail-closed:有未批阅则拒绝)
 """
 
 from __future__ import annotations
@@ -51,6 +51,8 @@ class SeenBody(BaseModel):
 
 class QueueItem(BaseModel):
     index: int
+    # Stage 8B.1 §11:队列项必须携带会话的已看状态(客户端恢复后知道是否已批阅过)
+    seen: bool = False
     media: MediaSummary
 
 
@@ -160,11 +162,12 @@ async def get_queue(
         page_size=page_size,
     )
     result: list[QueueItem] = []
-    for index, media in paged:
+    for index, seen, media in paged:
         cover, original = _queue_urls(request, media)
         result.append(
             QueueItem(
                 index=index,
+                seen=seen,
                 media=_summary_from_row(media, cover_url=cover, original_url=original),
             )
         )
@@ -185,11 +188,16 @@ async def set_seen(
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[dict]:
+    """标记已看/未看,返回**服务端权威**进度(seen_count / total_count)。
+
+    重复标记幂等(不会重复计数);Android 端不得自行 +1(Stage 8B.1 §13/§14)。
+    """
     _get_review(db, session_id)
-    if not review.mark_seen(db, session_id, body.media_id, body.seen):
+    result = review.mark_seen(db, session_id, body.media_id, body.seen)
+    if result is None:
         raise NotFoundError(message="媒体不在该批阅会话中")
     db.commit()
-    return ok({"media_id": body.media_id, "seen": body.seen})
+    return ok(result)
 
 
 class PositionBody(BaseModel):
@@ -226,7 +234,11 @@ async def advance(
 async def complete_session(
     session_id: str, _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[dict]:
-    updated = review.complete(db, session_id)
+    """手动完成会话(fail-closed:还有未批阅内容时拒绝,会话保持 active)。"""
+    try:
+        updated = review.complete(db, session_id)
+    except review.UnfinishedReviewError as exc:
+        raise ConflictError(message=str(exc)) from exc
     if updated is None:
         raise NotFoundError(message="批阅会话不存在")
     db.commit()
