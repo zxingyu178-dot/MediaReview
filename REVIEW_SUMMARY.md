@@ -54,3 +54,55 @@
    （§5 要求人工视觉确认；若不可接受，改用 preview 变体方案 B）。
 
 **本阶段到此停止；不进入 Stage 8B。**
+---
+
+# Stage 8B 阶段自评 —— Server Review Session / 真实批阅模式接入
+
+- **分支**：`feature/mediareview-v2-stage8b-review-session`
+- **基线**：`ce171936692ea94ddd1a8dc1454dff6b52a08fab`
+- **状态**：**READY_FOR_USER_VALIDATION**（等待真实 Server 实机验收；未进入 Stage 8A.2 Room）
+- **交接包**：`MediaReview_Stage8B_Handoff_YYYYMMDD_<shortsha>.zip` + `MediaReview-v2-stage8b-review-session.apk`
+
+## 一、本阶段做了什么
+
+1. **前置正确性修复（§6~§12，单独提交）**：播放语义抽成 `V2PlaybackSourceController`
+   （Source Identity / Direct→一次 HLS→Error / retry 回 DIRECT / P1 单槽）、
+   内核报错必须带实际装载的 mediaId、Context 边界（不再静默指向第 1 项，改为单条上下文）、
+   空队列拒绝写入、**相册取消 200 张截断**改为真实分页。
+2. **批阅数据层独立（§14/§15）**：`feature/v2/review/data`（Server 实现复用现有 Review API；
+   队列项只含 Metadata；绝对索引；每页 50；共享资源缓存）。
+3. **Server 模式真实批阅（§3/§17~§40）**：**删除占位页**；恢复/新建会话分流、
+   深位置恢复、P0/P1 播放、seen/position/complete 服务端确认制、
+   完整播放器返回不重建、重新批阅 = 新建会话。
+4. **待删除真正接通（§35/§36）**：GET/POST/DELETE delete-queue + 确认制 + 可撤销。
+5. **顺带修掉 4 个客户端合同缺陷**：`seen` / `index` 在 `encodeDefaults=false` 下被省略、
+   seen/position/complete 用 `Map` 接收布尔与整数、delete-queue 的 `queued` 布尔。
+
+## 二、验证（真实执行）
+
+- JVM：**380 项全通过**（新增 42 项）
+- 设备侧全量：**46 项 / 37 通过 / 9 失败**，9 项逐项归因见 `02_TEST_REPORT.md`，
+  **0 项可归因于本阶段代码**（5 项为已记录的环境 flaky / Hilt harness 限制，
+  #1/#7/#8 疑似环境或状态相关且不在 8B 改动路径）
+- 设备侧批阅端到端（模拟器内 MockWebServer，真实 HTTP）：全链路通过
+  （含"只解析 settle 过的条目 + 下一条"与"position 用绝对索引"两条硬断言）
+- Lint 0 errors；assembleDebug PASS
+- Server：**未改任何 Server 代码**；pytest 376 通过，2 项与本阶段无关
+
+## 三、明确未做 / 未验证
+
+- **未部署生产 Server**（§46）：未停止生产服务、未替换 EXE、未迁移 DB、未重启 ControlHub；
+- 未在真实 Jellyfin + 生产 Server 验收；
+- 未做 Compose 手势级 UI 自动化（上滑/下滑视觉链路需人工）；
+- 9:16 竖图 Viewer 构图跳变（§52）仍需你肉眼判定；
+- 性能结论**不改写**：Stage 8A.1.1 的"只有 1 个有效模拟器样本、真机/LAN 全部 NOT MEASURED"
+  继续有效（§51）。
+
+## 四、下一步（等待你的指令）
+
+1. 按 `05_USER_TEST_GUIDE.md` 在真实 Server 上走一遍批阅（重点：断点恢复、完整播放器往返、
+   待删除撤销、>200 张相册）；
+2. 批准后再做生产部署（独立步骤）；
+3. 不要自动进入 Stage 8A.2 Room。
+
+**本阶段到此停止。**

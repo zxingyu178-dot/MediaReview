@@ -1781,3 +1781,67 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 
 按 §11 **未部署**：未替换正式 Windows Service、未重启正式 MediaReview Server、
 未修改 ControlHub。新 Server 构建仅存在于仓库与交接包中，等待用户批准。
+---
+
+# Stage 8B —— Server Review Session / 真实批阅模式接入
+
+- **基线**：`ce171936692ea94ddd1a8dc1454dff6b52a08fab`（feature/mediareview-v2-stage8a.1.1-loading-closure）
+- **分支**：`feature/mediareview-v2-stage8b-review-session`
+- **提交**（按 §44 拆分）：
+  1. `6ef6403` fix(android): close playback and media context correctness gaps（§6~§12 前置正确性）
+  2. `754112f` feat(android): add server review session repository（§14/§15/§17/§20~§24/§35）
+  3. `f5c6276` feat(android): connect V2 review to server session paging（§3/§4/§5/§17~§40）
+  4. `c295e7f` fix(android): explicit position index and single-flight playback resolve（设备测暴露）
+  5. `8f7d102` test(android): cover review resume paging and device-side server flow
+
+## 1. 前置正确性（§6~§12，单独提交）
+
+- 新增 `V2PlaybackSourceController`（纯逻辑，可 JVM 单测）：Source Identity（mediaId + token）、
+  Direct → 一次 HLS → Error、retry 必须回 DIRECT、P1 预取单槽；
+- 完整播放器改用它，并且内核报错必须上报"播放器实际装载的 mediaId"（旧媒体迟到错误 → Ignore）；
+- `openMedia` / `openMediaIn` / `openMediaInVideoQueue` 不再 `coerceAtLeast(0)` 静默指向第 1 项；
+  目标不在首页列表时退化为**单条上下文**（收藏页/文件夹页点进来仍可正常打开，但不指向别的媒体）；
+- `V2ContextQueue.clampIndex()`：空队列拒绝写入（旧 `coerceIn(0, -1)` 非法）；
+- 相册分页：删除固定 `page=1/page_size=200` 的 `imagesInAlbum`（>200 张被永久截断的产品缺陷），
+  改为 `albumPage` 复用 `V2MediaPage`/`V2MediaQuery`；AlbumScreen 滚动加载下一页，Viewer 用已加载窗口。
+
+## 2. 批阅数据层（§14/§15）
+
+- 新增 `feature/v2/review/data/`：`ReviewSessionModels`（含 `ReviewQueueItemUi`，**只带 Metadata**、
+  绝对索引；`ReviewQueuePaging` 移植旧版已验证的页计算）、`V2ReviewSessionRepository` + Router、
+  `V2ServerReviewSessionRepository`、`DemoReviewSessionRepository`；
+- Server 实现：`latest` 404 才新建（§17）、`current_index` 所在页定位（§21）、每页 50（§20）、
+  seen/position/complete、队列媒体映射进**共享** `V2ServerResourceCache`；
+- 待删除真正接通：`GET /delete-queue`、`POST/DELETE /delete-queue/{id}`，
+  `setPendingDelete` 改为返回 Boolean（服务端确认制，§35/§36）；
+- 顺带修正客户端合同解析：`ReviewSeenRequest.seen` / `ReviewPositionRequest.index` 加 `@EncodeDefault`；
+  seen / position / complete 改用真实 DTO（`ReviewSeenResultDto` / `ReviewProgressDto`）；
+  delete-queue 的 `queued` 进入 `MutationResultDto`。
+
+## 3. 批阅接线（§3/§23/§37/§39/§40）
+
+- **删除 `serverModeUnsupported` 占位页**；新增 `V2ReviewUiState`
+  （Idle / LoadingSession / LoadingQueue / Ready / Empty / Complete / Error）；
+- 进入即恢复 latest；失败 → Error「无法恢复批阅 + 重新尝试」，**绝不误建会话**；
+- 播放 P0/P1（只解析当前项 + 最多预取下一条），与完整播放器共用 `V2PlaybackSourceController`；
+- seen 服务端确认制；position 只随 settled 变化上报且 latest-wins；complete 服务端确认后才进完成页；
+- 完整播放器返回恢复原会话与原绝对位置（不重建）；重新批阅 = 新建会话（服务端先完成旧 active）。
+
+## 4. 测试与验证（真实执行结果）
+
+| 项目 | 结果 |
+|---|---|
+| JVM 单测 | **380 项全通过**（新增 42 项：播放控制器 9 / 上下文队列 3 / 相册分页合同 4 / 批阅分页 10 / 批阅 VM 15 / 契约测试补充 1） |
+| Lint | **0 errors**（43 warnings，与 Stage 8A.1.1 基线一致） |
+| assembleDebug | PASS |
+| 设备侧端到端 | `Stage8BReviewServerFlowTest`（模拟器内 MockWebServer，真实 HTTP + 真实 JSON）：新建会话 / 分页 / seen / position（绝对索引 0 与 49）/ 只解析 4 条 playback / 重新批阅 = 新建会话，全部通过 |
+| Server pytest | 376 项通过；2 项与本阶段无关（既有 1.1 版本号合同测试 + 100k 行排序性能预算在机器满载时超时） |
+| 全量 instrumentation | 见 REVIEW_SUMMARY.md「Stage 8B」章节（含逐项归因） |
+| 生产部署 | **NOT PERFORMED**（§46） |
+
+## 5. 明确未做
+
+- 未部署生产 Server；未在真实 Jellyfin 上验收；
+- 未做 Compose 手势级 UI 自动化；
+- 未做 Room / 离线批阅缓存（Stage 8A.2）；
+- 未改 Server Review 核心（本阶段 41 个改动文件全部在 `android/` 下）。
