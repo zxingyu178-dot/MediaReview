@@ -81,6 +81,21 @@ def list_queue(session: Session) -> list[DeleteQueue]:
     return list(session.scalars(sa.select(DeleteQueue).order_by(DeleteQueue.added_at.asc())).all())
 
 
+def pending_summary(session: Session) -> tuple[int, int]:
+    """可最终删除队列摘要 ``(count, total_bytes)``: 只统计 pending。
+
+    Stage 8C §11: Organize 首页只需要数字,不得为此拉取整个队列;
+    单条 SQL 聚合;failed 项(删除失败仍留在队列)不计入"预计释放"。
+    """
+    count, total = session.execute(
+        sa.select(
+            sa.func.count(DeleteQueue.media_id),
+            sa.func.coalesce(sa.func.sum(DeleteQueue.size_bytes), 0),
+        ).where(DeleteQueue.status == "pending")
+    ).one()
+    return int(count), int(total or 0)
+
+
 # 拒绝删除的身份校验详情前缀,用于区分失败原因(写入审计与队列 error)
 _GUARD_LIBRARY = "library_not_allowed"
 _GUARD_SIZE = "file_size_changed"
@@ -256,5 +271,6 @@ __all__ = [
     "dequeue",
     "enqueue",
     "list_queue",
+    "pending_summary",
     "prepare_commit",
 ]

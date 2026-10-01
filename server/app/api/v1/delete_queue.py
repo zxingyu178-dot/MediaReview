@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import require_auth
-from app.api.v1.media import _summary_from_row
+from app.api.v1.media import (
+    _summary_from_row,
+    media_original_url,
+    media_thumbnail_url,
+    row_source_version,
+)
 from app.core.errors import ConflictError, MediaNotFoundError, NotFoundError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
@@ -27,6 +32,13 @@ router = APIRouter(prefix="/delete-queue", tags=["delete-queue"])
 
 class CommitResult(BaseModel):
     outcome: dict[str, str]
+
+
+class QueueSummaryView(BaseModel):
+    """待删除摘要(Stage 8C §11): 只统计 pending,供 Organize 首页展示,不返回列表。"""
+
+    count: int
+    total_bytes: int
 
 
 class CommitPrepView(BaseModel):
@@ -54,10 +66,29 @@ async def list_queue(
                 "status": row.status,
                 "size_bytes": row.size_bytes,
                 "added_at": row.added_at,
-                "media": _summary_from_row(media) if media else None,
+                # Stage 8C §16: 队列项封面与 /media 缓存版本语义一致,
+                # 客户端不得为了显示封面再逐条请求媒体详情(N+1)。
+                "media": (
+                    _summary_from_row(
+                        media,
+                        cover_url=media_thumbnail_url(media.media_id, row_source_version(media)),
+                        original_url=media_original_url(media),
+                    )
+                    if media
+                    else None
+                ),
             }
         )
     return ok(result)
+
+
+@router.get("/summary", response_model=Envelope[QueueSummaryView])
+async def queue_summary(
+    _auth=Depends(require_auth), db: Session = Depends(get_db)
+) -> Envelope[QueueSummaryView]:
+    """待删除队列摘要: 单条 SQL 聚合 pending 的 count / total_bytes。"""
+    count, total_bytes = delete_queue.pending_summary(db)
+    return ok(QueueSummaryView(count=count, total_bytes=total_bytes))
 
 
 @router.post("/commit/prepare", response_model=Envelope[CommitPrepView])

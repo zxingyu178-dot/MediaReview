@@ -16,13 +16,48 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import require_auth
-from app.core.errors import MediaNotFoundError
+from app.api.v1.media import media_thumbnail_url, row_source_version
+from app.core.errors import MediaNotFoundError, NotFoundError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
 from app.services import duplicate_scanner, hash_tasks
 from app.services.tasks import safe_task_view
 
 router = APIRouter(prefix="/duplicates", tags=["duplicates"])
+
+
+class DuplicateSummaryView(BaseModel):
+    """重复媒体摘要(Stage 8C §12): 计数 + 最近扫描任务状态,不返回分组本体。"""
+
+    exact_groups: int
+    similar_groups: int
+    scan_task_id: str | None = None
+    scan_status: str | None = None
+    scan_progress: int = 0
+
+
+class DuplicateDetailMemberView(BaseModel):
+    """分组详情内的成员媒体摘要(Stage 8C §33): 一次批量 SQL 取回,客户端零 N+1。"""
+
+    media_id: str
+    name: str
+    keep: bool = False
+    size_bytes: int | None = None
+    duration_ms: int | None = None
+    width: int | None = None
+    height: int | None = None
+    media_type: str | None = None
+    cover_url: str | None = None
+
+
+class DuplicateGroupDetailView(BaseModel):
+    group_id: str
+    type: str
+    detail: str = ""
+    count: int
+    size_bytes: int
+    duration_ms: int | None = None
+    members: list[DuplicateDetailMemberView] = []
 
 
 class DuplicateMemberView(BaseModel):
@@ -80,6 +115,25 @@ def scan(_auth=Depends(require_auth), db: Session = Depends(get_db)) -> Envelope
     return ok(safe_task_view(task))
 
 
+@router.get("/summary", response_model=Envelope[DuplicateSummaryView])
+def summary(
+    _auth=Depends(require_auth), db: Session = Depends(get_db)
+) -> Envelope[DuplicateSummaryView]:
+    """重复媒体摘要: 完全/疑似分组计数(单条 SQL) + 最近一次扫描任务状态。"""
+    counts = duplicate_scanner.persisted_group_counts(db)
+    task = duplicate_scanner.latest_duplicate_scan(db)
+    view = safe_task_view(task) if task is not None else None
+    return ok(
+        DuplicateSummaryView(
+            exact_groups=counts.get("exact", 0),
+            similar_groups=counts.get("similar", 0),
+            scan_task_id=(view or {}).get("task_id"),
+            scan_status=(view or {}).get("status"),
+            scan_progress=int((view or {}).get("progress") or 0),
+        )
+    )
+
+
 @router.get("/status", response_model=Envelope[dict])
 def status(_auth=Depends(require_auth), db: Session = Depends(get_db)) -> Envelope[dict]:
     task = duplicate_scanner.latest_duplicate_scan(db)
@@ -122,6 +176,49 @@ def persisted_similar(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[list[DuplicateGroupView]]:
     return ok([_view(g) for g in duplicate_scanner.persisted_groups(db, "similar")])
+
+
+@router.get("/{group_id}", response_model=Envelope[DuplicateGroupDetailView])
+def group_detail(
+    group_id: str,
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[DuplicateGroupDetailView]:
+    """分组详情(Stage 8C §33): 分组 + 成员 + 每个成员的媒体摘要,一次批量 SQL。"""
+    detail = duplicate_scanner.group_detail(db, group_id)
+    if detail is None:
+        raise NotFoundError(message="重复分组不存在")
+    return ok(
+        DuplicateGroupDetailView(
+            group_id=detail.group_id,
+            type=detail.type,
+            detail=detail.detail,
+            count=detail.count,
+            size_bytes=detail.size_bytes,
+            duration_ms=detail.duration_ms,
+            members=[
+                DuplicateDetailMemberView(
+                    media_id=member.media_id,
+                    # 媒体索引行可能已缺失(刚被删除等):回退到分组内持久化姓名
+                    name=member.media.name if member.media is not None else member.name,
+                    keep=member.keep,
+                    size_bytes=member.media.size_bytes if member.media is not None else None,
+                    duration_ms=member.media.duration_ms if member.media is not None else None,
+                    width=member.media.width if member.media is not None else None,
+                    height=member.media.height if member.media is not None else None,
+                    media_type=member.media.media_type if member.media is not None else None,
+                    cover_url=(
+                        media_thumbnail_url(
+                            member.media.media_id, row_source_version(member.media)
+                        )
+                        if member.media is not None
+                        else None
+                    ),
+                )
+                for member in detail.members
+            ],
+        )
+    )
 
 
 @router.post("/{group_id}/keep", response_model=Envelope[dict])

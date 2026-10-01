@@ -391,6 +391,86 @@ def set_keep(session: Session, group_id: str, media_id: str, keep: bool) -> bool
     return True
 
 
+def persisted_group_counts(session: Session) -> dict[str, int]:
+    """已持久化分组计数 ``{type: count}``(单条 SQL,供 Organize 摘要使用)。
+
+    Stage 8C §12: 首页只需计数,不得为此拉取全量分组与其成员。
+    """
+    rows = session.execute(
+        sa.select(DuplicateGroupRow.type, sa.func.count(DuplicateGroupRow.group_id)).group_by(
+            DuplicateGroupRow.type
+        )
+    ).all()
+    return {str(group_type): int(count) for group_type, count in rows}
+
+
+@dataclass(frozen=True)
+class DuplicateMemberDetail:
+    """分组详情内的单个成员: 持久化姓名/保留选择 + 可选的媒体索引行。"""
+
+    media_id: str
+    name: str
+    keep: bool
+    media: MediaCacheIndex | None
+
+
+@dataclass(frozen=True)
+class DuplicateGroupDetail:
+    """分组详情(Stage 8C §33): 分组元数据 + 成员媒体摘要。"""
+
+    group_id: str
+    type: str
+    detail: str
+    count: int
+    size_bytes: int
+    duration_ms: int | None
+    members: list[DuplicateMemberDetail]
+
+
+def group_detail(session: Session, group_id: str) -> DuplicateGroupDetail | None:
+    """读取分组详情;分组不存在返回 None。
+
+    成员媒体摘要用**一次批量 SQL**(``media_id IN (...)``)取回,绝不逐条查询
+    (Stage 8C §33: Android 侧禁止 N+1,Server 内部同样不做 N+1)。
+    """
+    row = session.get(DuplicateGroupRow, group_id)
+    if row is None:
+        return None
+    members = list(
+        session.scalars(
+            sa.select(DuplicateGroupMember)
+            .where(DuplicateGroupMember.group_id == group_id)
+            .order_by(DuplicateGroupMember.media_id)
+        ).all()
+    )
+    media_by_id: dict[str, MediaCacheIndex] = {}
+    media_ids = [m.media_id for m in members]
+    if media_ids:
+        media_by_id = {
+            media.media_id: media
+            for media in session.scalars(
+                sa.select(MediaCacheIndex).where(MediaCacheIndex.media_id.in_(media_ids))
+            ).all()
+        }
+    return DuplicateGroupDetail(
+        group_id=row.group_id,
+        type=row.type,
+        detail=row.detail or "",
+        count=row.count,
+        size_bytes=row.size_bytes or 0,
+        duration_ms=row.duration_ms,
+        members=[
+            DuplicateMemberDetail(
+                media_id=m.media_id,
+                name=m.name,
+                keep=m.keep,
+                media=media_by_id.get(m.media_id),
+            )
+            for m in members
+        ],
+    )
+
+
 def _task_status(database: Database, task_id: str) -> str | None:
     with database.session() as session:
         task = session.get(BackgroundTask, task_id)
@@ -494,8 +574,12 @@ def _fail_scan(database: Database, task_id: str, error: str) -> None:
 
 __all__ = [
     "DuplicateGroup",
+    "DuplicateGroupDetail",
+    "DuplicateMemberDetail",
+    "group_detail",
     "has_pending_hashes",
     "latest_duplicate_scan",
+    "persisted_group_counts",
     "persisted_groups",
     "run_duplicate_scan",
     "scan_all",
