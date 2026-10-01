@@ -306,11 +306,10 @@ fun V2MainScreen(
         )
     }
 
-    // 新版本首次启动更新日志（§38/§42）：根页面完成 Composition 后才可能显示
+    // 新版本首次启动更新日志（§38/§42）：根页面完成 Composition 后才可能显示；
+    // 跨版本升级时一次展示所有未读版本，始终只弹一个 Sheet（Stage 8C.2 §26）
     if (whatsNew.visible) {
-        whatsNew.note?.let { note ->
-            WhatsNewSheet(note = note, onDismiss = { whatsNewViewModel.dismiss() })
-        }
+        WhatsNewSheet(state = whatsNew, onDismiss = { whatsNewViewModel.dismiss() })
     }
 }
 
