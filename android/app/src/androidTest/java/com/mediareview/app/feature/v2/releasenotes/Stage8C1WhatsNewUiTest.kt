@@ -28,10 +28,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Stage 8C.1 §59：**Version / What's New 设备侧合同**。
+ * Stage 8C.1 §59 + Stage 8C.2 §44：**Version / What's New 设备侧合同**。
  *
  * - 新版本首次启动显示「本次更新」Sheet，关闭后持久化当前 versionCode；
- * - 设置（数据源 Sheet）底部显示当前 App 版本，且「本次更新」可主动再次打开；
+ * - 跨多个未安装版本升级时，**一个** Sheet 同时包含所有未读版本的更新内容；
+ * - 设置（数据源 Sheet）底部显示当前 App 版本，且「本次更新」可主动再次打开
+ *   （主动打开只展示当前版本）；
  * - 同版本第二次启动不再自动弹出。
  */
 @OptIn(ExperimentalTestApi::class)
@@ -46,8 +48,10 @@ class Stage8C1WhatsNewUiTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        // 模拟"新版本首次安装/升级"：把上次已看版本写成 0（永远不等于当前版本）
-        runBlocking { ReleaseNotesStore(context).saveLastSeenVersionCode(0) }
+    }
+
+    private fun setLastSeen(versionCode: Int) {
+        runBlocking { ReleaseNotesStore(context).saveLastSeenVersionCode(versionCode) }
     }
 
     private fun setContent() {
@@ -61,7 +65,9 @@ class Stage8C1WhatsNewUiTest {
     }
 
     @Test
-    fun newVersionShowsWhatsNewOnceAndSavesSeenVersion() {
+    fun upgradeShowsSingleSheetAndSavesSeenVersion() {
+        // 相邻版本升级（上一版 = 当前版本 - 1）
+        setLastSeen(BuildConfig.VERSION_CODE - 1)
         setContent()
 
         compose.waitUntilExactlyOneExists(hasTestTag("whats_new_sheet"), timeoutMillis = 15_000)
@@ -71,15 +77,33 @@ class Stage8C1WhatsNewUiTest {
         compose.onNodeWithText("知道了").performClick()
         compose.waitUntilDoesNotExist(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)
 
-        // 关闭后必须把当前版本写入 DataStore（同版本第二次启动不再弹，§39）
         val seen = runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() }
         assertEquals(BuildConfig.VERSION_CODE, seen)
     }
 
     @Test
+    fun multiVersionUpgradeShowsAllUnreadNotesInOneSheet() {
+        // 跨多个未安装版本（如 8 → 10，中间 9 未安装）
+        setLastSeen(8)
+        setContent()
+
+        // 仍然只有一个 Sheet，且同时包含两个未读版本的内容
+        compose.waitUntilExactlyOneExists(hasTestTag("whats_new_sheet"), timeoutMillis = 15_000)
+        compose.onNodeWithText("来自 2.0.0-alpha2").assertIsDisplayed()
+        compose.onNodeWithText("来自 2.0.0-alpha3").assertIsDisplayed()
+
+        compose.onNodeWithText("知道了").performClick()
+        compose.waitUntilDoesNotExist(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)
+        assertEquals(
+            BuildConfig.VERSION_CODE,
+            runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() },
+        )
+    }
+
+    @Test
     fun settingsShowsVersionAndCanReopenWhatsNew() {
-        // 先把当前版本标记为已看：启动时不自动弹，但设置页可以主动打开
-        runBlocking { ReleaseNotesStore(context).saveLastSeenVersionCode(BuildConfig.VERSION_CODE) }
+        // 当前版本已看过：启动不自动弹，但设置页可主动打开
+        setLastSeen(BuildConfig.VERSION_CODE)
         setContent()
 
         compose.onNode(hasContentDescription("整理")).performClick()
@@ -89,5 +113,7 @@ class Stage8C1WhatsNewUiTest {
         compose.onNodeWithText("MediaReview ${BuildConfig.VERSION_NAME}").assertIsDisplayed()
         compose.onNodeWithText("本次更新").performClick()
         compose.waitUntilExactlyOneExists(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)
+        // 设置页主动打开只展示当前版本（不出现其它版本分区标题）
+        compose.onNodeWithText("来自 ${BuildConfig.VERSION_NAME}").assertDoesNotExist()
     }
 }

@@ -44,9 +44,13 @@
 ## 5. 新版本首次启动行为
 
 - App 启动读取 DataStore `last_seen_version_code`；
-- 与 `BuildConfig.VERSION_CODE` 不一致（含首次安装 null）→ 展示一次「本次更新」Sheet；
-- 用户关闭后写入当前 versionCode，同版本再次启动不再弹出；
-- 多版本跳跃（如 8 → 11）只展示**当前版本**的更新日志，不逐版本连续弹窗。
+- 与 `BuildConfig.VERSION_CODE` 不一致 → 展示一次「本次更新」Sheet；
+- **跨版本升级**（小版本不发 APK 时常见，如 9 → 11）：Sheet **一次性**展示
+  `(last_seen, current]` 区间内**所有**未读版本的更新日志，但**始终只弹一个** Sheet，
+  绝不逐版本连续弹窗（按 versionCode 升序、分区标注来源版本）；
+- **首次安装**（`last_seen` 为 null）：只展示**当前版本**，不倾倒历史全部日志；
+- 用户关闭后写入当前 versionCode（表示"到当前版本为止都已看过"），同版本再次启动不再弹出；
+- 设置页「本次更新」**只展示当前版本**（与自动弹窗的多版本聚合区分开）。
 
 ## 6. 阶段 Handoff 要求
 
@@ -60,3 +64,14 @@ Release Notes Present: PASS / FAIL
 ```
 
 大阶段用户 APK 文件名带版本，例如 `MediaReview_2.0.0-alpha3_stage8d.apk`。
+
+## 7. Handoff 交付一致性（Stage 8C.2 §36~§39）
+
+- Handoff **只能在最终 commit + push 之后**生成，顺序固定：
+  代码 → 测试 → version bump → release notes → commit → push → FINAL HEAD →
+  Handoff 文档 → git evidence → ZIP；
+- 所有文档与文件名中的 short SHA **统一从 `git rev-parse HEAD` 取得**，
+  禁止在文档里硬编码旧 SHA；
+- 打包脚本必须执行 **Delivery Integrity Check**：校验
+  `00_HANDOFF` 的 Head、ZIP 文件名中的 short SHA、`git/LOG.txt` 首行三者一致，
+  不一致即 `PACKAGING FAIL`，不得产出交付包。
