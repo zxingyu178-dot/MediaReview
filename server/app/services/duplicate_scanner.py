@@ -20,6 +20,7 @@ hash_tasks 后台任务线程中完成,避免阻塞 FastAPI 请求与 SQLite 写
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 
@@ -49,23 +50,48 @@ TASK_TYPE_DUPLICATE_SCAN = "duplicate_scan"
 # 疑似重复的时长差异容忍(秒): 相同大小但时长相差超过该值的视为"疑似需人工确认"
 _DURATION_TOLERANCE_MS = 3_000
 
+# Stage 8C.2 §17~§19: 扫描期间媒体库勾选发生变化 → 本次扫描结果失效(不替换、不自动重扫)
+ERROR_LIBRARY_SELECTION_CHANGED = "library_selection_changed"
+_ERROR_LIBRARY_SELECTION_CHANGED = ERROR_LIBRARY_SELECTION_CHANGED
 
-def eligible_duplicate_conditions(session: Session) -> list:
-    """重复检测的**统一数据范围**(Stage 8C.1 §5/§6): 仍可用 且 属于已勾选媒体库。
+
+@dataclass(frozen=True)
+class DuplicateScanScope:
+    """一次重复扫描的**冻结范围**(Stage 8C.2 §13~§16)。
+
+    扫描正式开始时对已选媒体库取一次快照并写进 `BackgroundTask.params`,
+    四个阶段(exact / high / candidate / similar)、pause→resume 全部复用同一快照,
+    绝不各阶段重新读取"当前选择",否则会出现"同一份结果混合两个范围"的脏数据。
+    """
+
+    library_ids: tuple[str, ...]
+
+    @classmethod
+    def of(cls, library_ids) -> "DuplicateScanScope":
+        return cls(library_ids=tuple(sorted(str(i) for i in library_ids)))
+
+
+def eligible_duplicate_conditions(session: Session, library_ids=None) -> list:
+    """重复检测的**统一数据范围**(Stage 8C.1 §5/§6; Stage 8C.2 §15): 仍可用 且 属于指定媒体库。
 
     - `MediaCacheIndex.is_available == True`: 失效/已删除媒体绝不进入新重复结果;
-    - `library_id ∈ selected_library_ids`: 未勾选媒体库绝不参与扫描;
+    - `library_id ∈ library_ids`: 未勾选媒体库绝不参与扫描;
     - 没有已勾选媒体库时返回 `false()`(明确空结果,绝不偷偷扫描全库)。
+
+    ``library_ids`` 显式传入时使用该快照(扫描期间范围冻结);省略时才读取当前选择
+    (交互式查询路径,如 has_pending_hashes)。
 
     exact / high / candidate / similar / has_pending / 详情成员判定 全部共用本条件,
     禁止各函数自行拼接导致"exact 过滤 selected、similar 却扫全库"。
     """
-    library_ids = media_index.selected_library_ids(session)
-    if not library_ids:
+    targets = (
+        media_index.selected_library_ids(session) if library_ids is None else list(library_ids)
+    )
+    if not targets:
         return [sa.false()]
     return [
         MediaCacheIndex.is_available.is_(True),
-        MediaCacheIndex.library_id.in_(library_ids),
+        MediaCacheIndex.library_id.in_(targets),
     ]
 
 
@@ -87,7 +113,7 @@ class DuplicateGroup:
     keep: dict[str, bool] = field(default_factory=dict)
 
 
-def _candidate_pairs(session: Session) -> list[tuple[int, int]]:
+def _candidate_pairs(session: Session, library_ids=None) -> list[tuple[int, int]]:
     """候选筛选: 大小 + 时长 均一致且不止一份的组合(size_bytes, duration_ms)。
 
     Stage 8C.1 §9: 检测阶段**禁止**人为截断(旧 `_MAX_GROUPS = 200` 会漏掉真实存在的
@@ -102,7 +128,7 @@ def _candidate_pairs(session: Session) -> list[tuple[int, int]]:
         .where(
             MediaCacheIndex.size_bytes.is_not(None),
             MediaCacheIndex.duration_ms.is_not(None),
-            *eligible_duplicate_conditions(session),
+            *eligible_duplicate_conditions(session, library_ids),
         )
         .group_by(MediaCacheIndex.size_bytes, MediaCacheIndex.duration_ms)
         .having(sa.func.count(MediaCacheIndex.media_id) > 1)
@@ -117,7 +143,7 @@ def _is_valid_quick_hash(h: str | None) -> bool:
 
 
 def _pair_members(
-    session: Session, size_bytes: int, duration_ms: int
+    session: Session, size_bytes: int, duration_ms: int, library_ids=None
 ) -> list[tuple[str, str, str | None, str | None]]:
     """返回某候选组合内的成员 (media_id, name, quick_hash, sha256)。
 
@@ -133,7 +159,7 @@ def _pair_members(
         .where(
             MediaCacheIndex.size_bytes == size_bytes,
             MediaCacheIndex.duration_ms == duration_ms,
-            *eligible_duplicate_conditions(session),
+            *eligible_duplicate_conditions(session, library_ids),
         )
         .order_by(MediaCacheIndex.media_id)
     ).all()
@@ -178,15 +204,15 @@ def _detail_text(type_hint: str, count: int) -> str:
     return f"文件大小一致但时长存在差异,疑似重复,共 {count} 份"
 
 
-def scan_exact_duplicates(session: Session) -> list[DuplicateGroup]:
+def scan_exact_duplicates(session: Session, library_ids=None) -> list[DuplicateGroup]:
     """完全重复(byte-identical): 大小+时长一致 且 整文件 sha256 一致。
 
     只有已由后台任务计算 full sha256 的媒体才会进入;未计算的一律不得判定为 exact。
     这保证"两个大小与时长相同但内容不同的文件"绝不会被标记为完全重复。
     """
     groups: list[DuplicateGroup] = []
-    for size_bytes, duration_ms in _candidate_pairs(session):
-        members = _pair_members(session, size_bytes, duration_ms)
+    for size_bytes, duration_ms in _candidate_pairs(session, library_ids):
+        members = _pair_members(session, size_bytes, duration_ms, library_ids)
         # 按 sha256 进一步切分;sha256 无效(None 或读取失败哨兵)的成员排除在外
         buckets: dict[str, list[tuple[str, str]]] = {}
         for media_id, name, _qh, sha in members:
@@ -197,20 +223,22 @@ def scan_exact_duplicates(session: Session) -> list[DuplicateGroup]:
     return groups
 
 
-def scan_high_confidence(session: Session) -> list[DuplicateGroup]:
+def scan_high_confidence(session: Session, library_ids=None) -> list[DuplicateGroup]:
     """高度可信重复: 大小+时长一致 且 quick_hash 一致。
 
     排除已进入 exact 的成员,避免同一对既报 exact 又报 high。
     """
-    return _dedup_orders(_high_groups(session))
+    return _dedup_orders(_high_groups(session, library_ids))
 
 
-def _high_groups(session: Session) -> list[DuplicateGroup]:
+def _high_groups(session: Session, library_ids=None) -> list[DuplicateGroup]:
     """scan_high_confidence 的内部实现(返回未去重顺序的 high 分组)。"""
     groups: list[DuplicateGroup] = []
-    exact_assigned = {mid for grp in scan_exact_duplicates(session) for mid in grp.media_ids}
-    for size_bytes, duration_ms in _candidate_pairs(session):
-        members = _pair_members(session, size_bytes, duration_ms)
+    exact_assigned = {
+        mid for grp in scan_exact_duplicates(session, library_ids) for mid in grp.media_ids
+    }
+    for size_bytes, duration_ms in _candidate_pairs(session, library_ids):
+        members = _pair_members(session, size_bytes, duration_ms, library_ids)
         buckets: dict[str, list[tuple[str, str]]] = {}
         for media_id, name, qh, _sha in members:
             if not _is_valid_quick_hash(qh) or media_id in exact_assigned:
@@ -234,11 +262,11 @@ def _dedup_orders(groups: list[DuplicateGroup]) -> list[DuplicateGroup]:
     return result
 
 
-def scan_candidates(session: Session) -> list[DuplicateGroup]:
+def scan_candidates(session: Session, library_ids=None) -> list[DuplicateGroup]:
     """候选筛选结果: 大小+时长一致 但 quick_hash 尚未计算(等待后台哈希)。"""
     groups: list[DuplicateGroup] = []
-    for size_bytes, duration_ms in _candidate_pairs(session):
-        members = _pair_members(session, size_bytes, duration_ms)
+    for size_bytes, duration_ms in _candidate_pairs(session, library_ids):
+        members = _pair_members(session, size_bytes, duration_ms, library_ids)
         pending: list[tuple[str, str]] = [
             (media_id, name) for media_id, name, qh, _sha in members if qh is None
         ]
@@ -266,7 +294,7 @@ def _resolution(media) -> int | None:
     return int(media.width) * int(media.height)
 
 
-def scan_similar_candidates(session: Session) -> list[DuplicateGroup]:
+def scan_similar_candidates(session: Session, library_ids=None) -> list[DuplicateGroup]:
     """疑似重复: 大小一致但时长差异超容忍值 或 分辨率不同(可能为转码/裁剪等)。
 
     仅作为"疑似基础能力",不自动删除(AGENTS.md),供独立页面提示用户。
@@ -280,7 +308,7 @@ def scan_similar_candidates(session: Session) -> list[DuplicateGroup]:
         )
         .where(
             MediaCacheIndex.size_bytes.is_not(None),
-            *eligible_duplicate_conditions(session),
+            *eligible_duplicate_conditions(session, library_ids),
         )
         .group_by(MediaCacheIndex.size_bytes)
         .having(sa.func.count(MediaCacheIndex.media_id) > 1)
@@ -297,7 +325,7 @@ def scan_similar_candidates(session: Session) -> list[DuplicateGroup]:
                 MediaCacheIndex.height,
             ).where(
                 MediaCacheIndex.size_bytes == size_bytes,
-                *eligible_duplicate_conditions(session),
+                *eligible_duplicate_conditions(session, library_ids),
             )
         ).all()
         if len(members) < 2:
@@ -326,13 +354,13 @@ def scan_similar_candidates(session: Session) -> list[DuplicateGroup]:
     return groups
 
 
-def scan_all(session: Session) -> list[DuplicateGroup]:
+def scan_all(session: Session, library_ids=None) -> list[DuplicateGroup]:
     """返回 完全重复 + 高度可信 + 候选 + 疑似重复(exact 优先)。"""
     return (
-        scan_exact_duplicates(session)
-        + scan_high_confidence(session)
-        + scan_candidates(session)
-        + scan_similar_candidates(session)
+        scan_exact_duplicates(session, library_ids)
+        + scan_high_confidence(session, library_ids)
+        + scan_candidates(session, library_ids)
+        + scan_similar_candidates(session, library_ids)
     )
 
 
@@ -581,11 +609,19 @@ def _task_status(database: Database, task_id: str) -> str | None:
         return task.status if task is not None else None
 
 
-def _persist_group_rows(session: Session, group: DuplicateGroup) -> None:
+def _persist_group_rows(
+    session: Session,
+    group: DuplicateGroup,
+    keeps: dict[tuple[str, str], bool] | None = None,
+) -> None:
     """在**原子替换事务内**写入单个分组 + 成员。
 
     调用前旧分组已在同一事务内整体删除,因此这里用 `add` 直接插入
     (`merge` 会对每行额外发一次 SELECT,大结果集下纯属浪费)。
+
+    ``keeps``(Stage 8C.2 §6~§11): 同一事务内读出的旧人工"保留"选择,
+    仅当 **(group_id, media_id) 完全一致** 时才恢复;分组语义变化(拆并/改类型)
+    或成员已消失时保持 `keep=False`,绝不自动继承。
     """
     session.add(
         DuplicateGroupRow(
@@ -604,9 +640,21 @@ def _persist_group_rows(session: Session, group: DuplicateGroup) -> None:
                 media_id=media_id,
                 name=name,
                 fingerprint=f"{group.type}:{media_id}",
-                keep=False,
+                keep=bool(keeps.get((group.group_id, media_id), False)) if keeps else False,
             )
         )
+
+
+def _existing_keeps(session: Session) -> dict[tuple[str, str], bool]:
+    """读出当前持久化的全部人工"保留"选择,键为 ``(group_id, media_id)``。
+
+    Stage 8C.2 §8: **禁止**只按 media_id 保存 —— 同一文件可能从旧 exact 分组
+    迁移到新的 similar 分组,那不是"同一个人工选择",不能自动继承。
+    """
+    return {
+        (row.group_id, row.media_id): bool(row.keep)
+        for row in session.scalars(sa.select(DuplicateGroupMember)).all()
+    }
 
 
 def run_duplicate_scan(database: Database, task_id: str) -> None:
@@ -622,12 +670,13 @@ def run_duplicate_scan(database: Database, task_id: str) -> None:
     """
     logger.info("执行重复扫描任务 %s", task_id)
     try:
-        groups = _compute_all(database, task_id)
+        scope = _load_or_create_scope(database, task_id)
+        groups = _compute_all(database, task_id, scope)
         if groups is None:
             # 计算中途被暂停/取消: 保留上一份 succeeded 结果,本次不产生任何分组
             logger.info("重复扫描任务 %s 在完成前停止,保留上一份结果", task_id)
             return
-        replaced = _replace_persisted_groups(database, task_id, groups)
+        replaced = _replace_persisted_groups(database, task_id, groups, scope)
         if replaced:
             _finish_scan(database, task_id)
     except Exception as exc:  # noqa: BLE001 - 后台任务失败记录并置 failed
@@ -635,11 +684,41 @@ def run_duplicate_scan(database: Database, task_id: str) -> None:
         _fail_scan(database, task_id, str(exc))
 
 
-def _compute_all(database: Database, task_id: str) -> list[DuplicateGroup] | None:
+def _load_or_create_scope(database: Database, task_id: str) -> DuplicateScanScope:
+    """取得本次扫描的**冻结范围**(Stage 8C.2 §14~§16/§22)。
+
+    首次执行时对"当前已选媒体库"取快照并写进 `BackgroundTask.params`;
+    之后(含 pause → resume)一律复用 params 里的快照,绝不改用当前 Library Selection。
+    """
+    with database.session() as session:
+        task = session.get(BackgroundTask, task_id)
+        params: dict = {}
+        if task is not None and task.params:
+            try:
+                loaded = json.loads(task.params)
+                if isinstance(loaded, dict):
+                    params = loaded
+            except ValueError:
+                params = {}
+        stored = params.get("library_ids")
+        if isinstance(stored, list):
+            return DuplicateScanScope.of(stored)
+        scope = DuplicateScanScope.of(media_index.selected_library_ids(session))
+        params["library_ids"] = list(scope.library_ids)
+        if task is not None:
+            task.params = json.dumps(params)
+        session.commit()
+        return scope
+
+
+def _compute_all(
+    database: Database, task_id: str, scope: DuplicateScanScope
+) -> list[DuplicateGroup] | None:
     """分阶段计算全部分组(不落库);任务不再 running 时返回 None。
 
     每个阶段用独立短会话;阶段间上报粗粒度进度并检查协作状态,
     使暂停/取消最多延迟一个阶段生效,而不是等到全部算完。
+    四个阶段**共用同一个 Scope 快照**(§15),不会各自读取当前媒体库选择。
     """
     steps = (
         scan_exact_duplicates,
@@ -652,7 +731,7 @@ def _compute_all(database: Database, task_id: str) -> list[DuplicateGroup] | Non
         if _task_status(database, task_id) != "running":
             return None
         with database.session() as session:
-            groups.extend(step(session))
+            groups.extend(step(session, scope.library_ids))
         _set_progress(database, task_id, 10 + (idx + 1) * 20)
     return groups
 
@@ -666,22 +745,47 @@ def _set_progress(database: Database, task_id: str, progress: int) -> None:
 
 
 def _replace_persisted_groups(
-    database: Database, task_id: str, groups: list[DuplicateGroup]
+    database: Database,
+    task_id: str,
+    groups: list[DuplicateGroup],
+    scope: DuplicateScanScope,
 ) -> bool:
-    """单事务原子替换: 旧一代结果 → 新一代完整结果(Stage 8C.1 §15 推荐语义)。
+    """单事务原子替换: 旧一代结果 → 新一代完整结果(Stage 8C.1 §15 + Stage 8C.2 §11/§17~§19)。
 
-    事务内先重查任务仍为 `running` 才执行替换;替换失败/状态不符时整体回滚,
-    旧结果保持不变。替代方案(方案 §15 scan_generation)需要新表字段与迁移,
-    本阶段采用 §16 等价语义: 先完整计算 → 确认仍 running → 单事务整体替换。
+    事务内依次完成,任何一步不满足即整体回滚、旧结果保持不变:
+
+    1. 重查任务仍为 `running`(被 pause/cancel 则放弃);
+    2. **Scope 冻结校验**: 当前已选媒体库必须等于本次扫描开始时冻结的快照,
+       否则本次结果已失效 → 不替换,并把任务置 `failed: library_selection_changed`
+       (§17~§19: 绝不用旧范围的结果冒充当前正式结果);
+    3. 读取旧人工"保留"选择 → 删除旧分组 → 写入完整新分组(按 (group_id, media_id)
+       恢复 keep,§6~§11),全部在同一事务内提交。
+
+    替代方案(§15 scan_generation)需要新表字段与迁移,本阶段沿用 §16 等价语义。
     """
     with database.session() as session:
         task = session.get(BackgroundTask, task_id)
         if task is None or task.status != "running":
             return False
+        live = DuplicateScanScope.of(media_index.selected_library_ids(session))
+        if live.library_ids != scope.library_ids:
+            # 扫描期间媒体库勾选发生变化: 本次扫描结果不再对应当前范围,拒绝发布
+            task.status = "failed"
+            task.error = _ERROR_LIBRARY_SELECTION_CHANGED
+            task.finished_at = utc_now()
+            session.commit()
+            logger.info(
+                "重复扫描任务 %s 放弃替换: 媒体库范围已变化 %s -> %s",
+                task_id,
+                list(scope.library_ids),
+                list(live.library_ids),
+            )
+            return False
+        keeps = _existing_keeps(session)
         session.execute(sa.delete(DuplicateGroupMember))
         session.execute(sa.delete(DuplicateGroupRow))
         for group in groups:
-            _persist_group_rows(session, group)
+            _persist_group_rows(session, group, keeps)
         task.progress = 99
         session.commit()
         return True
@@ -713,9 +817,11 @@ def _fail_scan(database: Database, task_id: str, error: str) -> None:
 
 
 __all__ = [
+    "ERROR_LIBRARY_SELECTION_CHANGED",
     "DuplicateGroup",
     "DuplicateGroupDetail",
     "DuplicateMemberDetail",
+    "DuplicateScanScope",
     "eligible_duplicate_conditions",
     "group_detail",
     "has_pending_hashes",

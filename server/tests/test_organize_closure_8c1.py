@@ -246,10 +246,10 @@ def test_old_results_readable_while_new_scan_computes(tmp_path: Path, monkeypatc
     peeked: list[set[str]] = []
     original = ds.scan_similar_candidates
 
-    def peek_then_scan(session):
+    def peek_then_scan(session, library_ids=None):
         with db.session() as s2:
             peeked.append({g.group_id for g in duplicate_scanner.persisted_groups(s2, "exact")})
-        return original(session)
+        return original(session, library_ids)
 
     monkeypatch.setattr(ds, "scan_similar_candidates", peek_then_scan)
     duplicate_scanner.run_duplicate_scan(db, task_id)
@@ -272,12 +272,12 @@ def _pause_or_cancel_during_first_phase(
     task_id = _start_scan(db)
     original = ds.scan_exact_duplicates
 
-    def stop_then_scan(session):
+    def stop_then_scan(session, library_ids=None):
         with db.session() as s:
             t = s.get(BackgroundTask, task_id)
             t.status = status
             s.commit()
-        return original(session)
+        return original(session, library_ids)
 
     monkeypatch.setattr(ds, "scan_exact_duplicates", stop_then_scan)
     duplicate_scanner.run_duplicate_scan(db, task_id)
@@ -308,7 +308,7 @@ def test_failed_scan_keeps_previous_results(tmp_path: Path, monkeypatch) -> None
     task_id = _start_scan(db)
     original = ds.scan_similar_candidates
 
-    def boom(session):
+    def boom(session, library_ids=None):
         raise RuntimeError("scan exploded")
 
     monkeypatch.setattr(ds, "scan_similar_candidates", boom)
@@ -383,7 +383,7 @@ def test_summary_keeps_last_success_after_failed_rescan(client, monkeypatch) -> 
     task_id = _start_scan(db)
     original = ds.scan_similar_candidates
 
-    def boom(session):
+    def boom(session, library_ids=None):
         raise RuntimeError("scan exploded")
 
     monkeypatch.setattr(ds, "scan_similar_candidates", boom)
