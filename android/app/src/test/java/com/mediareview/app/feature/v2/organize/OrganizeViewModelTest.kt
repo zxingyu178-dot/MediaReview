@@ -1,13 +1,16 @@
 package com.mediareview.app.feature.v2.organize
 
 import com.mediareview.app.MainDispatcherRule
+import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.organize.data.DeleteQueueSummary
 import com.mediareview.app.feature.v2.organize.data.DuplicateSummary
 import com.mediareview.app.feature.v2.organize.data.LibrarySelectionSummary
 import com.mediareview.app.feature.v2.organize.data.OrganizeFeatureUnavailableInDemoException
 import com.mediareview.app.feature.v2.organize.data.ReviewProgressSummary
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -120,6 +123,90 @@ class OrganizeViewModelTest {
         advanceUntilIdle()
 
         assertEquals("扫描中 62%", vm.duplicateText(vm.state.value.duplicateCard.dataOrNull()!!))
+    }
+
+    // ---------- Stage 8C.1 §24~§27 数据源切换刷新 + 迟到请求 ----------
+
+    @Test
+    fun `数据源切换到Demo后四张卡重新加载为Demo数据`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            deleteSummaryResult = Result.success(DeleteQueueSummary(1, 1_000L))
+            duplicateSummaryResult = Result.success(DuplicateSummary(3, 7, null, null, 100))
+            librarySummaryResult = Result.success(LibrarySelectionSummary(2, 3))
+        }
+        val vm = OrganizeViewModel(repo)
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(1, repo.deleteSummaryCalls)
+
+        // 切换 Demo：必须**重新请求**（绝不复用旧 Server 卡片状态）
+        repo.mode = V2DataMode.DEMO
+        repo.deleteSummaryResult = Result.success(DeleteQueueSummary(3, 300L))
+        repo.duplicateSummaryResult =
+            Result.failure(OrganizeFeatureUnavailableInDemoException("重复媒体"))
+        repo.librarySummaryResult =
+            Result.failure(OrganizeFeatureUnavailableInDemoException("媒体库管理"))
+        vm.load()
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals(V2DataMode.DEMO, state.dataMode)
+        assertEquals(2, repo.deleteSummaryCalls)
+        assertEquals(2, repo.duplicateSummaryCalls)
+        assertEquals(2, repo.librarySummaryCalls)
+        assertEquals(3, state.deleteCard.dataOrNull()!!.count)
+        assertTrue(state.duplicateCard is OrganizeCard.Unavailable)
+        assertTrue(state.libraryCard is OrganizeCard.Unavailable)
+    }
+
+    @Test
+    fun `Demo切回Server四张卡重新请求Server`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            mode = V2DataMode.DEMO
+            duplicateSummaryResult =
+                Result.failure(OrganizeFeatureUnavailableInDemoException("重复媒体"))
+        }
+        val vm = OrganizeViewModel(repo)
+        vm.load()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.duplicateCard is OrganizeCard.Unavailable)
+
+        repo.mode = V2DataMode.SERVER
+        repo.duplicateSummaryResult = Result.success(DuplicateSummary(5, 0, null, null, 100))
+        vm.load()
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals(V2DataMode.SERVER, state.dataMode)
+        assertEquals(2, repo.duplicateSummaryCalls)
+        assertEquals("完全重复 5 组 · 疑似重复 0 组", vm.duplicateText(state.duplicateCard.dataOrNull()!!))
+    }
+
+    @Test
+    fun `数据源切换后旧Server请求迟到不能覆盖Demo`() = runTest(main.dispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeOrganizeRepository().apply {
+            holdFirstSummaryCall = gate
+            deleteSummaryResult = Result.success(DeleteQueueSummary(1, 1_000L))
+        }
+        val vm = OrganizeViewModel(repo)
+        vm.load() // 第 1 代：待删除卡挂在闸门（旧 Server 请求）
+        runCurrent()
+
+        repo.mode = V2DataMode.DEMO
+        repo.deleteSummaryResult = Result.success(DeleteQueueSummary(3, 300L))
+        vm.load() // 第 2 代：Demo 请求立即返回
+        advanceUntilIdle()
+        assertEquals(3, vm.state.value.deleteCard.dataOrNull()!!.count)
+
+        gate.complete(Unit) // 旧 Server 响应迟到
+        advanceUntilIdle()
+
+        assertEquals(
+            "旧请求迟到不得覆盖新数据源结果",
+            3,
+            vm.state.value.deleteCard.dataOrNull()!!.count,
+        )
     }
 
     @Suppress("UNCHECKED_CAST")

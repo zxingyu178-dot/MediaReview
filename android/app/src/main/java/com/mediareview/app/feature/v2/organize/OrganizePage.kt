@@ -62,8 +62,9 @@ fun OrganizePage(
     vm: OrganizeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsState()
-    // 每次进入整理页刷新四张卡（从子页返回后数字同步，如最终删除/扫描完成/媒体库变更）
-    LaunchedEffect(Unit) { vm.load() }
+    // 每次进入整理页 + **数据源变化**都刷新四张卡（Stage 8C.1 §24/§25）：
+    // Demo ↔ Server 切换后绝不保留旧数据源的卡片内容
+    LaunchedEffect(dataMode) { vm.load() }
 
     Column(modifier = modifier.fillMaxSize().background(MediaBackground).testTag("organize_page")) {
         Box(
