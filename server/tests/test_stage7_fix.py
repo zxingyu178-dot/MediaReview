@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.config import AppConfig, SecurityConfig, StorageConfig
-from app.db.models import BackgroundTask, MediaCacheIndex
+from app.db.models import BackgroundTask, LibrarySelection, MediaCacheIndex
 from app.db.session import Database
 from app.main import create_app
 from app.services import duplicate_scanner, hash_tasks
@@ -49,6 +49,12 @@ def _seed_file_media(
     if size is None:
         size = path.stat().st_size
     with db.session() as s:
+        # Stage 8C.1 §5: 重复扫描范围 = 已勾选媒体库,测试夹具必须显式勾选
+        s.merge(
+            LibrarySelection(
+                jellyfin_id="lib-movies", name="电影", collection_type="movies", selected=True
+            )
+        )
         s.add(
             MediaCacheIndex(
                 media_id=media_id,

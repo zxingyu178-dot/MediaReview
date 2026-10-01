@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.db.models import MediaCacheIndex
+from app.db.models import LibrarySelection, MediaCacheIndex
 from app.db.session import Database
 from app.services import duplicate_scanner, pairing
 
@@ -26,6 +26,12 @@ def _seed_media(
     media_path: str | None = "D:\\Media\\x.mp4",
 ) -> None:
     with db.session() as s:
+        # Stage 8C.1 §5: 重复扫描范围 = 已勾选媒体库,测试夹具必须显式勾选
+        s.merge(
+            LibrarySelection(
+                jellyfin_id="lib-movies", name="电影", collection_type="movies", selected=True
+            )
+        )
         s.add(
             MediaCacheIndex(
                 media_id=media_id,

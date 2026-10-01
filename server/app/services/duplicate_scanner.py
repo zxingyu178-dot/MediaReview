@@ -37,6 +37,7 @@ from app.db.models import (
     DuplicateGroup as DuplicateGroupRow,
 )
 from app.db.session import Database
+from app.services import media_index
 from app.services.hash_contract import is_full_sha256
 from app.services.hash_tasks import HASH_UNREADABLE
 
@@ -45,10 +46,27 @@ logger = get_logger("duplicate_scan")
 # TaskManager 注册的任务类型
 TASK_TYPE_DUPLICATE_SCAN = "duplicate_scan"
 
-# 疑似重复: 批量查询单次上限,避免一次返回过大
-_MAX_GROUPS = 200
 # 疑似重复的时长差异容忍(秒): 相同大小但时长相差超过该值的视为"疑似需人工确认"
 _DURATION_TOLERANCE_MS = 3_000
+
+
+def eligible_duplicate_conditions(session: Session) -> list:
+    """重复检测的**统一数据范围**(Stage 8C.1 §5/§6): 仍可用 且 属于已勾选媒体库。
+
+    - `MediaCacheIndex.is_available == True`: 失效/已删除媒体绝不进入新重复结果;
+    - `library_id ∈ selected_library_ids`: 未勾选媒体库绝不参与扫描;
+    - 没有已勾选媒体库时返回 `false()`(明确空结果,绝不偷偷扫描全库)。
+
+    exact / high / candidate / similar / has_pending / 详情成员判定 全部共用本条件,
+    禁止各函数自行拼接导致"exact 过滤 selected、similar 却扫全库"。
+    """
+    library_ids = media_index.selected_library_ids(session)
+    if not library_ids:
+        return [sa.false()]
+    return [
+        MediaCacheIndex.is_available.is_(True),
+        MediaCacheIndex.library_id.in_(library_ids),
+    ]
 
 
 @dataclass(frozen=True)
@@ -69,8 +87,12 @@ class DuplicateGroup:
     keep: dict[str, bool] = field(default_factory=dict)
 
 
-def _candidate_pairs(session: Session, *, limit: int = _MAX_GROUPS) -> list[tuple[int, int]]:
-    """候选筛选: 大小 + 时长 均一致且不止一份的组合(size_bytes, duration_ms)。"""
+def _candidate_pairs(session: Session) -> list[tuple[int, int]]:
+    """候选筛选: 大小 + 时长 均一致且不止一份的组合(size_bytes, duration_ms)。
+
+    Stage 8C.1 §9: 检测阶段**禁止**人为截断(旧 `_MAX_GROUPS = 200` 会漏掉真实存在的
+    第 201+ 组重复)。数量控制一律交给 API 层分页,不在扫描阶段丢数据。
+    """
     rows = session.execute(
         sa.select(
             MediaCacheIndex.size_bytes,
@@ -80,11 +102,11 @@ def _candidate_pairs(session: Session, *, limit: int = _MAX_GROUPS) -> list[tupl
         .where(
             MediaCacheIndex.size_bytes.is_not(None),
             MediaCacheIndex.duration_ms.is_not(None),
+            *eligible_duplicate_conditions(session),
         )
         .group_by(MediaCacheIndex.size_bytes, MediaCacheIndex.duration_ms)
         .having(sa.func.count(MediaCacheIndex.media_id) > 1)
         .order_by(MediaCacheIndex.size_bytes.desc())
-        .limit(limit)
     ).all()
     return [(int(sz), int(dur)) for sz, dur, _cnt in rows]
 
@@ -97,7 +119,10 @@ def _is_valid_quick_hash(h: str | None) -> bool:
 def _pair_members(
     session: Session, size_bytes: int, duration_ms: int
 ) -> list[tuple[str, str, str | None, str | None]]:
-    """返回某候选组合内的成员 (media_id, name, quick_hash, sha256)。"""
+    """返回某候选组合内的成员 (media_id, name, quick_hash, sha256)。
+
+    成员查询与候选发现共用同一 eligible 范围(§6): 失效/未勾选媒体不得混入分组。
+    """
     rows = session.execute(
         sa.select(
             MediaCacheIndex.media_id,
@@ -108,6 +133,7 @@ def _pair_members(
         .where(
             MediaCacheIndex.size_bytes == size_bytes,
             MediaCacheIndex.duration_ms == duration_ms,
+            *eligible_duplicate_conditions(session),
         )
         .order_by(MediaCacheIndex.media_id)
     ).all()
@@ -252,11 +278,13 @@ def scan_similar_candidates(session: Session) -> list[DuplicateGroup]:
             MediaCacheIndex.size_bytes,
             sa.func.count(MediaCacheIndex.media_id).label("cnt"),
         )
-        .where(MediaCacheIndex.size_bytes.is_not(None))
+        .where(
+            MediaCacheIndex.size_bytes.is_not(None),
+            *eligible_duplicate_conditions(session),
+        )
         .group_by(MediaCacheIndex.size_bytes)
         .having(sa.func.count(MediaCacheIndex.media_id) > 1)
         .order_by(MediaCacheIndex.size_bytes.desc())
-        .limit(_MAX_GROUPS)
     ).all()
 
     for size_bytes, cnt in size_rows:
@@ -267,7 +295,10 @@ def scan_similar_candidates(session: Session) -> list[DuplicateGroup]:
                 MediaCacheIndex.duration_ms,
                 MediaCacheIndex.width,
                 MediaCacheIndex.height,
-            ).where(MediaCacheIndex.size_bytes == size_bytes)
+            ).where(
+                MediaCacheIndex.size_bytes == size_bytes,
+                *eligible_duplicate_conditions(session),
+            )
         ).all()
         if len(members) < 2:
             continue
@@ -306,12 +337,16 @@ def scan_all(session: Session) -> list[DuplicateGroup]:
 
 
 def has_pending_hashes(session: Session) -> bool:
-    """是否存在缺少 quick_hash(需要后台计算)的媒体。用于触发哈希任务。"""
+    """是否存在缺少 quick_hash(需要后台计算)的媒体。用于触发哈希任务。
+
+    只统计 eligible 范围内的媒体(§6): 失效/未勾选媒体不应触发扫描侧哈希编排。
+    """
     row = session.execute(
         sa.select(MediaCacheIndex.media_id)
         .where(
             MediaCacheIndex.media_path.is_not(None),
             MediaCacheIndex.quick_hash.is_(None),
+            *eligible_duplicate_conditions(session),
         )
         .limit(1)
     ).first()
@@ -353,18 +388,35 @@ def latest_duplicate_scan(session: Session) -> BackgroundTask | None:
     ).first()
 
 
-def persisted_groups(session: Session, group_type: str | None = None) -> list[DuplicateGroup]:
-    """从 DB 读取最近一次扫描的持久化分组(Android 只读展示)。"""
-    stmt = sa.select(DuplicateGroupRow)
-    if group_type:
-        stmt = stmt.where(DuplicateGroupRow.type == group_type)
-    groups: list[DuplicateGroup] = []
-    for row in session.scalars(stmt.order_by(DuplicateGroupRow.size_bytes.desc())).all():
-        members = list(
-            session.scalars(
-                sa.select(DuplicateGroupMember).where(DuplicateGroupMember.group_id == row.group_id)
-            ).all()
+def last_successful_scan(session: Session) -> BackgroundTask | None:
+    """最近一次 **succeeded** 的重复扫描任务(Stage 8C.1 §19: last_successful_scan_at)。"""
+    return session.scalars(
+        sa.select(BackgroundTask)
+        .where(
+            BackgroundTask.type == "duplicate_scan",
+            BackgroundTask.status == "succeeded",
         )
+        .order_by(BackgroundTask.finished_at.desc())
+        .limit(1)
+    ).first()
+
+
+def _groups_from_rows(
+    session: Session, rows: list[DuplicateGroupRow]
+) -> list[DuplicateGroup]:
+    """把分组行批量转换为领域对象: 成员用**一次 IN 查询**取回,禁止逐组 N+1。"""
+    group_ids = [row.group_id for row in rows]
+    members_by_group: dict[str, list[DuplicateGroupMember]] = {}
+    if group_ids:
+        for member in session.scalars(
+            sa.select(DuplicateGroupMember)
+            .where(DuplicateGroupMember.group_id.in_(group_ids))
+            .order_by(DuplicateGroupMember.group_id, DuplicateGroupMember.media_id)
+        ).all():
+            members_by_group.setdefault(member.group_id, []).append(member)
+    groups: list[DuplicateGroup] = []
+    for row in rows:
+        members = members_by_group.get(row.group_id, [])
         groups.append(
             DuplicateGroup(
                 group_id=row.group_id,
@@ -379,6 +431,48 @@ def persisted_groups(session: Session, group_type: str | None = None) -> list[Du
             )
         )
     return groups
+
+
+def persisted_groups(session: Session, group_type: str | None = None) -> list[DuplicateGroup]:
+    """从 DB 读取最近一次扫描的持久化分组(Android 只读展示)。"""
+    stmt = sa.select(DuplicateGroupRow)
+    if group_type:
+        stmt = stmt.where(DuplicateGroupRow.type == group_type)
+    rows = list(
+        session.scalars(
+            stmt.order_by(DuplicateGroupRow.size_bytes.desc(), DuplicateGroupRow.group_id)
+        ).all()
+    )
+    return _groups_from_rows(session, rows)
+
+
+def persisted_groups_page(
+    session: Session, group_type: str, *, page: int, page_size: int
+) -> tuple[list[DuplicateGroup], int]:
+    """按类型分页读取持久化分组(Stage 8C.1 §11): 返回 ``(items, total)``。
+
+    数量控制只发生在读取侧(API 分页),扫描阶段绝不截断;
+    排序对全量结果稳定(`size_bytes desc, group_id`),跨页不会重复/漏项。
+    """
+    total = int(
+        session.scalar(
+            sa.select(sa.func.count(DuplicateGroupRow.group_id)).where(
+                DuplicateGroupRow.type == group_type
+            )
+        )
+        or 0
+    )
+    offset = (max(page, 1) - 1) * max(page_size, 1)
+    rows = list(
+        session.scalars(
+            sa.select(DuplicateGroupRow)
+            .where(DuplicateGroupRow.type == group_type)
+            .order_by(DuplicateGroupRow.size_bytes.desc(), DuplicateGroupRow.group_id)
+            .offset(offset)
+            .limit(page_size)
+        ).all()
+    )
+    return _groups_from_rows(session, rows), total
 
 
 def set_keep(session: Session, group_id: str, media_id: str, keep: bool) -> bool:
@@ -406,12 +500,17 @@ def persisted_group_counts(session: Session) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class DuplicateMemberDetail:
-    """分组详情内的单个成员: 持久化姓名/保留选择 + 可选的媒体索引行。"""
+    """分组详情内的单个成员: 持久化姓名/保留选择 + 可选的媒体索引行。
+
+    ``available``(Stage 8C.1 §20): 扫描后媒体可能已失效/被删除(is_available=false
+    或索引行缺失),客户端必须据此显示「文件已不可用」,不得继续展示假可用状态。
+    """
 
     media_id: str
     name: str
     keep: bool
     media: MediaCacheIndex | None
+    available: bool
 
 
 @dataclass(frozen=True)
@@ -452,6 +551,19 @@ def group_detail(session: Session, group_id: str) -> DuplicateGroupDetail | None
                 sa.select(MediaCacheIndex).where(MediaCacheIndex.media_id.in_(media_ids))
             ).all()
         }
+    details: list[DuplicateMemberDetail] = []
+    for m in members:
+        media = media_by_id.get(m.media_id)
+        details.append(
+            DuplicateMemberDetail(
+                media_id=m.media_id,
+                name=m.name,
+                keep=m.keep,
+                media=media,
+                # 索引行缺失或已置 is_available=false 都视为"文件已不可用"(§20)
+                available=media is not None and bool(media.is_available),
+            )
+        )
     return DuplicateGroupDetail(
         group_id=row.group_id,
         type=row.type,
@@ -459,15 +571,7 @@ def group_detail(session: Session, group_id: str) -> DuplicateGroupDetail | None
         count=row.count,
         size_bytes=row.size_bytes or 0,
         duration_ms=row.duration_ms,
-        members=[
-            DuplicateMemberDetail(
-                media_id=m.media_id,
-                name=m.name,
-                keep=m.keep,
-                media=media_by_id.get(m.media_id),
-            )
-            for m in members
-        ],
+        members=details,
     )
 
 
@@ -478,8 +582,12 @@ def _task_status(database: Database, task_id: str) -> str | None:
 
 
 def _persist_group_rows(session: Session, group: DuplicateGroup) -> None:
-    """写入单个分组 + 成员(幂等: 按 group_id 覆盖)。"""
-    session.merge(
+    """在**原子替换事务内**写入单个分组 + 成员。
+
+    调用前旧分组已在同一事务内整体删除,因此这里用 `add` 直接插入
+    (`merge` 会对每行额外发一次 SELECT,大结果集下纯属浪费)。
+    """
+    session.add(
         DuplicateGroupRow(
             group_id=group.group_id,
             type=group.type,
@@ -490,7 +598,7 @@ def _persist_group_rows(session: Session, group: DuplicateGroup) -> None:
         )
     )
     for media_id, name in zip(group.media_ids, group.names, strict=False):
-        session.merge(
+        session.add(
             DuplicateGroupMember(
                 group_id=group.group_id,
                 media_id=media_id,
@@ -502,49 +610,81 @@ def _persist_group_rows(session: Session, group: DuplicateGroup) -> None:
 
 
 def run_duplicate_scan(database: Database, task_id: str) -> None:
-    """TaskManager 注册的重复扫描处理器:计算分组并持久化,支持进度/协作取消/暂停。
+    """TaskManager 注册的重复扫描处理器:计算分组并原子替换持久化结果。
 
-    在 to_thread 线程内运行;每个阶段用短会话提交,阶段间检查任务状态:
-    - cancelled: 停止并保留部分结果;
-    - paused:    停止并保留部分结果,resume 后重新执行(幂等覆盖)。
+    在 to_thread 线程内运行;修复 Stage 8C.1 §13~§17 的"半成品"问题:
+
+    - 计算期间**不触碰旧分组**(旧结果一直可读);
+    - 阶段间检查任务状态,`paused` / `cancelled` / 其他终态立即放弃,旧结果完整保留;
+    - 全部计算完成后,确认任务仍 `running`,才在**单事务内**删除旧分组 + 写入
+      完整新分组 + 提交(读者只会看到旧一代或新一代完整结果,不会看到中间态);
+    - 任何异常走 `failed`,同样不破坏上一份成功结果。
     """
     logger.info("执行重复扫描任务 %s", task_id)
     try:
-        _duplicate_scan_pass(database, task_id, scan_all)
-        _finish_scan(database, task_id)
+        groups = _compute_all(database, task_id)
+        if groups is None:
+            # 计算中途被暂停/取消: 保留上一份 succeeded 结果,本次不产生任何分组
+            logger.info("重复扫描任务 %s 在完成前停止,保留上一份结果", task_id)
+            return
+        replaced = _replace_persisted_groups(database, task_id, groups)
+        if replaced:
+            _finish_scan(database, task_id)
     except Exception as exc:  # noqa: BLE001 - 后台任务失败记录并置 failed
         logger.exception("重复扫描失败")
         _fail_scan(database, task_id, str(exc))
 
 
-def _duplicate_scan_pass(database: Database, task_id: str, scan_fn) -> None:
-    """执行一轮完整分组并持久化;期间检查取消/暂停。"""
+def _compute_all(database: Database, task_id: str) -> list[DuplicateGroup] | None:
+    """分阶段计算全部分组(不落库);任务不再 running 时返回 None。
+
+    每个阶段用独立短会话;阶段间上报粗粒度进度并检查协作状态,
+    使暂停/取消最多延迟一个阶段生效,而不是等到全部算完。
+    """
+    steps = (
+        scan_exact_duplicates,
+        scan_high_confidence,
+        scan_candidates,
+        scan_similar_candidates,
+    )
+    groups: list[DuplicateGroup] = []
+    for idx, step in enumerate(steps):
+        if _task_status(database, task_id) != "running":
+            return None
+        with database.session() as session:
+            groups.extend(step(session))
+        _set_progress(database, task_id, 10 + (idx + 1) * 20)
+    return groups
+
+
+def _set_progress(database: Database, task_id: str, progress: int) -> None:
     with database.session() as session:
-        # 清空旧分组(保持最近一次扫描一致)
-        session.execute(sa.delete(DuplicateGroupMember))
-        session.execute(sa.delete(DuplicateGroupRow))
         task = session.get(BackgroundTask, task_id)
-        if task is not None:
-            task.progress = 5
+        if task is not None and task.status == "running":
+            task.progress = progress
         session.commit()
 
-    groups = _compute_all(database)
-    total = max(len(groups), 1)
-    for idx, group in enumerate(groups, start=1):
-        # 只在 running 状态继续;cancelled/paused(外部协作)/其他终态都停止
-        if _task_status(database, task_id) != "running":
-            break
-        with database.session() as session:
-            _persist_group_rows(session, group)
-            task = session.get(BackgroundTask, task_id)
-            if task is not None:
-                task.progress = 5 + int(idx / total * 90)
-            session.commit()
 
+def _replace_persisted_groups(
+    database: Database, task_id: str, groups: list[DuplicateGroup]
+) -> bool:
+    """单事务原子替换: 旧一代结果 → 新一代完整结果(Stage 8C.1 §15 推荐语义)。
 
-def _compute_all(database: Database) -> list[DuplicateGroup]:
+    事务内先重查任务仍为 `running` 才执行替换;替换失败/状态不符时整体回滚,
+    旧结果保持不变。替代方案(方案 §15 scan_generation)需要新表字段与迁移,
+    本阶段采用 §16 等价语义: 先完整计算 → 确认仍 running → 单事务整体替换。
+    """
     with database.session() as session:
-        return scan_all(session)
+        task = session.get(BackgroundTask, task_id)
+        if task is None or task.status != "running":
+            return False
+        session.execute(sa.delete(DuplicateGroupMember))
+        session.execute(sa.delete(DuplicateGroupRow))
+        for group in groups:
+            _persist_group_rows(session, group)
+        task.progress = 99
+        session.commit()
+        return True
 
 
 def _finish_scan(database: Database, task_id: str) -> None:
@@ -576,11 +716,14 @@ __all__ = [
     "DuplicateGroup",
     "DuplicateGroupDetail",
     "DuplicateMemberDetail",
+    "eligible_duplicate_conditions",
     "group_detail",
     "has_pending_hashes",
+    "last_successful_scan",
     "latest_duplicate_scan",
     "persisted_group_counts",
     "persisted_groups",
+    "persisted_groups_page",
     "run_duplicate_scan",
     "scan_all",
     "scan_candidates",
