@@ -4,7 +4,8 @@
 - GET  /review/sessions/{session_id}   会话总览(source + progress)
 - GET  /review/sessions/latest         断点恢复: 最近活动会话
 - GET  /review/sessions/{session_id}/queue        队列媒体(排序后,含摘要 + seen 状态)
-- POST /review/sessions/{session_id}/seen        标记某媒体已看/未看(返回权威 seen_count)
+- GET  /review/sessions/{session_id}/nearest      最近可用项(SQL 直查,稀疏队列恢复/跳页)
+- POST /review/sessions/{session_id}/seen        标记某媒体已看/未看(返回权威进度计数)
 - POST /review/sessions/{session_id}/advance     前进到下一项(当前项视为已看)
 - POST /review/sessions/{session_id}/complete    手动完成会话(fail-closed:有未批阅则拒绝)
 """
@@ -112,7 +113,7 @@ async def create_review_session(
     except ValueError as exc:
         raise ValidationFailedError(str(exc)) from exc
     db.commit()
-    return ok(review.session_view(created))
+    return ok(review.session_view(db, created))
 
 
 @router.get("/sessions/latest", response_model=Envelope[dict])
@@ -122,14 +123,14 @@ async def latest_session(
     active = review.latest_active_session(db)
     if active is None:
         raise NotFoundError(message="没有可恢复的批阅会话")
-    return ok(review.session_view(active))
+    return ok(review.session_view(db, active))
 
 
 @router.get("/sessions/{session_id}", response_model=Envelope[dict])
 async def get_review_session(
     session_id: str, _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[dict]:
-    return ok(review.session_view(_get_review(db, session_id)))
+    return ok(review.session_view(db, _get_review(db, session_id)))
 
 
 def _queue_urls(request: Request, media) -> tuple[str | None, str | None]:
@@ -188,7 +189,7 @@ async def set_seen(
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[dict]:
-    """标记已看/未看,返回**服务端权威**进度(seen_count / total_count)。
+    """标记已看/未看,返回**服务端权威**进度(total/seen/unavailable/remaining/completed)。
 
     重复标记幂等(不会重复计数);Android 端不得自行 +1(Stage 8B.1 §13/§14)。
     """
@@ -216,7 +217,7 @@ async def set_position(
     if updated is None:
         raise NotFoundError(message="批阅会话不存在或已完成")
     db.commit()
-    return ok(review.progress_view(updated))
+    return ok(review.progress_view(db, updated))
 
 
 @router.post("/sessions/{session_id}/advance", response_model=Envelope[dict])
@@ -227,14 +228,17 @@ async def advance(
     if updated is None:
         raise ConflictError(message="会话已完成或不存在,无法前进")
     db.commit()
-    return ok(review.progress_view(updated))
+    return ok(review.progress_view(db, updated))
 
 
 @router.post("/sessions/{session_id}/complete", response_model=Envelope[dict])
 async def complete_session(
     session_id: str, _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[dict]:
-    """手动完成会话(fail-closed:还有未批阅内容时拒绝,会话保持 active)。"""
+    """手动完成会话(fail-closed:``remaining_count > 0`` 时拒绝,会话保持 active)。
+
+    Stage 8B.2 §8/§9:完成条件是"没有仍可批阅的内容",媒体失效不再永久阻塞完成。
+    """
     try:
         updated = review.complete(db, session_id)
     except review.UnfinishedReviewError as exc:
@@ -242,7 +246,31 @@ async def complete_session(
     if updated is None:
         raise NotFoundError(message="批阅会话不存在")
     db.commit()
-    return ok(review.progress_view(updated))
+    return ok(review.progress_view(db, updated))
+
+
+@router.get("/sessions/{session_id}/nearest", response_model=Envelope[dict])
+async def nearest_available(
+    session_id: str,
+    index: int = Query(ge=0),
+    direction: str = Query(default="nearest"),
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[dict]:
+    """SQL 直查最近可用项(Stage 8B.2 §16/§17):``{"index": <int|null>}``。
+
+    - ``forward``: 第一个 ``index >= 锚点`` 的可用项;
+    - ``backward``: 锚点之前最近的可用项;
+    - ``nearest``: 先向后、找不到再向前(与客户端恢复规则一致)。
+
+    返回 ``index=null`` 表示**服务端明确**该方向上没有可用媒体 ——
+    与"网络失败"是完全不同的结果,客户端不得混为一谈(§34)。
+    """
+    _get_review(db, session_id)
+    if direction not in ("forward", "backward", "nearest"):
+        raise ValidationFailedError("direction 只支持 forward / backward / nearest")
+    found = review.nearest_available_item(db, session_id, index=index, direction=direction)
+    return ok({"index": found})
 
 
 __all__ = ["router"]

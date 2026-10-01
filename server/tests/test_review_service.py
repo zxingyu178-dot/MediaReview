@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.db import models
 from app.db.session import Database
 from app.services import review
 
@@ -13,6 +14,26 @@ def _make_db(data_root: Path) -> Database:
     db = Database(data_root / "database" / "mediareview.db")
     db.create_all()
     return db
+
+
+def _seed_available(db: Database, media_ids: list[str]) -> None:
+    """Stage 8B.2：完成条件 = remaining==0，测试条目必须真的"可用"才有意义。"""
+    with db.session() as s:
+        s.add_all(
+            [
+                models.MediaCacheIndex(
+                    media_id=media_id,
+                    jellyfin_id=f"jf-{media_id}",
+                    library_id="lib-a",
+                    name=f"{media_id}.mp4",
+                    media_type="video",
+                    fingerprint=f"fp-{media_id}",
+                    is_available=True,
+                )
+                for media_id in media_ids
+            ]
+        )
+        s.commit()
 
 
 def test_create_session_dedup_and_order(tmp_path: Path) -> None:
@@ -50,14 +71,15 @@ def test_mark_seen_and_advance(tmp_path: Path) -> None:
 
 
 def test_advance_to_end_auto_completes_only_when_all_seen(tmp_path: Path) -> None:
-    """Stage 8B.1 §19/§20:advance 到末尾必须 fail-closed,仍有未批阅时保持 active。"""
+    """Stage 8B.2 §8/§10:advance 到末尾只认 remaining==0,仍有可批阅内容时保持 active。"""
     db = _make_db(tmp_path)
+    _seed_available(db, ["a", "b"])
     with db.session() as s:
         created = review.create_session(s, ["a", "b"])
         for _ in range(2):
             review.advance(s, created.session_id)
         waiting = review.get_session(s, created.session_id)
-        assert waiting.status == "active", "仍有未批阅时不得自动完成"
+        assert waiting.status == "active", "仍有可批阅内容时不得自动完成"
         assert waiting.completed_at is None
 
         # 全部批阅后再 advance 到末尾:允许完成
@@ -72,6 +94,7 @@ def test_advance_to_end_auto_completes_only_when_all_seen(tmp_path: Path) -> Non
 
 def test_complete_and_latest_active(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
+    _seed_available(db, ["a"])
     with db.session() as s:
         s1 = review.create_session(s, ["a"])
         s2 = review.create_session(s, ["b", "c"])
@@ -80,8 +103,11 @@ def test_complete_and_latest_active(tmp_path: Path) -> None:
         review.mark_seen(s, s1.session_id, "a", True)
         review.complete(s, s1.session_id)
         assert review.latest_active_session(s).session_id == s2.session_id
-        view = review.session_view(review.get_session(s, s1.session_id))
+        # Stage 8B.2 §7:session_view 统一携带权威进度计数
+        view = review.session_view(s, review.get_session(s, s1.session_id))
         assert view["status"] == "completed"
+        assert view["remaining_count"] == 0
+        assert view["completed_count"] == view["total_count"] == 1
     db.dispose()
 
 

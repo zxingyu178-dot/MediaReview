@@ -207,11 +207,32 @@ def test_unavailable_tail_items_still_exposed_and_counted(app, client) -> None:
     assert response.json()["data"]["total"] == 3
 
 
+def _seed_available(db: Database, media_ids: list[str]) -> None:
+    """Stage 8B.2：完成条件改为 remaining==0，服务层测试必须让条目真的"可用"。"""
+    with db.session() as session:
+        session.add_all(
+            [
+                models.MediaCacheIndex(
+                    media_id=media_id,
+                    jellyfin_id=f"jf-{media_id}",
+                    library_id="lib-a",
+                    name=f"{media_id}.mp4",
+                    media_type="video",
+                    fingerprint=f"fp-{media_id}",
+                    is_available=True,
+                )
+                for media_id in media_ids
+            ]
+        )
+        session.commit()
+
+
 def test_service_complete_raises_unfinished_error(tmp_path: Path) -> None:
-    """服务层合同:未批阅完成必须抛 UnfinishedReviewError(fail-closed 的最小保证)。"""
+    """服务层合同:仍有**可批阅**内容时 complete 必须抛 UnfinishedReviewError。"""
     db = Database(tmp_path / "database" / "mediareview.db")
     db.create_all()
     try:
+        _seed_available(db, ["a", "b"])
         with db.session() as session:
             created = review.create_session(session, ["a", "b"])
             session.commit()
@@ -232,10 +253,11 @@ def test_service_complete_raises_unfinished_error(tmp_path: Path) -> None:
 
 
 def test_service_advance_to_end_requires_all_seen(tmp_path: Path) -> None:
-    """advance 到末尾必须同样 fail-closed。"""
+    """advance 到末尾必须同样 fail-closed（仍有可批阅内容时不得关闭会话）。"""
     db = Database(tmp_path / "database" / "mediareview.db")
     db.create_all()
     try:
+        _seed_available(db, ["a", "b"])
         with db.session() as session:
             created = review.create_session(session, ["a", "b"])
             session.commit()
@@ -243,7 +265,7 @@ def test_service_advance_to_end_requires_all_seen(tmp_path: Path) -> None:
                 review.advance(session, created.session_id)
             session.commit()
             assert review.get_session(session, created.session_id).status == "active", (
-                "仍有未批阅时 advance 到末尾不得关闭会话"
+                "仍有可批阅内容时 advance 到末尾不得关闭会话"
             )
             review.mark_seen(session, created.session_id, "a", True)
             review.mark_seen(session, created.session_id, "b", True)

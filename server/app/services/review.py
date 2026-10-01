@@ -310,8 +310,8 @@ def session_queue_page(
 def mark_seen(session: Session, session_id: str, media_id: str, seen: bool) -> dict | None:
     """标记队列中某项已看/未看,返回服务端权威进度;媒体不在会话中时返回 None。
 
-    幂等:已经是目标状态时不重复计数。返回 ``{media_id, seen, seen_count,
-    total_count}`` —— Android 端不得自行 +1,必须直接用这里的权威值。
+    幂等:已经是目标状态时不重复计数。返回 ``{media_id, seen, **review_progress_counts}``
+    —— Android 端不得自行 +1,必须直接用这里的权威值（Stage 8B.2 §6/§7）。
     """
     row = session.scalars(
         sa.select(ReviewSessionItem).where(
@@ -328,12 +328,7 @@ def mark_seen(session: Session, session_id: str, media_id: str, seen: bool) -> d
     review = get_session(session, session_id)
     if review is None:  # pragma: no cover - 队列项存在必然有会话
         return None
-    return {
-        "media_id": media_id,
-        "seen": seen,
-        "seen_count": review.seen_count,
-        "total_count": review.total_count,
-    }
+    return {"media_id": media_id, "seen": seen, **review_progress_counts(session, session_id)}
 
 
 def advance(session: Session, session_id: str) -> ReviewSession | None:
@@ -344,8 +339,8 @@ def advance(session: Session, session_id: str) -> ReviewSession | None:
     if review.current_index < review.total_count:
         review.current_index += 1
     _recount(session, session_id)
-    # 到达末尾自动完成 —— 但必须 fail-closed:仍有未批阅时保持 active
-    if review.current_index >= review.total_count and review.seen_count >= review.total_count:
+    # 到达末尾自动完成 —— fail-closed(Stage 8B.2 §10:只认 remaining_count == 0)
+    if review.current_index >= review.total_count and _remaining_count(session, session_id) == 0:
         review.status = "completed"
         review.completed_at = utc_now()
     session.flush()
@@ -355,17 +350,19 @@ def advance(session: Session, session_id: str) -> ReviewSession | None:
 def complete(session: Session, session_id: str) -> ReviewSession | None:
     """完成会话(fail-closed)。
 
-    还有未批阅内容时抛 [UnfinishedReviewError],绝不关闭会话 ——
-    即使 Android 端有 Bug,服务端也不允许错误完成(评审 §19)。
+    完成条件(Stage 8B.2 §8/§9):``remaining_count == 0``
+    —— 仍有可批阅内容时抛 [UnfinishedReviewError],绝不关闭会话;
+    媒体失效(unavailable)不再永久阻塞完成。
     已完成的会话幂等返回。
     """
     review = get_session(session, session_id)
     if review is None:
         return None
     _recount(session, session_id)
-    if review.seen_count < review.total_count:
+    counts = review_progress_counts(session, session_id)
+    if counts["remaining_count"] > 0:
         raise UnfinishedReviewError(
-            f"还有未批阅内容({review.seen_count}/{review.total_count}),无法完成会话"
+            f"还有未批阅内容({counts['remaining_count']} 条可批阅),无法完成会话"
         )
     if review.status != "completed":
         review.status = "completed"
@@ -390,8 +387,8 @@ def complete_all_active(session: Session) -> int:
 def set_position(session: Session, session_id: str, index: int) -> ReviewSession | None:
     """设置批阅位置(断点恢复):随批阅移动更新 current_index。
 
-    位置到达末尾时**只在全部批阅后才自动完成**(§20:还有未批阅时保持 active,
-    由客户端提示"还有未批阅内容")。
+    位置到达末尾时只在 ``remaining_count == 0`` 才自动完成
+    (Stage 8B.2 §10:媒体失效不再阻塞,仍有可批阅内容则保持 active)。
     """
     review = get_session(session, session_id)
     if review is None or review.status != "active":
@@ -401,35 +398,115 @@ def set_position(session: Session, session_id: str, index: int) -> ReviewSession
     review.updated_at = utc_now()
     if clamped >= review.total_count:
         _recount(session, session_id)
-        if review.seen_count >= review.total_count:
+        if _remaining_count(session, session_id) == 0:
             review.status = "completed"
             review.completed_at = utc_now()
     session.flush()
     return review
 
 
-def _recount(session: Session, session_id: str) -> None:
-    seen_count = session.scalar(
-        sa.select(sa.func.count())
-        .select_from(ReviewSessionItem)
-        .where(
-            ReviewSessionItem.session_id == session_id,
-            ReviewSessionItem.seen.is_(True),
-        )
+def _available_item_condition() -> sa.ColumnElement[bool]:
+    """SessionItem 对应媒体当前是否可用（缺失的媒体行视为 unavailable）。"""
+    return sa.and_(
+        MediaCacheIndex.media_id.is_not(None),
+        MediaCacheIndex.is_available.is_(True),
     )
+
+
+def review_progress_counts(session: Session, session_id: str) -> dict:
+    """**统一**的 Session 进度计数（Stage 8B.2 §6/§7，所有 Review API 共用）。
+
+    - ``total_count``        = Session 创建时固化的原始队列长度（不压缩、不动态调整）；
+    - ``seen_count``         = 被用户实际批阅过的 SessionItem 数；
+    - ``unavailable_count``  = 当前已失效（无媒体行 / is_available=false）的 SessionItem 数；
+    - ``remaining_count``    = 当前仍可用且 seen=false 的数量（**完成条件**）；
+    - ``completed_count``    = ``total_count - remaining_count``。
+
+    注意：``completed_count`` **不等于** ``seen_count + unavailable_count`` ——
+    一条媒体可能先 seen 后来再 unavailable，两边都会被计入；
+    这里用 ``total - remaining`` 统一计算，避免重复计数（§6/§28 Case 3）。
+    """
+    item = ReviewSessionItem
+    available = _available_item_condition()
+    row = session.execute(
+        sa.select(
+            sa.func.count().label("total"),
+            sa.func.sum(sa.case((item.seen.is_(True), 1), else_=0)).label("seen"),
+            sa.func.sum(sa.case((available, 0), else_=1)).label("unavailable"),
+            sa.func.sum(
+                sa.case((sa.and_(item.seen.is_(False), available), 1), else_=0)
+            ).label("remaining"),
+        )
+        .select_from(item)
+        .join(MediaCacheIndex, MediaCacheIndex.media_id == item.media_id, isouter=True)
+        .where(item.session_id == session_id)
+    ).one()
+    total = int(row.total or 0)
+    remaining = int(row.remaining or 0)
+    return {
+        "total_count": total,
+        "seen_count": int(row.seen or 0),
+        "unavailable_count": int(row.unavailable or 0),
+        "remaining_count": remaining,
+        "completed_count": total - remaining,
+    }
+
+
+def _remaining_count(session: Session, session_id: str) -> int:
+    return review_progress_counts(session, session_id)["remaining_count"]
+
+
+def nearest_available_item(
+    session: Session,
+    session_id: str,
+    *,
+    index: int,
+    direction: str = "nearest",
+) -> int | None:
+    """SQL 直查最近可用项（Stage 8B.2 §16/§17）。
+
+    - ``forward``  : 第一个 ``index >= anchor`` 的可用项；
+    - ``backward`` : ``index < anchor`` 中最大的可用项；
+    - ``nearest``  : 先 forward，找不到再 backward（与客户端恢复规则一致）。
+
+    整条 SQL 由 ``LIMIT 1`` 命中，绝不把 SessionItem 拉进 Python 循环。
+    """
+    item = ReviewSessionItem
+    base = (
+        sa.select(item.index)
+        .join(MediaCacheIndex, MediaCacheIndex.media_id == item.media_id)
+        .where(item.session_id == session_id, MediaCacheIndex.is_available.is_(True))
+    )
+    if direction == "forward":
+        return _scalar_index(session, base.where(item.index >= index).order_by(item.index.asc()))
+    if direction == "backward":
+        return _scalar_index(session, base.where(item.index < index).order_by(item.index.desc()))
+    found = _scalar_index(session, base.where(item.index >= index).order_by(item.index.asc()))
+    if found is not None:
+        return found
+    return _scalar_index(session, base.where(item.index < index).order_by(item.index.desc()))
+
+
+def _scalar_index(session: Session, statement) -> int | None:
+    value = session.scalar(statement.limit(1))
+    return int(value) if value is not None else None
+
+
+def _recount(session: Session, session_id: str) -> None:
+    """会话计数落库（统一走 [review_progress_counts]，禁止各接口自己算）。"""
+    counts = review_progress_counts(session, session_id)
     review = session.get(ReviewSession, session_id)
     if review is not None:
-        review.seen_count = int(seen_count or 0)
+        review.seen_count = counts["seen_count"]
         review.updated_at = utc_now()
 
 
-def progress_view(review: ReviewSession) -> dict:
+def progress_view(session: Session, review: ReviewSession) -> dict:
     return {
         "session_id": review.session_id,
         "status": review.status,
         "current_index": review.current_index,
-        "total_count": review.total_count,
-        "seen_count": review.seen_count,
+        **review_progress_counts(session, review.session_id),
         "created_at": review.created_at,
         "updated_at": review.updated_at,
         "completed_at": review.completed_at,
@@ -443,9 +520,9 @@ def source_view(review: ReviewSession) -> dict:
     }
 
 
-def session_view(review: ReviewSession) -> dict:
+def session_view(session: Session, review: ReviewSession) -> dict:
     return {
-        **progress_view(review),
+        **progress_view(session, review),
         "source": source_view(review),
     }
 
@@ -460,7 +537,9 @@ __all__ = [
     "get_session",
     "latest_active_session",
     "mark_seen",
+    "nearest_available_item",
     "progress_view",
+    "review_progress_counts",
     "session_items",
     "session_queue_page",
     "session_view",
