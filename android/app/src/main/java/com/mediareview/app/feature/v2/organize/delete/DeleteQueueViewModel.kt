@@ -63,6 +63,22 @@ sealed interface DeleteQueueEvent {
     data class FinalDeleteCompleted(val changedMediaIds: List<String>) : DeleteQueueEvent
 }
 
+/**
+ * 服务端 failed 原因（guard 代码）→ 简短中文（Stage 8C.1 §23）。
+ *
+ * Server 侧 error 形如 `file_size_changed` / `file_modified_changed` /
+ * `library_not_allowed` / `stat_failed:[Errno ...]` —— 只取前缀映射，
+ * 绝不把原始 Python 异常/堆栈直接展示给用户。
+ */
+internal fun deleteFailureReason(error: String?): String? = when {
+    error.isNullOrBlank() -> null
+    error.startsWith("file_size_changed") -> "文件已发生变化"
+    error.startsWith("file_modified_changed") -> "文件已发生变化"
+    error.startsWith("library_not_allowed") -> "文件已不在允许的媒体库，无法确认身份"
+    error.startsWith("stat_failed") -> "文件访问失败"
+    else -> "删除失败"
+}
+
 data class DeleteQueueUiState(
     val loading: Boolean = true,
     val entries: List<DeleteQueueEntry> = emptyList(),

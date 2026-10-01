@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupSummary
+import com.mediareview.app.feature.v2.organize.data.DuplicateGroupType
 import com.mediareview.app.feature.v2.organize.formatBytes
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -103,7 +105,7 @@ fun DuplicatesScreen(
                         color = MediaTextPrimary,
                     )
                     Text(
-                        text = "完全重复 ${ui.exact.size} 组 · 疑似重复 ${ui.similar.size} 组",
+                        text = "完全重复 ${ui.exactTotal} 组 · 疑似重复 ${ui.similarTotal} 组",
                         style = MaterialTheme.typography.bodySmall,
                         color = MediaTextSecondary,
                     )
@@ -150,39 +152,76 @@ fun DuplicatesScreen(
                         }
                     }
                 }
-                else -> LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(
-                        start = V2Spacing.Lg,
-                        end = V2Spacing.Lg,
-                        top = V2Spacing.Sm,
-                        bottom = V2Spacing.Xl,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-                ) {
-                    item {
-                        ScanStatusCard(
-                            ui = ui,
-                            onStart = { vm.startScan() },
-                            onPause = { vm.pauseScan() },
-                            onResume = { vm.resumeScan() },
-                            onCancel = { vm.cancelScan() },
-                        )
-                    }
-                    item { SectionHeader("完全重复", ui.exact.size) }
-                    if (ui.exact.isEmpty()) {
-                        item { SectionEmpty("未发现完全重复（需要完整 SHA-256 一致）") }
-                    } else {
-                        items(ui.exact, key = { "exact-${it.groupId}" }) { group ->
-                            GroupCard(group = group, onOpen = { onOpenCompare(group.groupId) })
+                else -> Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // §28/§29：扫描已完成但结果刷新失败 —— 保留旧列表，明确提示 + 重新加载
+                    if (ui.scanReloadFailed) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "扫描已完成，但结果刷新失败",
+                                color = MediaDanger,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { vm.retryReloadAfterScan() }) {
+                                Text("重新加载", color = MediaTextPrimary)
+                            }
                         }
                     }
-                    item { SectionHeader("疑似重复", ui.similar.size) }
-                    if (ui.similar.isEmpty()) {
-                        item { SectionEmpty("未发现疑似重复") }
-                    } else {
-                        items(ui.similar, key = { "similar-${it.groupId}" }) { group ->
-                            GroupCard(group = group, onOpen = { onOpenCompare(group.groupId) })
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(
+                            start = V2Spacing.Lg,
+                            end = V2Spacing.Lg,
+                            top = V2Spacing.Sm,
+                            bottom = V2Spacing.Xl,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
+                    ) {
+                        item {
+                            ScanStatusCard(
+                                ui = ui,
+                                onStart = { vm.startScan() },
+                                onPause = { vm.pauseScan() },
+                                onResume = { vm.resumeScan() },
+                                onCancel = { vm.cancelScan() },
+                            )
+                        }
+                        item { SectionHeader("完全重复", ui.exactTotal) }
+                        if (ui.exact.isEmpty()) {
+                            item { SectionEmpty("未发现完全重复（需要完整 SHA-256 一致）") }
+                        } else {
+                            items(ui.exact, key = { "exact-${it.groupId}" }) { group ->
+                                GroupCard(group = group, onOpen = { onOpenCompare(group.groupId) })
+                            }
+                            if (ui.exactTotal > ui.exact.size) {
+                                item(key = "exact-load-more") {
+                                    LoadMoreRow(
+                                        loading = ui.loadingMore == DuplicateGroupType.EXACT,
+                                        loadedCount = ui.exact.size,
+                                        onLoad = { vm.loadNext(DuplicateGroupType.EXACT) },
+                                    )
+                                }
+                            }
+                        }
+                        item { SectionHeader("疑似重复", ui.similarTotal) }
+                        if (ui.similar.isEmpty()) {
+                            item { SectionEmpty("未发现疑似重复") }
+                        } else {
+                            items(ui.similar, key = { "similar-${it.groupId}" }) { group ->
+                                GroupCard(group = group, onOpen = { onOpenCompare(group.groupId) })
+                            }
+                            if (ui.similarTotal > ui.similar.size) {
+                                item(key = "similar-load-more") {
+                                    LoadMoreRow(
+                                        loading = ui.loadingMore == DuplicateGroupType.SIMILAR,
+                                        loadedCount = ui.similar.size,
+                                        onLoad = { vm.loadNext(DuplicateGroupType.SIMILAR) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -307,6 +346,41 @@ private fun SectionEmpty(text: String) {
         color = MediaTextSecondary,
         modifier = Modifier.padding(vertical = V2Spacing.Xs),
     )
+}
+
+/**
+ * 分区列表底部：滚动接近底部时自动加载下一页（Stage 8C.1 §12：PAGE_SIZE=50）。
+ *
+ * `LaunchedEffect(loading, loadedCount)` 保证：进入视野触发一次、失败后可点击重试，
+ * 每加载一页后（loadedCount 变化）若仍可见会继续取下一页。
+ */
+@Composable
+private fun LoadMoreRow(loading: Boolean, loadedCount: Int, onLoad: () -> Unit) {
+    LaunchedEffect(loading, loadedCount) {
+        if (!loading) onLoad()
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(V2Radius.Card))
+            .clickable(enabled = !loading, onClick = onLoad)
+            .padding(vertical = V2Spacing.Md),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                color = MediaTextSecondary,
+                modifier = Modifier.size(20.dp),
+            )
+        } else {
+            Text(
+                text = "加载更多…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MediaTextSecondary,
+            )
+        }
+    }
 }
 
 /** 分组卡：详情文案 + 份数/大小；点击进入对比（对照数据一次请求返回）。 */

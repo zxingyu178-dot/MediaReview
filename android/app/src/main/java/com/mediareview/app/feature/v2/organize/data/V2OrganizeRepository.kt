@@ -52,8 +52,17 @@ interface V2OrganizeRepository {
 
     // ---------- 重复媒体 ----------
 
-    /** 分组列表：`GET /duplicates/exact` / `GET /duplicates/similar`。 */
-    suspend fun loadDuplicateGroups(type: DuplicateGroupType): List<DuplicateGroupSummary>
+    /**
+     * 分组分页：`GET /duplicates/exact|similar?page=&page_size=`（Stage 8C.1 §12）。
+     *
+     * 扫描结果在服务端全量持久化，客户端**不允许一次拉所有重复组**：
+     * 每页 [DUPLICATE_GROUPS_PAGE_SIZE] 条，滚动接近底部再取下一页。
+     */
+    suspend fun loadDuplicateGroups(
+        type: DuplicateGroupType,
+        page: Int,
+        pageSize: Int = DUPLICATE_GROUPS_PAGE_SIZE,
+    ): DuplicateGroupPage
 
     /** 分组详情（对比页）：`GET /duplicates/{group_id}`，一次请求拿全部成员，客户端零 N+1。 */
     suspend fun loadDuplicateDetail(groupId: String): DuplicateGroupDetail
@@ -98,7 +107,23 @@ data class DuplicateSummary(
     val scanTaskId: String?,
     val scanStatus: String?,
     val scanProgress: Int,
+    /** 最近一次成功扫描时间（Stage 8C.1 §19）；失败重扫不会清空上次计数。 */
+    val lastSuccessfulScanAt: String? = null,
 )
+
+/** 重复媒体分页大小（§12：Android 不允许一次拉所有重复组）。 */
+const val DUPLICATE_GROUPS_PAGE_SIZE = 50
+
+/** 重复分组分页结果（来自 `items/total/page/page_size`）。 */
+data class DuplicateGroupPage(
+    val items: List<DuplicateGroupSummary>,
+    val total: Int,
+    val page: Int,
+    val pageSize: Int,
+) {
+    /** 是否还有下一页（total 为服务端权威值）。 */
+    val hasMore: Boolean get() = page * pageSize < total
+}
 
 /** 批阅进度摘要（来自 active Review Session，绝不伪造历史累计）。 */
 data class ReviewProgressSummary(val seen: Int, val total: Int, val remaining: Int)
@@ -114,6 +139,8 @@ data class DeleteQueueEntry(
     val addedAt: String?,
     val media: V2Media?,
     val coverUri: String?,
+    /** failed 项的服务端失败原因（guard 代码；Stage 8C.1 §23），UI 映射为简短中文。 */
+    val error: String? = null,
 )
 
 /** 最终删除预备信息（来自 prepare response，确认弹窗必须使用这份数字，而不是列表旧快照）。 */
@@ -144,11 +171,13 @@ data class DuplicateGroupDetail(
     val members: List<DuplicateMemberUi>,
 )
 
-/** 对比页单个成员：媒体摘要 + 人工保留状态 + 封面绝对地址。 */
+/** 对比页单个成员：媒体摘要 + 人工保留状态 + 封面绝对地址 + 可用性。 */
 data class DuplicateMemberUi(
     val media: V2Media,
     val keep: Boolean,
     val coverUri: String,
+    /** 扫描后媒体可能已失效（Stage 8C.1 §20）：UI 显示「文件已不可用」而非假封面。 */
+    val available: Boolean = true,
 )
 
 /** 重复扫描状态（taskId 为 null = 还没有任何扫描任务）。 */

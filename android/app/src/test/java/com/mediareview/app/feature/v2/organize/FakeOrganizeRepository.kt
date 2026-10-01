@@ -8,6 +8,7 @@ import com.mediareview.app.feature.v2.organize.data.DeleteCommitPrepare
 import com.mediareview.app.feature.v2.organize.data.DeleteQueueEntry
 import com.mediareview.app.feature.v2.organize.data.DeleteQueueSummary
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupDetail
+import com.mediareview.app.feature.v2.organize.data.DuplicateGroupPage
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupSummary
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupType
 import com.mediareview.app.feature.v2.organize.data.DuplicateMemberUi
@@ -47,6 +48,20 @@ class FakeOrganizeRepository : V2OrganizeRepository {
 
     override var mode: V2DataMode = V2DataMode.SERVER
 
+    /**
+     * 让"数据源切换前的旧请求"挂起（Stage 8C.1 §26 迟到请求测试）：
+     * 仅**首次**汇总类调用等待该闸门，之后的调用立即返回。
+     */
+    var holdFirstSummaryCall: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    private var summaryHeld = false
+
+    private suspend fun maybeHoldFirstSummaryCall() {
+        if (!summaryHeld) {
+            summaryHeld = true
+            holdFirstSummaryCall?.await()
+        }
+    }
+
     // ---------- overview ----------
     var deleteSummaryResult: Result<DeleteQueueSummary> = Result.success(DeleteQueueSummary(0, 0L))
     var duplicateSummaryResult: Result<DuplicateSummary> =
@@ -78,6 +93,10 @@ class FakeOrganizeRepository : V2OrganizeRepository {
     var exactGroups: List<DuplicateGroupSummary> = emptyList()
     var similarGroups: List<DuplicateGroupSummary> = emptyList()
     var loadGroupsCalls = 0
+    val loadGroupsRequests = mutableListOf<Pair<DuplicateGroupType, Int>>()
+
+    /** 非空时 loadDuplicateGroups 一律失败（用于"扫描成功但结果刷新失败"用例）。 */
+    var loadGroupsFailure: Throwable? = null
     var detailResult: Result<DuplicateGroupDetail> =
         Result.success(DuplicateGroupDetail("g1", "exact", "", 0, 0, emptyList()))
     var keepResult: Result<Unit> = Result.success(Unit)
@@ -112,21 +131,25 @@ class FakeOrganizeRepository : V2OrganizeRepository {
 
     override suspend fun deleteSummary(): DeleteQueueSummary {
         deleteSummaryCalls++
+        maybeHoldFirstSummaryCall()
         return deleteSummaryResult.getOrThrow()
     }
 
     override suspend fun duplicateSummary(): DuplicateSummary {
         duplicateSummaryCalls++
+        maybeHoldFirstSummaryCall()
         return duplicateSummaryResult.getOrThrow()
     }
 
     override suspend fun reviewSummary(): ReviewProgressSummary? {
         reviewSummaryCalls++
+        maybeHoldFirstSummaryCall()
         return reviewSummaryResult.getOrThrow()
     }
 
     override suspend fun librarySummary(): LibrarySelectionSummary {
         librarySummaryCalls++
+        maybeHoldFirstSummaryCall()
         return librarySummaryResult.getOrThrow()
     }
 
@@ -152,9 +175,22 @@ class FakeOrganizeRepository : V2OrganizeRepository {
         return commitResult.getOrThrow()
     }
 
-    override suspend fun loadDuplicateGroups(type: DuplicateGroupType): List<DuplicateGroupSummary> {
+    override suspend fun loadDuplicateGroups(
+        type: DuplicateGroupType,
+        page: Int,
+        pageSize: Int,
+    ): DuplicateGroupPage {
         loadGroupsCalls++
-        return if (type == DuplicateGroupType.EXACT) exactGroups else similarGroups
+        loadGroupsRequests += type to page
+        loadGroupsFailure?.let { throw it }
+        val source = if (type == DuplicateGroupType.EXACT) exactGroups else similarGroups
+        val from = (page - 1) * pageSize
+        return DuplicateGroupPage(
+            items = source.drop(from).take(pageSize),
+            total = source.size,
+            page = page,
+            pageSize = pageSize,
+        )
     }
 
     override suspend fun loadDuplicateDetail(groupId: String): DuplicateGroupDetail =
@@ -203,8 +239,13 @@ class FakeOrganizeRepository : V2OrganizeRepository {
 }
 
 /** 构造成员 UI 数据（对比页测试用）。 */
-fun fakeMember(id: String, keep: Boolean = false): DuplicateMemberUi = DuplicateMemberUi(
+fun fakeMember(
+    id: String,
+    keep: Boolean = false,
+    available: Boolean = true,
+): DuplicateMemberUi = DuplicateMemberUi(
     media = fakeMedia(id),
     keep = keep,
     coverUri = "http://server/media/$id.jpg",
+    available = available,
 )

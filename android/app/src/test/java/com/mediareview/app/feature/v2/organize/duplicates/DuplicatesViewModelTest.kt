@@ -4,6 +4,7 @@ import com.mediareview.app.MainDispatcherRule
 import com.mediareview.app.feature.v2.organize.FakeOrganizeRepository
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupDetail
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupSummary
+import com.mediareview.app.feature.v2.organize.data.DuplicateGroupType
 import com.mediareview.app.feature.v2.organize.data.DuplicateScanState
 import com.mediareview.app.feature.v2.organize.fakeMember
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -167,6 +168,73 @@ class DuplicatesViewModelTest {
         advanceUntilIdle()
 
         assertTrue(vm.ui.value.demoUnavailable)
+        vm.leaveScreen()
+    }
+
+    // ---------- Stage 8C.1 §12 分页 / §28~§29 刷新失败 ----------
+
+    @Test
+    fun `滚动到底部分页加载下一页并合并`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            scanStatusResult = Result.success(DuplicateScanState("t1", "succeeded", 100, null))
+            exactGroups = (1..60).map { group("exact:$it") }
+        }
+        val vm = DuplicatesViewModel(repo)
+
+        vm.enterScreen()
+        advanceUntilIdle()
+
+        // 第 1 页只取 50 条，但 total 是服务端权威的 60
+        assertEquals(50, vm.ui.value.exact.size)
+        assertEquals(60, vm.ui.value.exactTotal)
+        assertTrue(vm.ui.value.hasMore(DuplicateGroupType.EXACT))
+
+        vm.loadNext(DuplicateGroupType.EXACT)
+        advanceUntilIdle()
+
+        assertEquals(60, vm.ui.value.exact.size)
+        assertFalse(vm.ui.value.hasMore(DuplicateGroupType.EXACT))
+        assertEquals(
+            "exact 分区独立分页: 先 1 后 2",
+            listOf(DuplicateGroupType.EXACT to 1, DuplicateGroupType.EXACT to 2),
+            repo.loadGroupsRequests.filter { it.first == DuplicateGroupType.EXACT },
+        )
+        // 没有更多时不再发请求
+        vm.loadNext(DuplicateGroupType.EXACT)
+        advanceUntilIdle()
+        assertEquals(2, repo.loadGroupsRequests.count { it.first == DuplicateGroupType.EXACT })
+        vm.leaveScreen()
+    }
+
+    @Test
+    fun `扫描成功但结果刷新失败保留旧列表并提示`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            scanStatusResult = Result.success(DuplicateScanState("t1", "succeeded", 100, null))
+            exactGroups = listOf(group("exact:old"))
+        }
+        val vm = DuplicatesViewModel(repo)
+        vm.enterScreen()
+        advanceUntilIdle()
+        assertEquals(1, vm.ui.value.exact.size)
+
+        // 重新扫描：服务端 succeeded，但结果刷新请求失败 -> 绝不假装完整成功
+        repo.loadGroupsFailure = IllegalStateException("boom")
+        repo.startScanResult = Result.success(DuplicateScanState("t1", "succeeded", 100, null))
+        vm.startScan()
+        advanceUntilIdle()
+
+        assertEquals("succeeded", vm.ui.value.scan.status)
+        assertTrue("必须提示结果刷新失败", vm.ui.value.scanReloadFailed)
+        assertEquals("旧列表必须保留", listOf("exact:old"), vm.ui.value.exact.map { it.groupId })
+
+        // 手动重新加载成功后提示消失，列表换成新扫描结果
+        repo.loadGroupsFailure = null
+        repo.exactGroups = listOf(group("exact:new"))
+        vm.retryReloadAfterScan()
+        advanceUntilIdle()
+
+        assertFalse(vm.ui.value.scanReloadFailed)
+        assertEquals(listOf("exact:new"), vm.ui.value.exact.map { it.groupId })
         vm.leaveScreen()
     }
 

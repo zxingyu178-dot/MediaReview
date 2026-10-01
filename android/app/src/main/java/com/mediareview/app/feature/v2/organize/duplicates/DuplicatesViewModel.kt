@@ -2,6 +2,7 @@ package com.mediareview.app.feature.v2.organize.duplicates
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mediareview.app.feature.v2.organize.data.DUPLICATE_GROUPS_PAGE_SIZE
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupDetail
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupSummary
 import com.mediareview.app.feature.v2.organize.data.DuplicateGroupType
@@ -23,9 +24,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * 重复媒体中心状态（Stage 8C §27~§30）。
+ * 重复媒体中心状态（Stage 8C §27~§30；Stage 8C.1 §12/§28/§29）。
  *
- * 完全重复 / 疑似重复分开维护；扫描状态来自服务端任务接口，只在 pending/running 轮询。
+ * 完全重复 / 疑似重复分开维护（各自分页、各自 total）；扫描状态来自服务端任务接口，
+ * 只在 pending/running 轮询。
  */
 data class DuplicatesUiState(
     val loading: Boolean = true,
@@ -34,10 +36,35 @@ data class DuplicatesUiState(
     val demoUnavailable: Boolean = false,
     val exact: List<DuplicateGroupSummary> = emptyList(),
     val similar: List<DuplicateGroupSummary> = emptyList(),
+    /** 服务端权威总数（分页 total，用于分区标题与"还有更多"判断）。 */
+    val exactTotal: Int = 0,
+    val similarTotal: Int = 0,
+    /** 已加载到第几页（0 = 还没加载）。 */
+    val exactPage: Int = 0,
+    val similarPage: Int = 0,
+    /** 正在加载下一页的分区（防止重复触发 loadNext）。 */
+    val loadingMore: DuplicateGroupType? = null,
     val scan: DuplicateScanState = DuplicateScanState(null, null, 0, null),
     /** 控制类请求（扫描/暂停/继续/取消）进行中：按钮防重。 */
     val scanBusy: Boolean = false,
-)
+    /**
+     * 扫描已 succeeded 但结果刷新失败（§28/§29）：**保留旧列表**并显示
+     * 「扫描已完成，但结果刷新失败 [重新加载]」，绝不假装完整成功。
+     */
+    val scanReloadFailed: Boolean = false,
+) {
+    fun groupsOf(type: DuplicateGroupType): List<DuplicateGroupSummary> =
+        if (type == DuplicateGroupType.EXACT) exact else similar
+
+    fun totalOf(type: DuplicateGroupType): Int =
+        if (type == DuplicateGroupType.EXACT) exactTotal else similarTotal
+
+    fun pageOf(type: DuplicateGroupType): Int =
+        if (type == DuplicateGroupType.EXACT) exactPage else similarPage
+
+    fun hasMore(type: DuplicateGroupType): Boolean =
+        pageOf(type) * DUPLICATE_GROUPS_PAGE_SIZE < totalOf(type)
+}
 
 /**
  * 重复媒体中心 ViewModel。
@@ -79,6 +106,41 @@ class DuplicatesViewModel @Inject constructor(
 
     // ---------- 扫描控制 ----------
 
+    /**
+     * 加载下一页（滚动接近底部时调用，Stage 8C.1 §12）。
+     *
+     * 同一时刻只允许一个分区在加载（`loadingMore` 防重）；没有更多时是空操作。
+     */
+    fun loadNext(type: DuplicateGroupType) {
+        val snapshot = _ui.value
+        if (snapshot.loadingMore != null || !snapshot.hasMore(type)) return
+        val nextPage = snapshot.pageOf(type) + 1
+        _ui.update { it.copy(loadingMore = type) }
+        viewModelScope.launch {
+            try {
+                val page = repository.loadDuplicateGroups(type, nextPage)
+                _ui.update { state ->
+                    val merged = (state.groupsOf(type) + page.items).distinctBy { it.groupId }
+                    if (type == DuplicateGroupType.EXACT) {
+                        state.copy(exact = merged, exactTotal = page.total, exactPage = page.page)
+                    } else {
+                        state.copy(
+                            similar = merged,
+                            similarTotal = page.total,
+                            similarPage = page.page,
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                _messages.tryEmit("加载更多失败，请重试")
+            } finally {
+                _ui.update { it.copy(loadingMore = null) }
+            }
+        }
+    }
+
     /** 触发扫描（服务端幂等）；成功后进入轮询。 */
     fun startScan() {
         // 同步置忙（StateFlow update 立即生效）：同一帧内的重复点击只会发出一次请求
@@ -88,7 +150,7 @@ class DuplicatesViewModel @Inject constructor(
             try {
                 val state = repository.startDuplicateScan()
                 _ui.update { it.copy(scan = state) }
-                if (state.isActive) startPolling() else loadGroups()
+                if (state.isActive) startPolling() else reloadGroupsAfterScan()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -123,7 +185,7 @@ class DuplicatesViewModel @Inject constructor(
                     resumePolling && state.isActive -> startPolling()
                     else -> stopPolling()
                 }
-                if (reloadGroups || state.isSucceeded) loadGroups()
+                if (reloadGroups || state.isSucceeded) reloadGroupsAfterScan()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
@@ -143,10 +205,20 @@ class DuplicatesViewModel @Inject constructor(
                 val status = repository.duplicateScanStatus()
                 _ui.update { it.copy(scan = status, demoUnavailable = false) }
                 if (status.isActive && screenActive) startPolling() else stopPolling()
-                val exact = repository.loadDuplicateGroups(DuplicateGroupType.EXACT)
-                val similar = repository.loadDuplicateGroups(DuplicateGroupType.SIMILAR)
+                val exact = repository.loadDuplicateGroups(DuplicateGroupType.EXACT, page = 1)
+                val similar = repository.loadDuplicateGroups(DuplicateGroupType.SIMILAR, page = 1)
                 _ui.update {
-                    it.copy(loading = false, error = null, exact = exact, similar = similar)
+                    it.copy(
+                        loading = false,
+                        error = null,
+                        exact = exact.items,
+                        exactTotal = exact.total,
+                        exactPage = exact.page,
+                        similar = similar.items,
+                        similarTotal = similar.total,
+                        similarPage = similar.page,
+                        scanReloadFailed = false,
+                    )
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -159,19 +231,41 @@ class DuplicatesViewModel @Inject constructor(
         }
     }
 
-    private fun loadGroups() {
+    /**
+     * 扫描 succeeded / 取消后重新加载第 1 页（Stage 8C.1 §28/§29）。
+     *
+     * 成功：列表与 total 变为扫描后的权威数据；
+     * 失败：**保留旧列表**并置 `scanReloadFailed`，UI 显示「扫描已完成，但结果刷新失败
+     * [重新加载]」——绝不假装完整成功，也绝不清空已有结果。
+     */
+    private fun reloadGroupsAfterScan() {
         viewModelScope.launch {
             try {
-                val exact = repository.loadDuplicateGroups(DuplicateGroupType.EXACT)
-                val similar = repository.loadDuplicateGroups(DuplicateGroupType.SIMILAR)
-                _ui.update { it.copy(loading = false, error = null, exact = exact, similar = similar) }
+                val exact = repository.loadDuplicateGroups(DuplicateGroupType.EXACT, page = 1)
+                val similar = repository.loadDuplicateGroups(DuplicateGroupType.SIMILAR, page = 1)
+                _ui.update {
+                    it.copy(
+                        loading = false,
+                        error = null,
+                        exact = exact.items,
+                        exactTotal = exact.total,
+                        exactPage = exact.page,
+                        similar = similar.items,
+                        similarTotal = similar.total,
+                        similarPage = similar.page,
+                        scanReloadFailed = false,
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                // 静默失败：保留旧分组，用户可下拉/重试刷新
+                _ui.update { it.copy(loading = false, scanReloadFailed = true) }
             }
         }
     }
+
+    /** 「扫描已完成，但结果刷新失败」横幅上的【重新加载】：再次尝试拉取扫描结果。 */
+    fun retryReloadAfterScan() = reloadGroupsAfterScan()
 
     // ---------- 轮询（仅 pending/running；离开页面即停） ----------
 
@@ -190,7 +284,8 @@ class DuplicatesViewModel @Inject constructor(
                 }
                 _ui.update { it.copy(scan = state) }
                 if (!state.isActive) {
-                    if (state.isSucceeded) loadGroups() // §30：成功后自动重载 exact/similar
+                    // §30：成功后自动重载 exact/similar；失败时保留旧列表并给出提示（§28/§29）
+                    if (state.isSucceeded) reloadGroupsAfterScan()
                     break
                 }
             }

@@ -46,6 +46,7 @@ import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaBackground
+import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaSuccess
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
@@ -202,12 +203,21 @@ private fun MemberCard(
                 .aspectRatio(16f / 9f)
                 .background(V2Colors.Skeleton),
         ) {
-            if (member.coverUri.isNotBlank()) {
+            // §20：扫描后已失效的成员不展示封面（避免假封面/假可用状态）
+            if (member.available && member.coverUri.isNotBlank()) {
                 AsyncImage(
                     model = member.coverUri,
                     contentDescription = media.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (!member.available) {
+                Text(
+                    text = "文件已不可用",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MediaDanger,
+                    modifier = Modifier.align(Alignment.Center),
                 )
             }
             if (member.keep) {

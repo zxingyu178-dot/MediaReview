@@ -91,8 +91,11 @@ class V2DemoOrganizeRepository @Inject constructor(
 
     // ---------- 重复媒体（Demo 不可用） ----------
 
-    override suspend fun loadDuplicateGroups(type: DuplicateGroupType): List<DuplicateGroupSummary> =
-        throw OrganizeFeatureUnavailableInDemoException("重复媒体")
+    override suspend fun loadDuplicateGroups(
+        type: DuplicateGroupType,
+        page: Int,
+        pageSize: Int,
+    ): DuplicateGroupPage = throw OrganizeFeatureUnavailableInDemoException("重复媒体")
 
     override suspend fun loadDuplicateDetail(groupId: String): DuplicateGroupDetail =
         throw OrganizeFeatureUnavailableInDemoException("重复媒体")

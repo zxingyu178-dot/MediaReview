@@ -340,11 +340,20 @@ private fun DeleteQueueItemRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (entry.status == "failed") {
+                // §21/§22：failed 项不会进入下一次 prepare，没有"直接重试"能力 ——
+                // 文案必须与实际能力一致（先恢复，再重新标记）。
                 Text(
-                    text = "上次删除失败，可撤销或重试",
+                    text = "上次删除失败，请恢复后重新标记",
                     style = MaterialTheme.typography.labelSmall,
                     color = MediaDanger,
                 )
+                deleteFailureReason(entry.error)?.let { reason ->
+                    Text(
+                        text = reason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MediaTextSecondary,
+                    )
+                }
             }
         }
         TextButton(onClick = onRestore) {

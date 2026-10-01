@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -230,5 +231,47 @@ class DeleteQueueViewModelTest {
         assertFalse(ui.loading)
         assertEquals("网络失败", ui.error)
         assertTrue(ui.entries.isEmpty())
+    }
+
+    // ---------- Stage 8C.1 §21~§23 failed 语义 ----------
+
+    @Test
+    fun `失败原因映射为简短中文而不是原始异常`() {
+        assertEquals("文件已发生变化", deleteFailureReason("file_size_changed"))
+        assertEquals("文件已发生变化", deleteFailureReason("file_modified_changed"))
+        assertEquals(
+            "文件已不在允许的媒体库，无法确认身份",
+            deleteFailureReason("library_not_allowed"),
+        )
+        assertEquals("文件访问失败", deleteFailureReason("stat_failed:[Errno 13] Permission denied"))
+        assertEquals("删除失败", deleteFailureReason("some_unexpected_python_traceback"))
+        assertNull(deleteFailureReason(null))
+        assertNull(deleteFailureReason(""))
+    }
+
+    @Test
+    fun `failed 项进入列表时携带服务端原因`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            deleteQueueResult = Result.success(
+                listOf(
+                    DeleteQueueEntry(
+                        mediaId = "bad",
+                        status = "failed",
+                        sizeBytes = 100,
+                        addedAt = null,
+                        media = fakeMedia("bad"),
+                        coverUri = null,
+                        error = "file_size_changed",
+                    ),
+                ),
+            )
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load()
+        advanceUntilIdle()
+
+        val entry = vm.ui.value.entries.single { it.status == "failed" }
+        assertEquals("file_size_changed", entry.error)
+        assertEquals(0, vm.ui.value.pendingCount) // failed 项不会进入下一次 prepare
     }
 }

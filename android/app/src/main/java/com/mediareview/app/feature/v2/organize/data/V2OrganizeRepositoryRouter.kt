@@ -42,8 +42,11 @@ class V2OrganizeRepositoryRouter @Inject constructor(
     override suspend fun commitDelete(nonce: String): Map<String, DeleteOutcomeStatus> =
         active().commitDelete(nonce)
 
-    override suspend fun loadDuplicateGroups(type: DuplicateGroupType): List<DuplicateGroupSummary> =
-        active().loadDuplicateGroups(type)
+    override suspend fun loadDuplicateGroups(
+        type: DuplicateGroupType,
+        page: Int,
+        pageSize: Int,
+    ): DuplicateGroupPage = active().loadDuplicateGroups(type, page, pageSize)
 
     override suspend fun loadDuplicateDetail(groupId: String): DuplicateGroupDetail =
         active().loadDuplicateDetail(groupId)

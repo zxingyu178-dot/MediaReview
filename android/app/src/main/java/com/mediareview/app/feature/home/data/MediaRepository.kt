@@ -278,13 +278,18 @@ class MediaRepository @Inject constructor(
             unwrap(api().commitDeleteQueue(com.mediareview.app.core.model.CommitRequest(nonce)))
         }.getOrNull()
 
-    /** 完全重复分组。 */
+    /**
+     * 完全重复分组（旧 1.x 数据层，仅编译兼容）。
+     *
+     * Stage 8C.1 §11 起服务端改为分页合同；V2 整理中心走独立分页数据层，
+     * 这里只取第一页（旧 1.x 页面已不是正式 UI，不做分页改造）。
+     */
     override suspend fun loadDuplicatesExact(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
-        runSuspendCatching { unwrap(api().duplicatesExact()) }.getOrNull() ?: emptyList()
+        runSuspendCatching { unwrap(api().duplicatesExact())?.items.orEmpty() }.getOrNull() ?: emptyList()
 
-    /** 疑似重复分组。 */
+    /** 疑似重复分组（旧 1.x 数据层，仅编译兼容；同 loadDuplicatesExact）。 */
     override suspend fun loadDuplicatesSimilar(): List<com.mediareview.app.core.model.DuplicateGroupDto> =
-        runSuspendCatching { unwrap(api().duplicatesSimilar()) }.getOrNull() ?: emptyList()
+        runSuspendCatching { unwrap(api().duplicatesSimilar())?.items.orEmpty() }.getOrNull() ?: emptyList()
 
     /** 触发重复扫描后台任务(服务端幂等,已有运行中任务则直返)。 */
     override suspend fun triggerDuplicateScan(): com.mediareview.app.core.model.TaskStateDto? =

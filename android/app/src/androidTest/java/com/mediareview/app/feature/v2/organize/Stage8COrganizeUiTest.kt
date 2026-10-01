@@ -272,11 +272,12 @@ private class OrganizeUiDispatcher : Dispatcher() {
             path == "/api/v1/duplicates/summary" -> json(
                 """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"t1","scan_status":"succeeded","scan_progress":100}}""",
             )
+            // Stage 8C.1 §11：分组列表改为分页合同(items/total/page/page_size)
             path == "/api/v1/duplicates/exact" -> json(
-                """{"success":true,"data":[{"group_id":"exact:1000:60000:1","type":"exact","count":2,"size_bytes":1000,"detail":"byte-identical"}]}""",
+                """{"success":true,"data":{"items":[{"group_id":"exact:1000:60000:1","type":"exact","count":2,"size_bytes":1000,"detail":"byte-identical"}],"total":1,"page":1,"page_size":50}}""",
             )
             path == "/api/v1/duplicates/similar" -> json(
-                """{"success":true,"data":[{"group_id":"similar:2000","type":"similar","count":3,"size_bytes":2000,"detail":"疑似重复"}]}""",
+                """{"success":true,"data":{"items":[{"group_id":"similar:2000","type":"similar","count":3,"size_bytes":2000,"detail":"疑似重复"}],"total":1,"page":1,"page_size":50}}""",
             )
             path == "/api/v1/duplicates/status" -> json("""{"success":true,"data":{"task_id":null}}""")
             path == "/api/v1/libraries" -> json(

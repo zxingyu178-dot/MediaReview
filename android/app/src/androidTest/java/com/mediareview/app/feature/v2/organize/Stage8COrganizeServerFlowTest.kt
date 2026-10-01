@@ -234,10 +234,13 @@ private class OrganizeFlowDispatcher : Dispatcher() {
                 }
                 json(taskBody(status))
             }
+            // Stage 8C.1 §11：分组列表为分页合同(items/total/page/page_size)
             path == "/api/v1/duplicates/exact" -> json(
-                """{"success":true,"data":[{"group_id":"exact:1000:60000:1","type":"exact","count":2,"size_bytes":1000,"detail":"byte-identical"}]}""",
+                """{"success":true,"data":{"items":[{"group_id":"exact:1000:60000:1","type":"exact","count":2,"size_bytes":1000,"detail":"byte-identical"}],"total":1,"page":1,"page_size":50}}""",
             )
-            path == "/api/v1/duplicates/similar" -> json("""{"success":true,"data":[]}""")
+            path == "/api/v1/duplicates/similar" -> json(
+                """{"success":true,"data":{"items":[],"total":0,"page":1,"page_size":50}}""",
+            )
             path.startsWith("/api/v1/duplicates/") && path.endsWith("/keep") ->
                 if (keepStatus == 200) {
                     json("""{"success":true,"data":{"group_id":"g","media_id":"aaa","keep":true}}""")

@@ -130,6 +130,9 @@ class V2ServerOrganizeRepositoryContractTest {
         val first = entries.first()
         assertEquals("aaa", first.mediaId)
         assertEquals("pending", first.status)
+        assertNull("pending 项没有失败原因", first.error)
+        // Stage 8C.1 §23：failed 项必须携带服务端失败原因（guard 代码）
+        assertEquals("file_size_changed", entries[1].error)
         assertEquals("视频 1", first.media?.name)
         assertTrue(
             "封面必须来自队列响应并解析为绝对地址: ${first.coverUri}",
@@ -178,17 +181,30 @@ class V2ServerOrganizeRepositoryContractTest {
         assertEquals("task-9", summary.scanTaskId)
         assertEquals("succeeded", summary.scanStatus)
         assertEquals(100, summary.scanProgress)
+        // Stage 8C.1 §19：失败重扫后仍能拿到"上次成功扫描时间"
+        assertEquals("2026-10-02T08:00:00", summary.lastSuccessfulScanAt)
     }
 
     @Test
-    fun `完全与疑似分组分别来自各自接口`() = runTest {
-        val exact = repository.loadDuplicateGroups(DuplicateGroupType.EXACT)
-        val similar = repository.loadDuplicateGroups(DuplicateGroupType.SIMILAR)
-        assertEquals("exact:1000:60000:1", exact.first().groupId)
-        assertEquals("exact", exact.first().type)
-        assertEquals(2, exact.first().count)
-        assertEquals("similar:2000", similar.first().groupId)
-        assertEquals("similar", similar.first().type)
+    fun `完全与疑似分组分页合同与查询参数`() = runTest {
+        val exact = repository.loadDuplicateGroups(DuplicateGroupType.EXACT, page = 2, pageSize = 50)
+        assertEquals("exact:1000:60000:2", exact.items.first().groupId)
+        assertEquals("exact", exact.items.first().type)
+        assertEquals(2, exact.items.first().count)
+        assertEquals(120, exact.total)
+        assertEquals(2, exact.page)
+        assertTrue("还有下一页", exact.hasMore)
+        val query = router.lastQuery("/api/v1/duplicates/exact").orEmpty()
+        assertTrue("分页参数必须下发: page=2&page_size=50 -> $query", query.contains("page=2"))
+        assertTrue("分页参数必须下发: page=2&page_size=50 -> $query", query.contains("page_size=50"))
+
+        val last = repository.loadDuplicateGroups(DuplicateGroupType.EXACT, page = 3, pageSize = 50)
+        assertFalse("最后一页 hasMore=false", last.hasMore)
+
+        val similar = repository.loadDuplicateGroups(DuplicateGroupType.SIMILAR, page = 1)
+        assertEquals("similar:2000:1", similar.items.first().groupId)
+        assertEquals("similar", similar.items.first().type)
+        assertEquals(7, similar.total)
     }
 
     @Test
@@ -205,6 +221,9 @@ class V2ServerOrganizeRepositoryContractTest {
         assertEquals(1080, member.media.naturalHeight)
         assertFalse(member.keep)
         assertTrue(member.coverUri.contains("/api/v1/media/aaa/thumbnail?v=abc"))
+        // Stage 8C.1 §20：扫描后失效成员 -> available=false（UI 显示「文件已不可用」）
+        assertTrue(detail.members[0].available)
+        assertFalse(detail.members[1].available)
 
         // 详情必须一次请求拿全，且不得再逐条请求媒体详情（禁止 N+1）
         assertEquals(1, router.paths().count { it == "/api/v1/duplicates/exact:1000:60000:1" })
@@ -289,6 +308,7 @@ private class OrganizeDispatcher : Dispatcher() {
 
     private val recorded = java.util.Collections.synchronizedList(mutableListOf<RecordedRequest>())
     private val bodies = java.util.Collections.synchronizedMap(mutableMapOf<String, String>())
+    private val queries = java.util.Collections.synchronizedMap(mutableMapOf<String, String>())
 
     var deleteSummaryStatus = 200
     var restoreStatus = 200
@@ -303,11 +323,15 @@ private class OrganizeDispatcher : Dispatcher() {
 
     fun lastBody(path: String): String? = bodies[path]
 
+    /** 最近一次请求的 query string（如 `page=2&page_size=50`）。 */
+    fun lastQuery(path: String): String? = queries[path]
+
     override fun dispatch(request: RecordedRequest): MockResponse {
         val path = request.requestUrl?.encodedPath.orEmpty()
         if (request.body.size > 0) {
             bodies[path] = request.body.readUtf8()
         }
+        queries[path] = request.requestUrl?.query.orEmpty()
         recorded += request
         val method = request.method.orEmpty()
         return when {
@@ -331,14 +355,10 @@ private class OrganizeDispatcher : Dispatcher() {
                 """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"weird"}}}""",
             )
             path == "/api/v1/duplicates/summary" -> json(
-                """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"task-9","scan_status":"succeeded","scan_progress":100}}""",
+                """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"task-9","scan_status":"succeeded","scan_progress":100,"last_successful_scan_at":"2026-10-02T08:00:00"}}""",
             )
-            path == "/api/v1/duplicates/exact" -> json(
-                """{"success":true,"data":[{"group_id":"exact:1000:60000:1","type":"exact","count":2,"size_bytes":1000,"duration_ms":60000,"detail":"byte-identical"}]}""",
-            )
-            path == "/api/v1/duplicates/similar" -> json(
-                """{"success":true,"data":[{"group_id":"similar:2000","type":"similar","count":3,"size_bytes":2000,"detail":"疑似"}]}""",
-            )
+            path == "/api/v1/duplicates/exact" -> json(exactPageBody(request))
+            path == "/api/v1/duplicates/similar" -> json(similarPageBody(request))
             path == "/api/v1/duplicates/scan" -> json(taskBody("pending", 0))
             path == "/api/v1/duplicates/status" ->
                 if (statusHasTask) json(taskBody("running", 62)) else json("""{"success":true,"data":{"task_id":null}}""")
@@ -373,18 +393,35 @@ private class OrganizeDispatcher : Dispatcher() {
                     "size_bytes":2000,"duration_ms":30000,"width":1920,"height":1080,
                     "cover_url":"/api/v1/media/aaa/thumbnail?v=abc","folder_id":"f1","folder_name":"旅行"}},
           {"media_id":"bbb","status":"failed","size_bytes":1000,"added_at":"2026-09-30T11:00:00",
+           "error":"file_size_changed",
            "media":{"media_id":"bbb","name":"视频 2","media_type":"video","library_id":"lib-1",
                     "size_bytes":1000,"cover_url":"/api/v1/media/bbb/thumbnail?v=def"}}
         ]}
     """.trimIndent()
 
+    private fun queryInt(request: RecordedRequest, name: String, fallback: Int): Int =
+        request.requestUrl?.queryParameter(name)?.toIntOrNull() ?: fallback
+
+    /** Stage 8C.1 §11：exact 分页（items/total/page/page_size），group_id 带页码便于断言。 */
+    private fun exactPageBody(request: RecordedRequest): String {
+        val page = queryInt(request, "page", 1)
+        val pageSize = queryInt(request, "page_size", 50)
+        return """{"success":true,"data":{"items":[{"group_id":"exact:1000:60000:$page","type":"exact","count":2,"size_bytes":1000,"duration_ms":60000,"detail":"byte-identical"}],"total":120,"page":$page,"page_size":$pageSize}}"""
+    }
+
+    private fun similarPageBody(request: RecordedRequest): String {
+        val page = queryInt(request, "page", 1)
+        val pageSize = queryInt(request, "page_size", 50)
+        return """{"success":true,"data":{"items":[{"group_id":"similar:2000:$page","type":"similar","count":3,"size_bytes":2000,"detail":"疑似"}],"total":7,"page":$page,"page_size":$pageSize}}"""
+    }
+
     private fun duplicateDetailBody(): String = """
         {"success":true,"data":{"group_id":"exact:1000:60000:1","type":"exact","detail":"byte-identical",
          "count":2,"size_bytes":1000,"duration_ms":60000,
          "members":[
-           {"media_id":"aaa","name":"A.mp4","keep":false,"size_bytes":1000,"duration_ms":60000,
+           {"media_id":"aaa","name":"A.mp4","keep":false,"available":true,"size_bytes":1000,"duration_ms":60000,
             "width":1920,"height":1080,"media_type":"video","cover_url":"/api/v1/media/aaa/thumbnail?v=abc"},
-           {"media_id":"bbb","name":"B.mp4","keep":true,"size_bytes":1000,"duration_ms":60000,
+           {"media_id":"bbb","name":"B.mp4","keep":true,"available":false,"size_bytes":1000,"duration_ms":60000,
             "width":1920,"height":1080,"media_type":"video","cover_url":"/api/v1/media/bbb/thumbnail?v=def"}
          ]}}
     """.trimIndent()

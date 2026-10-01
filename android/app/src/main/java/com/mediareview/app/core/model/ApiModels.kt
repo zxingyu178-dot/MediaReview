@@ -285,6 +285,8 @@ data class DeleteQueueItemDto(
     val status: String = "",
     val size_bytes: Long? = null,
     val added_at: String? = null,
+    /** Stage 8C.1 §23: failed 项的失败原因(guard 代码),客户端映射为简短中文。 */
+    val error: String? = null,
     val media: MediaSummary? = null,
 )
 
@@ -325,6 +327,8 @@ data class DuplicateSummaryDto(
     val scan_task_id: String? = null,
     val scan_status: String? = null,
     val scan_progress: Int = 0,
+    /** Stage 8C.1 §19: 最近一次**成功**扫描时间(失败重扫不清空上次结果)。 */
+    val last_successful_scan_at: String? = null,
 )
 
 /**
@@ -348,6 +352,8 @@ data class DuplicateDetailMemberDto(
     val media_id: String = "",
     val name: String = "",
     val keep: Boolean = false,
+    /** Stage 8C.1 §20: 扫描后失效的成员 -> false,UI 显示「文件已不可用」。 */
+    val available: Boolean = true,
     val size_bytes: Long? = null,
     val duration_ms: Long? = null,
     val width: Int? = null,
@@ -387,6 +393,18 @@ enum class DeleteOutcomeStatus(val changed: Boolean, val successful: Boolean) {
         }
     }
 }
+
+/**
+ * 重复分组分页(GET /duplicates/exact|similar,Stage 8C.1 §11):
+ * 扫描结果全量持久化,数量控制只在读取侧分页(items/total/page/page_size)。
+ */
+@Serializable
+data class DuplicateGroupPageDto(
+    val items: List<DuplicateGroupDto> = emptyList(),
+    val total: Int = 0,
+    val page: Int = 1,
+    val page_size: Int = 50,
+)
 
 /** 重复分组(GET /duplicates*)。 */
 @Serializable

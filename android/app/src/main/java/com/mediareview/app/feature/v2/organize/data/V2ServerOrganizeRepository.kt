@@ -118,6 +118,7 @@ class V2ServerOrganizeRepository internal constructor(
             scanTaskId = dto.scan_task_id,
             scanStatus = dto.scan_status,
             scanProgress = dto.scan_progress,
+            lastSuccessfulScanAt = dto.last_successful_scan_at,
         )
     }
 
@@ -169,6 +170,7 @@ class V2ServerOrganizeRepository internal constructor(
                 addedAt = row.added_at,
                 media = mapped?.media,
                 coverUri = mapped?.coverUrl,
+                error = row.error,
             )
         }
     }
@@ -196,14 +198,22 @@ class V2ServerOrganizeRepository internal constructor(
 
     // ---------- 重复媒体 ----------
 
-    override suspend fun loadDuplicateGroups(type: DuplicateGroupType): List<DuplicateGroupSummary> =
-        call { api, _ ->
-            val dtos = when (type) {
-                DuplicateGroupType.EXACT -> unwrap(api.duplicatesExact())
-                DuplicateGroupType.SIMILAR -> unwrap(api.duplicatesSimilar())
-            }
-            dtos.map { it.toSummary() }
+    override suspend fun loadDuplicateGroups(
+        type: DuplicateGroupType,
+        page: Int,
+        pageSize: Int,
+    ): DuplicateGroupPage = call { api, _ ->
+        val dto = when (type) {
+            DuplicateGroupType.EXACT -> unwrap(api.duplicatesExact(page, pageSize))
+            DuplicateGroupType.SIMILAR -> unwrap(api.duplicatesSimilar(page, pageSize))
         }
+        DuplicateGroupPage(
+            items = dto.items.map { it.toSummary() },
+            total = dto.total,
+            page = dto.page,
+            pageSize = dto.page_size,
+        )
+    }
 
     override suspend fun loadDuplicateDetail(groupId: String): DuplicateGroupDetail =
         call { api, base ->
@@ -226,6 +236,7 @@ class V2ServerOrganizeRepository internal constructor(
                     media = mapped.media,
                     keep = member.keep,
                     coverUri = mapped.coverUrl.orEmpty(),
+                    available = member.available,
                 )
             }
             DuplicateGroupDetail(

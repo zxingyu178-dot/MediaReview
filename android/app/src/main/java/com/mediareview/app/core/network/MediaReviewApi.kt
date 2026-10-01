@@ -6,7 +6,7 @@ import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
 import com.mediareview.app.core.model.DeleteQueueSummaryDto
 import com.mediareview.app.core.model.DuplicateGroupDetailDto
-import com.mediareview.app.core.model.DuplicateGroupDto
+import com.mediareview.app.core.model.DuplicateGroupPageDto
 import com.mediareview.app.core.model.DuplicateKeepRequest
 import com.mediareview.app.core.model.DuplicateKeepResultDto
 import com.mediareview.app.core.model.DuplicateScanStatusDto
@@ -199,11 +199,19 @@ interface MediaReviewApi {
     @POST("/api/v1/delete-queue/commit")
     suspend fun commitDeleteQueue(@Body body: CommitRequest): Envelope<CommitResultDto>
 
+    /** 完全重复分页(Stage 8C.1 §11): items/total/page/page_size,读取侧分页。 */
     @GET("/api/v1/duplicates/exact")
-    suspend fun duplicatesExact(): Envelope<List<DuplicateGroupDto>>
+    suspend fun duplicatesExact(
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 50,
+    ): Envelope<DuplicateGroupPageDto>
 
+    /** 疑似重复分页(Stage 8C.1 §11): 与 exact 相同合同,独立维护分页。 */
     @GET("/api/v1/duplicates/similar")
-    suspend fun duplicatesSimilar(): Envelope<List<DuplicateGroupDto>>
+    suspend fun duplicatesSimilar(
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 50,
+    ): Envelope<DuplicateGroupPageDto>
 
     /** 重复媒体摘要(Stage 8C §12):计数 + 最近扫描任务状态,不返回分组本体。 */
     @GET("/api/v1/duplicates/summary")
