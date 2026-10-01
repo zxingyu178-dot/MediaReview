@@ -16,8 +16,10 @@ class BrandingResourceTest {
         val strings = projectFile("src/main/res/values/strings.xml").readText()
         val gradle = projectFile("build.gradle.kts").readText()
         assertTrue(strings.contains("<string name=\"app_name\">家庭媒体管家</string>"))
-        assertTrue(gradle.contains("versionCode = 8"))
-        assertTrue(gradle.contains("versionName = \"2.0.0-alpha1\""))
+        // 版本号规则见 docs/VERSION_POLICY.md：这里只校验"声明了合法版本与格式"，
+        // 具体数值由版本迭代递增（当前版本必须有 Release Notes，见 ReleaseNotesContractTest）。
+        assertTrue(Regex("""versionCode = \d+""").containsMatchIn(gradle))
+        assertTrue(Regex("""versionName = "2\.0\.0-alpha\d+"""").containsMatchIn(gradle))
     }
 
     @Test
