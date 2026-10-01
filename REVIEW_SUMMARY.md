@@ -1,126 +1,117 @@
-# MediaReview 2.0 — Stage 8B.1 评审摘要（Review Correctness & Delivery Closure）
+# MediaReview 2.0 — Stage 8B.2 评审摘要（Review Availability / Sparse Queue Closure）
 
-- 日期：2026-09-28
-- 分支：`feature/mediareview-v2-stage8b.1-review-closure`
-- Base Commit：`61832ed1664c5a38839cb765621357fa59932492`
+- 日期：2026-10-01
+- 分支：`feature/mediareview-v2-stage8b.2-review-availability`
+- Base Commit：`c55cdd34f264b9f6ea19e35497c66a5efd54c738`
 - **Head：以交接包 `00_HANDOFF.md` 为准（由 `git rev-parse HEAD` 现场生成）**
 - Git Status：CLEAN
-- 结果：**CODE_READY / USER_VALIDATION_PENDING**
-- **阶段结论：有条件合格**（代码、构建、自动测试全绿；真实手机 + 真实 Jellyfin 体验验收仍待用户）
+- 结果：**CODE_READY**（小版本：`User Validation: NOT REQUIRED FOR THIS PATCH`）
+- **阶段结论：合格**
 
 ## 一、目标与完成度
 
-目标（评审 §2）：只解决 **批阅正确性 + 分页正确性 + Server 状态权威性 + 测试/交付证据可信性**，
-不新增任何产品功能。
+目标（评审 §2）：只解决 **Review Session 中媒体在建队以后变成 unavailable / missing 时的正确性和性能**，
+不新增其他产品功能；**不生成/不发送用户 APK**。
 
 | 评审意见 | 状态 | 修法摘要 |
 |---|---|---|
-| §3 双向分页窗口 | 已修 | `ReviewQueueWindow` 改为 `firstLoadedPage/lastLoadedPage/pageSize/totalCount` |
-| §4 next 后再 prev 请求错页 | 已修 | `next = lastLoadedPage+1`、`prev = firstLoadedPage-1`（新增两种顺序的测试） |
-| §5 分页合并去重 | 已修 | `mergeItems` 按 absoluteIndex 去重 + 排序 |
-| §6 缺项 localIndexOf | 已修 | 改 `indexOfFirst` 搜索，找不到返回 null |
-| §7 失效 current_index 恢复 | 已修 | 先向后找 `>= current_index`，否则回退最近可用项，并把真实索引写回服务端 |
-| §8 atEnd 依赖最后可用媒体 | 已修 | 改为页边界：`lastLoadedPage * pageSize >= totalCount` |
-| §9 空页死循环 | 已修 | 空页推进页边界继续扫描（单次最多 8 页），到头返回窗口快照 |
-| §10 分页 single-flight | 已修 | Repository 内 `Mutex` 串行化 next/prev |
-| §11 Server queue 带 seen | 已修 | `QueueItem.seen` |
-| §12 Android queue item 带 seen | 已修 | `ReviewQueueItemUi.seen`（服务端权威） |
-| §13 seenCount 重复计算 | 已修 | 删除 `baseSeenCount + confirmedSeen.size` 推算 |
-| §14 markSeen 返回权威进度 | 已修 | 返回 `seen_count / total_count`，Android 直接采用 |
-| §15 markSeen in-flight 防重 | 已修 | `seenInFlight` 集合，同一媒体并发只发一次 |
-| §16 新分页收藏同步 | 已修 | `applyOpened` / `applyPageResult` 合并 `favorite=true` |
-| §17/§18 完成条件 | 已修 | `atEnd && seen_count == total_count` 才允许完成 |
-| §19 Server complete fail-closed | 已修 | 未批阅 → 409 CONFLICT，会话保持 active |
-| §20 到队尾但仍有未批阅 | 已修 | 提示"还有未批阅内容，会话未完成"，保持 active |
-| §21 complete single-flight | 已修 | `completeInFlight` |
-| §22 P1 预取身份校验 | 已修 | 写入单槽前校验当前 + next 身份与 source identity |
-| §23 position latest-wins | 已修 | 序号化串行写入（30→31→32 最终停在 32） |
-| §24 过时 version 合同 | 已修 | 合同测试更新为 `2.0.0-alpha1 / versionCode=8` |
-| §25 Hilt harness | 已修 | `HiltTestActivity`（debug 源集 + debug manifest，生产 Application） |
-| §26 Legacy Shell 测试 | 已归置 | 证明生产不走旧 Shell 后删除 6 项无意义合同（非 @Ignore） |
-| §27 Search flaky | 已修 + 复跑 | 断言修正（关闭搜索后断言模式行），5/5 PASS |
-| §28~§32 交付证据 | 已重做 | clean assembleDebug raw 日志 + exit_code=0 + APK SHA256 + git evidence 顺序修正 + pytest raw 日志 + PARTIAL 术语 |
-| §33/§34 新增测试 | 已完成 | JVM +25 项、Server +8 项（清单见 §三） |
+| §4 失效媒体永久阻塞完成 | 已修 | 完成条件改为 `remaining_count == 0` |
+| §5 total_count 语义不变 | 保持 | 队列长度、absoluteIndex、分页、position 全部不压缩 |
+| §6 新增权威进度字段 | 已做 | `unavailable_count / remaining_count / completed_count`（不重复计数） |
+| §7 Server 统一 progress helper | 已做 | `review_progress_counts()`，所有 Review API 共用 |
+| §8/§9 完成条件 + fail-closed | 已做 | remaining>0 → 409 CONFLICT，会话保持 active |
+| §10 advance / set_position 同步 | 已做 | 三条路径统一只认 remaining |
+| §11 DTO 扩展（兼容旧 Server） | 已做 | 默认 `-1` = 未知，绝不把缺失值当 0 |
+| §12/§13 Android 完成改为 Server 权威 | 已做 | 到队尾 → `refreshProgress()` → 据权威 remaining 决策 |
+| §14 不每个 settle 刷新 | 已做 | 同一 seen 进度下只刷一次；测试断言 refresh 次数 |
+| §15~§19 恢复性能重构 | 已做 | `nearest` 单条 SQL；恢复 = 1 nearest + 1 目标页；写回 position |
+| §20 整会话不可用 | 已做 | `NoAvailableMedia` → 空态 + 「暂无可继续批阅的媒体」 |
+| §21~§24 连续空页卡住 | 已做 | next/prev 空页 → nearest 直接跳页；删除 `MAX_EMPTY_PAGE_SCAN` |
+| §25 absolute index 保持 | 保持 | 缺项不压缩（测试覆盖 600/602/603 语义） |
+| §26 UI 进度显示 | 保持 | 顶部仍为 Session 绝对进度；完成页数据已备好（不扩 UI） |
+| §27 提示带数字 | 已做 | 「还有 N 条未批阅内容，会话未完成」 |
+| §28 失效媒体合同 4 例 | 已做 | Case 1/2/3/4 全部有测试 |
+| §29 nearest 4 例 | 已做 | 自身可用 / 向后 / 向前回退 / 全不可用 |
+| §30 大稀疏性能合同 | 已做 | Server 单条 SQL 断言 + Android `nearest ≤ 1 / page ≤ 1` |
+| §31/§32 连续 20 页不可用 | 已做 | next → page31、prev → page10 直接跳页 |
+| §33 current_index 越界 | 已做 | 优先 nearest backward |
+| §34 网络失败 ≠ 不可用 | 已做 | 恢复 → Failed；分页 → null 可重试 |
+| §35/§36 不碰 Organize / 播放器 | 遵守 | 未改 `feature/v2/player/**`，未动整理页 |
+| §38/§42 无 APK、SHA256SUMS 不含 APK | 遵守 | 未运行 assembleDebug；ZIP 内无 APK 条目 |
 
 ## 二、主要改动
 
 ### Server（`server/`）
 
-- `app/services/review.py`：`mark_seen` 返回权威进度 dict；`complete` fail-closed（`UnfinishedReviewError`）；
-  `advance` / `set_position` 自动完成同样 fail-closed；`session_queue_page` 返回 `(index, seen, media)`。
-- `app/api/v1/review.py`：`QueueItem.seen`；seen 返回 `{media_id, seen, seen_count, total_count}`；
-  complete 捕获 `UnfinishedReviewError` → 409 CONFLICT（中文 message）。
-- 测试：新增 `tests/test_review_correctness_8b1.py`（8 项）；更新 `test_review_service.py`、
-  `test_phase456_api.py`、`test_deployment_contract_11.py`（过时版本合同）。
-- **API 变化**（向后兼容的新增/语义收紧）：queue item 新增 `seen`；seen 响应新增 `seen_count/total_count`；
-  complete 在未批阅时由 200 变为 409。**数据库无 schema 变化**（`ReviewSessionItem.seen` 早已存在）。
+- `app/services/review.py`：
+  - 新增 `review_progress_counts()`（统一进度，含"先 seen 后失效"不重复计数）、
+    `nearest_available_item()`（SQL `LIMIT 1` 直查）、`_remaining_count()`；
+  - `complete()` / `advance()` / `set_position()` 自动完成条件统一为 `remaining_count == 0`；
+  - `mark_seen()` 返回完整权威计数；`progress_view()` / `session_view()` 统一带计数。
+- `app/api/v1/review.py`：新增 `GET /sessions/{id}/nearest`（forward/backward/nearest，422 校验方向），
+  所有响应统一进度计数。
+- 测试：新增 `tests/test_review_availability_8b2.py`（15 项：Case1~4、advance/position 语义、
+  nearest 4 例 + 方向/参数校验 + 404、100k 单条 SQL 断言）；更新 `test_review_service.py` /
+  `test_review_correctness_8b1.py` 的"可用性前置"（完成条件变化导致的原断言修正）。
 
 ### Android（`android/`）
 
-- `ReviewSessionModels.kt`：`ReviewQueueItemUi.seen`、`ReviewSeenResult`、`ReviewQueueWindow` 重构、
-  `ReviewQueuePaging`（page 边界 atEnd / mergeItems / firstAtOrAfter / nearestBefore / totalPages）。
-- `V2ServerReviewSessionRepository.kt`：双向分页 + 空页推进 + 合并去重 + `Mutex` single-flight +
-  失效锚点恢复与位置写回 + seen 权威结果 + 位置写入固定 sessionId。
-- `V2ReviewViewModel.kt`：seen 权威/in-flight 去重、完成门槛 + single-flight + 未批阅提示、
-  收藏跨页合并、position 序号化 latest-wins、P1 stale 身份校验。
-- `V2ReviewSessionRepository.kt` / `V2ReviewSessionRepositoryRouter.kt` / `DemoReviewSessionRepository.kt`：
-  `markSeen` 合同改为 `ReviewSeenResult?`；Demo 侧保持单页全量语义（pageSize=队列长度）。
-- `ApiModels.kt`：`ReviewQueueItemDto.seen`、`ReviewSeenResultDto.seen_count/total_count`。
-- `app/build.gradle.kts`：instrumentation runner 保持生产 Application；`src/debug/` 新增
-  `HiltTestActivity` + debug manifest（测试宿主，Release 不包含）。
-- 测试：`ReviewQueuePagingTest` / `V2ReviewViewModelTest` / `V2ServerReviewSessionRepositoryContractTest`
-  重写扩充；`Stage4BrowserUiTest` 宿主与断言修正；`Stage8BReviewServerFlowTest` 合同字段补齐。
+- `core/model/ApiModels.kt`：`ReviewSessionDto / ReviewProgressDto / ReviewSeenResultDto` 增加三个计数；
+  新增 `ReviewNearestDto`。
+- `core/network/MediaReviewApi.kt`：新增 `reviewSession(id)`（权威进度）与 `nearestReviewIndex(...)`。
+- `review/data/ReviewSessionModels.kt`：`ReviewSessionInfo` / `ReviewSeenResult` 增加计数 +
+  `effectiveRemainingCount`（未知时保守回退 `total - seen`）；新增 `NearestDirection`、
+  `ReviewSessionOpen.NoAvailableMedia`。
+- `review/data/V2ServerReviewSessionRepository.kt`：`openWindow` 改为 nearest + 单页；
+  next/prev 空页跳页（删除 `MAX_EMPTY_PAGE_SCAN`）；越界处理；`refreshProgress()`；nearest 失败上抛。
+- `review/data/V2ReviewSessionRepository.kt` / Router / `DemoReviewSessionRepository.kt`：
+  新增 `refreshProgress()`；Demo 返回本地权威状态。
+- `review/V2ReviewUiState.kt` / `V2ReviewViewModel.kt`：Ready 增加权威计数；
+  完成流程改为"到队尾 → 刷新 → 按 remaining 决策"；提示带数字；`NoAvailableMedia` → 空态 + 提示；
+  `Complete` 携带 seen/unavailable（完成页数据备好）。
 
 ### UI / 交互变化
 
-无新功能、无视觉变化。仅新增一条提示文案：到队尾仍有未批阅时 Snackbar
-「还有未批阅内容，会话未完成」（会话保持 active，不进入完成页）。
+无新功能、无视觉扩范围。仅两条提示文案调整/新增：
+「还有 N 条未批阅内容，会话未完成」「暂无可继续批阅的媒体」。
 
-## 三、测试规模（真实执行结果）
+## 三、测试规模（真实执行）
 
 | 环境 | 结果 |
 |---|---|
-| Server pytest（全量） | **392 tests / 0 failed / 0 error / exit_code=0** |
-| Android JVM | **405 tests / 0 failed**（65 suites） |
-| Instrumentation（模拟器 `MediaReview_Test` API35） | **36/36 PASS（0 failed）**；搜索用例 5/5 复跑 |
-| Lint | **0 errors**（41 warnings + 10 info） |
-| assembleDebug | `:app:clean :app:assembleDebug` **exit_code=0**（原始日志 `logs/assembleDebug_raw.txt`） |
-
-### 设备侧逐项状态（Stage 8B → 8B.1）
-
-| 项 | 8B | 8B.1 |
-|---|---|---|
-| Hilt harness（favorites×2） | FAIL（裸 ComponentActivity 无 Hilt 工厂） | **PASS**（HiltTestActivity） |
-| Legacy 1.1 Shell（6 项） | FAIL（旧壳触摸/布局断言） | **已删除**（证明不可达，见 05_KNOWN_ISSUES.md） |
-| Search 单输入框 | FAIL（断言与设计不符） | **PASS**（断言修正 + 5/5 复跑） |
-| 其余 27 项（含 Stage8A Server 模式 4 项、Stage8B 端到端 1 项、GSY 布局 8 项） | PASS | **PASS** |
+| Server pytest（全量） | **407 tests / 0 failed / 0 error / exit_code=0** |
+| Android JVM | **418 tests / 0 failed**（65 suites） |
+| Lint | **0 errors**（41 warnings + 10 info，无新增 error） |
+| compileDebugKotlin | BUILD SUCCESSFUL |
+| Instrumentation（模拟器 API35 + 宿主 Mock Server） | **36/36 PASS / 0 failed** |
+| 用户 APK | **NOT GENERATED**（小版本政策；未运行 `:app:assembleDebug`） |
 
 ## 四、已知问题 / 遗留
 
-1. **真实手机 + 真实 Jellyfin 未验收** → `USER_VALIDATION_PENDING`（本阶段未部署生产 Server）。
-2. Compose 手势级 UI 自动化仍缺失（设备侧测试驱动 ViewModel + 真实 HTTP，不含手指上滑）。
-3. 空队列完成页的"重新批阅"在 Server 模式下会新建会话（既有语义，未改）。
-4. 到队尾仍有未批阅时只提示、不自动跳回第一条未看（评审 §20 明确本阶段不做）。
-5. 交付证据保留一项事实：pytest 终端日志缺少最终计数行，已在 raw 日志尾部**明确标注**追加
-   JUnit XML 计数与 exit_code（wrapper 脚本 `run_stage8b1_pytest.py`，证据自证）。
-6. 未进入 Stage 8C（整理中心去 Mock / 接 Server），按 §39 停止等待用户实机验收。
+1. 本阶段按 §41 **不需要用户实机验收**；真实手机体验确认仍属后续（可与 Stage 8C 验收合并）。
+2. 未部署生产 Server（未替换服务 / 未迁移 DB / 未重启 ControlHub）。
+3. `refreshProgress` 只在队尾触发：若用户停在队尾期间媒体才失效且用户不移动，
+   提示数字会保持上一次刷新时的值（不引入轮询是 §14 的明确取舍）。
+4. 完成页 UI 暂未展示"已浏览 / 失效跳过"（§26 允许本小版本只备数据）。
+5. 极端状态：nearest 明确为 null 且 session 仍有 `seen` 记录时，进入空态而非自动 complete
+   （避免在进入路径上产生写操作；用户点「重新批阅」会新建会话）。
 
 ## 五、风险最高的 3 个点（Agent 自评）
 
-1. **完成门槛收紧后的"不可达完成"边界**：若会话尾部媒体全部失效，`seen_count` 永远小于
-   `total_count`，会话将保持 active 并持续提示"还有未批阅内容"。这是评审 §18/§19/§20 明确要求的
-   fail-closed 语义，但真实 Jellyfin 上媒体频繁失效的场景需要产品确认是否需要"跳过失效项"的例外。
-2. **位置 latest-wins 的会话切换时序**：ViewModel 在会话切换时取消写入器 + 仓库侧固定 sessionId，
-   两处防线都做了，但"旧会话迟到写入"在极端网络下仍可能打到已完成的旧会话（被服务端拒绝）。
-   真实弱网需要实测确认无副作用。
-3. **设备侧测试的断言强度**：favorites/player 往返用例在"播放器进入播放失败错误层"时也视为
-   "已打开播放器"（测试注入的媒体不在生产演示库中）。导航契约成立，但"真实播放画面"仍须人工确认。
+1. **完成语义变更的跨端一致性**：Server 判定与 Android 展示都改为 `remaining`；
+   若线上 Server 未同步升级（旧响应缺字段），Android 会保守回退 `total - seen` →
+   表现为"失效媒体仍阻塞完成"（不会误完成）。升级需 Server+App 同步发布。
+2. **nearest 的 SQL 正确性边界**：`backward` 是严格小于（不含锚点自身），
+   客户端越界恢复依赖 `nearest(index=total_count, backward)` 拿到最后一项；
+   已由 Server 4 例 + Android 越界用例双向覆盖，但真实 Jellyfin 大库仍建议抽样核对。
+3. **跳页后的窗口稀疏性**：跳页会让窗口跨越大量未加载页（如 10 → 31），
+   UI 顶部显示的是绝对进度而非本地条数（符合 §25/§26），但真机上滑动节奏需要肉眼确认。
 
 ## 六、是否建议进入下一阶段
 
-建议：**先由用户实机验收 Stage 8B.1 的批阅正确性**（恢复位置、完成门槛、跨页收藏、seen 提示），
-确认后再进入 Stage 8C（整理中心正式接 Server）。若要立刻推进，建议先做 8B.1 的真实环境验证
-（真机 + 真实 Server），而不是直接开 8C。
+建议：**可以进入 Stage 8C（Organize Center → Real Server）**。
+本阶段为小版本收口（§41：`NOT REQUIRED FOR THIS PATCH`），用户实机验收可安排在 8C 一并完成；
+若希望先看设备表现，可在真机上复查"失效媒体不再阻塞完成"与"深位置恢复秒开"两项。
 
 ---
-阶段结论：有条件合格
+阶段结论：合格

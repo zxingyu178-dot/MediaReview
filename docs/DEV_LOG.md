@@ -1946,3 +1946,75 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 - 真实手机 + 真实 Jellyfin 验收未做（`USER_VALIDATION_PENDING`）；
 - Compose 手势级 UI 自动化仍未做（设备侧测试驱动 ViewModel + 真实 HTTP）；
 - 未进入 Stage 8C（整理中心接 Server），按 §39 完成后停止。
+
+---
+
+# Stage 8B.2 — Review Availability / Sparse Queue Closure
+
+- **基线**：`c55cdd34f264b9f6ea19e35497c66a5efd54c738`（feature/mediareview-v2-stage8b.1-review-closure）
+- **分支**：`feature/mediareview-v2-stage8b.2-review-availability`
+- **范围**：只解决「Session 建队后媒体变成 unavailable/missing 时的正确性与性能」。
+  **小版本 APK 新规**：本阶段不生成、不复制、不发送用户 APK，也不运行 `:app:assembleDebug`。
+
+## 1. 产品语义：媒体失效不再永久阻塞完成
+
+- `total_count` 语义**不变**（Session 创建时固化的原始队列长度）→ absoluteIndex / 分页 / position /
+  恢复全部继续依赖这个稳定长度，绝不动态压缩队列。
+- 新增**统一**进度计数（`server/app/services/review.py::review_progress_counts`，所有 Review API 共用）：
+  - `unavailable_count` = 当前无媒体行 / `is_available=false` 的 SessionItem 数；
+  - `remaining_count` = 仍可用且 `seen=false` 的数量（**完成条件**）；
+  - `completed_count` = `total_count - remaining_count`（**不是** seen + unavailable，避免"先 seen 后失效"重复计数）。
+- 完成条件从 `seen_count == total_count` 改为 **`remaining_count == 0`**：
+  `complete` / `advance` / `set_position` 三条路径统一；`complete` 继续 fail-closed（remaining>0 → 409 CONFLICT）。
+- 进度字段进入所有 Review 响应：`GET /sessions/{id}`、`latest`、`queue`（每项 `seen`）、
+  `seen`、`position`、`advance`、`complete`。
+
+## 2. 恢复性能：不再逐页扫描
+
+- Server 新增 `GET /review/sessions/{id}/nearest?index=&direction=forward|backward|nearest`：
+  `ReviewSessionItem JOIN MediaCacheIndex(is_available)` + `ORDER BY index LIMIT 1` 的**单条 SQL**，
+  返回 `{"index": <int|null>}`；100k 稀疏队列下 `nearest` 只发 1 条 SQL（测试断言）。
+- Android `openWindow` 重构：`current_index` → `nearest`（1 次）→ 目标页（1 次 GET），
+  正常恢复 = **1 nearest + 1 queue page**（旧实现最多几十页 HTTP）。
+- `current_index >= total_count`（旧 Session / 异常状态）→ 优先 `nearest backward` 找最后一个可用项（§33）。
+- 整个 Session 都不可用（nearest 明确 null）→ `ReviewSessionOpen.NoAvailableMedia` →
+  UI 空态 + 提示「暂无可继续批阅的媒体」，**不再每次进入重扫整个 Session**。
+- **网络失败 ≠ 没有可用媒体**：nearest 失败向上抛 → 恢复走 `Failed`（可重试），
+  分页失败走 null（可重试）；绝不当成"没有可用媒体"。
+
+## 3. 稀疏区跳页：删除 MAX_EMPTY_PAGE_SCAN
+
+- `loadNextPage`：整页不可用 → 记录该页已检查 → `nearest(forward, index=该页起点)` → **直接跳到目标页**
+  （不再一页一页扫；单次调用最多 1 次 nearest + 2 次 page 请求）。
+- `loadPrevPage`：对称处理（`nearest(backward, index=该页起点)`）。
+- 定位不到可用项时把边界推进到最后一页 / 第 1 页 → `atEnd` / `canLoadPrev` 正确收敛，不再死循环。
+- 旧的 `MAX_EMPTY_PAGE_SCAN` 多页扫描路径**彻底删除**（不保留两套路径）。
+- absolute index 继续不压缩（600 / 602 / 603 不会变成 600 / 601 / 602）。
+
+## 4. Android 完成流程改为服务端权威
+
+- 到窗口末端 → `refreshProgress()`（`GET /review/sessions/{id}`，**每次"准备完成"只刷一次**，
+  禁止每个 settle 都刷）→ `remaining == 0` 才 `complete()`；否则提示 **「还有 N 条未批阅内容，会话未完成」**；
+  刷新失败 → 「无法确认会话进度，请稍后重试」且**绝不完成**。
+- `ReviewSessionDto / ReviewProgressDto / ReviewSeenResultDto / ReviewSessionInfo / ReviewSeenResult`
+  增加 `unavailable_count / remaining_count / completed_count`，默认 `-1` = 未知（兼容旧 Server，
+  绝不把缺失值当 0 而误完成）；`remaining < 0` 时保守回退 `total - seen`。
+- 完成页数据已备好（`Complete(totalCount, seenCount, unavailableCount)`），本小版本不扩 UI 范围。
+
+## 5. 测试与验证（真实执行）
+
+| 项目 | 结果 |
+|---|---|
+| Server pytest（全量） | **407 tests / 0 failed / 0 error / exit_code=0**（新增 `test_review_availability_8b2.py` 15 项） |
+| Android JVM | **418 tests / 0 failed**（新增 13 项：nearest 请求数合同 / 跳页 / 越界 / 网络失败 / refresh 一次 / 数字提示等） |
+| Lint | **0 errors**（41 warnings + 10 info，与 8B.1 一致，无新增 error） |
+| compileDebugKotlin | **BUILD SUCCESSFUL** |
+| Instrumentation（模拟器 API35，含宿主 Mock Server 8799） | **36/36 PASS / 0 failed**（设备侧 Review 端到端已适配 nearest 恢复） |
+| 用户 APK | **NOT GENERATED（小版本政策）**；未运行 `:app:assembleDebug`（instrumentation 内部构建属工具行为） |
+| 生产部署 | **NOT PERFORMED** |
+
+## 6. 明确未做
+
+- 不碰 Organize / Delete Queue UI / Duplicate UI / 媒体库管理 / Room / SWR（属 Stage 8C）；
+- 不改播放器（`feature/v2/player/**` 未修改）；无 UI 扩范围（仅新增两条提示文案）；
+- 未部署生产；未进入 Stage 8C。
