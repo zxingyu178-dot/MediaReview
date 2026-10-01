@@ -31,6 +31,7 @@ import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import com.mediareview.app.ui.theme.MediaReviewTheme
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -51,6 +52,17 @@ class Stage4BrowserUiTest {
 
     @get:Rule
     val compose = createAndroidComposeRule<HiltTestActivity>()
+
+    @Before
+    fun markCurrentVersionSeen() {
+        // Stage 8C.1：渲染 V2MainScreen 的测试必须先标记"当前版本已看过"，
+        // 否则首启的「本次更新」Sheet 会叠加在本页之上，使点击/断言变成顺序相关。
+        kotlinx.coroutines.runBlocking {
+            com.mediareview.app.feature.v2.releasenotes.ReleaseNotesStore(
+                ApplicationProvider.getApplicationContext(),
+            ).saveLastSeenVersionCode(com.mediareview.app.BuildConfig.VERSION_CODE)
+        }
+    }
 
     private fun newVm(repo: MediaRepository): V2HomeViewModel =
         testHomeViewModel(repo, Stub4SearchHistory())

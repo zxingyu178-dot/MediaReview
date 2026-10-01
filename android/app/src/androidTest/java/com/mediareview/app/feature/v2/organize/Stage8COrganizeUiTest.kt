@@ -13,8 +13,10 @@ import androidx.compose.ui.test.waitUntilExactlyOneExists
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.mediareview.app.BuildConfig
 import com.mediareview.app.HiltTestActivity
 import com.mediareview.app.OrganizeTestEntryPoint
+import com.mediareview.app.feature.v2.releasenotes.ReleaseNotesStore
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.feature.v2.V2MainScreen
 import com.mediareview.app.feature.v2.data.AlbumCoverStore
@@ -59,6 +61,11 @@ class Stage8COrganizeUiTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        // Stage 8C.1：渲染 V2MainScreen 的测试先标记"当前版本已看过"，
+        // 避免首启「本次更新」Sheet 叠加在整理页之上导致点击顺序相关（更新日志另有专门用例）。
+        runBlocking {
+            ReleaseNotesStore(context).saveLastSeenVersionCode(BuildConfig.VERSION_CODE)
+        }
         router = OrganizeUiDispatcher()
         server = MockWebServer()
         server.dispatcher = router
