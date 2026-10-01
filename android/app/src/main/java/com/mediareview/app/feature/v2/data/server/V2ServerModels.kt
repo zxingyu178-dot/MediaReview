@@ -87,6 +87,15 @@ class V2ServerResourceCache(private val maxEntries: Int = 2048) {
         entries[id] = current.copy(media = current.media.copy(isFavorite = favorite))
     }
 
+    /**
+     * 移除已删除的媒体(Stage 8C §24):最终删除 success/missing 后,
+     * 缓存不得继续命中已不存在的媒体,否则 mediaById / coverUri 返回陈旧数据。
+     */
+    @Synchronized
+    fun removeAll(ids: Collection<String>) {
+        ids.forEach { entries.remove(it) }
+    }
+
     @Synchronized
     fun clear() {
         entries.clear()

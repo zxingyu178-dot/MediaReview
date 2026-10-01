@@ -3,6 +3,8 @@ package com.mediareview.app.feature.v2.di
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.V2MediaRepositoryRouter
 import com.mediareview.app.feature.v2.data.server.V2ServerResourceCache
+import com.mediareview.app.feature.v2.organize.data.V2OrganizeRepository
+import com.mediareview.app.feature.v2.organize.data.V2OrganizeRepositoryRouter
 import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepository
 import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepositoryRouter
 import dagger.Binds
@@ -33,6 +35,13 @@ abstract class V2DataModule {
     abstract fun bindReviewSessionRepository(
         impl: V2ReviewSessionRepositoryRouter,
     ): V2ReviewSessionRepository
+
+    /** 整理中心数据层（Stage 8C）：待删除 / 重复媒体 / 媒体库 / 批阅进度摘要。 */
+    @Binds
+    @Singleton
+    abstract fun bindOrganizeRepository(
+        impl: V2OrganizeRepositoryRouter,
+    ): V2OrganizeRepository
 
     companion object {
 

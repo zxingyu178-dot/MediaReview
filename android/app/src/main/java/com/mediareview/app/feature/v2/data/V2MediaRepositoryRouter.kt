@@ -41,6 +41,12 @@ class V2MediaRepositoryRouter @Inject constructor(
         server.invalidateAuxiliaryCache()
     }
 
+    override fun dropCachedMedia(mediaIds: List<String>) {
+        // 两侧都丢弃：删除后缓存条目在任何模式下都不应继续命中
+        demo.dropCachedMedia(mediaIds)
+        server.dropCachedMedia(mediaIds)
+    }
+
     override suspend fun folders(): List<V2Folder> = active().folders()
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = active().mediaPage(query)

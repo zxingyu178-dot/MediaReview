@@ -15,10 +15,24 @@ object MediaNavigator {
     const val ROUTE_PLAYER = "player/{mediaId}"
     const val ROUTE_VIEWER = "viewer/{mediaId}"
 
+    // 整理中心子页（Stage 8C §46）：详情隐藏 BottomNav，Back 回整理
+    const val ROUTE_ORGANIZE_DELETE = "organize/delete"
+    const val ROUTE_ORGANIZE_DUPLICATES = "organize/duplicates"
+    const val ROUTE_ORGANIZE_DUPLICATE_COMPARE = "organize/duplicates/{groupId}"
+    const val ROUTE_ORGANIZE_LIBRARIES = "organize/libraries"
+
     fun folder(folderId: String) = "folder/$folderId"
     fun album(albumId: String) = "album/$albumId"
     fun player(mediaId: String) = "player/$mediaId"
     fun viewer(mediaId: String) = "viewer/$mediaId"
+
+    fun organizeDelete() = ROUTE_ORGANIZE_DELETE
+    fun organizeDuplicates() = ROUTE_ORGANIZE_DUPLICATES
+
+    /** 分组 ID 只含 `[a-z0-9:_-]`（如 `exact:1000:60000:1`），冒号在路径段内合法。 */
+    fun organizeDuplicateCompare(groupId: String) = "organize/duplicates/$groupId"
+
+    fun organizeLibraries() = ROUTE_ORGANIZE_LIBRARIES
 
     /**
      * 统一打开媒体：VIDEO → Player，IMAGE → Viewer。

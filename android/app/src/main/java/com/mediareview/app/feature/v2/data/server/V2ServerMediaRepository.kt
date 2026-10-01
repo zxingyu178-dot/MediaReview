@@ -204,6 +204,11 @@ class V2ServerMediaRepository internal constructor(
         foldersCacheEntry = null
     }
 
+    /** Stage 8C §24：最终删除 success/missing 后，缓存不得继续命中已不存在的媒体。 */
+    override fun dropCachedMedia(mediaIds: List<String>) {
+        if (mediaIds.isNotEmpty()) resources.removeAll(mediaIds)
+    }
+
     override suspend fun media(): List<V2Media> =
         mediaPage(V2MediaQuery(page = 1, pageSize = COMPAT_PAGE_SIZE)).items
 

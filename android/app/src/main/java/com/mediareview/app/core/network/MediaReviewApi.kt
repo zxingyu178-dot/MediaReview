@@ -4,9 +4,13 @@ import com.mediareview.app.core.model.CommitRequest
 import com.mediareview.app.core.model.CommitResultDto
 import com.mediareview.app.core.model.DeleteCommitPrepDto
 import com.mediareview.app.core.model.DeleteQueueItemDto
+import com.mediareview.app.core.model.DeleteQueueSummaryDto
+import com.mediareview.app.core.model.DuplicateGroupDetailDto
 import com.mediareview.app.core.model.DuplicateGroupDto
 import com.mediareview.app.core.model.DuplicateKeepRequest
+import com.mediareview.app.core.model.DuplicateKeepResultDto
 import com.mediareview.app.core.model.DuplicateScanStatusDto
+import com.mediareview.app.core.model.DuplicateSummaryDto
 import com.mediareview.app.core.model.Envelope
 import com.mediareview.app.core.model.FavoriteItemDto
 import com.mediareview.app.core.model.HealthOut
@@ -179,6 +183,10 @@ interface MediaReviewApi {
     @GET("/api/v1/delete-queue")
     suspend fun listDeleteQueue(): Envelope<List<DeleteQueueItemDto>>
 
+    /** 待删除摘要(Stage 8C §11):只统计 pending,供 Organize 首页使用。 */
+    @GET("/api/v1/delete-queue/summary")
+    suspend fun deleteQueueSummary(): Envelope<DeleteQueueSummaryDto>
+
     @POST("/api/v1/delete-queue/{media_id}")
     suspend fun enqueueDelete(@Path("media_id") mediaId: String): Envelope<MutationResultDto>
 
@@ -197,6 +205,14 @@ interface MediaReviewApi {
     @GET("/api/v1/duplicates/similar")
     suspend fun duplicatesSimilar(): Envelope<List<DuplicateGroupDto>>
 
+    /** 重复媒体摘要(Stage 8C §12):计数 + 最近扫描任务状态,不返回分组本体。 */
+    @GET("/api/v1/duplicates/summary")
+    suspend fun duplicatesSummary(): Envelope<DuplicateSummaryDto>
+
+    /** 分组详情(Stage 8C §33):分组 + 成员媒体摘要,一次请求,客户端零 N+1。 */
+    @GET("/api/v1/duplicates/{group_id}")
+    suspend fun duplicateDetail(@Path("group_id") groupId: String): Envelope<DuplicateGroupDetailDto>
+
     @POST("/api/v1/duplicates/scan")
     suspend fun scanDuplicates(): Envelope<TaskStateDto>
 
@@ -207,7 +223,7 @@ interface MediaReviewApi {
     suspend fun setDuplicateKeep(
         @Path("group_id") groupId: String,
         @Body body: DuplicateKeepRequest,
-    ): Envelope<Map<String, String>>
+    ): Envelope<DuplicateKeepResultDto>
 }
 
 @Serializable

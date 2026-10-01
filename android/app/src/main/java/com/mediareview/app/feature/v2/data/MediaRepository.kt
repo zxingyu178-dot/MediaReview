@@ -28,6 +28,14 @@ interface MediaRepository {
      */
     fun invalidateAuxiliaryCache() {}
 
+    /**
+     * 丢弃已删除媒体的本地缓存（Stage 8C §24）。
+     *
+     * 最终删除 success/missing 后，媒体在服务端已不存在，缓存继续命中会返回
+     * 陈旧条目（`mediaById` / 封面）；Server 实现必须同步移除。Demo 无远程缓存，默认空实现。
+     */
+    fun dropCachedMedia(mediaIds: List<String>) {}
+
     suspend fun folders(): List<V2Folder>
 
     /**

@@ -304,6 +304,58 @@ data class DeleteCommitPrepDto(
     val media_ids: List<String> = emptyList(),
 )
 
+/**
+ * 待删除摘要(GET /delete-queue/summary,Stage 8C §11):
+ * 只统计 pending 的 count / total_bytes —— Organize 首页不得为显示数字拉取整个队列。
+ */
+@Serializable
+data class DeleteQueueSummaryDto(
+    val count: Int = 0,
+    val total_bytes: Long = 0,
+)
+
+/**
+ * 重复媒体摘要(GET /duplicates/summary,Stage 8C §12):
+ * 完全/疑似分组计数 + 最近一次扫描任务状态,不返回分组本体。
+ */
+@Serializable
+data class DuplicateSummaryDto(
+    val exact_groups: Int = 0,
+    val similar_groups: Int = 0,
+    val scan_task_id: String? = null,
+    val scan_status: String? = null,
+    val scan_progress: Int = 0,
+)
+
+/**
+ * 重复分组详情(GET /duplicates/{group_id},Stage 8C §33):
+ * 分组 + 成员 + 每个成员的媒体摘要 —— 客户端一次请求拿到全部对比数据,禁止 N+1。
+ */
+@Serializable
+data class DuplicateGroupDetailDto(
+    val group_id: String = "",
+    val type: String = "",
+    val detail: String = "",
+    val count: Int = 0,
+    val size_bytes: Long = 0,
+    val duration_ms: Long? = null,
+    val members: List<DuplicateDetailMemberDto> = emptyList(),
+)
+
+/** 分组详情成员:媒体摘要字段 + 相对封面 URL(与 /media 相同的版本号语义)。 */
+@Serializable
+data class DuplicateDetailMemberDto(
+    val media_id: String = "",
+    val name: String = "",
+    val keep: Boolean = false,
+    val size_bytes: Long? = null,
+    val duration_ms: Long? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val media_type: String? = null,
+    val cover_url: String? = null,
+)
+
 /** 最终删除提交请求体:一次性 nonce(只接受服务端 prepare 签发的值)。 */
 @Serializable
 data class CommitRequest(
@@ -374,6 +426,20 @@ data class DuplicateScanStatusDto(
 data class DuplicateKeepRequest(
     val media_id: String,
     val keep: Boolean,
+)
+
+/**
+ * "保留"选择结果(POST /duplicates/{group_id}/keep)。
+ *
+ * Server 返回 `{"group_id": "...", "media_id": "...", "keep": true}` ——
+ * `keep` 是**布尔**：早期用 `Map<String, String>` 接收会解析失败（静默失效），
+ * Stage 8C 修正为专用 DTO。
+ */
+@Serializable
+data class DuplicateKeepResultDto(
+    val group_id: String = "",
+    val media_id: String = "",
+    val keep: Boolean = false,
 )
 
 @Serializable

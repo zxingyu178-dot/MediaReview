@@ -1,7 +1,6 @@
 package com.mediareview.app.feature.v2
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,17 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CopyAll
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
@@ -38,8 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,6 +47,11 @@ import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.organize.OrganizePage
+import com.mediareview.app.feature.v2.organize.delete.DeleteQueueScreen
+import com.mediareview.app.feature.v2.organize.duplicates.DuplicateCompareScreen
+import com.mediareview.app.feature.v2.organize.duplicates.DuplicatesScreen
+import com.mediareview.app.feature.v2.organize.libraries.LibraryManagerScreen
 import com.mediareview.app.feature.v2.player.V2NativePlayerViewModel
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
@@ -65,11 +60,9 @@ import com.mediareview.app.feature.v2.review.V2ReviewScreen
 import com.mediareview.app.feature.v2.review.V2ReviewUiState
 import com.mediareview.app.feature.v2.review.V2ReviewViewModel
 import com.mediareview.app.feature.v2.settings.V2DataSourceSheet
-import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.feature.v2.viewer.V2ImageViewer
 import com.mediareview.app.ui.theme.MediaBackground
-import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 
@@ -93,6 +86,7 @@ fun V2MainScreen(
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
+    val dataMode by vm.dataMode.collectAsState()
 
     // 数据源设置（Demo / 我的服务器 + 首次配置）：V2 内部 Sheet，任何时候都能切换
     var dataSourceSheetOpen by remember { mutableStateOf(false) }
@@ -180,8 +174,42 @@ fun V2MainScreen(
             }
             composable(MediaNavigator.ROUTE_ORGANIZE) {
                 OrganizePage(
-                    vm = vm,
+                    dataMode = dataMode,
                     onOpenDataSource = { dataSourceSheetOpen = true },
+                    onOpenDelete = { navController.navigate(MediaNavigator.organizeDelete()) },
+                    onOpenDuplicates = { navController.navigate(MediaNavigator.organizeDuplicates()) },
+                    onOpenLibraries = { navController.navigate(MediaNavigator.organizeLibraries()) },
+                )
+            }
+            composable(MediaNavigator.ROUTE_ORGANIZE_DELETE) {
+                DeleteQueueScreen(
+                    onBack = { navController.popBackStack() },
+                    // §24：success/missing 的媒体已从服务端消失，V2 同步刷新并丢弃缓存
+                    onFinalDeleteCommitted = { changedMediaIds ->
+                        vm.refreshAfterFinalDelete(changedMediaIds)
+                    },
+                )
+            }
+            composable(MediaNavigator.ROUTE_ORGANIZE_DUPLICATES) {
+                DuplicatesScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenCompare = { groupId ->
+                        navController.navigate(MediaNavigator.organizeDuplicateCompare(groupId))
+                    },
+                )
+            }
+            composable(MediaNavigator.ROUTE_ORGANIZE_DUPLICATE_COMPARE) { entry ->
+                val groupId = entry.arguments?.getString("groupId") ?: ""
+                DuplicateCompareScreen(
+                    groupId = groupId,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(MediaNavigator.ROUTE_ORGANIZE_LIBRARIES) {
+                LibraryManagerScreen(
+                    onBack = { navController.popBackStack() },
+                    // §41：保存成功后失效辅助缓存并刷新首页数据
+                    onSelectionApplied = { vm.refreshAfterLibraryChange() },
                 )
             }
             composable(MediaNavigator.ROUTE_FOLDER) { entry ->
@@ -368,88 +396,6 @@ private fun FavoritesPage(
                     }
                 }
             }
-        }
-    }
-}
-
-/** 整理页：按妙搭原型显示 Mock 卡片（待删除/重复媒体/已批阅/媒体库管理）+ 数据源入口。 */
-@Composable
-private fun OrganizePage(
-    vm: V2HomeViewModel,
-    onOpenDataSource: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val all = vm.currentList.collectAsState().value
-    val total = remember { 60 }
-    val reviewedCount = all.count { it.isReviewed }
-    val dataMode = vm.dataMode.collectAsState().value
-    Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(vertical = V2Spacing.Md),
-        ) {
-            Text(
-                text = "整理",
-                style = MaterialTheme.typography.titleLarge,
-                color = MediaTextPrimary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl),
-            verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-        ) {
-            item {
-                OrganizeCard(
-                    icon = Icons.Default.Folder,
-                    title = "数据源",
-                    subtitle = if (dataMode == com.mediareview.app.feature.v2.data.V2DataMode.SERVER) {
-                        "我的服务器"
-                    } else {
-                        "演示数据（离线）"
-                    },
-                    tint = MediaTextPrimary,
-                    onClick = onOpenDataSource,
-                )
-            }
-            item { OrganizeCard(Icons.Default.DeleteSweep, "待删除", "0 项待最终删除", MediaTextSecondary) }
-            item { OrganizeCard(Icons.Default.CopyAll, "重复媒体", "2 组疑似重复（Mock）", MediaTextSecondary) }
-            item { OrganizeCard(Icons.Default.CheckCircle, "已批阅", "$reviewedCount 项已批阅", MediaTextSecondary) }
-            item { OrganizeCard(Icons.Default.Folder, "媒体库管理", "$total 项 · 6 个文件夹", MediaTextSecondary) }
-        }
-    }
-}
-
-@Composable
-private fun OrganizeCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    tint: Color,
-    onClick: (() -> Unit)? = null,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(V2Radius.Card))
-            .background(MediaSurfaceRaised)
-            .clickable(enabled = onClick != null) { onClick?.invoke() }
-            .padding(V2Spacing.Lg),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            null,
-            tint = tint,
-            modifier = Modifier.size(28.dp),
-        )
-        Column(modifier = Modifier.padding(start = V2Spacing.Lg)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = MediaTextPrimary)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MediaTextSecondary)
         }
     }
 }

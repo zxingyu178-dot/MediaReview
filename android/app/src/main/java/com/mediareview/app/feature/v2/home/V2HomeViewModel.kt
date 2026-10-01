@@ -648,6 +648,29 @@ class V2HomeViewModel @Inject constructor(
         ensureFavoritesLoaded(force = true)
     }
 
+    /**
+     * 最终删除完成后的 V2 刷新（Stage 8C §24）。
+     *
+     * success / missing 的媒体在服务端已消失：
+     * - 丢弃这些媒体在 [MediaRepository] 资源缓存中的条目（避免 mediaById / 封面命中陈旧数据）；
+     * - 失效文件夹辅助缓存并重载首页列表 / 文件夹 / 书架；收藏标记为待重载。
+     * 只刷新数据，不改变用户当前页面（待删除中心仍停留）。
+     */
+    fun refreshAfterFinalDelete(removedMediaIds: List<String> = emptyList()) {
+        if (removedMediaIds.isNotEmpty()) repository.dropCachedMedia(removedMediaIds)
+        repository.invalidateAuxiliaryCache()
+        viewModelScope.launch { reloadAll() }
+    }
+
+    /**
+     * 媒体库选择保存成功后的 V2 刷新（Stage 8C §41）：失效辅助缓存并重载首页数据，
+     * 保证不继续显示旧库内容（folders / albums / media page / favorites 一并失效）。
+     */
+    fun refreshAfterLibraryChange() {
+        repository.invalidateAuxiliaryCache()
+        viewModelScope.launch { reloadAll() }
+    }
+
     private suspend fun loadFolders() {
         val folders = runCatching { repository.folders() }.getOrElse { error ->
             // P1 失败只写自己的错误态：绝不污染 P0 媒体列表的 listError
