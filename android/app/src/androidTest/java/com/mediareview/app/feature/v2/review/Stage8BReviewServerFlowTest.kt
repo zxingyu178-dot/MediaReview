@@ -165,7 +165,11 @@ class Stage8BReviewServerFlowTest {
         // 2) 批阅当前项：seen 服务端确认
         vm.markSeen(0)
         waitUntil("seen 写入") { countPathEndsWith("/seen") == 1 }
-        assertTrue("seen 必须服务端确认后才算已批阅", vm.isSeen(ready.items.first().mediaId))
+        // 等服务端响应回到 VM 再断言（请求被 MockWebServer 记录 ≠ VM 已应用响应；
+        // 高负载模拟器上两者的间隔可能明显变长 —— 消除测试自身竞态，不放宽语义）
+        val seenMediaId = ready.items.first().mediaId
+        waitUntil("seen 服务端确认后生效") { vm.isSeen(seenMediaId) }
+        assertTrue("seen 必须服务端确认后才算已批阅", vm.isSeen(seenMediaId))
         assertTrue(
             "seen 请求必须显式带 seen=true（encodeDefaults=false 时曾被省略）：${seenBodies}",
             seenBodies.first().contains("\"seen\":true"),
