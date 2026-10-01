@@ -22,6 +22,8 @@ import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -450,6 +452,7 @@ class V2ReviewViewModelTest {
             entryResult = readyOpen(total = 3, window = window(count = 3, total = 3), sessionSeen = 1)
             completeGate = gate
             seenResultOverride = ReviewSeenResult("", true, seenCount = 3, totalCount = 3)
+            remainingOverride = 0
         }
         val vm = vm(sessions)
         vm.enterReview()
@@ -482,10 +485,114 @@ class V2ReviewViewModelTest {
         assertTrue("服务端未确认时不得假装完成", vm.state.value is V2ReviewUiState.Ready)
     }
 
+    // ---------- Stage 8B.2 §12/§13/§14 服务端权威完成流程 ----------
+
+    @Test
+    fun `到达队尾先刷新权威进度并据此完成`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 2, window = window(count = 2, total = 2))
+            remainingOverride = 0
+            unavailableOverride = 0
+        }
+        val vm = vm(sessions)
+
+        vm.enterReview()
+
+        waitUntil("进入完成页") { vm.state.value is V2ReviewUiState.Complete }
+        assertEquals("必须刷新权威进度后再完成", 1, sessions.refreshCalls)
+        assertEquals(1, sessions.completeCalls)
+        // §26：完成页数据已备好（已浏览 / 失效跳过）
+        assertEquals(V2ReviewUiState.Complete(totalCount = 2, seenCount = 0, unavailableCount = 0), vm.state.value)
+    }
+
+    @Test
+    fun `到达队尾但仍有可批阅内容时提示带数字且不完成`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 10, window = window(count = 10, total = 10))
+            remainingOverride = 3
+        }
+        val vm = vm(sessions)
+        val messages = collectMessages(vm)
+
+        vm.enterReview()
+
+        waitUntil("提示还有未批阅") { messages.isNotEmpty() }
+        assertTrue(
+            "提示必须携带权威数字（§27）：实际 ${messages.map { it.text }}",
+            messages.any { it.text == "还有 3 条未批阅内容，会话未完成" },
+        )
+        assertEquals("仍有可批阅内容不得完成", 0, sessions.completeCalls)
+        assertTrue(vm.state.value is V2ReviewUiState.Ready)
+    }
+
+    @Test
+    fun `到达队尾后不因重复settle而反复刷新进度`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 50, window = window(count = 50, total = 50))
+            remainingOverride = 5
+        }
+        val vm = vm(sessions)
+
+        vm.enterReview()
+        waitUntil("首次刷新") { sessions.refreshCalls == 1 }
+        repeat(4) { vm.onPageSettled(0) }
+        Thread.sleep(60)
+
+        assertEquals("禁止每个 settle 都 refresh（§14）", 1, sessions.refreshCalls)
+        assertEquals(0, sessions.completeCalls)
+    }
+
+    @Test
+    fun `刷新失败时不完成且随后可重试`() = runTest {
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 2, window = window(count = 2, total = 2))
+            failRefresh = true
+        }
+        val vm = vm(sessions)
+        val messages = collectMessages(vm)
+
+        vm.enterReview()
+        waitUntil("刷新失败提示") { messages.any { it.text.contains("无法确认会话进度") } }
+
+        assertEquals("无法确认时绝不能完成", 0, sessions.completeCalls)
+        assertTrue(vm.state.value is V2ReviewUiState.Ready)
+
+        // 恢复后重新触发（新的 seen 变化）→ 允许完成
+        sessions.failRefresh = false
+        sessions.remainingOverride = 0
+        vm.markSeen(0)
+        waitUntil("重试后完成") { sessions.completeCalls == 1 }
+        waitUntil("进入完成页") { vm.state.value is V2ReviewUiState.Complete }
+    }
+
+    @Test
+    fun `整个Session都没有可用媒体时进入空态并提示`() = runTest {
+        val sessions = FakeSessions().apply { entryResult = ReviewSessionOpen.NoAvailableMedia }
+        val vm = vm(sessions)
+        val messages = collectMessages(vm)
+
+        vm.enterReview()
+
+        assertEquals(V2ReviewUiState.Empty, vm.state.value)
+        assertTrue(
+            "必须提示暂无可继续批阅的媒体（§20）：实际 ${messages.map { it.text }}",
+            messages.any { it.text == "暂无可继续批阅的媒体" },
+        )
+        assertEquals("整会话不可用时不得自动重扫/新建", listOf(false), sessions.enterForceNew)
+    }
+
     // ---------- helpers ----------
 
     private fun vm(sessions: FakeSessions): V2ReviewViewModel =
         V2ReviewViewModel(FakeMediaRepository(mediaCount = 16), sessions)
+
+    /** 收集 ViewModel 的一次性提示（§20/§27 文案与数字断言）。
+     *  必须用 Main（= 测试的 Unconfined 调度器）启动，保证在 emit 之前已订阅。 */
+    private fun TestScope.collectMessages(vm: V2ReviewViewModel): MutableList<ReviewMessage> {
+        val messages = mutableListOf<ReviewMessage>()
+        backgroundScope.launch(Dispatchers.Main) { vm.messages.collect { messages.add(it) } }
+        return messages
+    }
 
     private fun playbackMediaId(vm: V2ReviewViewModel): String? =
         (vm.playback.value as? com.mediareview.app.feature.v2.player.V2PlaybackUiState.Ready)?.source?.mediaId
@@ -565,6 +672,12 @@ private class FakeSessions : V2ReviewSessionRepository {
     var seenGate: CompletableDeferred<Unit>? = null
     var completeGate: CompletableDeferred<Unit>? = null
 
+    /** Stage 8B.2：权威进度刷新（默认按本地"已确认集合"模拟服务端计数）。 */
+    var failRefresh = false
+    var remainingOverride: Int? = null
+    var unavailableOverride: Int = 0
+    var refreshCalls = 0
+
     val enterForceNew = mutableListOf<Boolean>()
     val seenCalls = mutableListOf<String>()
     val positionStarted = mutableListOf<Int>()
@@ -572,11 +685,23 @@ private class FakeSessions : V2ReviewSessionRepository {
     var completeCalls = 0
 
     private var entryTotal = 0
+    private var entrySeen = 0
+    private var entrySessionId = "s1"
     private val autoSeen = mutableSetOf<String>()
+
+    /** 服务端计数（基准 = 进入会话时的 seen，再加上本次新确认的条目）。 */
+    private fun counts(): Triple<Int, Int, Int> {
+        val seen = entrySeen + autoSeen.size
+        val remaining = (entryTotal - seen).coerceAtLeast(0)
+        return Triple(seen, remaining, entryTotal - remaining)
+    }
 
     override suspend fun enterSession(forceNew: Boolean): ReviewSessionOpen {
         enterForceNew += forceNew
-        entryTotal = (entryResult as? ReviewSessionOpen.Ready)?.session?.totalCount ?: 0
+        val ready = entryResult as? ReviewSessionOpen.Ready
+        entryTotal = ready?.session?.totalCount ?: 0
+        entrySeen = ready?.session?.seenCount ?: 0
+        entrySessionId = ready?.session?.sessionId ?: "s1"
         autoSeen.clear()
         return entryResult
     }
@@ -590,14 +715,39 @@ private class FakeSessions : V2ReviewSessionRepository {
         seenGate?.await()
         if (failSeen) return null
         autoSeen += mediaId
+        val (seen, remaining, completed) = counts()
         return seenResultOverride?.copy(mediaId = mediaId)
-            ?: ReviewSeenResult(mediaId = mediaId, seen = true, seenCount = autoSeen.size, totalCount = entryTotal)
+            ?: ReviewSeenResult(
+                mediaId = mediaId,
+                seen = true,
+                seenCount = seen,
+                totalCount = entryTotal,
+                unavailableCount = 0,
+                remainingCount = remaining,
+                completedCount = completed,
+            )
     }
 
     override suspend fun savePosition(absoluteIndex: Int) {
         positionStarted += absoluteIndex
         positionGate?.await()
         positionCompleted += absoluteIndex
+    }
+
+    override suspend fun refreshProgress(): ReviewSessionInfo? {
+        refreshCalls += 1
+        if (failRefresh) return null
+        val (seen, autoRemaining, autoCompleted) = counts()
+        val remaining = remainingOverride ?: autoRemaining
+        return ReviewSessionInfo(
+            sessionId = entrySessionId,
+            totalCount = entryTotal,
+            currentIndex = 0,
+            seenCount = seen,
+            unavailableCount = unavailableOverride,
+            remainingCount = remaining,
+            completedCount = if (remainingOverride == null) autoCompleted else entryTotal - remaining,
+        )
     }
 
     override suspend fun completeSession(): Boolean {

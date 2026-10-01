@@ -79,15 +79,22 @@ class Stage8BReviewServerFlowTest {
                 return when {
                     path == "/api/v1/review/sessions/latest" -> notFound()
                     path == "/api/v1/review/sessions" -> json(sessionBody())
+                    // Stage 8B.2 §18：恢复走 nearest（这里 echo 锚点 = 该索引可用）
+                    path.endsWith("/nearest") -> {
+                        val asked = url?.queryParameter("index")?.toIntOrNull() ?: 0
+                        json("""{"success": true, "data": {"index": $asked}}""")
+                    }
                     path.endsWith("/queue") -> {
                         val page = url?.queryParameter("page")?.toIntOrNull() ?: 1
                         val pageSize = url?.queryParameter("page_size")?.toIntOrNull() ?: 50
                         json(queueBody(page, pageSize))
                     }
                     path.endsWith("/seen") -> json(
-                        // Stage 8B.1 §14:seen 响应必须带服务端权威 seen_count / total_count
+                        // Stage 8B.1 §14 + 8B.2 §6:seen 响应必须带服务端权威进度计数
                         """{"success": true, "data": {"media_id": "x", "seen": true,
-                           "seen_count": 1, "total_count": $totalCount}}""".trimIndent(),
+                           "seen_count": 1, "total_count": $totalCount,
+                           "unavailable_count": 0, "remaining_count": ${totalCount - 1},
+                           "completed_count": 1}}""".trimIndent(),
                     )
                     path.endsWith("/position") -> json(progressBody())
                     path.endsWith("/complete") -> json(progressBody())

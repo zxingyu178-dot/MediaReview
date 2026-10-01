@@ -55,6 +55,14 @@ interface V2ReviewSessionRepository {
      */
     suspend fun savePosition(absoluteIndex: Int)
 
+    /**
+     * 刷新服务端权威进度（Stage 8B.2 §13/§14）。
+     *
+     * **只在"准备完成会话"（到达窗口末端）时调用一次**，禁止每个 settle 都刷；
+     * 返回 null = 无法确认（网络/合同失败），调用方绝不据此完成会话。
+     */
+    suspend fun refreshProgress(): ReviewSessionInfo?
+
     /** 会话完成（§40）：队列全部稳定批阅后调用；返回是否已确认。 */
     suspend fun completeSession(): Boolean
 

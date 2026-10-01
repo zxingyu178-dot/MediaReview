@@ -161,6 +161,9 @@ class V2ServerReviewSessionRepositoryContractTest {
         assertEquals("恢复出的真实索引必须写回 session", 636, ready.session.currentIndex)
         assertEquals("pager 必须定位到恢复项", 36, ready.window.localIndexOf(636))
         assertTrue("恢复出的真实 absoluteIndex 必须写回服务端 position", router.positions().contains(636))
+        // Stage 8B.2 §18：恢复 = 1 次 nearest + 1 次目标页（绝不逐页扫描）
+        assertEquals("恢复只允许 1 次 nearest", 1, router.nearestRequests().size)
+        assertEquals("恢复只允许拉目标页", listOf(13), router.queuePages())
     }
 
     @Test
@@ -168,10 +171,10 @@ class V2ServerReviewSessionRepositoryContractTest {
         router.latestStatus = 200
         router.sessionTotal = 1000
         router.sessionCurrentIndex = 637
-        // 第 13 页整页失效；第 14 页有可用媒体 700..749
+        // 第 15 页（index 700..749）有可用媒体；第 13 页（600..649）整页失效
         router.pageItems = { page ->
             when (page) {
-                14 -> (700..749).toList()
+                15 -> (700..749).toList()
                 else -> emptyList()
             }
         }
@@ -180,9 +183,11 @@ class V2ServerReviewSessionRepositoryContractTest {
 
         val ready = opened as? ReviewSessionOpen.Ready ?: error("期望 Ready，实际 $opened")
         assertEquals(700, ready.session.currentIndex)
-        assertEquals(14, ready.window.firstLoadedPage)
+        assertEquals(15, ready.window.firstLoadedPage)
         assertEquals(0, ready.window.localIndexOf(700))
-        assertEquals("锚点页只请求一次（不重复拉取）", listOf(13, 14), router.queuePages())
+        // Stage 8B.2 §18：不再先拉锚点页再扫描 —— 直接 nearest 命中后只拉目标页
+        assertEquals("只允许 1 次 nearest", 1, router.nearestRequests().size)
+        assertEquals("只允许拉目标页（不拉锚点页）", listOf(15), router.queuePages())
         assertTrue(router.positions().contains(700))
     }
 
@@ -205,6 +210,108 @@ class V2ServerReviewSessionRepositoryContractTest {
         val ready = opened as? ReviewSessionOpen.Ready ?: error("期望 Ready，实际 $opened")
         assertEquals("必须回退到 637 之前最近的可用项", 636, ready.session.currentIndex)
         assertTrue(ready.window.localIndexOf(636) != null)
+    }
+
+    @Test
+    fun `大稀疏Session恢复只发一次nearest与一次目标页`() = runTest {
+        // Stage 8B.2 §30 性能合同：10 万 SessionItem、极稀疏可用媒体
+        router.latestStatus = 200
+        router.sessionTotal = 100_000
+        router.sessionCurrentIndex = 63_750
+        router.pageItems = { page ->
+            if (page == 1276) (63_750..63_799).toList() else emptyList()
+        }
+
+        val opened = repository.enterSession()
+
+        val ready = opened as? ReviewSessionOpen.Ready ?: error("期望 Ready，实际 $opened")
+        assertEquals(63_750, ready.session.currentIndex)
+        assertEquals("nearest 请求必须 ≤ 1", true, router.nearestRequests().size <= 1)
+        assertEquals("queue page 请求必须 ≤ 1", true, router.queuePages().size <= 1)
+        assertEquals(listOf(1276), router.queuePages())
+        assertEquals(50, ready.window.items.size)
+    }
+
+    @Test
+    fun `current_index越界时向后定位到最后可用项`() = runTest {
+        // §33：current_index >= total_count（旧 Session / 异常状态）
+        router.latestStatus = 200
+        router.sessionTotal = 100
+        router.sessionCurrentIndex = 150
+        router.pageItems = { page -> if (page == 1) (0..49).toList() else emptyList() }
+
+        val opened = repository.enterSession()
+
+        val ready = opened as? ReviewSessionOpen.Ready ?: error("期望 Ready，实际 $opened")
+        assertEquals("必须回退到最后可用项 49", 49, ready.session.currentIndex)
+        assertEquals(1, ready.window.firstLoadedPage)
+        assertTrue("恢复位置必须写回服务端", router.positions().contains(49))
+    }
+
+    @Test
+    fun `整个Session都不可用时返回NoAvailableMedia`() = runTest {
+        // §20：nearest 明确 null = 没有可用媒体（不是网络失败）
+        router.latestStatus = 200
+        router.sessionTotal = 100
+        router.sessionCurrentIndex = 10
+        router.pageItems = { emptyList() }
+
+        assertEquals(ReviewSessionOpen.NoAvailableMedia, repository.enterSession())
+    }
+
+    @Test
+    fun `nearest网络失败必须Failed而不是NoAvailableMedia`() = runTest {
+        // §34：网络失败与"没有可用媒体"必须区分
+        router.latestStatus = 200
+        router.sessionTotal = 100
+        router.sessionCurrentIndex = 10
+        router.nearestStatus = 500
+
+        val opened = repository.enterSession()
+
+        assertTrue("nearest 失败必须是 Failed（实际 $opened）", opened is ReviewSessionOpen.Failed)
+    }
+
+    // ---------- Stage 8B.2 §31/§32 稀疏区跳页 ----------
+
+    private fun sparseModel(page: Int): List<Int> = when {
+        page == 10 -> (450..470).toList()
+        page == 31 -> (1500..1549).toList()
+        else -> emptyList()
+    }
+
+    @Test
+    fun `连续20页不可用时next直接跳到可用页`() = runTest {
+        router.latestStatus = 200
+        router.sessionTotal = 2000
+        router.sessionCurrentIndex = 460
+        router.pageItems = { page -> sparseModel(page) }
+        repository.enterSession()
+        router.requests.clear()
+
+        val result = repository.loadNextPage()
+
+        val window = result?.window ?: error("期望 loadNext 成功")
+        assertEquals("必须直接跳到 page31（不逐页扫描）", listOf(11, 31), router.queuePages())
+        assertEquals(31, window.lastLoadedPage)
+        assertEquals(1549, window.items.last().absoluteIndex)
+    }
+
+    @Test
+    fun `连续20页不可用时prev直接跳回可用页`() = runTest {
+        router.latestStatus = 200
+        router.sessionTotal = 2000
+        router.sessionCurrentIndex = 1500
+        router.pageItems = { page -> sparseModel(page) }
+        repository.enterSession()
+        router.requests.clear()
+
+        val result = repository.loadPrevPage()
+
+        val window = result?.window ?: error("期望 loadPrev 成功")
+        assertEquals("必须直接跳回 page10（不逐页扫描）", listOf(30, 10), router.queuePages())
+        assertEquals(10, window.firstLoadedPage)
+        assertEquals(450, window.items.first().absoluteIndex)
     }
 
     // ---------- §4/§5/§10 双向分页 ----------
@@ -406,17 +513,52 @@ class V2ServerReviewSessionRepositoryContractTest {
         router.sessionTotal = 10
         val opened = repository.enterSession()
         assertTrue("会话必须就绪（实际 $opened）", opened is ReviewSessionOpen.Ready)
-        router.seenCount = 4
-        router.seenTotal = 10
+        router.seenIndexes += 3
 
         val result = repository.markSeen("m1")
 
         assertNotNull("markSeen 必须由服务器确认成功", result)
         assertEquals("m1", result?.mediaId)
         assertTrue(result?.seen == true)
-        assertEquals("seenCount 必须直接来自服务端（不得本地 +1）", 4, result?.seenCount)
+        assertEquals("seenCount 必须直接来自服务端（不得本地 +1）", 1, result?.seenCount)
         assertEquals(10, result?.totalCount)
+        // Stage 8B.2 §6：seen 响应同时带可用性计数（remaining 才是完成条件）
+        assertEquals(0, result?.unavailableCount)
+        assertEquals(9, result?.remainingCount)
+        assertEquals(1, result?.completedCount)
         assertTrue(router.seenBodies().first().contains("\"seen\":true"))
+    }
+
+    // ---------- Stage 8B.2 §13 refreshProgress ----------
+
+    @Test
+    fun `refreshProgress返回服务端权威计数`() = runTest {
+        router.latestStatus = 200
+        router.sessionTotal = 100
+        // 只有 0..96 可用（97/98/99 失效），其中 0..94 已批阅
+        router.pageItems = { page -> if (page == 1) (0..49).toList() else (50..96).toList() }
+        router.seenIndexes += (0..94).toList()
+        repository.enterSession()
+
+        val progress = repository.refreshProgress()
+
+        assertNotNull("refreshProgress 必须能读到权威进度", progress)
+        assertEquals(100, progress?.totalCount)
+        assertEquals(95, progress?.seenCount)
+        assertEquals(3, progress?.unavailableCount)
+        assertEquals("剩余可批阅 = 95/96 两条未批阅", 2, progress?.remainingCount)
+        assertEquals(98, progress?.completedCount)
+        assertEquals("effectiveRemainingCount 必须用权威 remaining", 2, progress?.effectiveRemainingCount)
+    }
+
+    @Test
+    fun `refreshProgress失败返回null绝不假完成`() = runTest {
+        router.latestStatus = 200
+        router.sessionTotal = 10
+        repository.enterSession()
+        router.sessionDetailStatus = 500
+
+        assertNull("刷新失败必须返回 null（调用方绝不据此完成）", repository.refreshProgress())
     }
 
     @Test
@@ -501,10 +643,10 @@ class V2ServerReviewSessionRepositoryContractTest {
         var sessionTotal = 0
         var sessionCurrentIndex = 0
         var seenStatus = 200
+        var nearestStatus = 200
 
-        /** markSeen 响应里的服务端权威计数。 */
-        var seenCount = 0
-        var seenTotal = 0
+        /** GET /review/sessions/{id}（单会话权威进度）的状态码。 */
+        var sessionDetailStatus = 200
 
         /** 队列里 seen=true 的绝对索引（恢复场景）。 */
         val seenIndexes = mutableSetOf<Int>()
@@ -518,6 +660,11 @@ class V2ServerReviewSessionRepositoryContractTest {
             .filter { it.requestUrl?.encodedPath?.endsWith("/queue") == true }
             .mapNotNull { it.requestUrl?.queryParameter("page")?.toIntOrNull() }
 
+        /** Stage 8B.2 §30：nearest 请求记录（性能合同：正常恢复 ≤ 1 次）。 */
+        fun nearestRequests(): List<Int> = requests
+            .filter { it.requestUrl?.encodedPath?.endsWith("/nearest") == true }
+            .mapNotNull { it.requestUrl?.queryParameter("index")?.toIntOrNull() }
+
         fun seenBodies(): List<String> = requests
             .filter { it.requestUrl?.encodedPath?.endsWith("/seen") == true }
             .map { it.body.readUtf8() }
@@ -525,6 +672,34 @@ class V2ServerReviewSessionRepositoryContractTest {
         fun positions(): List<Int> = requests
             .filter { it.requestUrl?.encodedPath?.endsWith("/position") == true }
             .mapNotNull { Regex("\"index\"\\s*:\\s*(\\d+)").find(it.body.readUtf8())?.groupValues?.get(1)?.toIntOrNull() }
+
+        /** 当前模型下所有"可用"绝对索引（SQL nearest 语义的忠实模拟）。 */
+        private fun availableIndexes(): List<Int> {
+            val explicit = pageItems ?: return (0 until sessionTotal).toList()
+            val lastPage = if (sessionTotal <= 0) 0 else (sessionTotal - 1) / 50 + 1
+            return (1..lastPage).flatMap { explicit(it) }.sorted()
+        }
+
+        /** nearest 的 SQL 语义：forward = 首个 >=；backward = 最大 <；nearest = 先 forward。 */
+        private fun nearestFor(asked: Int, direction: String): Int? {
+            val available = availableIndexes()
+            return when (direction) {
+                "forward" -> available.firstOrNull { it >= asked }
+                "backward" -> available.lastOrNull { it < asked }
+                else -> available.firstOrNull { it >= asked } ?: available.lastOrNull { it < asked }
+            }
+        }
+
+        /** 服务端权威计数（与 availableIndexes 模型一致，含"seen 后又失效"不重复计数）。 */
+        private fun counts(): String {
+            val available = availableIndexes()
+            val seen = seenIndexes.size
+            val unavailable = (sessionTotal - available.size).coerceAtLeast(0)
+            val remaining = available.count { it !in seenIndexes }
+            val completed = sessionTotal - remaining
+            return """"seen_count": $seen, "unavailable_count": $unavailable,
+                "remaining_count": $remaining, "completed_count": $completed""".trimIndent()
+        }
 
         override fun dispatch(request: RecordedRequest): MockResponse {
             requests += request
@@ -544,6 +719,24 @@ class V2ServerReviewSessionRepositoryContractTest {
                     createCount += 1
                     json(sessionBody("s-created-$createCount"))
                 }
+                path.endsWith("/nearest") && nearestStatus != 200 -> json(
+                    """{"success": false, "error": {"code": "INTERNAL_ERROR", "message": "nearest 不可用"}}""",
+                    nearestStatus,
+                )
+                path.endsWith("/nearest") -> {
+                    val asked = url?.queryParameter("index")?.toIntOrNull() ?: 0
+                    val direction = url?.queryParameter("direction").orEmpty()
+                    val found = nearestFor(asked, direction)
+                    json("""{"success": true, "data": {"index": ${found ?: "null"}}}""")
+                }
+                request.method == "GET" && SESSION_PATH.matches(path) && sessionDetailStatus != 200 -> json(
+                    """{"success": false, "error": {"code": "INTERNAL_ERROR", "message": "会话进度不可用"}}""",
+                    sessionDetailStatus,
+                )
+                request.method == "GET" && SESSION_PATH.matches(path) -> {
+                    val sessionId = path.substringAfterLast('/')
+                    json(sessionBody(sessionId))
+                }
                 path.endsWith("/queue") -> {
                     val page = url?.queryParameter("page")?.toIntOrNull() ?: 1
                     val pageSize = url?.queryParameter("page_size")?.toIntOrNull() ?: 50
@@ -555,7 +748,7 @@ class V2ServerReviewSessionRepositoryContractTest {
                 )
                 path.endsWith("/seen") -> json(
                     """{"success": true, "data": {"media_id": "m1", "seen": true,
-                       "seen_count": $seenCount, "total_count": $seenTotal}}""".trimIndent(),
+                       "total_count": $sessionTotal, ${counts()}}}""".trimIndent(),
                 )
                 path.endsWith("/position") -> json(progressBody(sessionCurrentIndex))
                 path.endsWith("/complete") -> json(progressBody(sessionTotal))
@@ -565,6 +758,11 @@ class V2ServerReviewSessionRepositoryContractTest {
 
         private var createCount = 0
 
+        private companion object {
+            /** GET /api/v1/review/sessions/{id}（不带子路径）。 */
+            val SESSION_PATH = Regex("/api/v1/review/sessions/[^/]+")
+        }
+
         private fun sessionBody(sessionId: String): String = """
             {
               "success": true,
@@ -573,7 +771,7 @@ class V2ServerReviewSessionRepositoryContractTest {
                 "status": "active",
                 "current_index": $sessionCurrentIndex,
                 "total_count": $sessionTotal,
-                "seen_count": 0,
+                ${counts()},
                 "created_at": "2026-09-27T10:00:00Z",
                 "updated_at": "2026-09-27T10:00:00Z",
                 "completed_at": null,
@@ -590,7 +788,7 @@ class V2ServerReviewSessionRepositoryContractTest {
                 "status": "active",
                 "current_index": $index,
                 "total_count": $sessionTotal,
-                "seen_count": 0,
+                ${counts()},
                 "created_at": "2026-09-27T10:00:00Z",
                 "updated_at": "2026-09-27T10:00:00Z",
                 "completed_at": null

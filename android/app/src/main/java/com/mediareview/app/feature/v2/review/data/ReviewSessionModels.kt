@@ -34,10 +34,28 @@ data class ReviewSessionInfo(
     val totalCount: Int,
     val currentIndex: Int,
     val seenCount: Int,
-)
+    /**
+     * Stage 8B.2 §6：服务端权威进度计数。
+     * `-1` = 未知（旧 Server 无字段）；`0` 是**合法值**（remaining=0 表示可以完成）。
+     */
+    val unavailableCount: Int = -1,
+    val remainingCount: Int = -1,
+    val completedCount: Int = -1,
+) {
+    /**
+     * 可批阅数量：优先服务端权威值；旧 Server 缺字段时保守回退
+     * `total - seen`（绝不把未知当成 0 → 不会误完成）。
+     */
+    val effectiveRemainingCount: Int
+        get() = if (remainingCount >= 0) {
+            remainingCount
+        } else {
+            (totalCount - seenCount).coerceAtLeast(0)
+        }
+}
 
 /**
- * 已看标记结果（Stage 8B.1 §14）：**服务端权威进度**。
+ * 已看标记结果（Stage 8B.1 §14）：**服务端权威进度**；Stage 8B.2 追加可用性计数。
  *
  * `seenCount` 直接来自服务端 `seen_count` —— Android 端绝不 `+1` 推算
  * （回看已经 seen 的媒体会重复计数，评审 §13）。
@@ -47,7 +65,25 @@ data class ReviewSeenResult(
     val seen: Boolean,
     val seenCount: Int,
     val totalCount: Int,
-)
+    /** 同 [ReviewSessionInfo]：-1 = 未知（旧 Server）。 */
+    val unavailableCount: Int = -1,
+    val remainingCount: Int = -1,
+    val completedCount: Int = -1,
+) {
+    val effectiveRemainingCount: Int
+        get() = if (remainingCount >= 0) {
+            remainingCount
+        } else {
+            (totalCount - seenCount).coerceAtLeast(0)
+        }
+}
+
+/** 最近可用项查询方向（Stage 8B.2 §16）。 */
+enum class NearestDirection(val wire: String) {
+    FORWARD("forward"),
+    BACKWARD("backward"),
+    NEAREST("nearest"),
+}
 
 /**
  * 已加载队列窗口（Stage 8B.1 §3：双向分页窗口）。
@@ -105,10 +141,17 @@ sealed interface ReviewSessionOpen {
     data object Empty : ReviewSessionOpen
 
     /**
+     * Stage 8B.2 §20：整个 Session 已没有任何**可用**媒体
+     * （nearest 明确返回 null）—— 允许完成旧会话，UI 展示"暂无可继续批阅的媒体"。
+     */
+    data object NoAvailableMedia : ReviewSessionOpen
+
+    /**
      * 失败（网络 / 合同错误）。
      *
      * 阶段 8B §17：latest 请求失败**绝不能**被当成"没有 Session"而自动新建会话，
      * 必须由 UI 显示"无法恢复批阅 + 重新尝试"。
+     * Stage 8B.2 §34：nearest 请求失败同样必须走这里，绝不当成"没有可用媒体"。
      */
     data class Failed(val message: String) : ReviewSessionOpen
 }

@@ -28,10 +28,18 @@ sealed interface V2ReviewUiState {
         val absoluteCurrentIndex: Int,
         val window: ReviewQueueWindow,
         /**
-         * 已批阅计数：服务端 seen_count 起点 + 本次会话新确认条数（同一条只计一次）。
+         * 已批阅计数：服务端 seen_count 权威值（Stage 8B.1 §14）。
          * 仅用于展示/诊断；长期状态以服务端为准。
          */
         val seenCount: Int,
+        /**
+         * Stage 8B.2 §12：**服务端权威的可批阅数量**（-1 = 未知，旧 Server）。
+         * 完成条件 = `window.atEnd && remainingCount == 0`。
+         */
+        val remainingCount: Int = -1,
+        /** Stage 8B.2 §6/§26：完成页数据预置（UI 本小版本不扩范围）。 */
+        val unavailableCount: Int = 0,
+        val completedCount: Int = 0,
         val loadingNext: Boolean = false,
         val loadingPrev: Boolean = false,
     ) : V2ReviewUiState {
@@ -45,8 +53,16 @@ sealed interface V2ReviewUiState {
     /** 没有可批阅的媒体（空队列完成页）。 */
     data object Empty : V2ReviewUiState
 
-    /** 队列已批阅完成（服务端 complete 已确认，§40）。 */
-    data class Complete(val totalCount: Int) : V2ReviewUiState
+    /**
+     * 队列已批阅完成（服务端 complete 已确认，§40）。
+     *
+     * Stage 8B.2 §26：附带权威计数（已浏览 / 失效跳过），供完成页后续展示。
+     */
+    data class Complete(
+        val totalCount: Int,
+        val seenCount: Int = totalCount,
+        val unavailableCount: Int = 0,
+    ) : V2ReviewUiState
 
     /** 进入 / 分页失败：必须显示"重新尝试"，绝不自动新建会话（§17）。 */
     data class Error(val message: String) : V2ReviewUiState

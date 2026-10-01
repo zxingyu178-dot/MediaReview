@@ -29,30 +29,29 @@ import retrofit2.HttpException
  * ```
  * POST /api/v1/review/sessions               新建会话（服务端先完成旧 active）
  * GET  /api/v1/review/sessions/latest        断点恢复（没有 active 时 404 NOT_FOUND）
- * GET  /api/v1/review/sessions/{id}/queue    队列分页（page / page_size ≤ 200，返回绝对 index + seen）
- * POST /api/v1/review/sessions/{id}/seen     标记已看（返回服务端权威 seen_count / total_count）
+ * GET  /api/v1/review/sessions/{id}          会话权威进度（total/seen/unavailable/remaining/completed）
+ * GET  /api/v1/review/sessions/{id}/queue    队列分页（page / page_size ≤ 200，绝对 index + seen）
+ * GET  /api/v1/review/sessions/{id}/nearest  最近可用项（SQL 直查：forward / backward / nearest）
+ * POST /api/v1/review/sessions/{id}/seen     标记已看（返回权威进度计数）
  * POST /api/v1/review/sessions/{id}/position 更新 current_index（断点恢复依据）
- * POST /api/v1/review/sessions/{id}/complete 手动完成（服务端 fail-closed：有未批阅则拒绝）
+ * POST /api/v1/review/sessions/{id}/complete 手动完成（服务端 fail-closed：remaining>0 拒绝）
  * ```
  *
- * Stage 8B.1 正确性收口（评审 §3~§10 / §14）：
- * - **双向分页窗口**：显式记录 `firstLoadedPage` / `lastLoadedPage`，
- *   next = `lastLoadedPage + 1`、prev = `firstLoadedPage - 1`，先 next 再 prev 不会重复请求中间页；
- * - **合并去重**：所有分页合并按绝对索引去重 + 排序（绝不产生重复条目）；
- * - **空页推进**：整页媒体都失效时不 return null 死循环，而是推进页边界后继续找
- *   （`MAX_EMPTY_PAGE_SCAN` 限制单次调用扫描量，避免一次请求风暴）；
- * - **atEnd 按页边界**：`lastLoadedPage * pageSize >= totalCount`，队尾媒体失效也能结束；
- * - **失效 current_index 恢复**：优先"第一个 `>= current_index` 的可用项"，
- *   否则"`current_index` 之前最近的可用项"，并把恢复出的真实绝对索引**写回服务端**；
- * - **分页 single-flight**：Mutex 串行化 next / prev，绝不同时修改窗口；
- * - **seen 权威**：`markSeen` 直接返回服务端 `seen_count`（Android 不自行加一）。
+ * Stage 8B.1：双向分页窗口、合并去重、缺项 localIndexOf、seen 权威、完成门槛、single-flight。
+ * Stage 8B.2（评审 §15~§24 / §33 / §34）：**媒体可用性 / 稀疏队列**
+ * - **恢复不再逐页扫描**：`current_index` → `nearest available`（1 次 SQL 命中）→ 只拉目标页
+ *   （正常恢复 ≤ 1 nearest + 1 queue page）；
+ * - **next / prev 空页跳页**：整页不可用时用 nearest 直接跳到下一个/上一个可用页，
+ *   删除 `MAX_EMPTY_PAGE_SCAN` 的多页扫描路径；
+ * - **current_index 越界**（>= total_count）→ 优先 nearest backward 找最后一个可用项；
+ * - **整个 Session 都不可用** → [ReviewSessionOpen.NoAvailableMedia]（不再每次重扫整个队列）；
+ * - **网络失败 ≠ 没有可用媒体**：nearest 失败向上抛（恢复 → Failed；分页 → null 可重试）。
  *
  * 关键约束：
  * - **禁批量 resolvePlayback**（§5）：本仓库只处理 metadata，播放地址由 ViewModel 按需解析；
- * - **不拉全量队列**（§20）：每页 50，只加载 current_index 所在页与相邻页；
+ * - **不拉全量队列**（§20）：每页 50，只加载目标页与相邻页；
  * - **latest 失败不建会话**（§17）：只有明确 404 才新建；
- * - 队列项的封面 / 媒体映射复用 [V2MediaMapper] 与共享 [V2ServerResourceCache]，
- *   与媒体墙同一份映射（完整播放器据此可以通过 `mediaById` 打开队列里的当前媒体）。
+ * - 队列项的封面 / 媒体映射复用 [V2MediaMapper] 与共享 [V2ServerResourceCache]。
  */
 @Singleton
 class V2ServerReviewSessionRepository internal constructor(
@@ -100,7 +99,7 @@ class V2ServerReviewSessionRepository internal constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            // §17：任何失败都必须如实上报，绝不"失败即新建会话"
+            // §17/§34：任何失败都必须如实上报，绝不"失败即新建会话"、绝不当作"没有可用媒体"
             ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
         }
     }
@@ -132,122 +131,152 @@ class V2ServerReviewSessionRepository internal constructor(
     }
 
     /**
-     * 定位到 current_index 并加载它所在的那一页（§21：637/1000 → 直接取包含 637 的那一页）。
+     * 定位到 current_index 并加载它所在的那一页（Stage 8B.2 §18：**不再逐页扫描**）。
      *
-     * §7 失效锚点恢复：
-     * 1. 优先取**第一个 `absoluteIndex >= current_index` 的可用项**；
-     * 2. 向后找不到时，取 `current_index` **之前最近的可用项**；
-     * 3. 恢复出的真实绝对索引与 `current_index` 不同时**写回服务端 position**
-     *    ——绝不能悄悄从本地 0 开始播放完全不同的视频。
-     * 4. 整个队列都没有可用媒体时返回 null（上层进入空队列页）。
+     * ```
+     * Server current_index → nearestAvailable(current_index) → 真实 absoluteIndex
+     *   → 该索引所在页 → 只 GET 那一页（正常恢复 = 1 nearest + 1 queue page）
+     * ```
+     *
+     * - §7：恢复出的真实绝对索引 != current_index 时**写回服务端 position**；
+     * - §33：`current_index >= total_count`（旧 Session / 异常状态）优先 nearest backward；
+     * - §20：nearest 明确返回 null（整个 Session 都没有可用媒体）→ [ReviewSessionOpen.NoAvailableMedia]；
+     * - §34：nearest 网络失败向上抛 → [ReviewSessionOpen.Failed]（绝不当成"没有可用媒体"）。
      */
     private suspend fun openWindow(info: ReviewSessionInfo): ReviewSessionOpen {
         sessionId = info.sessionId
         pageSize = ReviewQueuePaging.PAGE_SIZE
         totalCount = info.totalCount
-        val anchor = info.currentIndex.coerceIn(0, (info.totalCount - 1).coerceAtLeast(0))
-        val hit = locateAnchor(anchor) ?: return ReviewSessionOpen.Empty
-        firstLoadedPage = hit.loaded.page
-        lastLoadedPage = hit.loaded.page
-        items = hit.loaded.items
-        totalCount = hit.loaded.totalCount
-        if (hit.absoluteIndex != info.currentIndex) {
-            pushPosition(info.sessionId, hit.absoluteIndex)
+        val resolved = if (info.currentIndex >= info.totalCount) {
+            // 越界状态：优先向后找最后一个可用项（严格小于 totalCount）
+            nearestAvailable(index = info.totalCount, direction = NearestDirection.BACKWARD)
+        } else {
+            val anchor = info.currentIndex.coerceIn(0, (info.totalCount - 1).coerceAtLeast(0))
+            nearestAvailable(index = anchor, direction = NearestDirection.NEAREST)
+        } ?: return ReviewSessionOpen.NoAvailableMedia
+        val page = pageOf(resolved)
+        val loaded = fetchPage(page)
+        firstLoadedPage = page
+        lastLoadedPage = page
+        items = loaded.items
+        totalCount = loaded.totalCount
+        if (resolved != info.currentIndex) {
+            pushPosition(info.sessionId, resolved)
         }
         return ReviewSessionOpen.Ready(
-            session = info.copy(currentIndex = hit.absoluteIndex),
+            session = info.copy(currentIndex = resolved),
             window = snapshot(),
         )
-    }
-
-    /** 锚点恢复结果：命中页 + 恢复出的真实绝对索引。 */
-    private class AnchorHit(val loaded: LoadedPage, val absoluteIndex: Int)
-
-    private suspend fun locateAnchor(anchor: Int): AnchorHit? {
-        val anchorPage = ReviewQueuePaging.resumePlan(anchor, pageSize).page
-        val lastPage = ReviewQueuePaging.totalPages(totalCount, pageSize)
-        var anchorPageLoaded: LoadedPage? = null
-        // 1) 向后扫描（>= anchor）：第一个可用项即恢复目标
-        for (page in anchorPage..lastPage) {
-            val loaded = fetchPage(page)
-            if (page == anchorPage) anchorPageLoaded = loaded
-            ReviewQueuePaging.firstAtOrAfter(loaded.items, anchor)?.let { found ->
-                return AnchorHit(loaded, found.absoluteIndex)
-            }
-        }
-        // 2) 向前回退（< anchor）：最近的可用项（anchorPage 已拉取过，不重复请求）
-        for (page in anchorPage downTo 1) {
-            val loaded = if (page == anchorPage) anchorPageLoaded ?: fetchPage(page) else fetchPage(page)
-            ReviewQueuePaging.nearestBefore(loaded.items, anchor)?.let { found ->
-                return AnchorHit(loaded, found.absoluteIndex)
-            }
-        }
-        return null
     }
 
     // ---------- 分页 ----------
 
     /**
-     * 加载下一页：`lastLoadedPage + 1` 起向后扫描，直到找到非空页或到达队列末尾。
+     * 加载下一页：`lastLoadedPage + 1` → 若该页整页不可用，用
+     * `nearest(forward, index = 该页起点)` 直接跳到下一个可用页（§22）。
      *
-     * 空页（整页媒体失效）**必须推进页边界**（§9），否则会永远重复请求同一页。
+     * 禁止逐页扫描（旧的 `MAX_EMPTY_PAGE_SCAN` 已删除，§24）。
      */
     override suspend fun loadNextPage(): ReviewQueuePageResult? = pagingMutex.withLock {
         if (sessionId.isBlank() || atEnd()) return@withLock null
         val lastPage = ReviewQueuePaging.totalPages(totalCount, pageSize)
-        var page = lastLoadedPage + 1
-        var fetched = 0
-        while (page <= lastPage && fetched < MAX_EMPTY_PAGE_SCAN) {
-            val loaded = try {
-                fetchPage(page)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                return@withLock null
-            }
-            fetched += 1
-            // §9：无论空页与否都记录"这一页已检查"
-            lastLoadedPage = page
-            if (loaded.items.isNotEmpty()) {
-                items = ReviewQueuePaging.mergeItems(items, loaded.items)
-                break
-            }
-            page += 1
+        val page = lastLoadedPage + 1
+        if (page > lastPage) {
+            lastLoadedPage = lastPage
+            return@withLock ReviewQueuePageResult(window = snapshot())
         }
-        if (fetched == 0) return@withLock null
-        // 空页推进后也返回窗口快照：UI 才能知道 atEnd 已经成立（不再死循环请求）
+        val loaded = try {
+            fetchPage(page)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return@withLock null
+        }
+        if (loaded.items.isNotEmpty()) {
+            lastLoadedPage = page
+            items = ReviewQueuePaging.mergeItems(items, loaded.items)
+            return@withLock ReviewQueuePageResult(window = snapshot())
+        }
+        // §9/§22：整页不可用 → 记录该页已检查，并直接跳页
+        lastLoadedPage = page
+        val jump = try {
+            nearestAvailable(index = page * pageSize, direction = NearestDirection.FORWARD)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return@withLock null
+        }
+        if (jump == null) {
+            // 该页之后没有任何可用媒体：边界推进到最后一页（atEnd 成立，不再请求）
+            lastLoadedPage = lastPage
+            return@withLock ReviewQueuePageResult(window = snapshot())
+        }
+        val jumpPage = pageOf(jump).coerceIn(page + 1, lastPage)
+        val jumped = try {
+            fetchPage(jumpPage)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return@withLock null
+        }
+        lastLoadedPage = jumpPage
+        if (jumped.items.isNotEmpty()) {
+            items = ReviewQueuePaging.mergeItems(items, jumped.items)
+        }
         ReviewQueuePageResult(window = snapshot())
     }
 
     /**
-     * 加载上一页：`firstLoadedPage - 1` 起向前扫描，直到找到非空页或到达第 1 页。
-     * 空页同样必须推进（向前）页边界。
+     * 加载上一页：`firstLoadedPage - 1` → 空页时用
+     * `nearest(backward, index = 该页起点)` 直接跳回上一个可用页（§23）。
      */
     override suspend fun loadPrevPage(): ReviewQueuePageResult? = pagingMutex.withLock {
         if (sessionId.isBlank() || firstLoadedPage <= 1) return@withLock null
-        var page = firstLoadedPage - 1
-        var fetched = 0
-        var prepended = 0
-        while (page >= 1 && fetched < MAX_EMPTY_PAGE_SCAN) {
-            val loaded = try {
-                fetchPage(page)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                return@withLock null
-            }
-            fetched += 1
-            firstLoadedPage = page
-            if (loaded.items.isNotEmpty()) {
-                val before = items.size
-                items = ReviewQueuePaging.mergeItems(loaded.items, items)
-                prepended = items.size - before
-                break
-            }
-            page -= 1
+        val page = firstLoadedPage - 1
+        val loaded = try {
+            fetchPage(page)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return@withLock null
         }
-        if (fetched == 0) return@withLock null
-        ReviewQueuePageResult(window = snapshot(), prependedCount = prepended)
+        if (loaded.items.isNotEmpty()) {
+            firstLoadedPage = page
+            val before = items.size
+            items = ReviewQueuePaging.mergeItems(loaded.items, items)
+            return@withLock ReviewQueuePageResult(
+                window = snapshot(),
+                prependedCount = items.size - before,
+            )
+        }
+        // 空页 → 直接跳回上一个可用页
+        firstLoadedPage = page
+        val jump = try {
+            nearestAvailable(index = (page - 1) * pageSize, direction = NearestDirection.BACKWARD)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return@withLock null
+        }
+        if (jump == null) {
+            // 前面没有任何可用媒体：边界推进到第 1 页（canLoadPrev 关闭，不再请求）
+            firstLoadedPage = 1
+            return@withLock ReviewQueuePageResult(window = snapshot())
+        }
+        val jumpPage = pageOf(jump).coerceIn(1, page - 1)
+        val jumped = try {
+            fetchPage(jumpPage)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return@withLock null
+        }
+        firstLoadedPage = jumpPage
+        val before = items.size
+        if (jumped.items.isNotEmpty()) {
+            items = ReviewQueuePaging.mergeItems(jumped.items, items)
+        }
+        ReviewQueuePageResult(window = snapshot(), prependedCount = items.size - before)
     }
 
     /**
@@ -301,6 +330,9 @@ class V2ServerReviewSessionRepository internal constructor(
                 seen = dto.seen,
                 seenCount = dto.seen_count,
                 totalCount = dto.total_count,
+                unavailableCount = dto.unavailable_count,
+                remainingCount = dto.remaining_count,
+                completedCount = dto.completed_count,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -314,6 +346,19 @@ class V2ServerReviewSessionRepository internal constructor(
         val target = sessionId
         if (target.isBlank()) return
         pushPosition(target, absoluteIndex)
+    }
+
+    override suspend fun refreshProgress(): ReviewSessionInfo? {
+        val target = sessionId
+        if (target.isBlank()) return null
+        return try {
+            call { api, _ -> unwrap(api.reviewSession(target)) }.toInfo()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // §13/§14：无法确认 → null（调用方绝不据此完成会话）
+            null
+        }
     }
 
     /**
@@ -347,7 +392,7 @@ class V2ServerReviewSessionRepository internal constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            // 服务端 fail-closed：还有未批阅时也会走这里（UI 保持会话并提示）
+            // 服务端 fail-closed：remaining > 0 时也会走这里（UI 保持会话并提示）
             false
         }
     }
@@ -364,6 +409,21 @@ class V2ServerReviewSessionRepository internal constructor(
         val items: List<ReviewQueueItemUi>,
         val totalCount: Int,
     )
+
+    /** 绝对索引 → 页号（1-based）。 */
+    private fun pageOf(absoluteIndex: Int): Int =
+        ReviewQueuePaging.resumePlan(absoluteIndex, pageSize).page
+
+    /**
+     * 最近可用项（§16/§17）：`null` = **服务端明确**没有可用媒体；
+     * 网络 / 合同失败向上抛（由调用方按 §34 区分处理）。
+     */
+    private suspend fun nearestAvailable(index: Int, direction: NearestDirection): Int? {
+        val dto = call { api, _ ->
+            unwrap(api.nearestReviewIndex(sessionId, index.coerceAtLeast(0), direction.wire))
+        }
+        return dto.index
+    }
 
     private suspend fun <T> call(block: suspend (MediaReviewApi, String) -> T): T {
         return try {
@@ -403,12 +463,12 @@ class V2ServerReviewSessionRepository internal constructor(
         totalCount = total_count,
         currentIndex = current_index,
         seenCount = seen_count,
+        unavailableCount = unavailable_count,
+        remainingCount = remaining_count,
+        completedCount = completed_count,
     )
 
     private companion object {
         const val HTTP_NOT_FOUND = 404
-
-        /** 单次 next / prev 调用最多向后（前）扫描的空页数，避免一次请求风暴。 */
-        const val MAX_EMPTY_PAGE_SCAN = 8
     }
 }

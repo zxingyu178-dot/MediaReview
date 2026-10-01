@@ -20,6 +20,7 @@ import com.mediareview.app.core.model.PairingStatusOut
 import com.mediareview.app.core.model.PlaybackInfoDto
 import com.mediareview.app.core.model.ProgressRequest
 import com.mediareview.app.core.model.ReviewCreateRequest
+import com.mediareview.app.core.model.ReviewNearestDto
 import com.mediareview.app.core.model.ReviewPositionRequest
 import com.mediareview.app.core.model.ReviewProgressDto
 import com.mediareview.app.core.model.ReviewQueuePageDto
@@ -120,12 +121,32 @@ interface MediaReviewApi {
     @GET("/api/v1/review/sessions/latest")
     suspend fun latestReviewSession(): Envelope<ReviewSessionDto>
 
+    /**
+     * 单会话权威进度（Stage 8B.2 §13）：只在"准备完成会话"前刷新一次，
+     * 用于拿到 remaining / unavailable / completed 的**服务端权威值**。
+     */
+    @GET("/api/v1/review/sessions/{session_id}")
+    suspend fun reviewSession(@Path("session_id") sessionId: String): Envelope<ReviewSessionDto>
+
     @GET("/api/v1/review/sessions/{session_id}/queue")
     suspend fun reviewQueue(
         @Path("session_id") sessionId: String,
         @Query("page") page: Int = 1,
         @Query("page_size") pageSize: Int = 50,
     ): Envelope<ReviewQueuePageDto>
+
+    /**
+     * 最近可用项（Stage 8B.2 §16：SQL 直查稀疏队列）。
+     *
+     * `index` 为查询锚点，`direction` ∈ forward / backward / nearest；
+     * 返回 `{"index": <int|null>}` —— null 表示**服务端明确**没有可用媒体。
+     */
+    @GET("/api/v1/review/sessions/{session_id}/nearest")
+    suspend fun nearestReviewIndex(
+        @Path("session_id") sessionId: String,
+        @Query("index") index: Int,
+        @Query("direction") direction: String,
+    ): Envelope<ReviewNearestDto>
 
     @POST("/api/v1/review/sessions/{session_id}/seen")
     suspend fun markSeen(

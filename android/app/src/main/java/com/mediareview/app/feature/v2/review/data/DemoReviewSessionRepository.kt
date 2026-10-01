@@ -43,11 +43,28 @@ class DemoReviewSessionRepository @Inject constructor(
             seen = true,
             seenCount = seenIds.size,
             totalCount = currentQueue.size,
+            unavailableCount = 0,
+            remainingCount = (currentQueue.size - seenIds.size).coerceAtLeast(0),
+            completedCount = seenIds.size,
         )
     }
 
     override suspend fun savePosition(absoluteIndex: Int) {
         // Demo 无服务端断点恢复：位置只保留在内存会话里（UI 由 ViewModel 维护）。
+    }
+
+    /** Demo：进度即本地队列状态（Stage 8B.2 §13 语义一致：返回当前可批阅数量）。 */
+    override suspend fun refreshProgress(): ReviewSessionInfo? {
+        if (currentQueue.isEmpty()) return null
+        return ReviewSessionInfo(
+            sessionId = "demo-session",
+            totalCount = currentQueue.size,
+            currentIndex = 0,
+            seenCount = seenIds.size,
+            unavailableCount = 0,
+            remainingCount = (currentQueue.size - seenIds.size).coerceAtLeast(0),
+            completedCount = seenIds.size,
+        )
     }
 
     override suspend fun completeSession(): Boolean = true

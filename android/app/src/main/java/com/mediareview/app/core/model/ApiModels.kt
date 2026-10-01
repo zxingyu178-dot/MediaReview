@@ -126,7 +126,22 @@ data class ReviewSessionDto(
     val current_index: Int = 0,
     val total_count: Int = 0,
     val seen_count: Int = 0,
+    /**
+     * Stage 8B.2 §6:服务端权威进度计数。
+     * 默认 -1 = 未知(兼容旧 Server);0 是**合法值**(remaining=0 表示可以完成),
+     * 因此绝不能把缺失字段的默认值当作 0。
+     */
+    val unavailable_count: Int = -1,
+    val remaining_count: Int = -1,
+    val completed_count: Int = -1,
     val source: ReviewSourceDto? = null,
+)
+
+/** 最近可用项(GET /review/sessions/{id}/nearest,Stage 8B.2 §16)。 */
+@Serializable
+data class ReviewNearestDto(
+    /** null = 服务端明确该方向没有可用媒体(与网络失败完全不同)。 */
+    val index: Int? = null,
 )
 
 /** 会话筛选/排序快照。 */
@@ -202,6 +217,10 @@ data class ReviewProgressDto(
     val current_index: Int = 0,
     val total_count: Int = 0,
     val seen_count: Int = 0,
+    // Stage 8B.2 §6:-1 = 未知(兼容旧 Server);不得把缺失值当 0
+    val unavailable_count: Int = -1,
+    val remaining_count: Int = -1,
+    val completed_count: Int = -1,
 )
 
 /**
@@ -216,6 +235,10 @@ data class ReviewSeenResultDto(
     val seen: Boolean = true,
     val seen_count: Int = 0,
     val total_count: Int = 0,
+    // Stage 8B.2 §6/§11:-1 = 未知(兼容旧 Server)
+    val unavailable_count: Int = -1,
+    val remaining_count: Int = -1,
+    val completed_count: Int = -1,
 )
 
 /** 播放进度上报请求。 */

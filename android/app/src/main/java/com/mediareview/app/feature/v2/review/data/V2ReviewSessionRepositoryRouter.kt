@@ -36,6 +36,8 @@ class V2ReviewSessionRepositoryRouter @Inject constructor(
 
     override suspend fun savePosition(absoluteIndex: Int) = active().savePosition(absoluteIndex)
 
+    override suspend fun refreshProgress(): ReviewSessionInfo? = active().refreshProgress()
+
     override suspend fun completeSession(): Boolean = active().completeSession()
 
     override suspend fun restart(): ReviewSessionOpen = active().restart()

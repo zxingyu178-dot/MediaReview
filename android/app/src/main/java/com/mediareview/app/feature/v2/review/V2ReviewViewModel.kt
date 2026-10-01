@@ -10,6 +10,7 @@ import com.mediareview.app.feature.v2.player.V2PlaybackSourceController
 import com.mediareview.app.feature.v2.player.V2PlaybackUiState
 import com.mediareview.app.feature.v2.review.data.ReviewQueuePageResult
 import com.mediareview.app.feature.v2.review.data.ReviewQueuePaging
+import com.mediareview.app.feature.v2.review.data.ReviewSessionInfo
 import com.mediareview.app.feature.v2.review.data.ReviewSessionOpen
 import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -86,8 +87,12 @@ class V2ReviewViewModel @Inject constructor(
     /** complete single-flight（§21：同一时刻只允许一个 complete 请求在飞）。 */
     private var completeInFlight = false
 
-    /** "到达队尾但还有未批阅"的提示每次会话只发一次（避免每次 settle 刷 Snackbar）。 */
-    private var endIncompleteNotified = false
+    /**
+     * "最后一次到达队尾时已经确认过的 seenCount"（Stage 8B.2 §14）：
+     * 同一批阅进度下只 refresh 一次权威进度，禁止每个 settle 都刷。
+     * null = 本会话尚未在队尾确认过。
+     */
+    private var lastEndCheckSeenCount: Int? = null
 
     /** 是否为"打开完整播放器后返回"：true 时 [enterReview] 恢复会话而非重新进入。 */
     private var leftForFullPlayer = false
@@ -130,6 +135,11 @@ class V2ReviewViewModel @Inject constructor(
             when (opened) {
                 is ReviewSessionOpen.Ready -> applyOpened(opened)
                 ReviewSessionOpen.Empty -> _state.value = V2ReviewUiState.Empty
+                ReviewSessionOpen.NoAvailableMedia -> {
+                    // §20：整个 Session 都没有可用媒体（旧会话允许完成；UI 明确提示）
+                    _state.value = V2ReviewUiState.Empty
+                    _messages.tryEmit(ReviewMessage("暂无可继续批阅的媒体"))
+                }
                 is ReviewSessionOpen.Failed -> _state.value = V2ReviewUiState.Error(opened.message)
             }
         }
@@ -152,7 +162,7 @@ class V2ReviewViewModel @Inject constructor(
         )
         confirmedSeen.clear()
         seenInFlight.clear()
-        endIncompleteNotified = false
+        lastEndCheckSeenCount = null
         // 会话切换：丢弃上一会话未写完的位置（避免旧绝对索引写到新会话）
         positionWorker?.cancel()
         positionWorker = null
@@ -169,6 +179,9 @@ class V2ReviewViewModel @Inject constructor(
             absoluteCurrentIndex = opened.session.currentIndex,
             window = opened.window,
             seenCount = opened.session.seenCount,
+            remainingCount = opened.session.effectiveRemainingCount,
+            unavailableCount = opened.session.unavailableCount.coerceAtLeast(0),
+            completedCount = opened.session.completedCount.coerceAtLeast(0),
         )
         resolveCurrent(resolveNext = true)
         maybeCompleteIfQueueFinished()
@@ -265,6 +278,10 @@ class V2ReviewViewModel @Inject constructor(
                         ),
                         seenCount = result.seenCount,
                         totalCount = if (result.totalCount > 0) result.totalCount else current.totalCount,
+                        // Stage 8B.2 §12：remaining 也直接采用服务端权威值
+                        remainingCount = result.effectiveRemainingCount,
+                        unavailableCount = result.unavailableCount.coerceAtLeast(0),
+                        completedCount = result.completedCount.coerceAtLeast(0),
                     )
                 }
                 maybeCompleteIfQueueFinished()
@@ -350,6 +367,11 @@ class V2ReviewViewModel @Inject constructor(
             when (opened) {
                 is ReviewSessionOpen.Ready -> applyOpened(opened)
                 ReviewSessionOpen.Empty -> _state.value = V2ReviewUiState.Empty
+                ReviewSessionOpen.NoAvailableMedia -> {
+                    // §20：整个 Session 都没有可用媒体（旧会话允许完成；UI 明确提示）
+                    _state.value = V2ReviewUiState.Empty
+                    _messages.tryEmit(ReviewMessage("暂无可继续批阅的媒体"))
+                }
                 is ReviewSessionOpen.Failed -> _state.value = V2ReviewUiState.Error(opened.message)
             }
         }
@@ -518,26 +540,65 @@ class V2ReviewViewModel @Inject constructor(
     }
 
     /**
-     * §18/§40 正确完成条件：**到达队列末尾 + 服务端 seen_count == total_count**。
+     * Stage 8B.2 §12/§13/§14 正确完成流程（**服务端权威**）：
      *
-     * - 不再只看"最后一条是否 seen"（快速划过中间项也会误完成，评审 §17）；
-     * - atEnd 按**页边界**判断（队尾媒体失效也能结束，评审 §8）；
-     * - 到末尾但还有未批阅：提示一次"还有未批阅内容"，会话保持 active（§20），
-     *   绝不进入完成页；
-     * - complete single-flight（§21）：同一时刻只允许一个请求在飞；
-     * - **只有服务端确认成功才进入完成页**（服务端 fail-closed，评审 §19）。
+     * ```
+     * 到达窗口末端 → refreshProgress()（每次"准备完成"只刷一次，禁止每个 settle 都刷）
+     *   → remainingCount == 0 → complete()（服务端 fail-closed 二次确认）
+     *   → remainingCount > 0  → 提示"还有 N 条未批阅内容"，会话保持 active
+     *   → 刷新失败            → 不完成 + 提示重试（绝不本地猜，也绝不误完成）
+     * ```
+     *
+     * 不再只看"最后一条是否 seen"、也不再用 `seen_count == total_count`
+     * （媒体失效时后者永远无法满足，评审 §4）。
      */
     private fun maybeCompleteIfQueueFinished() {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         if (!ready.window.atEnd) return
-        if (ready.seenCount < ready.totalCount) {
-            if (!endIncompleteNotified) {
-                endIncompleteNotified = true
-                _messages.tryEmit(ReviewMessage("还有未批阅内容，会话未完成"))
-            }
-            return
-        }
         if (completeInFlight) return
+        if (lastEndCheckSeenCount == ready.seenCount) return
+        completeInFlight = true
+        viewModelScope.launch {
+            val progress = try {
+                sessions.refreshProgress()
+            } finally {
+                completeInFlight = false
+            }
+            val current = _state.value as? V2ReviewUiState.Ready ?: return@launch
+            if (current.sessionId != ready.sessionId) return@launch
+            if (progress == null) {
+                // §13：无法确认 → 绝不据此完成；下一次触发会重试
+                _messages.tryEmit(ReviewMessage("无法确认会话进度，请稍后重试"))
+                return@launch
+            }
+            applyProgress(progress)
+            if (progress.effectiveRemainingCount > 0) {
+                lastEndCheckSeenCount = progress.seenCount
+                _messages.tryEmit(
+                    ReviewMessage("还有 ${progress.effectiveRemainingCount} 条未批阅内容，会话未完成"),
+                )
+                return@launch
+            }
+            completeNow()
+        }
+    }
+
+    /** 用服务端权威进度刷新本地状态（§12：不能只依赖旧的本地 snapshot）。 */
+    private fun applyProgress(progress: ReviewSessionInfo) {
+        val current = _state.value as? V2ReviewUiState.Ready ?: return
+        if (current.sessionId != progress.sessionId) return
+        _state.value = current.copy(
+            totalCount = if (progress.totalCount > 0) progress.totalCount else current.totalCount,
+            seenCount = progress.seenCount,
+            remainingCount = progress.effectiveRemainingCount,
+            unavailableCount = progress.unavailableCount.coerceAtLeast(0),
+            completedCount = progress.completedCount.coerceAtLeast(0),
+        )
+    }
+
+    /** 服务端 complete（single-flight 由 [maybeCompleteIfQueueFinished] 保证）。 */
+    private fun completeNow() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
         completeInFlight = true
         viewModelScope.launch {
             val ok = try {
@@ -548,7 +609,11 @@ class V2ReviewViewModel @Inject constructor(
             val current = _state.value as? V2ReviewUiState.Ready
             if (current?.sessionId != ready.sessionId) return@launch
             if (ok) {
-                _state.value = V2ReviewUiState.Complete(ready.totalCount)
+                _state.value = V2ReviewUiState.Complete(
+                    totalCount = ready.totalCount,
+                    seenCount = ready.seenCount,
+                    unavailableCount = ready.unavailableCount,
+                )
             } else {
                 _messages.tryEmit(ReviewMessage("会话完成未保存，请稍后重试"))
             }
