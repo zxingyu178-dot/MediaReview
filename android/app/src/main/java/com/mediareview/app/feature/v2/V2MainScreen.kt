@@ -56,6 +56,8 @@ import com.mediareview.app.feature.v2.player.V2NativePlayerViewModel
 import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
 import com.mediareview.app.feature.v2.player.native.state.PlaybackQueueItem
+import com.mediareview.app.feature.v2.releasenotes.WhatsNewSheet
+import com.mediareview.app.feature.v2.releasenotes.WhatsNewViewModel
 import com.mediareview.app.feature.v2.review.V2ReviewScreen
 import com.mediareview.app.feature.v2.review.V2ReviewUiState
 import com.mediareview.app.feature.v2.review.V2ReviewViewModel
@@ -87,6 +89,9 @@ fun V2MainScreen(
     val currentRoute = backStack?.destination?.route
     val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
     val dataMode by vm.dataMode.collectAsState()
+    // 新版本首次启动的更新日志（Stage 8C.1 §38~§44）：Overlay，不阻塞首页加载
+    val whatsNewViewModel: WhatsNewViewModel = hiltViewModel()
+    val whatsNew by whatsNewViewModel.state.collectAsState()
 
     // 数据源设置（Demo / 我的服务器 + 首次配置）：V2 内部 Sheet，任何时候都能切换
     var dataSourceSheetOpen by remember { mutableStateOf(false) }
@@ -293,7 +298,19 @@ fun V2MainScreen(
         V2DataSourceSheet(
             vm = vm,
             onDismiss = { dataSourceSheetOpen = false },
+            // §52：设置页「本次更新」——关掉设置 Sheet 后打开更新日志
+            onOpenWhatsNew = {
+                dataSourceSheetOpen = false
+                whatsNewViewModel.open()
+            },
         )
+    }
+
+    // 新版本首次启动更新日志（§38/§42）：根页面完成 Composition 后才可能显示
+    if (whatsNew.visible) {
+        whatsNew.note?.let { note ->
+            WhatsNewSheet(note = note, onDismiss = { whatsNewViewModel.dismiss() })
+        }
     }
 }
 

@@ -4,6 +4,8 @@ import android.content.Context
 import coil.ImageLoader
 import com.mediareview.app.core.datastore.MediaWallSettingsStore
 import com.mediareview.app.core.datastore.ServerProfileStore
+import com.mediareview.app.feature.v2.releasenotes.ReleaseNotesDataSource
+import com.mediareview.app.feature.v2.releasenotes.ReleaseNotesStore
 import com.mediareview.app.core.media.PlayerCore
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.AuthInterceptor
@@ -46,6 +48,13 @@ object AppModule {
     fun provideMediaWallSettingsStore(
         @ApplicationContext context: Context,
     ): MediaWallSettingsStore = MediaWallSettingsStore(context)
+
+    /** 版本更新日志展示记录（Stage 8C.1 §40）：DataStore 持久化 last_seen_version_code。 */
+    @Provides
+    @Singleton
+    fun provideReleaseNotesDataSource(
+        @ApplicationContext context: Context,
+    ): ReleaseNotesDataSource = ReleaseNotesStore(context)
 
     @Provides
     @Singleton

@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.mediareview.app.BuildConfig
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
@@ -61,6 +62,8 @@ fun V2ServerStatus.displayLabel(): String = when (this) {
 fun V2DataSourceSheet(
     vm: V2HomeViewModel,
     onDismiss: () -> Unit,
+    /** 「本次更新」入口（Stage 8C.1 §52）：打开当前版本的更新日志 Sheet。 */
+    onOpenWhatsNew: () -> Unit = {},
 ) {
     val dataMode by vm.dataMode.collectAsState()
     val status by vm.serverStatus.collectAsState()
@@ -197,6 +200,23 @@ fun V2DataSourceSheet(
                             Text("断开连接", color = MediaDanger)
                         }
                     }
+                }
+            }
+
+            // Stage 8C.1 §51/§52：设置底部显示当前 App 版本，并可主动查看本次更新
+            Spacer(modifier = Modifier.size(V2Spacing.Lg))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "MediaReview ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MediaTextSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onOpenWhatsNew) {
+                    Text("本次更新", color = MediaTextPrimary)
                 }
             }
         }
