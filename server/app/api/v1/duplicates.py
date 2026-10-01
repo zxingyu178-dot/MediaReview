@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -27,21 +29,32 @@ router = APIRouter(prefix="/duplicates", tags=["duplicates"])
 
 
 class DuplicateSummaryView(BaseModel):
-    """重复媒体摘要(Stage 8C §12): 计数 + 最近扫描任务状态,不返回分组本体。"""
+    """重复媒体摘要(Stage 8C §12): 计数 + 最近扫描任务状态,不返回分组本体。
+
+    Stage 8C.1 §18/§19: 计数始终来自**最近一次成功扫描**的持久化结果;
+    重扫失败时计数不变(不是 0),`scan_status=failed` 由客户端叠加提示;
+    `last_successful_scan_at` 供页面显示"上次扫描时间"。
+    """
 
     exact_groups: int
     similar_groups: int
     scan_task_id: str | None = None
     scan_status: str | None = None
     scan_progress: int = 0
+    last_successful_scan_at: datetime | None = None
 
 
 class DuplicateDetailMemberView(BaseModel):
-    """分组详情内的成员媒体摘要(Stage 8C §33): 一次批量 SQL 取回,客户端零 N+1。"""
+    """分组详情内的成员媒体摘要(Stage 8C §33): 一次批量 SQL 取回,客户端零 N+1。
+
+    `available`(Stage 8C.1 §20): 扫描后媒体可能已失效 —— 客户端必须据此显示
+    「文件已不可用」,不得展示假封面/假可用状态。
+    """
 
     media_id: str
     name: str
     keep: bool = False
+    available: bool = True
     size_bytes: int | None = None
     duration_ms: int | None = None
     width: int | None = None
@@ -76,6 +89,18 @@ class DuplicateGroupView(BaseModel):
     duration_ms: int | None = None
     detail: str = ""
     members: list[DuplicateMemberView] = []
+
+
+class DuplicateGroupPageView(BaseModel):
+    """重复分组分页视图(Stage 8C.1 §11): items/total/page/page_size。
+
+    扫描阶段不再截断(旧 200 组上限已删除),数量控制统一放在读取侧分页。
+    """
+
+    items: list[DuplicateGroupView] = []
+    total: int = 0
+    page: int = 1
+    page_size: int = 50
 
 
 class KeepBody(BaseModel):
@@ -119,10 +144,14 @@ def scan(_auth=Depends(require_auth), db: Session = Depends(get_db)) -> Envelope
 def summary(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[DuplicateSummaryView]:
-    """重复媒体摘要: 完全/疑似分组计数(单条 SQL) + 最近一次扫描任务状态。"""
+    """重复媒体摘要: 完全/疑似分组计数(单条 SQL) + 最近一次扫描任务状态。
+
+    重扫失败时计数保持上一份成功结果(§18),另附 `last_successful_scan_at`(§19)。
+    """
     counts = duplicate_scanner.persisted_group_counts(db)
     task = duplicate_scanner.latest_duplicate_scan(db)
     view = safe_task_view(task) if task is not None else None
+    success = duplicate_scanner.last_successful_scan(db)
     return ok(
         DuplicateSummaryView(
             exact_groups=counts.get("exact", 0),
@@ -130,6 +159,7 @@ def summary(
             scan_task_id=(view or {}).get("task_id"),
             scan_status=(view or {}).get("status"),
             scan_progress=int((view or {}).get("progress") or 0),
+            last_successful_scan_at=success.finished_at if success is not None else None,
         )
     )
 
@@ -148,12 +178,30 @@ def persisted_all(
     return ok([_view(g) for g in duplicate_scanner.persisted_groups(db)])
 
 
-@router.get("/exact", response_model=Envelope[list[DuplicateGroupView]])
+def _page_view(
+    db: Session, group_type: str, page: int, page_size: int
+) -> DuplicateGroupPageView:
+    groups, total = duplicate_scanner.persisted_groups_page(
+        db, group_type, page=page, page_size=page_size
+    )
+    return DuplicateGroupPageView(
+        items=[_view(g) for g in groups],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/exact", response_model=Envelope[DuplicateGroupPageView])
 def persisted_exact(
-    _auth=Depends(require_auth), db: Session = Depends(get_db)
-) -> Envelope[list[DuplicateGroupView]]:
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[DuplicateGroupPageView]:
+    """完全重复分组分页(Stage 8C.1 §11): 扫描结果全量持久化,读取侧分页。"""
     _ensure_hash(db)
-    return ok([_view(g) for g in duplicate_scanner.persisted_groups(db, "exact")])
+    return ok(_page_view(db, "exact", page, page_size))
 
 
 @router.get("/high", response_model=Envelope[list[DuplicateGroupView]])
@@ -171,11 +219,15 @@ def persisted_candidates(
     return ok([_view(g) for g in duplicate_scanner.persisted_groups(db, "candidate")])
 
 
-@router.get("/similar", response_model=Envelope[list[DuplicateGroupView]])
+@router.get("/similar", response_model=Envelope[DuplicateGroupPageView])
 def persisted_similar(
-    _auth=Depends(require_auth), db: Session = Depends(get_db)
-) -> Envelope[list[DuplicateGroupView]]:
-    return ok([_view(g) for g in duplicate_scanner.persisted_groups(db, "similar")])
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[DuplicateGroupPageView]:
+    """疑似重复分组分页(Stage 8C.1 §11): 与 exact 相同的分页合同。"""
+    return ok(_page_view(db, "similar", page, page_size))
 
 
 @router.get("/{group_id}", response_model=Envelope[DuplicateGroupDetailView])
@@ -202,6 +254,8 @@ def group_detail(
                     # 媒体索引行可能已缺失(刚被删除等):回退到分组内持久化姓名
                     name=member.media.name if member.media is not None else member.name,
                     keep=member.keep,
+                    # 扫描后失效的成员:客户端据此显示「文件已不可用」(§20)
+                    available=member.available,
                     size_bytes=member.media.size_bytes if member.media is not None else None,
                     duration_ms=member.media.duration_ms if member.media is not None else None,
                     width=member.media.width if member.media is not None else None,

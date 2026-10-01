@@ -66,6 +66,9 @@ async def list_queue(
                 "status": row.status,
                 "size_bytes": row.size_bytes,
                 "added_at": row.added_at,
+                # Stage 8C.1 §23: failed 项下发失败原因(guard 代码,如 file_size_changed /
+                # library_not_allowed / stat_failed:*),客户端映射为简短中文,不展示原始堆栈。
+                "error": row.error,
                 # Stage 8C §16: 队列项封面与 /media 缓存版本语义一致,
                 # 客户端不得为了显示封面再逐条请求媒体详情(N+1)。
                 "media": (

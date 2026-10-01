@@ -199,5 +199,7 @@ def test_duplicates_api_scan_status_and_exact(client) -> None:
     assert st.status_code == 200
     assert st.json()["data"]["task_id"] == task_id
 
-    # 尚未运行 -> 无持久化分组
-    assert client.get("/api/v1/duplicates/exact").json()["data"] == []
+    # 尚未运行 -> 无持久化分组(分页合同: items 空 / total 0)
+    empty = client.get("/api/v1/duplicates/exact").json()["data"]
+    assert empty["items"] == []
+    assert empty["total"] == 0

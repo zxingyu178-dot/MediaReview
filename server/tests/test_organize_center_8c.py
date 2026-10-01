@@ -197,7 +197,9 @@ def test_duplicate_group_detail_members_and_cover(tmp_path: Path, client) -> Non
     _seed_exact_pair(db)
     _run_scan(db)
 
-    groups = client.get("/api/v1/duplicates/exact").json()["data"]
+    page = client.get("/api/v1/duplicates/exact").json()["data"]
+    groups = page["items"]
+    assert page["total"] == 1
     group_id = groups[0]["group_id"]
     r = client.get(f"/api/v1/duplicates/{group_id}")
     assert r.status_code == 200, r.text
@@ -222,7 +224,7 @@ def test_duplicate_keep_true_false_reflected_in_detail(tmp_path: Path, client) -
     db = client.app.state.database
     _seed_exact_pair(db)
     _run_scan(db)
-    groups = client.get("/api/v1/duplicates/exact").json()["data"]
+    groups = client.get("/api/v1/duplicates/exact").json()["data"]["items"]
     group_id = groups[0]["group_id"]
     media_id = groups[0]["media_ids"][0]
 
