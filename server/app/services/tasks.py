@@ -119,14 +119,22 @@ class TaskManager:
 
 
 def safe_task_view(task: BackgroundTask) -> dict:
-    """返回不含 params/result/raw exception 的通用任务视图。"""
+    """返回不含 params/result/raw exception 的通用任务视图。
+
+    失败原因按任务类型映射为用户可读文案(不暴露内部异常):
+    - `media_refresh`: 媒体同步失败;
+    - `duplicate_scan` + `library_selection_changed`(Stage 8C.2 §19):
+      媒体库范围已变化,本次扫描结果不再有效;
+    - 其余: 通用后台任务失败。
+    """
     safe_error = None
     if task.status == "failed":
-        safe_error = (
-            "媒体同步失败，请稍后重试"
-            if task.type == "media_refresh"
-            else "后台任务执行失败，请稍后重试"
-        )
+        if task.type == "media_refresh":
+            safe_error = "媒体同步失败，请稍后重试"
+        elif task.type == "duplicate_scan" and task.error == "library_selection_changed":
+            safe_error = "媒体库范围已变化，请重新扫描"
+        else:
+            safe_error = "后台任务执行失败，请稍后重试"
     return {
         "task_id": task.task_id,
         "type": task.type,

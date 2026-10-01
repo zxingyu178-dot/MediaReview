@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -204,11 +205,19 @@ def test_license_and_third_party_notices_exist() -> None:
 
 # ---------------------------------------------------------------- Android 产物(F6)
 def test_android_version_name_and_code_and_application_id() -> None:
-    """Stage 8B.1 §24:Android 版本合同更新为当前 2.0 产品线(不再断言过时的 1.1.0)。"""
+    """Android 版本合同: 2.0 产品线 + versionCode/versionName 格式合法。
+
+    Stage 8C.2 §34: 版本号随产品版本递增(见 docs/VERSION_POLICY.md),不再把
+    具体数值钉死在断言里(否则每次版本迭代都要改这个部署合同测试);
+    具体数值的正确性与"必须有 Release Notes"由 Android 侧
+    `ReleaseNotesContractTest` 与版本政策共同保证。
+    """
     gradle = (ANDROID / "app" / "build.gradle.kts").read_text(encoding="utf-8")
     assert 'applicationId = "com.mediareview.app"' in gradle
-    assert 'versionName = "2.0.0-alpha1"' in gradle
-    assert "versionCode = 8" in gradle, "versionCode 必须与当前 2.0 产品线一致(现为 8)"
+    assert re.search(r'versionName = "2\.0\.0-(alpha|beta)\d+"', gradle), (
+        "versionName 必须是 2.0 产品线版本(如 2.0.0-alpha3)"
+    )
+    assert re.search(r"versionCode = \d+", gradle), "必须声明 versionCode"
 
 
 def test_android_app_name_is_zh() -> None:
