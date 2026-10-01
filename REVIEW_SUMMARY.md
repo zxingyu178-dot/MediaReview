@@ -1,117 +1,131 @@
-# MediaReview 2.0 — Stage 8B.2 评审摘要（Review Availability / Sparse Queue Closure）
+# MediaReview 2.0 — Stage 8C 评审摘要（Organize Center → Real Server V1）
 
 - 日期：2026-10-01
-- 分支：`feature/mediareview-v2-stage8b.2-review-availability`
-- Base Commit：`c55cdd34f264b9f6ea19e35497c66a5efd54c738`
+- 分支：`feature/mediareview-v2-stage8c-organize-center`
+- Base Commit：`a99c593ee145b86b6721369791f1508b82774e48`
 - **Head：以交接包 `00_HANDOFF.md` 为准（由 `git rev-parse HEAD` 现场生成）**
 - Git Status：CLEAN
-- 结果：**CODE_READY**（小版本：`User Validation: NOT REQUIRED FOR THIS PATCH`）
+- 结果：**READY_FOR_USER_VALIDATION**（大阶段：生成 1 个用户 APK）
 - **阶段结论：合格**
 
 ## 一、目标与完成度
 
-目标（评审 §2）：只解决 **Review Session 中媒体在建队以后变成 unavailable / missing 时的正确性和性能**，
-不新增其他产品功能；**不生成/不发送用户 APK**。
+目标（§3）：把 V2「整理」页从 Mock 壳改成真实 Server 整理中心，完成后 **OrganizePage
+不允许再出现任何 Mock 数字**。
 
-| 评审意见 | 状态 | 修法摘要 |
+| 任务书条目 | 状态 | 修法摘要 |
 |---|---|---|
-| §4 失效媒体永久阻塞完成 | 已修 | 完成条件改为 `remaining_count == 0` |
-| §5 total_count 语义不变 | 保持 | 队列长度、absoluteIndex、分页、position 全部不压缩 |
-| §6 新增权威进度字段 | 已做 | `unavailable_count / remaining_count / completed_count`（不重复计数） |
-| §7 Server 统一 progress helper | 已做 | `review_progress_counts()`，所有 Review API 共用 |
-| §8/§9 完成条件 + fail-closed | 已做 | remaining>0 → 409 CONFLICT，会话保持 active |
-| §10 advance / set_position 同步 | 已做 | 三条路径统一只认 remaining |
-| §11 DTO 扩展（兼容旧 Server） | 已做 | 默认 `-1` = 未知，绝不把缺失值当 0 |
-| §12/§13 Android 完成改为 Server 权威 | 已做 | 到队尾 → `refreshProgress()` → 据权威 remaining 决策 |
-| §14 不每个 settle 刷新 | 已做 | 同一 seen 进度下只刷一次；测试断言 refresh 次数 |
-| §15~§19 恢复性能重构 | 已做 | `nearest` 单条 SQL；恢复 = 1 nearest + 1 目标页；写回 position |
-| §20 整会话不可用 | 已做 | `NoAvailableMedia` → 空态 + 「暂无可继续批阅的媒体」 |
-| §21~§24 连续空页卡住 | 已做 | next/prev 空页 → nearest 直接跳页；删除 `MAX_EMPTY_PAGE_SCAN` |
-| §25 absolute index 保持 | 保持 | 缺项不压缩（测试覆盖 600/602/603 语义） |
-| §26 UI 进度显示 | 保持 | 顶部仍为 Session 绝对进度；完成页数据已备好（不扩 UI） |
-| §27 提示带数字 | 已做 | 「还有 N 条未批阅内容，会话未完成」 |
-| §28 失效媒体合同 4 例 | 已做 | Case 1/2/3/4 全部有测试 |
-| §29 nearest 4 例 | 已做 | 自身可用 / 向后 / 向前回退 / 全不可用 |
-| §30 大稀疏性能合同 | 已做 | Server 单条 SQL 断言 + Android `nearest ≤ 1 / page ≤ 1` |
-| §31/§32 连续 20 页不可用 | 已做 | next → page31、prev → page10 直接跳页 |
-| §33 current_index 越界 | 已做 | 优先 nearest backward |
-| §34 网络失败 ≠ 不可用 | 已做 | 恢复 → Failed；分页 → null 可重试 |
-| §35/§36 不碰 Organize / 播放器 | 遵守 | 未改 `feature/v2/player/**`，未动整理页 |
-| §38/§42 无 APK、SHA256SUMS 不含 APK | 遵守 | 未运行 assembleDebug；ZIP 内无 APK 条目 |
+| §4/§5 不复用旧 Repository、独立 V2 Organize 数据层 | 已做 | `feature/v2/organize/data/`（接口 + Server/Demo 实现 + Router） |
+| §6 每个失败显式表达（禁止 catch→空/0） | 已做 | 所有仓库方法失败上抛；404 仅在有明确语义处解释 |
+| §7~§10 Overview 真实数据 + 每卡独立 Loading/Error | 已做 | 四卡独立状态 + 单卡重试；不为数字拉全量列表 |
+| §11 Delete Queue Summary API | 已做 | `GET /delete-queue/summary`（pending 单条 SQL 聚合） |
+| §12 Duplicate Summary API | 已做 | `GET /duplicates/summary`（计数 + 扫描任务状态） |
+| §13 Review 卡改名「批阅进度」 | 已做 | active → 「37 / 100 · 剩余 63」；无 active → 「暂无进行中的批阅」 |
+| §14~§17 待删除列表/封面/恢复 | 已做 | 服务端随队列下发 `cover_url`；恢复 Server 确认制 |
+| §18~§23 两步最终删除 + 防重复 | 已做 | prepare 快照 → 确认数字来自 prepare → 同 nonce 只 commit 一次 |
+| §22 结果逐类显示 | 已做 | 成功删除 / 文件已不存在 / 删除失败（失败项留队列） |
+| §23 不削弱删除安全协议 | 遵守 | nonce 一次性/10 分钟/快照绑定/allowlist/身份校验/审计全部保留 |
+| §24/§25 最终删除后刷新且不自动退出 | 已做 | `refreshAfterFinalDelete` + `dropCachedMedia`；停留本页刷新 |
+| §26~§36 重复媒体中心/对比/Keep | 已做 | exact/similar 分离；详情一次请求零 N+1；Keep 服务端确认 |
+| §31/§36 不自动删除重复文件 | 遵守 | 只发现 / 对比 / 记录保留；不做"一键删除其余" |
+| §37~§42 媒体库管理 | 已做 | 复用 libraries 接口；本地草稿 + 应用；失败保留草稿；全取消本地阻止 |
+| §41 媒体库变化后缓存失效 | 已做 | `refreshAfterLibraryChange` → invalidate + 重载首页 |
+| §43 Demo 模式不崩、不调真实 Server | 已做 | Demo 待删除走内存；重复媒体/媒体库明确「仅服务器模式可用」 |
+| §46/§47 Navigation + 拆出 OrganizePage | 已做 | `organize/*` 路由；`OrganizePage.kt` 从 V2MainScreen 拆出 |
+| §48/§49 V2 风格、不做视觉大改 | 遵守 | 复用 V2Spacing/V2Radius + Media* 主题 token |
+| §50~§55 测试（Server/Android Repository/ViewModel/Instrumentation） | 已做 | 见「三、测试规模」 |
+| §56 用户真实文件安全 | 遵守 | 测试全部 temp 目录 + test DB + test media，未指向 Jellyfin |
+| §57 生产 Server NOT DEPLOYED | 遵守 | 未替换服务 / 未迁移 DB / 未重启 ControlHub |
+| §58 8B.2 性能债不处理 | 遵守 | `mark_seen` 的重复聚合未改动（DO NOT OPTIMIZE YET） |
+| §59/§60/§61 APK 政策与 6 个 commit | 遵守 | 全部完成后只生成 1 个 APK；6 个 commit 拆分 |
 
 ## 二、主要改动
 
 ### Server（`server/`）
 
-- `app/services/review.py`：
-  - 新增 `review_progress_counts()`（统一进度，含"先 seen 后失效"不重复计数）、
-    `nearest_available_item()`（SQL `LIMIT 1` 直查）、`_remaining_count()`；
-  - `complete()` / `advance()` / `set_position()` 自动完成条件统一为 `remaining_count == 0`；
-  - `mark_seen()` 返回完整权威计数；`progress_view()` / `session_view()` 统一带计数。
-- `app/api/v1/review.py`：新增 `GET /sessions/{id}/nearest`（forward/backward/nearest，422 校验方向），
-  所有响应统一进度计数。
-- 测试：新增 `tests/test_review_availability_8b2.py`（15 项：Case1~4、advance/position 语义、
-  nearest 4 例 + 方向/参数校验 + 404、100k 单条 SQL 断言）；更新 `test_review_service.py` /
-  `test_review_correctness_8b1.py` 的"可用性前置"（完成条件变化导致的原断言修正）。
+- `app/services/delete_queue.py`：新增 `pending_summary()`（pending 的 count/total_bytes 单条 SQL）。
+- `app/api/v1/delete_queue.py`：新增 `GET /summary`；`GET /delete-queue` 队列项媒体摘要补齐
+  `cover_url`（带 `source_version`）+ `original_url`，与 `/media` 缓存版本语义一致。
+- `app/services/duplicate_scanner.py`：新增 `persisted_group_counts()`（单条 SQL 计数）、
+  `group_detail()`（成员媒体行一次 `IN (...)` 批量取回）。
+- `app/api/v1/duplicates.py`：新增 `GET /duplicates/summary`、`GET /duplicates/{group_id}`
+  （成员含 size/duration/分辨率/media_type/cover_url；未知分组 404）。
+- 测试：新增 `tests/test_organize_center_8c.py`（6 项：摘要口径、封面语义、
+  missing 清理、重复计数/状态、详情成员、keep 反映）。
 
 ### Android（`android/`）
 
-- `core/model/ApiModels.kt`：`ReviewSessionDto / ReviewProgressDto / ReviewSeenResultDto` 增加三个计数；
-  新增 `ReviewNearestDto`。
-- `core/network/MediaReviewApi.kt`：新增 `reviewSession(id)`（权威进度）与 `nearestReviewIndex(...)`。
-- `review/data/ReviewSessionModels.kt`：`ReviewSessionInfo` / `ReviewSeenResult` 增加计数 +
-  `effectiveRemainingCount`（未知时保守回退 `total - seen`）；新增 `NearestDirection`、
-  `ReviewSessionOpen.NoAvailableMedia`。
-- `review/data/V2ServerReviewSessionRepository.kt`：`openWindow` 改为 nearest + 单页；
-  next/prev 空页跳页（删除 `MAX_EMPTY_PAGE_SCAN`）；越界处理；`refreshProgress()`；nearest 失败上抛。
-- `review/data/V2ReviewSessionRepository.kt` / Router / `DemoReviewSessionRepository.kt`：
-  新增 `refreshProgress()`；Demo 返回本地权威状态。
-- `review/V2ReviewUiState.kt` / `V2ReviewViewModel.kt`：Ready 增加权威计数；
-  完成流程改为"到队尾 → 刷新 → 按 remaining 决策"；提示带数字；`NoAvailableMedia` → 空态 + 提示；
-  `Complete` 携带 seen/unavailable（完成页数据备好）。
+- 新增 `feature/v2/organize/`：
+  - `OrganizePage.kt` / `OrganizeViewModel.kt` / `OrganizeUiState.kt`（四卡独立状态 + 文案）；
+  - `data/`：`V2OrganizeRepository.kt`（接口+模型）、`V2ServerOrganizeRepository.kt`、
+    `V2DemoOrganizeRepository.kt`、`V2OrganizeRepositoryRouter.kt`；
+  - `delete/`：`DeleteQueueScreen.kt` / `DeleteQueueViewModel.kt`（状态机 + single-flight）/
+    `DeleteResultSheet.kt`；
+  - `duplicates/`：`DuplicatesScreen.kt` / `DuplicatesViewModel.kt`（扫描轮询 + 对比 ViewModel）/
+    `DuplicateCompareScreen.kt` / `DuplicateScanState.kt`；
+  - `libraries/`：`LibraryManagerScreen.kt` / `LibraryManagerViewModel.kt`。
+- `core/model/ApiModels.kt`：新增 `DeleteQueueSummaryDto / DuplicateSummaryDto /
+  DuplicateGroupDetailDto / DuplicateDetailMemberDto / DuplicateKeepResultDto`（修正 keep 布尔解析缺陷）。
+- `core/network/MediaReviewApi.kt`：新增 3 个 Organize 端点；修正 keep 返回类型。
+- `feature/v2/data/MediaRepository.kt` + `V2ServerModels.kt` + 两处实现：新增
+  `dropCachedMedia()`（最终删除后丢弃已删除媒体的缓存条目）。
+- `feature/v2/MainScreen.kt`：OrganizePage 迁出 + 4 条新路由接线；`MediaNavigator.kt` 新增路由。
+- `feature/v2/home/V2HomeViewModel.kt`：新增 `refreshAfterFinalDelete()` / `refreshAfterLibraryChange()`。
+- `di/V2DataModule.kt`：绑定 `V2OrganizeRepository` 路由器。
 
-### UI / 交互变化
+### 测试（`android/app/src/test` 与 `androidTest`）
 
-无新功能、无视觉扩范围。仅两条提示文案调整/新增：
-「还有 N 条未批阅内容，会话未完成」「暂无可继续批阅的媒体」。
+- JVM：`V2ServerOrganizeRepositoryContractTest`（MockWebServer，含"详情一次请求零 N+1"断言）、
+  `OrganizeViewModelTest`（卡片独立失败/单卡重试）、`DeleteQueueViewModelTest`（single-flight/
+  结果汇总/取消忽略/失败不刷新）、`DuplicatesViewModelTest`（轮询/成功重载/防重/keep 确认）、
+  `LibraryManagerViewModelTest`（草稿/应用/失败保留/全取消阻止）。
+- Instrumentation：`Stage8COrganizeUiTest`（Compose：真实数据卡片 + 三条导航往返 +
+  两步删除确认 Sheet + 结果 Sheet + 恢复）、`Stage8COrganizeServerFlowTest`
+  （设备内 MockWebServer + 真实 ViewModel：扫描生命周期 / 对比 keep / 媒体库保存 / 恢复）。
 
 ## 三、测试规模（真实执行）
 
 | 环境 | 结果 |
 |---|---|
-| Server pytest（全量） | **407 tests / 0 failed / 0 error / exit_code=0** |
-| Android JVM | **418 tests / 0 failed**（65 suites） |
-| Lint | **0 errors**（41 warnings + 10 info，无新增 error） |
+| Server pytest（全量） | **413 tests / 0 failed / 0 error / exit_code=0** |
+| Android JVM | **464 tests / 0 failed / 0 error** |
+| Lint | **0 errors**（41 warnings，与 8B.2 持平，无新增 error） |
 | compileDebugKotlin | BUILD SUCCESSFUL |
-| Instrumentation（模拟器 API35 + 宿主 Mock Server） | **36/36 PASS / 0 failed** |
-| 用户 APK | **NOT GENERATED**（小版本政策；未运行 `:app:assembleDebug`） |
+| Instrumentation（模拟器 API35 + 设备内 MockWebServer + 宿主 Mock 8799） | 见 `logs/android_instrumentation_raw.txt` |
+| 用户 APK | **1 个**（`MediaReview-v2-stage8c-organize.apk`，clean assembleDebug 于最终 HEAD 构建） |
 
 ## 四、已知问题 / 遗留
 
-1. 本阶段按 §41 **不需要用户实机验收**；真实手机体验确认仍属后续（可与 Stage 8C 验收合并）。
-2. 未部署生产 Server（未替换服务 / 未迁移 DB / 未重启 ControlHub）。
-3. `refreshProgress` 只在队尾触发：若用户停在队尾期间媒体才失效且用户不移动，
-   提示数字会保持上一次刷新时的值（不引入轮询是 §14 的明确取舍）。
-4. 完成页 UI 暂未展示"已浏览 / 失效跳过"（§26 允许本小版本只备数据）。
-5. 极端状态：nearest 明确为 null 且 session 仍有 `seen` 记录时，进入空态而非自动 complete
-   （避免在进入路径上产生写操作；用户点「重新批阅」会新建会话）。
+1. Organize 首页在每次进入整理 Tab 时刷新四张卡（4 个轻量请求）——换取"删除/扫描/媒体库变更后数字即时同步"；
+   若未来要降请求量，可改为 revision 失效机制（本阶段不引入）。
+2. 「批阅进度」卡只显示 active Session 的绝对进度；历史累计（跨会话）**不伪造**，
+   需要产品确认后再设计。
+3. 重复扫描进度轮询为 1.5s（页面可见时）；切后台/离开页面停止（不引入 WorkManager 常驻轮询）。
+4. 媒体库管理在 Demo 模式明确不可用（「仅服务器模式可用」），与任务书 §43 一致。
+5. 未部署生产 Server；真机 + 真实 Jellyfin 验收由用户完成（本阶段交付 APK）。
 
 ## 五、风险最高的 3 个点（Agent 自评）
 
-1. **完成语义变更的跨端一致性**：Server 判定与 Android 展示都改为 `remaining`；
-   若线上 Server 未同步升级（旧响应缺字段），Android 会保守回退 `total - seen` →
-   表现为"失效媒体仍阻塞完成"（不会误完成）。升级需 Server+App 同步发布。
-2. **nearest 的 SQL 正确性边界**：`backward` 是严格小于（不含锚点自身），
-   客户端越界恢复依赖 `nearest(index=total_count, backward)` 拿到最后一项；
-   已由 Server 4 例 + Android 越界用例双向覆盖，但真实 Jellyfin 大库仍建议抽样核对。
-3. **跳页后的窗口稀疏性**：跳页会让窗口跨越大量未加载页（如 10 → 31），
-   UI 顶部显示的是绝对进度而非本地条数（符合 §25/§26），但真机上滑动节奏需要肉眼确认。
+1. **两步删除的 UI 状态机**：prepare→确认→commit 的 single-flight 与"确认数字来自 prepare"
+   已由 ViewModel 测试 + 设备侧 UI 测试覆盖；但真实大队列（数千项）下 prepare/commit 的等待时长
+   与取消行为仍建议真机抽样。
+2. **重复详情的"零 N+1"依赖服务端一次批量 SQL**：Server 端已按 `IN (...)` 实现并有测试，
+   但超大分组（>200 成员）下响应体积值得真机观察。
+3. **Organize 首屏 4 个并发请求**：任一失败只影响单卡（已测试）；但弱网下会出现
+   "部分卡 Ready + 部分卡 Error"的混合状态——这是设计行为（§9），需要用户确认可接受。
 
 ## 六、是否建议进入下一阶段
 
-建议：**可以进入 Stage 8C（Organize Center → Real Server）**。
-本阶段为小版本收口（§41：`NOT REQUIRED FOR THIS PATCH`），用户实机验收可安排在 8C 一并完成；
-若希望先看设备表现，可在真机上复查"失效媒体不再阻塞完成"与"深位置恢复秒开"两项。
+建议：**先由用户安装 Stage 8C APK 完成实机验收**（整理 → 待删除/重复媒体/媒体库；
+两步删除；重复扫描；Keep）。
+验收通过后再进入：
+
+```text
+Stage 8D（任务书 §64 之后未定义，等待用户指令）
+```
+
+本阶段结束后停止，不自动进入下一阶段。
 
 ---
-阶段结论：合格
+
+阶段结论：合格（READY_FOR_USER_VALIDATION）

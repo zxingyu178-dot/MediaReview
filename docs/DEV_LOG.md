@@ -2018,3 +2018,114 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 - 不碰 Organize / Delete Queue UI / Duplicate UI / 媒体库管理 / Room / SWR（属 Stage 8C）；
 - 不改播放器（`feature/v2/player/**` 未修改）；无 UI 扩范围（仅新增两条提示文案）；
 - 未部署生产；未进入 Stage 8C。
+
+---
+
+# Stage 8C — Organize Center → Real Server V1
+
+- **基线**：`a99c593ee145b86b6721369791f1508b82774e48`（feature/mediareview-v2-stage8b.2-review-availability）
+- **分支**：`feature/mediareview-v2-stage8c-organize-center`
+- **范围**：把 V2「整理」页整体去 Mock，接真实 Server：
+  待删除真 Delete Queue / 重复媒体真 Scanner / 批阅进度真 Session / 媒体库真 Library Selection。
+  **大阶段 APK 政策**：全部完成、自动测试通过后**只生成 1 个** `MediaReview-v2-stage8c-organize.apk`。
+
+## 1. 独立 V2 Organize 数据层（不复用旧 Repository）
+
+- 新增 `feature/v2/organize/data/`：`V2OrganizeRepository`（接口 + 领域模型）、
+  `V2ServerOrganizeRepository`、`V2DemoOrganizeRepository`、`V2OrganizeRepositoryRouter`
+  （按运行时数据源模式委托，与媒体层路由器同构），Hilt 绑定在 `V2DataModule`。
+- **禁止复用**旧 `feature/deletequeue` / `feature/duplicates` / `feature/home/data` 的 Repository：
+  旧实现 `runSuspendCatching → error → emptyList/null/false`，会把"网络失败"伪装成"没有数据"。
+- 新接口所有方法**失败必须上抛**（`§45 错误不能变成 0`）：ViewModel 据此进入 Error 卡片 /
+  提示并可重试；404 只在有明确语义处（`latest` 无 active 会话说）被解释为合法状态。
+- Demo 模式：待删除 = Demo 批阅的内存待删除集合（同一份状态，Review 里 🗑 的项会出现在整理页），
+  最终删除在内存中完成（一次性 nonce 快照语义与 Server 对齐，不碰磁盘）；
+  重复媒体 / 媒体库管理抛 `OrganizeFeatureUnavailableInDemoException` → UI 明确显示
+  「仅服务器模式可用」，绝不伪装成 0 项。
+
+## 2. Server：Organize 摘要与重复详情（不整包拉列表）
+
+- `GET /api/v1/delete-queue/summary`：单条 SQL 聚合 **pending** 的 `count / total_bytes`
+  （`delete_queue.pending_summary()`）；failed 项不计入"预计释放"。
+- `GET /api/v1/delete-queue`：队列项 `media` 补齐 `cover_url`（`media_thumbnail_url(media_id, row_source_version(media))`）
+  与 `original_url`，与 `/media` 的缓存版本语义完全一致 → **客户端零 N+1**（不必逐条拉媒体详情）。
+- `GET /api/v1/duplicates/summary`：`exact_groups / similar_groups`（单条 SQL 计数）+
+  最近扫描任务 `scan_task_id / scan_status / scan_progress`。
+- `GET /api/v1/duplicates/{group_id}`：分组 + 成员 + **每个成员的媒体摘要**
+  （`size/duration/分辨率/media_type/cover_url`），组内媒体行**一次 `IN (...)` 批量 SQL** 取回；
+  未知分组 404。
+- 删除安全协议**零改动**：nonce 一次性 / 10 分钟过期 / 快照绑定 / library allowlist /
+  size+mtime+普通文件校验 / 逐项审计 / success·missing·failed 逐项结果全部保留，
+  继续只走 `commit_with_nonce()`。
+
+## 3. 整理首页：四张真实卡片（每卡独立状态）
+
+- `OrganizePage` 从 `V2MainScreen.kt` 拆到 `feature/v2/organize/OrganizePage.kt`（§47）。
+- `OrganizeUiState`：`deleteCard / duplicateCard / reviewCard / libraryCard` 各自
+  `Loading / Ready / Error / Unavailable` —— 一张卡失败**不白屏**、可**单卡重试**、绝不显示成 0。
+- 卡片内容：待删除「12 项 · 预计释放 1.8 GB」；重复媒体（扫描中显示「扫描中 62%」，
+  否则「完全重复 3 组 · 疑似重复 7 组」）；**「批阅进度」**（active 会话 → 「37 / 100 · 剩余 63」，
+  无 active → 「暂无进行中的批阅」，不伪造历史累计）；媒体库「已选 2 / 共 3 个媒体库」。
+- Overview **不为显示数字拉全量列表**（走 §2 的三个 summary/计数接口 + `latest` + `libraries`）。
+
+## 4. 待删除中心：两步最终删除 + 结果逐类显示
+
+- 列表来自 `GET /delete-queue`（服务端随队列下发封面）；恢复单项：Server 成功才刷新列表，
+  失败保持原样 + Snackbar（§17）。
+- 状态机 `Idle → Preparing → ReadyToConfirm → Committing → Result`：
+  **先 `POST commit/prepare` 拿到快照，再用 prepare 的 `count/total_bytes` 弹确认**
+  （不是列表旧快照）；确认后**同一 nonce 只 commit 一次**（single-flight），
+  Committing 期间按钮 disabled、Back/取消被忽略（§21）。
+- 结果面板逐类显示 `成功删除 / 文件已不存在 / 删除失败`（失败名称列出 ≤10 个），
+  **失败项仍留在队列**；完成后**停留在本页**刷新列表（不自动退出，§25）。
+- 最终删除成功后 V2 刷新（§24）：`V2HomeViewModel.refreshAfterFinalDelete(changedMediaIds)`
+  → `MediaRepository.dropCachedMedia()`（新增，Server 实现同步移除 `V2ServerResourceCache` 条目）
+  + 失效辅助缓存 + 重载首页列表/文件夹/书架 + 收藏待重载。
+
+## 5. 重复媒体中心与对比页
+
+- 复用 `POST /duplicates/scan` + `GET /duplicates/status` + `POST /tasks/{id}/pause|resume|cancel`：
+  进入页面先 GET status 恢复；只在 `pending/running` 轮询（1.5s）；离开页面/切后台停止；
+  `succeeded` 后自动重载 exact / similar（§29/§30）。
+- 完全重复只对应 `type=exact`（完整 SHA-256 byte-identical）；疑似重复只显示 `similar`
+  （high / candidate 不进入用户页面）。
+- **绝不自动删除重复文件**；comparison 详情一次请求（禁止 N+1）；"保留此文件"
+  走 `POST /duplicates/{group_id}/keep`，**Server 确认后**才更新 UI（失败不变 + 提示）；
+  keep 只是人工选择，本阶段不做"一键删除其余"（§36）。
+
+## 6. 媒体库管理
+
+- 复用 `GET /libraries` + `PUT /libraries/selection`（不新增第二套 API）。
+- 勾选只改**本地草稿**（点一下不发请求）；「应用」才提交；失败保持页面与草稿 + 提示。
+- 全取消在 UI 提前阻止（「至少选择一个媒体库」），Server 仍最终校验。
+- 保存成功后通知上层：`V2HomeViewModel.refreshAfterLibraryChange()`
+  → `invalidateAuxiliaryCache()` + 重载首页（folders / albums / media / favorites 失效）。
+
+## 7. 导航与契约修正
+
+- 新增路由 `organize/delete`、`organize/duplicates`、`organize/duplicates/{groupId}`、
+  `organize/libraries`；详情页自动隐藏 BottomNav，Back 回整理（`isTabRoute` 未扩）。
+- **修正既有合同缺陷**：`POST /duplicates/{group_id}/keep` 的响应 `keep` 是**布尔**，
+  旧客户端用 `Envelope<Map<String, String>>` 接收会解析失败（静默失效）→
+  新增 `DuplicateKeepResultDto`（Stage 8C 合同测试发现）。
+
+## 8. 测试与验证（真实执行）
+
+| 项目 | 结果 |
+|---|---|
+| Server pytest（全量） | **413 tests / 0 failed / 0 error / exit_code=0**（新增 `tests/test_organize_center_8c.py` 6 项） |
+| Android JVM | **464 tests / 0 failed / 0 error**（新增 46 项：仓库合同 / 4 个 ViewModel / 卡片独立性） |
+| Lint | **0 errors**（41 warnings，与 8B.2 持平，无新增 error） |
+| compileDebugKotlin | **BUILD SUCCESSFUL** |
+| Instrumentation（模拟器 API35 + 设备内 MockWebServer + 宿主 Mock 8799） | 见 `logs/android_instrumentation_raw.txt` |
+| 用户 APK | **1 个** `MediaReview-v2-stage8c-organize.apk`（clean assembleDebug，最终 HEAD 构建） |
+| 生产部署 | **NOT PERFORMED** |
+
+## 9. 明确未做
+
+- 不做视觉大改 / 复杂动画（§49）；不碰 Organize 之外的大模块；
+- 不改播放器（`feature/v2/player/**` 未修改）；
+- 不改 Review Session 核心（8B.2 语义完整保留）；
+- 本阶段不做「将未保留项加入待删除」（§36 明确下一阶段考虑）；
+- 未部署生产；完成后停止，不进入 Stage 8D。
+
