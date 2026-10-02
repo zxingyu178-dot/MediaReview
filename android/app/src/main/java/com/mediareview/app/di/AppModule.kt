@@ -2,17 +2,15 @@ package com.mediareview.app.di
 
 import android.content.Context
 import coil.ImageLoader
-import com.mediareview.app.core.datastore.MediaWallSettingsStore
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.feature.v2.releasenotes.ReleaseNotesDataSource
 import com.mediareview.app.feature.v2.releasenotes.ReleaseNotesStore
-import com.mediareview.app.core.media.PlayerCore
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.AuthInterceptor
 import com.mediareview.app.core.network.CacheAuthInterceptor
 import com.mediareview.app.core.network.TokenProvider
 import com.mediareview.app.core.network.MediaUrlResolver
-import com.mediareview.app.feature.connect.data.PairingRepository
+import com.mediareview.app.core.pairing.PairingRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -42,12 +40,6 @@ object AppModule {
     fun provideServerProfileStore(
         @ApplicationContext context: Context,
     ): ServerProfileStore = ServerProfileStore(context)
-
-    @Provides
-    @Singleton
-    fun provideMediaWallSettingsStore(
-        @ApplicationContext context: Context,
-    ): MediaWallSettingsStore = MediaWallSettingsStore(context)
 
     /** 版本更新日志展示记录（Stage 8C.1 §40）：DataStore 持久化 last_seen_version_code。 */
     @Provides
@@ -133,10 +125,4 @@ object AppModule {
         tokenProvider: TokenProvider,
         apiFactory: ApiFactory,
     ): PairingRepository = PairingRepository(store, tokenProvider, apiFactory)
-
-    @Provides
-    @Singleton
-    fun providePlayerCore(
-        @ApplicationContext context: Context,
-    ): PlayerCore = PlayerCore(context)
 }

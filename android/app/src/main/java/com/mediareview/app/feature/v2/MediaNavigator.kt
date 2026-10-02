@@ -29,7 +29,7 @@ object MediaNavigator {
     fun organizeDelete() = ROUTE_ORGANIZE_DELETE
     fun organizeDuplicates() = ROUTE_ORGANIZE_DUPLICATES
 
-    /** 分组 ID 只含 `[a-z0-9:_-]`（如 `exact:1000:60000:1`），冒号在路径段内合法。 */
+    /** 分组 ID 只含 `[a-z0-9:_-]`（Stage 8D 起为 `exact:<sha256摘要>` 稳定身份），冒号在路径段内合法。 */
     fun organizeDuplicateCompare(groupId: String) = "organize/duplicates/$groupId"
 
     fun organizeLibraries() = ROUTE_ORGANIZE_LIBRARIES

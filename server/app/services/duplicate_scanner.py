@@ -20,6 +20,7 @@ hash_tasks 后台任务线程中完成,避免阻塞 FastAPI 请求与 SQLite 写
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -166,22 +167,42 @@ def _pair_members(
     return [(rid, name, qh, sh) for rid, name, qh, sh in rows]
 
 
+def _stable_group_id(type_hint: str, size_bytes: int, duration_ms: int, content_hash: str) -> str:
+    """由 (type, size, duration, 内容哈希) 确定的**稳定分组 ID**(Stage 8D §3/§4)。
+
+    旧实现用枚举序号 ``idx`` 当业务身份(``exact:xxx:1`` / ``:2``),一旦旁边新增
+    一个排序更靠前的重复组,旧组的序号就会漂移 —— group_id 变了,人工 Keep 也随之
+    丢失。这里改为对四项内容做一次 sha256 并截断到 56 hex(224 bit),拼接类型前缀后
+    仍 <= 64 字符(``DuplicateGroup.group_id`` 列宽),同一 byte-identical / 同
+    quick_hash 内容组无论旁边增减多少无关分组,身份都保持不变。
+
+    analogous 的 ``quick_hash`` 仅在 high 分支传入,exact 分支传入完整 sha256。
+    """
+    raw = f"{type_hint}|{size_bytes}|{duration_ms}|{content_hash}".encode()
+    digest = hashlib.sha256(raw).hexdigest()[:56]
+    return f"{type_hint}:{digest}"
+
+
 def _bucket_groups(
     type_hint: str,
     size_bytes: int,
     duration_ms: int,
-    buckets: list[list[tuple[str, str]]],
+    buckets: dict[str, list[tuple[str, str]]],
 ) -> list[DuplicateGroup]:
-    """把同一候选组合下按哈希进一步切分后的成员桶转为分组对象。"""
+    """把同一候选组合下按哈希进一步切分后的成员桶转为分组对象。
+
+    ``buckets`` 的键即内容哈希(sha256 / quick_hash),group_id 直接由它确定;
+    同一内容组不会因为旁边新增其它重复组而改变身份(Stage 8D §3/§4)。
+    """
     groups: list[DuplicateGroup] = []
-    for idx, members in enumerate(buckets, start=1):
+    for content_hash, members in buckets.items():
         if len(members) < 2:
             continue
         media_ids = [m[0] for m in members]
         names = [m[1] for m in members]
         groups.append(
             DuplicateGroup(
-                group_id=f"{type_hint}:{size_bytes}:{duration_ms}:{idx}",
+                group_id=_stable_group_id(type_hint, size_bytes, duration_ms, content_hash),
                 type=type_hint,
                 count=len(members),
                 media_ids=media_ids,
@@ -219,7 +240,7 @@ def scan_exact_duplicates(session: Session, library_ids=None) -> list[DuplicateG
             if not is_full_sha256(sha):
                 continue
             buckets.setdefault(sha, []).append((media_id, name))
-        groups.extend(_bucket_groups("exact", size_bytes, duration_ms, list(buckets.values())))
+        groups.extend(_bucket_groups("exact", size_bytes, duration_ms, buckets))
     return groups
 
 
@@ -244,7 +265,7 @@ def _high_groups(session: Session, library_ids=None) -> list[DuplicateGroup]:
             if not _is_valid_quick_hash(qh) or media_id in exact_assigned:
                 continue
             buckets.setdefault(qh, []).append((media_id, name))
-        groups.extend(_bucket_groups("high", size_bytes, duration_ms, list(buckets.values())))
+        groups.extend(_bucket_groups("high", size_bytes, duration_ms, buckets))
         for grp in groups:
             exact_assigned.update(grp.media_ids)
     return groups

@@ -29,8 +29,8 @@ android {
         targetSdk = 35
         // 版本规则见 docs/VERSION_POLICY.md：versionCode 只能递增，
         // 每次产品版本变更必须同步补充 feature/v2/releasenotes 的 Release Notes。
-        versionCode = 10
-        versionName = "2.0.0-alpha3"
+        versionCode = 11
+        versionName = "2.0.0-alpha4"
         // Stage 8B.1 §25：instrumentation 使用生产 Application（MediaReviewApp 负责 GSY Exo2 内核注册）；
         // Hilt 测试宿主 HiltTestActivity 位于 debug 源集（测试进程与 App 同进程）。
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -122,7 +122,12 @@ dependencies {
     // Image
     implementation(libs.coil.compose)
 
-    // Media3 播放器
+    // Media3 播放器（Stage 8D §11 依赖审计结论）：
+    // 旧自研 Media3 播放器（core/media/PlayerCore、V2PlayerScreen、PlayerController）已删除，
+    // 生产源码不再直接 import androidx.media3；但 GSY Exo2 内核在运行时依赖 Media3
+    // （dependencyInsight 显示 media3-exoplayer / media3-ui 由 gsyvideoplayer-exo2 传递提供，
+    // 而 media3-exoplayer-hls 未被传递保证，HLS 回退仍需要）。
+    // 依据 "禁止为清理导致 GSY runtime 缺类"，这里显式保留三者，不做直接依赖删除。
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.ui)

@@ -6,7 +6,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * 当前已配对 token 的内存单例。
- * 由 [com.mediareview.app.feature.connect.data.PairingRepository] 在配对成功后更新;
+ * 由 [com.mediareview.app.core.pairing.PairingRepository] 在配对成功后更新;
  * [AuthInterceptor] 每次请求读取最新值,避免为每个 token 重建 HttpClient。
  */
 @Singleton

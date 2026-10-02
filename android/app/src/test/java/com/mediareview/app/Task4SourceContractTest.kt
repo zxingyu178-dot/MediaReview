@@ -6,6 +6,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * 生产源码契约测试（Stage 8D 精简）。
+ *
+ * 旧 1.x 页面（MainShell / mediawall / player / connect 等）已随 Legacy 清理删除，
+ * 因此这里只保留仍然有意义的**全量生产源码**约束：主题配色/令牌与"不得用 Emoji
+ * 当控件占位"。针对已删除旧页面文件的逐文件检查一并移除，不在无意义对象上做假校验。
+ */
 class Task4SourceContractTest {
     private fun projectFile(relative: String): File {
         val base = File(System.getProperty("user.dir") ?: ".")
@@ -19,27 +26,15 @@ class Task4SourceContractTest {
         val theme = projectFile("src/main/java/com/mediareview/app/ui/theme/Theme.kt").readText()
         val dimensions = projectFile("src/main/java/com/mediareview/app/ui/theme/Dimensions.kt")
 
-        listOf("0xFF0B1118", "0xFF141D27", "0xFF47D7E8", "0xFFF4F7FA", "0xFFA9B4C0", "0xFF39D98A", "0xFFFF6B6B")
-            .forEach { assertTrue("缺少批准色值 $it", colors.contains(it)) }
+        listOf(
+            "0xFF0B1118", "0xFF141D27", "0xFF47D7E8", "0xFFF4F7FA",
+            "0xFFA9B4C0", "0xFF39D98A", "0xFFFF6B6B",
+        ).forEach { assertTrue("缺少批准色值 $it", colors.contains(it)) }
         assertTrue(theme.contains("darkColorScheme"))
         assertFalse(theme.contains("lightColorScheme"))
         assertFalse(theme.contains("dynamicDarkColorScheme"))
         assertTrue(dimensions.exists())
         assertTrue(dimensions.readText().contains("MinimumTouchTarget = 48.dp"))
-    }
-
-    @Test
-    fun mainSurfaceDoesNotExposeTechnicalProfileIdentifiers() {
-        val shell = projectFile("src/main/java/com/mediareview/app/ui/shell/MainShell.kt").readText()
-        val media = projectFile(
-            "src/main/java/com/mediareview/app/feature/mediawall/MediaWallScreen.kt",
-        ).readText()
-        val visibleSurface = shell + media
-
-        assertFalse(visibleSurface.contains("ui.baseUrl"))
-        assertFalse(visibleSurface.contains("ui.deviceId"))
-        assertFalse(visibleSurface.contains("服务器地址"))
-        assertFalse(visibleSurface.contains("设备编号"))
     }
 
     @Test
@@ -64,42 +59,4 @@ class Task4SourceContractTest {
 
         assertEquals("仍有 Emoji/符号控件占位: $hits", emptyList<String>(), hits)
     }
-
-    @Test
-    fun playerTextControlsUseMaterialButtonsWithMinimumTargets() {
-        val player = projectFile(
-            "src/main/java/com/mediareview/app/feature/player/PlayerScreen.kt",
-        ).readText()
-
-        assertFalse(player.contains("Modifier.clickable { expanded = true }.padding(6.dp)"))
-        assertTrue(Regex("PlayerTextMenuButton\\(").findAll(player).count() >= 3)
-        assertTrue(player.contains("minHeight = MediaDimensions.MinimumTouchTarget"))
-    }
-
-    @Test
-    fun task4ComposeFilesUseSpacingAndTypographyTokensInsteadOfEquivalentLiterals() {
-        val files = listOf(
-            "feature/connect/ConnectScreen.kt",
-            "feature/deletequeue/DeleteQueueScreen.kt",
-            "feature/duplicates/DuplicatesScreen.kt",
-            "feature/favorites/FavoritesScreen.kt",
-            "feature/mediawall/MediaWallScreen.kt",
-            "feature/mediawall/SpritePreviewUi.kt",
-            "feature/player/PlayerScreen.kt",
-            "feature/review/ReviewScreen.kt",
-            "feature/settings/SettingsScreen.kt",
-            "feature/viewer/ImageViewerScreen.kt",
-            "ui/components/MediaComponents.kt",
-            "ui/shell/MainShell.kt",
-        )
-        val forbidden = Regex("(?<![A-Za-z0-9_])(?:4|8|12|16|24|32|48)\\.dp|14\\.sp")
-        val hits = files.flatMap { relative ->
-            forbidden.findAll(
-                projectFile("src/main/java/com/mediareview/app/$relative").readText(),
-            ).map { "$relative:${it.value}" }.toList()
-        }
-
-        assertEquals("仍有 token-equivalent 尺寸字面量: $hits", emptyList<String>(), hits)
-    }
-
 }

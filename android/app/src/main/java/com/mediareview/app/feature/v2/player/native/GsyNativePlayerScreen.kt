@@ -86,7 +86,7 @@ private const val PROGRESS_REPORT_INTERVAL_MS = 15_000L
 /**
  * GSY Native Compose 正式播放器 V1（Stage 8A：播放源改为异步解析）。
  *
- * 架构：V2PlayerViewModel（resolvePlayback → UiState）→ GSYPlayerController → GSYPlayerSurface。
+ * 架构：V2NativePlayerViewModel（resolvePlayback → UiState）→ GSYPlayerController → GSYPlayerSurface。
  *
  * - **本组合函数不发任何网络请求**：URL / headers 全部来自 [V2PlayerState]，
  *   Loading / Ready / Error 三态由 ViewModel 收敛；

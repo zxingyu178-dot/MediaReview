@@ -54,6 +54,16 @@ class Stage8C1WhatsNewUiTest {
         runBlocking { ReleaseNotesStore(context).saveLastSeenVersionCode(versionCode) }
     }
 
+    /**
+     * 关闭 Sheet 后 `saveLastSeenVersionCode` 是**异步**写入（viewModelScope），
+     * 因此断言前必须等待持久化真正落盘，否则是读旧值的竞态（Stage 8D 修复测试脆弱性）。
+     */
+    private fun awaitSeenVersion(expected: Int) {
+        compose.waitUntil(timeoutMillis = 10_000) {
+            runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() } == expected
+        }
+    }
+
     private fun setContent() {
         val repository = DemoMediaRepository(context, AlbumCoverStore(context))
         val vm = testHomeViewModel(repository, SearchHistoryStore(context))
@@ -77,23 +87,28 @@ class Stage8C1WhatsNewUiTest {
         compose.onNodeWithText("知道了").performClick()
         compose.waitUntilDoesNotExist(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)
 
-        val seen = runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() }
-        assertEquals(BuildConfig.VERSION_CODE, seen)
+        awaitSeenVersion(BuildConfig.VERSION_CODE)
+        assertEquals(
+            BuildConfig.VERSION_CODE,
+            runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() },
+        )
     }
 
     @Test
     fun multiVersionUpgradeShowsAllUnreadNotesInOneSheet() {
-        // 跨多个未安装版本（如 8 → 10，中间 9 未安装）
+        // 跨多个未安装版本（如 8 → 11，中间 9、10 未安装）
         setLastSeen(8)
         setContent()
 
-        // 仍然只有一个 Sheet，且同时包含两个未读版本的内容
+        // 仍然只有一个 Sheet，且同时包含所有未读版本的内容（§21）
         compose.waitUntilExactlyOneExists(hasTestTag("whats_new_sheet"), timeoutMillis = 15_000)
         compose.onNodeWithText("来自 2.0.0-alpha2").assertIsDisplayed()
-        compose.onNodeWithText("来自 2.0.0-alpha3").assertIsDisplayed()
+        compose.onNodeWithText("来自 2.0.0-alpha3").assertExists()
+        compose.onNodeWithText("来自 2.0.0-alpha4").assertExists()
 
         compose.onNodeWithText("知道了").performClick()
         compose.waitUntilDoesNotExist(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)
+        awaitSeenVersion(BuildConfig.VERSION_CODE)
         assertEquals(
             BuildConfig.VERSION_CODE,
             runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() },

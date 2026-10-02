@@ -14,7 +14,7 @@ import com.mediareview.app.core.network.AuthInterceptor
 import com.mediareview.app.core.network.CacheAuthInterceptor
 import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.core.network.TokenProvider
-import com.mediareview.app.feature.connect.data.PairingRepository
+import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.feature.v2.data.AlbumCoverStore
 import com.mediareview.app.feature.v2.data.DemoMediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore

@@ -96,7 +96,10 @@ class GsyNativePlayerLayoutTest {
         // swiftshader 软解 + GSY 起播时序较慢：中央主按钮渲染出来即可
         // （播放中 contentDescription 为「暂停」，尚未起播 / 已暂停为「播放」），
         // 不把软解环境的起播延迟误判为布局失败。
-        compose.waitUntil(30_000) {
+        // Stage 8D：全量套件在同一台软件渲染模拟器上顺序运行时 CPU 争用明显，
+        // 播放器首帧可能 >30s 才就绪；这里把等待预算提高到 60s，
+        // 只放宽"等待时间"，不放宽任何布局/可用性断言（避免把环境慢误判为产品缺陷）。
+        compose.waitUntil(60_000) {
             compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("暂停")).fetchSemanticsNodes().isNotEmpty() ||
                 compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("播放")).fetchSemanticsNodes().isNotEmpty()
         }
@@ -106,7 +109,7 @@ class GsyNativePlayerLayoutTest {
         }
         compose.waitUntilExactlyOneExists(
             matcher = androidx.compose.ui.test.hasContentDescription("播放"),
-            timeoutMillis = 10_000,
+            timeoutMillis = 20_000,
         )
     }
 

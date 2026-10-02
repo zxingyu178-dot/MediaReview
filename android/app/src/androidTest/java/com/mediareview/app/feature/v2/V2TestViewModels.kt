@@ -5,7 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.TokenProvider
-import com.mediareview.app.feature.connect.data.PairingRepository
+import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataModeStore

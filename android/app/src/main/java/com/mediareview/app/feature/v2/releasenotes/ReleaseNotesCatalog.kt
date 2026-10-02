@@ -48,6 +48,18 @@ object ReleaseNotesCatalog {
                 "提升整理中心数据稳定性",
             ),
         ),
+        ReleaseNote(
+            versionCode = 11,
+            versionName = "2.0.0-alpha4",
+            title = "MediaReview 2.0 Alpha 4",
+            highlights = listOf(
+                "完成主要功能模块整合，整体使用流程更加统一",
+                "优化播放器、图片查看和批阅之间的页面衔接",
+                "优化整理中心和重复媒体管理稳定性：重复分组身份更稳定，重新扫描不再丢失人工保留的选择",
+                "清理旧版功能路径，降低异常和状态冲突",
+                "提升 Demo / Server 数据源切换可靠性",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

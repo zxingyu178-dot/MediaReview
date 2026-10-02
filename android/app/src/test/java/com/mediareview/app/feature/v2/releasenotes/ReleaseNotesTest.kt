@@ -94,6 +94,8 @@ class ReleaseNotesContractTest {
     fun `跨多个未安装版本时聚合同一份列表且升序`() {
         // 用户 8 → 10（中间 9 未安装）：一次拿到 9 + 10
         assertEquals(listOf(9, 10), codes(8, 10))
+        // 用户 8 → 11（中间 9、10 未安装）：一次拿到 9 + 10 + 11
+        assertEquals(listOf(9, 10, 11), codes(8, 11))
     }
 
     @Test
@@ -124,25 +126,28 @@ class WhatsNewViewModelTest {
     val main = MainDispatcherRule()
 
     @Test
-    fun `升级 9 到 10 展示 alpha3`() = runTest(main.dispatcher) {
-        val vm = WhatsNewViewModel(FakeReleaseNotesStore(9))
+    fun `升级 10 到 11 展示 alpha4`() = runTest(main.dispatcher) {
+        val vm = WhatsNewViewModel(FakeReleaseNotesStore(10))
         advanceUntilIdle()
 
         assertTrue(vm.state.value.visible)
         assertEquals(listOf(BuildConfig.VERSION_CODE), vm.state.value.notes.map { it.versionCode })
-        assertEquals("2.0.0-alpha3", vm.state.value.notes.single().versionName)
+        assertEquals("2.0.0-alpha4", vm.state.value.notes.single().versionName)
         assertFalse(vm.state.value.isMultiVersion)
     }
 
     @Test
-    fun `升级 8 到 10 一个 Sheet 同时包含 alpha2 与 alpha3`() = runTest(main.dispatcher) {
+    fun `升级 8 到 11 一个 Sheet 同时包含 alpha2 alpha3 alpha4`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(8))
         advanceUntilIdle()
 
         val state = vm.state.value
         assertTrue(state.visible)
-        assertEquals(listOf(9, 10), state.notes.map { it.versionCode })
-        assertEquals(listOf("2.0.0-alpha2", "2.0.0-alpha3"), state.notes.map { it.versionName })
+        assertEquals(listOf(9, 10, 11), state.notes.map { it.versionCode })
+        assertEquals(
+            listOf("2.0.0-alpha2", "2.0.0-alpha3", "2.0.0-alpha4"),
+            state.notes.map { it.versionName },
+        )
         assertTrue("跨版本必须聚合在一个 Sheet(不同版本分区显示)", state.isMultiVersion)
     }
 
