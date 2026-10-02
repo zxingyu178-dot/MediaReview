@@ -2129,3 +2129,50 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 - 本阶段不做「将未保留项加入待删除」（§36 明确下一阶段考虑）；
 - 未部署生产；完成后停止，不进入 Stage 8D。
 
+### 2026-10-03 — Stage 8D 全应用整合 / Legacy 清理 / 验证构建（2.0.0-alpha4）
+
+分支 `feature/mediareview-v2-stage8d-integration`（基于 8C.2 分支 tip）。
+
+**P0：重复分组稳定身份（第一 Gate）**
+- `duplicate_scanner` 删除以枚举序号 `idx` 充当业务身份的旧实现
+  （`exact:x:1` / `:2`），改为由 `(type, size, duration, 内容哈希)` 派生的稳定摘要
+  `_stable_group_id()`（截断到 56 hex，适配 `group_id` 列宽 64）；exact 用整文件
+  `sha256`，high 用 `quick_hash`。
+- 新增回归 `server/tests/test_duplicate_group_id_stability_8d.py`：先 B/C 两组 → 新增排序
+  更靠前的 A → 重扫，断言 B/C 的 `group_id` 不变、人工 Keep 不丢（exact + high）。
+  已验证：把实现临时改回旧 `idx` 时该测试**失败**，改回新实现后通过。
+
+**Legacy 清理（A/B/C 分类，见 docs/V2_RUNTIME_INVENTORY.md）**
+- A（无生产引用）删除：`feature/connect` UI/发现、`deletequeue`、`duplicates`、`favorites`、
+  `home`、`library`、`mediawall`、`player`、`review`、`settings`、`viewer`、
+  `ui/shell/MainShell`、`ui/components/MediaComponents`、
+  `core/datastore/MediaWallSettingsStore`、`core/media/PlayerCore`、
+  `core/media/ReviewPlaybackController` + 旧 `ReviewQueueWindow` / `ReviewPlayerSlots` /
+  `LatestWinsScheduler`。
+- B（V2 复用，迁移到 core）：`PairingRepository` → `core/pairing/PairingRepository.kt`；
+  `normalizeBaseUrl` → `core/pairing/UrlNormalize.kt`（单测同步迁移）。
+- 旧播放器（Stage 2.1/2.2 废弃路径）删除，**只保留 GSY Native 正式路径**。
+- 旧测试同步删除/精简（不使用 `@Ignore` 逃避）。
+
+**播放依赖审计**：`dependencyInsight` 确认 media3 由 `gsyvideoplayer-exo2` 传递提供，
+但 HLS 未被传递保证；依据「禁止导致 GSY runtime 缺类」保留三个直接依赖并在 gradle 注明。
+
+**版本 / 更新日志**：`versionCode 10 → 11`、`versionName 2.0.0-alpha3 → 2.0.0-alpha4`；
+`ReleaseNotesCatalog` 新增 Alpha 4；跨版本（8→11）单 Sheet 聚合 alpha2/3/4 的合同测试同步更新。
+
+**测试与验证（真实执行）**
+
+| 项目 | 结果 |
+|---|---|
+| Server pytest（全量） | **439 tests / 0 failed / 0 error / exit_code=0** |
+| Android JVM | **334 tests / 0 failed / 0 error**（44 suites） |
+| Instrumentation（模拟器 MediaReview_Test，API35） | **49 tests / 0 failed / 0 skipped**（宿主 Mock Server @10.0.2.2:8799 + Demo） |
+| Lint | **0 errors**（41 warnings，无新增 error） |
+| compileDebugKotlin | **BUILD SUCCESSFUL** |
+| assembleDebug | **BUILD SUCCESSFUL** |
+| 模拟器 Smoke（真机玄关，8 张截图） | 冷启动→更新日志→首页/整理/收藏/批阅→视频播放→返回→force-stop→再启动，无 crash |
+| 生产部署 | **NOT PERFORMED** |
+
+**说明**：`tests/test_db.py::test_0010_...`（10 万行 `ORDER BY random()` 阈值 1.0s）对机器负载
+敏感，高负载并发时会超时；空载全量运行通过（本阶段未改动该测试）。
+

@@ -1,5 +1,17 @@
 # MediaReview 升级与回滚说明（1.1.0）
 
+## Stage 8D 服务器变更补充（2026-10）
+
+- Server 版本：`1.1.0`（`server/app/__init__.py`），本阶段**未提升** Server 版本；
+- 数据库迁移：**NO SCHEMA MIGRATION**。当前 Alembic head 仍为 `0014_task_d_delete_nonce_duplicates`，
+  Stage 8D 只修改了重复分组的 **group_id 生成算法**（服务端业务身份，不是表结构）：
+  `exact` / `high` 分组 ID 由 `(type, size, duration, 内容哈希)` 派生稳定摘要，
+  不再使用枚举序号；`duplicate_group.group_id` 列宽（`String(64)`）不变，
+  已有的 `duplicate_group` / `duplicate_group_member` / `keep` 数据全部兼容。
+- 升级/回滚流程：仍然完全沿用下文的事务式升级与失败自动回滚（备份 DB → 升级 → 健康检查 → 失败回滚），
+  现阶段无需任何额外迁移步骤。首次扫描会按新算法重写 group_id；旧 group_id 对应的人工 Keep
+  会按 `(group_id, media_id)` 重新匹配，属于**同一份成功扫描结果**内的正常替换语义。
+
 本说明覆盖 `MediaReview_Migration_1.1.0` 部署包的事务式升级与回滚流程。升级由 `scripts/install.ps1` 自动完成，失败时自动回滚，正常情况下无需人工干预。
 
 ## 事务式升级流程

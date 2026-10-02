@@ -448,3 +448,20 @@
 - [ ] **等待用户批准部署新 Server**
 - [ ] **等待真实 LAN + 真机性能验收**（p50/p95/min/max 需要 ≥5 次有效采样）
 - [ ] 待定：全量 instrumentation 基线复验（MainShell* 6 项归因）
+
+
+## Stage 8D — 全应用整合 / Legacy 清理 / 验证构建（2026-10-03）
+
+- [x] P0：Duplicate exact/high Group ID 稳定化（由内容哈希派生，不再用枚举序号）+ 回归测试
+- [x] Keep 不因无关 sibling group 新增而丢失（exact + high 回归）
+- [x] `docs/V2_RUNTIME_INVENTORY.md` 运行时清单（真实类/文件）
+- [x] Legacy 目录 A/B/C 分类清理；确认无引用旧 UI 已删除
+- [x] V2 复用能力迁移到 core（`core/pairing`）
+- [x] 播放路径唯一化（GSY Native）+ 播放依赖审计（保留直接 Media3，注明理由）
+- [x] 版本升级 code 11 / 2.0.0-alpha4 + Alpha 4 更新日志（跨版本单 Sheet）
+- [x] 全量回归：Server pytest 439 / JVM 334 / Instrumentation 49 / Lint 0 error / assembleDebug
+- [x] 模拟器 Smoke（冷启动→更新日志→首页→整理/收藏/批阅→播放→返回→force-stop→再启动）+ 截图
+- [x] 用户 APK `MediaReview_2.0.0-alpha4_stage8d.apk` + Handoff ZIP（ZIP 不含 APK）
+- [x] `docs/PRODUCTION_READINESS.md` + `UPGRADE_ROLLBACK.md` 补充（NO SCHEMA MIGRATION）
+- [ ] **等待用户安装 Stage 8D APK 做整体体验验收**
+- [ ] 待定：similar 重复算法增强（本阶段明确不做）
