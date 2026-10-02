@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """MediaReview 阶段交接交付工具（collect → build → send → verify）。
 
 替代此前每阶段复制一份的 temp 脚本（run_stage8c*/build_stage8c*/send_stage8c*/
@@ -63,7 +63,7 @@ LOG_PATTERNS: list[tuple[str, str]] = [
     ("android_jvm_raw.txt", r"stage{tag}.*_android_jvm_raw\.txt$"),
     ("lintDebug_raw.txt", r"stage{tag}.*_lint.*\.txt$"),
     ("compileDebugKotlin_raw.txt", r"stage{tag}.*_compile.*\.txt$"),
-    ("android_instrumentation_raw.txt", r"stage{tag}.*instrumentation.*\.txt$"),
+    ("android_instrumentation_raw.txt", r"stage{tag}.*(instrumentation|androidtest).*\.txt$"),
 ]
 
 
@@ -71,8 +71,13 @@ LOG_PATTERNS: list[tuple[str, str]] = [
 
 
 def run_git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=str(REPO), capture_output=True, text=True, check=True
+    # 参数全部来自本工具内部常量与 CLI 引用；git 从 PATH 解析是有意行为。
+    return subprocess.run(  # noqa: S603
+        ["git", *args],  # noqa: S607
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 
 
@@ -175,15 +180,24 @@ def cmd_build(stage: str, date: str, subject_note: str = "") -> Path:
 
     # --- Delivery Integrity Check ---
     if head not in handoff:
-        fail(f"00_HANDOFF.md 未包含 FINAL HEAD 全量 SHA {head}")
+        fail(
+            f"00_HANDOFF.md 未包含 FINAL HEAD 全量 SHA {head}；"
+            "交付包必须在其对应的最终提交上生成（先 checkout 该提交再 build）"
+        )
     if log_first != short:
-        fail(f"git/LOG.txt 首行 {log_first} != FINAL HEAD short {short}")
+        fail(
+            f"git/LOG.txt 首行 {log_first} != FINAL HEAD short {short}；"
+            "请先运行 collect（在最终提交之后）再 build"
+        )
     if short not in handoff:
         fail(f"00_HANDOFF.md 未使用 FINAL short SHA {short}")
 
     def is_real_commit(sha: str) -> bool:
-        probe = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=str(REPO), capture_output=True
+        # sha 来自包内文档的 short SHA 正则提取，仅用于 git 存在性探测。
+        probe = subprocess.run(  # noqa: S603
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],  # noqa: S607
+            cwd=str(REPO),
+            capture_output=True,
         )
         return probe.returncode == 0
 
