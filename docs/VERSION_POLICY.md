@@ -63,7 +63,7 @@ Version Bumped:   YES / NO
 Release Notes Present: PASS / FAIL
 ```
 
-大阶段用户 APK 文件名带版本，例如 `MediaReview_2.0.0-alpha3_stage8d.apk`。
+大阶段用户 APK 文件名带版本，例如 `MediaReview_2.0.0-alpha4_stage8d.apk`。
 
 ## 7. Handoff 交付一致性（Stage 8C.2 §36~§39）
 
