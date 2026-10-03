@@ -8,6 +8,7 @@ import com.mediareview.app.feature.v2.data.server.V2ServerAlbumCoverPort
 import com.mediareview.app.feature.v2.data.server.V2ServerMediaRepository
 import com.mediareview.app.feature.v2.data.server.V2ServerProfilePort
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
+import com.mediareview.app.onlineServerStatus
 import com.mediareview.app.feature.v2.home.PREFETCH_DISTANCE_ITEMS
 import com.mediareview.app.feature.v2.home.shouldLoadNextPage
 import com.mediareview.app.feature.v2.model.V2MediaQuery
@@ -88,7 +89,7 @@ class Stage8A1LoadingPipelineTest {
                 override suspend fun allCovers(): Map<String, String> = emptyMap()
                 override suspend fun setCover(folderId: String, mediaId: String?) = Unit
             },
-            statusStore = V2ServerStatusStore(),
+            statusStore = onlineServerStatus(),
         )
     }
 

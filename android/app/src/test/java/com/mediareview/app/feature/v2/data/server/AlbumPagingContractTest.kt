@@ -5,6 +5,7 @@ import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.model.V2SortField
 import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.feature.v2.model.V2SortSpec
+import com.mediareview.app.onlineServerStatus
 import java.net.InetAddress
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -79,7 +80,7 @@ class AlbumPagingContractTest {
                 override suspend fun allCovers(): Map<String, String> = emptyMap()
                 override suspend fun setCover(folderId: String, mediaId: String?) = Unit
             },
-            statusStore = V2ServerStatusStore(),
+            statusStore = onlineServerStatus(),
         )
     }
 

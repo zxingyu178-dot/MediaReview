@@ -12,9 +12,9 @@ from fastapi.testclient import TestClient
 from app import SERVER_API_CONTRACT, SERVER_CAPABILITIES, __version__
 
 
-def test_server_version_is_120() -> None:
-    """Stage 8D.1 §8: Server 从 1.1.0 升到 1.2.0。"""
-    assert __version__ == "1.2.0"
+def test_server_version_is_121() -> None:
+    """Stage 8D.2 §33: Server 1.2.0 → 1.2.1（**Contract 保持 2**，只修 Bug）。"""
+    assert __version__ == "1.2.1"
 
 
 def test_api_contract_is_2() -> None:
@@ -44,6 +44,30 @@ def test_health_exposes_api_contract_and_capabilities(client: TestClient) -> Non
 def test_capabilities_are_all_strings_and_unique() -> None:
     assert all(isinstance(c, str) and c for c in SERVER_CAPABILITIES)
     assert len(set(SERVER_CAPABILITIES)) == len(SERVER_CAPABILITIES)
+
+
+# ---------------------------------------------------------------- Stage 8D.2 §34/§54
+def test_deployment_scripts_declare_expected_version_and_contract() -> None:
+    """部署脚本的版本 / Contract 必须与 Server 一致（单一事实源，禁止散落魔法数字）。"""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent.parent
+    version_ps1 = root / "deployment" / "version.ps1"
+    assert version_ps1.is_file(), "缺少 deployment/version.ps1（统一版本来源）"
+    body = version_ps1.read_text(encoding="utf-8")
+    assert f'$ExpectedServerVersion = "{__version__}"' in body
+    assert f"$RequiredApiContract = {SERVER_API_CONTRACT}" in body
+
+
+def test_install_and_status_scripts_reference_shared_version_source() -> None:
+    """install/status/diagnose 必须引用统一版本来源，而不是各自写死版本号。"""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent.parent / "deployment" / "scripts"
+    for name in ("install.ps1", "status.ps1", "diagnose.ps1", "start.ps1", "restart.ps1", "repair.ps1"):
+        body = (root / name).read_text(encoding="utf-8")
+        assert "version.ps1" in body, f"{name} 必须 dot-source deployment/version.ps1"
+        assert "RequiredApiContract" in body, f"{name} 必须校验 api_contract"
 
 
 if __name__ == "__main__":  # pragma: no cover

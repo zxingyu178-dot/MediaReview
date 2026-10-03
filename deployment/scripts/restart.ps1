@@ -1,8 +1,8 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 重启脚本(1.2.0)
-  先精确停止本服务进程(按绝对路径),再启动并等待健康。
+  MediaReview Server 重启脚本(1.2.1)
+  先精确停止本服务进程(按绝对路径),再启动并等待健康契约通过。
   用法:  .\restart.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]
 #>
 [CmdletBinding()]
@@ -15,6 +15,9 @@ $ErrorActionPreference = "Stop"
 $TaskName = "MediaReviewServer"
 $ExeDir   = Join-Path $InstallDir "MediaReviewServer"
 $Exe      = Join-Path $ExeDir "MediaReviewServer.exe"
+
+# 版本与 API Contract 的唯一事实源
+. "$PSScriptRoot\..\version.ps1"
 
 if (-not (Test-Path $Exe)) { throw "未找到服务端程序: $Exe" }
 
@@ -44,11 +47,13 @@ for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 1
     try {
         $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 2
-        if ($h.success -and $h.data.status -eq "ok") {
-            Write-Host "重启完成, 版本 $($h.data.version)"
+        if ($h.success -and $h.data.status -eq "ok" -and
+            $h.data.version -eq $ExpectedServerVersion -and
+            [int]$h.data.api_contract -ge $RequiredApiContract) {
+            Write-Host "重启完成, 版本 $($h.data.version), Contract $($h.data.api_contract)"
             exit 0
         }
     } catch { }
 }
-Write-Warning "重启后健康检查未通过, 请查看日志: $DataRoot\logs\server.log"
+Write-Warning "重启后未通过健康契约校验(status/版本/Contract), 请查看日志: $DataRoot\logs\server.log"
 exit 3

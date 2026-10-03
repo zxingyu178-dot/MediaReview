@@ -484,3 +484,20 @@
 - [x] Server pytest 450 / Android JVM 340 / Lint 0 error / Compile PASS
 - [x] 模拟器截图：home/organize system bar + player 全屏与退出
 - [ ] **NO USER APK（小版本政策）；不部署生产；完成后停止，不进入 Stage 8E**
+
+
+## Stage 8D.2 — Compatibility Gate / Server Access Guard / Deployment Preflight（2026-10-03，NO USER APK）
+
+- [x] `PairingRepository` 新增 `Result.Incompatible`；旧 Server 不再伪装 `HealthOk`，`connectServer` 不 verify / 不保存 / 不清 Token
+- [x] 冷启动 SERVER 与 Demo→Server：`restore → 壳 → Probing → probe`，仅 Online 才 reload（不阻塞 Splash）
+- [x] 统一 `V2ServerAccessGuard`；三个 Server 仓库 `call()` 首行 Guard
+- [x] `V2MediaRepositoryRouter` 全部网络 suspend 方法重新归类到 `dataActive()`；纯内存读取不抛
+- [x] `onRequestSuccess` 改 no-op（业务成功不能升 Online）；新增 `reset()`；Online 唯一来源为 health probe
+- [x] Server `1.2.1`（API Contract 保持 2）+ health 合同测试
+- [x] 部署 Gate：`version.ps1` 唯一事实源；install/status/diagnose/start/restart/repair 校验 version + contract + capabilities
+- [x] final health 失败不再假成功：升级自动回滚（UPGRADE FAILED + ROLLBACK PASS/FAIL），首装标记 INSTALL FAILED，均非零退出
+- [x] 沙箱部署测试覆盖 6 类 Gate + 升级失败回滚镜像（17 通过 / 0 失败）
+- [x] 文档：`PRODUCTION_READINESS.md` / `COMPATIBILITY_MATRIX.md` / `SERVER_VERSION_POLICY.md` / `UPGRADE_ROLLBACK.md`
+- [x] 版本 versionCode 13 / 2.0.0-alpha6 + Alpha 6 更新日志
+- [x] 回归：Server pytest 452 / Android JVM 351 / Lint 0 error / compileDebugKotlin PASS / 定向 Instrumentation 8/8
+- [ ] **NO USER APK（小版本政策）；不部署生产；完成后停止，不进入 Stage 8E**

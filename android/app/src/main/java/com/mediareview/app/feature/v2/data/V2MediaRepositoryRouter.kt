@@ -80,22 +80,23 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override fun mediaById(id: String): V2Media? = active().mediaById(id)
 
+    // Stage 8D.2 §17：凡会发网络请求的 suspend 方法，SERVER 模式都必须经过兼容 Gate。
     override suspend fun setFavorite(mediaId: String, favorite: Boolean): Boolean =
-        active().setFavorite(mediaId, favorite)
+        dataActive().setFavorite(mediaId, favorite)
 
     override suspend fun favorites(): List<V2Media> = dataActive().favorites()
 
-    override suspend fun markReviewed(mediaId: String) = active().markReviewed(mediaId)
+    override suspend fun markReviewed(mediaId: String) = dataActive().markReviewed(mediaId)
 
-    override suspend fun pendingDeleteIds(): Set<String> = active().pendingDeleteIds()
+    override suspend fun pendingDeleteIds(): Set<String> = dataActive().pendingDeleteIds()
 
     override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean =
-        active().setPendingDelete(mediaId, pending)
+        dataActive().setPendingDelete(mediaId, pending)
 
-    override suspend fun unmarkReviewed(mediaId: String) = active().unmarkReviewed(mediaId)
+    override suspend fun unmarkReviewed(mediaId: String) = dataActive().unmarkReviewed(mediaId)
 
     override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource =
-        active().resolvePlayback(mediaId)
+        dataActive().resolvePlayback(mediaId)
 
     override fun playbackUri(mediaId: String): String = active().playbackUri(mediaId)
 

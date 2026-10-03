@@ -15,6 +15,9 @@ param(
 $ErrorActionPreference = "Continue"
 $taskName = "MediaReviewServer"
 $Exe = Join-Path $InstallDir "MediaReviewServer\MediaReviewServer.exe"
+
+# 版本与 API Contract 的唯一事实源
+. "$PSScriptRoot\..\version.ps1"
 $outDir = Join-Path $PSScriptRoot "..\diagnostics"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd_HHmm"
@@ -30,10 +33,18 @@ function Out-Diag($name, $content) {
 Write-Host "========== MediaReview 诊断 ==========" -ForegroundColor Cyan
 $logDir = Join-Path $DataRoot "logs"
 
-# 1. app version + health
+# 1. app version + api_contract + capabilities + health
 try {
     $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 5
-    Out-Diag "health.txt" "version: $($h.data.version)`nstatus: $($h.data.status)`ncomponents: $($h.data.components | ConvertTo-Json -Compress)"
+    $contract = [int]$h.data.api_contract
+    $compat = if ($contract -ge $RequiredApiContract) { "PASS" } else { "FAIL" }
+    Out-Diag "health.txt" @"
+version: $($h.data.version)
+api_contract: $contract (required >= $RequiredApiContract, compatibility: $compat)
+capabilities: $($h.data.capabilities | ConvertTo-Json -Compress)
+status: $($h.data.status)
+components: $($h.data.components | ConvertTo-Json -Compress)
+"@
 } catch { Out-Diag "health.txt" "health_error: unreachable" }
 
 # 2. 配置(脱敏)

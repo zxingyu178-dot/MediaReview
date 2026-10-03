@@ -9,8 +9,12 @@
 | --- | --- | --- | --- |
 | ≤ alpha4（code 11） | 无 Gate（旧） | 1.1（无 `api_contract`） | 直接尝试业务 API（可能 404） |
 | alpha5（code 12） | **2** | 1.1（`api_contract` 缺失 → 视为 1） | **Incompatible**（提示"服务器版本过旧"，不清 Token） |
-| alpha5（code 12） | **2** | 1.2（`api_contract = 2`） | Compatible |
+| alpha5（code 12） | **2** | 1.2.0（`api_contract = 2`） | Compatible |
 | alpha5（code 12） | **2** | 未来 1.x（`api_contract ≥ 2`） | Compatible（向前兼容） |
+| alpha6（code 13） | **2** | 1.2.0 / 1.2.1（`api_contract = 2`） | Compatible |
+
+> Stage 8D.2：`1.2.0` 与 `1.2.1` **都属于 Contract 2**（1.2.1 只修 Bug，不升 Contract），
+> 因此 alpha5 / alpha6 对两者都判定 Compatible。
 
 ## 2. 行为矩阵
 

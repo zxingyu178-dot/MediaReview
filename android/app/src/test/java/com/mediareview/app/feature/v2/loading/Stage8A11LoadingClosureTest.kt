@@ -8,6 +8,7 @@ import com.mediareview.app.feature.v2.data.server.V2ServerAlbumCoverPort
 import com.mediareview.app.feature.v2.data.server.V2ServerMediaRepository
 import com.mediareview.app.feature.v2.data.server.V2ServerProfilePort
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
+import com.mediareview.app.onlineServerStatus
 import java.net.InetAddress
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicReference
@@ -94,7 +95,7 @@ class Stage8A11LoadingClosureTest {
                 override suspend fun allCovers(): Map<String, String> = emptyMap()
                 override suspend fun setCover(folderId: String, mediaId: String?) = Unit
             },
-            statusStore = V2ServerStatusStore(),
+            statusStore = onlineServerStatus(),
         )
     }
 

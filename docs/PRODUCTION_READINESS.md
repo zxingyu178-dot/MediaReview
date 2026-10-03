@@ -1,4 +1,4 @@
-# MediaReview 生产就绪清单（Stage 8D.1 / 2.0.0-alpha5）
+# MediaReview 生产就绪清单（Stage 8D.2 / 2.0.0-alpha6）
 
 > 本文件只做**准备度登记**。Stage 8D / 8D.1 均**不自动部署生产**。
 
@@ -6,19 +6,39 @@
 
 | 组件 | 版本 | 位置 |
 | --- | --- | --- |
-| Android App | `versionCode 12` / `versionName 2.0.0-alpha5` | `android/app/build.gradle.kts` |
-| 更新日志 | Alpha 1~5 已登记 | `feature/v2/releasenotes/ReleaseNotesCatalog.kt` |
-| Server | `1.2.0` | `server/app/__init__.py` |
+| Android App | `versionCode 13` / `versionName 2.0.0-alpha6` | `android/app/build.gradle.kts` |
+| 更新日志 | Alpha 1~6 已登记 | `feature/v2/releasenotes/ReleaseNotesCatalog.kt` |
+| Server | `1.2.1` | `server/app/__init__.py` |
 | Server API Contract | `2` | `server/app/__init__.py` `SERVER_API_CONTRACT` |
 | 生产 Server 状态 | **未部署** | — |
 
-## 1.1 兼容性 Gate（Stage 8D.1 §37）
+## 1.1 兼容性 Gate（Stage 8D.1 §37 / 8D.2 §37）
 
 ```text
 Android Required API Contract = 2
 Server API Contract           = 2
 Compatibility                 = PASS
 ```
+
+## 1.2 部署 Gate（Stage 8D.2 §31~§45）
+
+安装/升级脚本不再以 "health status=ok" 作为唯一成功条件：
+
+```text
+Wait-Healthy 必须同时满足：
+  status == ok
+  version == $ExpectedServerVersion（1.2.1，来自 deployment/version.ps1）
+  api_contract >= $RequiredApiContract（2）
+  capabilities 至少包含 review_session / review_nearest / organize /
+                     delete_nonce / duplicates_paged / library_selection
+```
+
+- **最终健康检查失败不再是 Warning**：升级路径自动回滚旧版本并 `exit != 0`
+  （报告 `UPGRADE FAILED` + `ROLLBACK PASS|FAIL`）；首次安装失败则停止进程、删除自启任务、
+  标记 `INSTALL FAILED` 并 `exit != 0`，绝不打印"安装完成"。
+- `status.ps1` 输出 `健康 / Server Version / API Contract / Compatibility`，
+  contract 不达标时非零退出；`diagnose.ps1` 的 health.txt 记录 version/api_contract/capabilities/status/components。
+- 版本 / Contract 唯一事实源：`deployment/version.ps1`（随部署包发布）。
 
 - App 只按 `api_contract` 判断兼容（见 `docs/SERVER_VERSION_POLICY.md`）；
 - 部署前必须确认 Server health 返回 `api_contract = 2`；
@@ -44,7 +64,7 @@ Compatibility                 = PASS
 ## 4. 健康检查
 
 - 端点：`GET http://127.0.0.1:<port>/api/v1/system/health` → 期望 `status=ok`；
-- 版本端点：`GET /api/v1/system/...` 返回 `version=1.1.0`；
+- 版本端点：`GET /api/v1/system/health` 返回 `version=1.2.1` 且 `api_contract=2`；
 - 部署脚本 `scripts/status.ps1` 显示进程 / 端口 / 健康 / 版本；
 - Android 侧连接检查走 `core/pairing/PairingRepository.checkHealthy`（不在启动首屏阻塞）。
 
@@ -73,6 +93,7 @@ Compatibility                 = PASS
 2. 确认 Jellyfin 地址 / 凭据就绪（config 内，不入库）；
 3. 部署 Server（无需 DB migration）；
 4. 健康检查 `status=ok` + 版本正确；
-5. 安装 Android APK（`MediaReview_2.0.0-alpha4_stage8d.apk`）；
+5. 安装 Android APK（当前最新用户 APK 为 `MediaReview_2.0.0-alpha4_stage8d.apk`；
+   alpha5 / alpha6 为小版本，按小版本政策 **未生成 APK**）；
 6. 走一遍 Demo / Server 双模式与批阅、整理全链路；
 7. 失败即按 `UPGRADE_ROLLBACK.md` 回滚。

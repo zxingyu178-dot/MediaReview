@@ -15,6 +15,9 @@ $ErrorActionPreference = "Continue"
 $TaskName = "MediaReviewServer"
 $Exe      = Join-Path $InstallDir "MediaReviewServer\MediaReviewServer.exe"
 
+# 版本与 API Contract 的唯一事实源
+. "$PSScriptRoot\..\version.ps1"
+
 Write-Host "========== MediaReview Server 状态 ==========" -ForegroundColor Cyan
 
 # 1. 安装
@@ -49,18 +52,28 @@ $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Sil
 if ($listener) { Write-Host "端口: TCP $Port 监听中" }
 else { Write-Host "端口: TCP $Port 未监听" }
 
-# 6. 健康与版本
+# 6. 健康、版本与 Contract 兼容性
 if (-not $proc) {
     Write-Host "状态: 已安装但未运行" -ForegroundColor Yellow
     exit 2
 }
 try {
     $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 5
-    if ($h.success -and $h.data.status -eq "ok") {
-        Write-Host "健康: ok, 版本 $($h.data.version)" -ForegroundColor Green
-        exit 0
+    $status   = $h.data.status
+    $contract = [int]$h.data.api_contract
+    if ($h.success -and $status -eq "ok") {
+        Write-Host "健康: ok" -ForegroundColor Green
+    } else {
+        Write-Host "健康: $status" -ForegroundColor Yellow
     }
-    Write-Host "健康: 异常 ($($h.data.status))" -ForegroundColor Yellow
+    Write-Host "Server Version: $($h.data.version)"
+    Write-Host "API Contract: $contract"
+    if ($contract -ge $RequiredApiContract) {
+        Write-Host "Compatibility: PASS" -ForegroundColor Green
+    } else {
+        Write-Host "Compatibility: FAIL (需要 >= $RequiredApiContract)" -ForegroundColor Red
+    }
+    if ($h.success -and $status -eq "ok" -and $contract -ge $RequiredApiContract) { exit 0 }
     exit 3
 } catch {
     Write-Host "健康: 不可达 (进程在但未响应)" -ForegroundColor Yellow

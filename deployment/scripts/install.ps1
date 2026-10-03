@@ -18,9 +18,18 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir  = $PSScriptRoot
 $TaskName   = "MediaReviewServer"
-$Version    = "1.2.0"
 $Report     = @()
 $Global:LASTEXITCODE = 0
+
+# 版本与 API Contract 的唯一事实源(部署脚本禁止各自写死版本号)
+. "$PSScriptRoot\..\version.ps1"
+$Version = $ExpectedServerVersion
+
+# 健康 Gate 要求 Server 暴露的正式能力清单
+$RequiredCapabilities = @(
+    "review_session", "review_nearest", "organize",
+    "delete_nonce", "duplicates_paged", "library_selection"
+)
 
 # 路径参数校验(防注入: InstallDir/DataRoot 会拼入 schtasks /TR 与 start_server.cmd)
 foreach ($p in @($InstallDir, $DataRoot)) {
@@ -38,13 +47,40 @@ function Get-OwnedProcess {
         Where-Object { $_.Path -eq $ExePath }
 }
 
+function Get-HealthSnapshot {
+    try {
+        return Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 2
+    } catch { return $null }
+}
+
+# 健康 Gate: 仅 status=ok 不足以判定成功, 必须同时满足
+#   版本匹配 + Contract >= 下限 + 能力清单齐全。
+function Test-HealthContract($h) {
+    if ($null -eq $h) { return $false }
+    if (-not $h.success) { return $false }
+    if ($h.data.status -ne "ok") { return $false }
+    if ($h.data.version -ne $ExpectedServerVersion) { return $false }
+    if ([int]$h.data.api_contract -lt $RequiredApiContract) { return $false }
+    foreach ($cap in $RequiredCapabilities) {
+        if ($cap -notin $h.data.capabilities) { return $false }
+    }
+    return $true
+}
+
 function Wait-Healthy([int]$TimeoutSec = 40) {
     for ($i = 0; $i -lt $TimeoutSec; $i++) {
         Start-Sleep -Seconds 1
-        try {
-            $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 2
-            if ($h.success -and $h.data.status -eq "ok") { return $true }
-        } catch { }
+        if (Test-HealthContract (Get-HealthSnapshot)) { return $true }
+    }
+    return $false
+}
+
+# 回滚后校验"任意健康": 旧版本版本号与当前不同, 不能复用 Wait-Healthy。
+function Wait-HealthyAny([int]$TimeoutSec = 40) {
+    for ($i = 0; $i -lt $TimeoutSec; $i++) {
+        Start-Sleep -Seconds 1
+        $h = Get-HealthSnapshot
+        if ($h -and $h.success -and $h.data.status -eq "ok") { return $true }
     }
     return $false
 }
@@ -268,16 +304,45 @@ start "" "%~dp0MediaReviewServer\MediaReviewServer.exe"
     if ($LASTEXITCODE -ne 0) { throw "创建计划任务失败" }
     Write-Report "计划任务: $TaskName (开机自启, NETWORK SERVICE)"
 
-    # ---- 7. 启动并健康检查 ----
+    # ---- 7. 启动并健康检查(硬失败, 绝不静默"安装完成") ----
     Write-Step "启动服务并健康检查"
     schtasks /Run /TN $TaskName | Out-Null
     if (Wait-Healthy -TimeoutSec 40) {
         $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 3
-        Write-Host "服务器健康检查通过, 版本 $($h.data.version)" -ForegroundColor Green
-        Write-Report "health: ok, version $($h.data.version)"
+        Write-Host "服务器健康检查通过, 版本 $($h.data.version), Contract $($h.data.api_contract)" -ForegroundColor Green
+        Write-Report "health: ok, version $($h.data.version), api_contract $($h.data.api_contract)"
     } else {
-        Write-Warning "健康检查未通过, 请查看日志: $DataRoot\logs\server.log"
-        Write-Report "health: FAILED (见日志)"
+        if ($prior) {
+            # 升级路径: 停止新版本 -> 回滚旧版本 -> 校验旧版本重新健康 -> 非零退出
+            Write-Host "最终健康检查未通过, 执行升级回滚..." -ForegroundColor Yellow
+            Get-OwnedProcess -ExePath $ExePath | Stop-Process -Force -ErrorAction SilentlyContinue
+            $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            if ($task) { Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
+            Restore-Previous $InstallDir $backup $DataRoot $ExePath
+            Write-Report "UPGRADE FAILED"
+            if (Wait-HealthyAny -TimeoutSec 40) {
+                Write-Report "ROLLBACK PASS"
+                Write-Host "回滚成功: 旧版本已恢复并重新健康" -ForegroundColor Yellow
+            } else {
+                Write-Report "ROLLBACK FAIL"
+                Write-Host "回滚失败: 旧版本未能恢复健康, 请人工介入" -ForegroundColor Red
+            }
+            $Report | Set-Content (Join-Path $DataRoot "deploy_report.txt") -Encoding UTF8 -ErrorAction SilentlyContinue
+            exit 1
+        } else {
+            # 首次安装路径: 停止坏进程 -> 删除自启任务 -> 标记失败 -> 非零退出
+            Write-Host "健康检查未通过, 首次安装回退..." -ForegroundColor Yellow
+            Get-OwnedProcess -ExePath $ExePath | Stop-Process -Force -ErrorAction SilentlyContinue
+            $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+            if ($task) {
+                Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+                Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            Write-Report "INSTALL FAILED: health gate 未通过(版本/Contract/能力/status)"
+            Write-Host "安装失败: 服务未通过健康契约 Gate, 请查看日志: $DataRoot\logs\server.log" -ForegroundColor Red
+            $Report | Set-Content (Join-Path $DataRoot "deploy_report.txt") -Encoding UTF8 -ErrorAction SilentlyContinue
+            exit 1
+        }
     }
 
     # ---- 8. 部署报告 ----

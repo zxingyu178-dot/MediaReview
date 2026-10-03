@@ -70,6 +70,11 @@ class V2ServerMediaRepository internal constructor(
      * 也必须出现在同一份缓存里，完整播放器才能通过 `mediaById` 打开当前媒体。
      */
     private val resources: V2ServerResourceCache = V2ServerResourceCache(),
+    /**
+     * Stage 8D.2 §13/§15：统一 Server 业务访问 Guard。默认由同一 statusStore 派生，
+     * 便于测试直接构造；生产路径由 Hilt 注入单例。
+     */
+    private val accessGuard: V2ServerAccessGuard = V2ServerAccessGuard(statusStore),
 ) : MediaRepository {
 
     @Inject
@@ -95,6 +100,8 @@ class V2ServerMediaRepository internal constructor(
         },
         statusStore = statusStore,
         resources = resources,
+        // Guard 无状态（只读共享 statusStore），由同一 statusStore 派生即可，语义等同单例。
+        accessGuard = V2ServerAccessGuard(statusStore),
     )
 
     override val mode: V2DataMode = V2DataMode.SERVER
@@ -127,8 +134,10 @@ class V2ServerMediaRepository internal constructor(
         return apiFactory.create(baseUrl) to baseUrl
     }
 
-    /** 统一请求包装：成功标记在线、失败按错误类型更新连接状态，异常继续上抛给调用方。 */
+    /** 统一请求包装：**先过 Guard**（非 Online 直接失败），失败按错误类型更新连接状态。 */
     private suspend fun <T> call(block: suspend (MediaReviewApi, String) -> T): T {
+        // Stage 8D.2 §15：所有业务网络请求的最后一道防线。
+        accessGuard.requireBusinessAccess()
         return try {
             val (api, base) = apiWithBase()
             val result = block(api, base)

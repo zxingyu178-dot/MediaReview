@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.pairing.PairingRepository
+import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.core.pairing.normalizeBaseUrl
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
@@ -16,6 +17,7 @@ import com.mediareview.app.feature.v2.data.server.V2ServerSession
 import com.mediareview.app.feature.v2.data.server.V2ServerSessionBootstrap
 import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
+import com.mediareview.app.feature.v2.data.server.shouldLoadServerBusinessData
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2ContextQueue
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -215,13 +217,21 @@ class V2HomeViewModel @Inject constructor(
             val mode = modeStore.bootstrap()
             if (mode == V2DataMode.SERVER) {
                 _serverSession.value = bootstrap.restore()
-                // 后台快速探测（不阻塞启动 / 不阻塞首页）
-                viewModelScope.launch { healthMonitor.probe() }
+                // Stage 8D.2 §9/§10：UI 立即出现（壳 + "重新连接中…"），不阻塞首屏。
+                _initializing.value = false
+                viewModelScope.launch {
+                    // §8：先做兼容性探测，探测完成前**绝不**发任何业务请求。
+                    healthMonitor.probe()
+                    // 只有兼容(Online)才加载业务数据；Incompatible / Offline / AuthRejected 一律不 reload。
+                    if (shouldLoadServerBusinessData(statusStore.status.value)) {
+                        reloadAll()
+                    }
+                }
             } else {
                 statusStore.update(V2ServerStatus.Unconfigured)
+                reloadAll()
+                _initializing.value = false
             }
-            reloadAll()
-            _initializing.value = false
         }
         // 搜索历史从 DataStore 恢复（App 重启后仍在）
         viewModelScope.launch {
@@ -237,16 +247,24 @@ class V2HomeViewModel @Inject constructor(
             if (mode == repository.mode) return@launch
             // 阶段 8A.1.1 §4: 切换数据源必须失效辅助缓存
             repository.invalidateAuxiliaryCache()
+            // Stage 8D.2 §25：切换数据源先清掉旧 Server 的版本 / contract / 兼容性元数据
+            statusStore.reset()
             modeStore.set(mode)
-            if (mode == V2DataMode.SERVER) {
-                _serverSession.value = bootstrap.restore()
-                viewModelScope.launch { healthMonitor.probe() }
-            }
             resetPager()
             _currentList.value = emptyList()
             _favorites.value = emptyList()
             _albums.value = emptyList()
-            reloadAll()
+            if (mode == V2DataMode.SERVER) {
+                _serverSession.value = bootstrap.restore()
+                // §11：先 probe 兼容性；只有 Online 才加载业务数据，其余状态不 reload。
+                healthMonitor.probe()
+                if (statusStore.status.value == V2ServerStatus.Online) {
+                    reloadAll()
+                }
+            } else {
+                // §12：切回 Demo 立即可用，无需任何健康探测
+                reloadAll()
+            }
             emitMessage(if (mode == V2DataMode.SERVER) "已切换到我的服务器" else "已切换到演示数据")
         }
     }
@@ -284,6 +302,16 @@ class V2HomeViewModel @Inject constructor(
                     )
                     return@launch
                 }
+                is PairingRepository.Result.Incompatible -> {
+                    // Stage 8D.2 §6/§7：旧 Server 立即停止 —— 不 verify、不落库、不切 SERVER、不清 Token。
+                    statusStore.recordIncompatible(healthy.version, healthy.apiContract)
+                    _connectState.value = _connectState.value.copy(
+                        busy = false,
+                        error = "服务器版本过旧（当前 ${healthy.version}，需要 API Contract " +
+                            "$REQUIRED_SERVER_API_CONTRACT），请升级 MediaReview Server",
+                    )
+                    return@launch
+                }
                 else -> Unit
             }
             when (val paired = pairingRepository.verifyAndPair(address, _connectState.value.code)) {
@@ -297,11 +325,16 @@ class V2HomeViewModel @Inject constructor(
                     _serverSession.value = bootstrap.refresh()
                     // 阶段 8A.1.1 §4: 连到（可能是另一个）服务器必须失效辅助缓存
                     repository.invalidateAuxiliaryCache()
+                    // §25：新服务器不得沿用旧 Server 的版本 / contract / 兼容性元数据
+                    statusStore.reset()
                     modeStore.set(V2DataMode.SERVER)
                     resetPager()
                     _currentList.value = emptyList()
-                    reloadAll()
-                    viewModelScope.launch { healthMonitor.probe() }
+                    // §11：probe 后再决定是否加载业务数据
+                    healthMonitor.probe()
+                    if (shouldLoadServerBusinessData(statusStore.status.value)) {
+                        reloadAll()
+                    }
                     emitMessage("已连接服务器")
                 }
                 is PairingRepository.Result.Failure -> {
@@ -315,9 +348,14 @@ class V2HomeViewModel @Inject constructor(
         }
     }
 
-    /** 手动重试后台健康探测。 */
+    /** 手动重试后台健康探测（§24：恢复 Online 只能依靠兼容的 health probe）。 */
     fun probeServer() {
-        viewModelScope.launch { healthMonitor.probe() }
+        viewModelScope.launch {
+            healthMonitor.probe()
+            if (isServerMode && shouldLoadServerBusinessData(statusStore.status.value)) {
+                reloadAll()
+            }
+        }
     }
 
     /** 断开服务器配置（保留 Demo 可用）。 */
@@ -327,7 +365,8 @@ class V2HomeViewModel @Inject constructor(
             // 阶段 8A.1.1 §4: 断开连接必须失效辅助缓存,避免下次连别的服务器命中旧数据
             repository.invalidateAuxiliaryCache()
             _serverSession.value = V2ServerSession()
-            statusStore.update(V2ServerStatus.Unconfigured)
+            // §25：断开连接清空 Server 版本 / contract / 兼容性元数据
+            statusStore.reset()
             modeStore.set(V2DataMode.DEMO)
             resetPager()
             _currentList.value = emptyList()

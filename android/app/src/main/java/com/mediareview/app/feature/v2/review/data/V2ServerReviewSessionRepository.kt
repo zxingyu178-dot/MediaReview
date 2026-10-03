@@ -14,6 +14,7 @@ import com.mediareview.app.core.network.MediaReviewApi
 import com.mediareview.app.feature.v2.data.server.V2MediaMapper
 import com.mediareview.app.feature.v2.data.server.V2ServerProfilePort
 import com.mediareview.app.feature.v2.data.server.V2ServerResourceCache
+import com.mediareview.app.feature.v2.data.server.V2ServerAccessGuard
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -60,6 +61,8 @@ class V2ServerReviewSessionRepository internal constructor(
     private val mapper: V2MediaMapper,
     private val resources: V2ServerResourceCache,
     private val statusStore: V2ServerStatusStore,
+    /** Stage 8D.2 §13/§15：统一 Server 业务访问 Guard。 */
+    private val accessGuard: V2ServerAccessGuard = V2ServerAccessGuard(statusStore),
 ) : V2ReviewSessionRepository {
 
     @Inject
@@ -77,6 +80,7 @@ class V2ServerReviewSessionRepository internal constructor(
         mapper = mapper,
         resources = resources,
         statusStore = statusStore,
+        accessGuard = V2ServerAccessGuard(statusStore),
     )
 
     private var sessionId: String = ""
@@ -426,6 +430,8 @@ class V2ServerReviewSessionRepository internal constructor(
     }
 
     private suspend fun <T> call(block: suspend (MediaReviewApi, String) -> T): T {
+        // Stage 8D.2 §15：所有业务网络请求的最后一道防线。
+        accessGuard.requireBusinessAccess()
         return try {
             val baseUrl = profilePort.baseUrl()
             require(baseUrl.isNotBlank()) { "尚未连接服务器" }

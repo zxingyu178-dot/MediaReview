@@ -108,6 +108,19 @@ class PairingRepository internal constructor(
             val pairingRequired: Boolean?,
             val connection: ConnectionState,
         ) : Result
+
+        /**
+         * Stage 8D.2 §5：Server 可达但 **API Contract 低于要求**（版本过旧）。
+         *
+         * 必须与 [HealthOk] 区分开 —— 绝不伪装成"健康"，否则 [V2HomeViewModel.connectServer]
+         * 会继续走 pairing / verify / 落库 / 切 SERVER。此时**不清 token、不重新配对**。
+         */
+        data class Incompatible(
+            val version: String,
+            val apiContract: Int,
+            val connection: ConnectionState,
+        ) : Result
+
         data class Paired(val deviceId: String, val token: String) : Result
         data class Failure(
             val message: String,
@@ -141,9 +154,9 @@ class PairingRepository internal constructor(
                         serverApiContract = health.api_contract,
                     )
                     _connection.value = incompatible
-                    return Result.HealthOk(
+                    return Result.Incompatible(
                         version = health.version,
-                        pairingRequired = null,
+                        apiContract = health.api_contract,
                         connection = incompatible,
                     )
                 }
@@ -327,6 +340,9 @@ class PairingRepository internal constructor(
         if (profile.baseUrl.isNotBlank()) {
             restored = when (val probe = checkHealthy(profile.baseUrl)) {
                 is Result.HealthOk -> probe.connection
+                // 旧 Server：保留 Incompatible 连接状态（含版本/contract），
+                // 不清 token、不改成认证失效（Stage 8D.2 §5/§14）。
+                is Result.Incompatible -> probe.connection
                 is Result.Failure -> {
                     message = credentialCleanupMessageInSession ?: probe.message
                     probe.connection

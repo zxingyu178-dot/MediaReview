@@ -1,6 +1,6 @@
 [project]
 name = "mediareview-server"
-version = "1.2.0"
+version = "1.2.1"
 description = "MediaReview 中间层服务(FastAPI)"
 requires-python = ">=3.12"
 dependencies = [

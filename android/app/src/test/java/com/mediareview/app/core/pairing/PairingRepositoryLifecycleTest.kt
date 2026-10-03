@@ -355,10 +355,13 @@ class PairingServerCompatibilityTest {
             FakePairingApi(healthContract = 1, healthVersion = "1.1.0"),
             tokenProvider,
         ).checkHealthy("http://s:1")
-        val ok = result as PairingRepository.Result.HealthOk
-        assertEquals(CompatibilityState.Incompatible, ok.connection.compatibility)
-        assertEquals("1.1.0", ok.connection.serverVersion)
-        assertEquals(1, ok.connection.serverApiContract)
+        // Stage 8D.2 §5：必须是明确的 Incompatible，绝不能伪装成 HealthOk。
+        val incompatible = result as PairingRepository.Result.Incompatible
+        assertEquals("1.1.0", incompatible.version)
+        assertEquals(1, incompatible.apiContract)
+        assertEquals(CompatibilityState.Incompatible, incompatible.connection.compatibility)
+        assertEquals("1.1.0", incompatible.connection.serverVersion)
+        assertEquals(1, incompatible.connection.serverApiContract)
         // §14：版本不兼容 ≠ 401，不得清凭据 / 不得标记认证失效。
         assertEquals(0, store.invalidations)
         assertTrue(tokenProvider.tokenFor("http://s:1") != null)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""MediaReview 1.2.0 部署包构建。
+"""MediaReview 1.2.1 部署包构建。
 
-产出根目录固定为 ``MediaReview_Migration_1.2.0``,可执行文件名为 ``MediaReviewServer.exe``。
+产出根目录固定为 ``MediaReview_Migration_1.2.1``,可执行文件名为 ``MediaReviewServer.exe``。
 
 步骤:
 1. 调用 PyInstaller 构建 Server EXE(server/dist/MediaReviewServer/MediaReviewServer.exe)
@@ -10,7 +10,7 @@
 4. 复制 Android APK(优先 release,否则 debug)
 5. 复制交接文档(LICENSE/THIRD_PARTY_NOTICES/README/HANDOVER/install-upgrade-rollback 等)
 6. 生成 SHA-256 校验和 SHA256SUMS.txt
-7. 压缩为 deploy_handoff/MediaReview_Migration_1.2.0_<时间戳>.zip 并回验校验和
+7. 压缩为 deploy_handoff/MediaReview_Migration_1.2.1_<时间戳>.zip 并回验校验和
 
 用法(项目根):
     python scripts/build_deploy.py
@@ -34,7 +34,7 @@ OUT = ROOT / "deploy_handoff"
 FFMPEG_SRC = ROOT / "third_party" / "ffmpeg"
 APK_DIR = ROOT / "android" / "app" / "build" / "outputs" / "apk"
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 PACKAGE_ROOT = f"MediaReview_Migration_{VERSION}"
 ALL_SCRIPTS = (
     "install.ps1",
@@ -106,7 +106,7 @@ def main() -> int:
     # 0. RC/正式包必须带签名 Release APK;仅显式 --allow-debug 时才允许回退 debug。
     import argparse
 
-    parser = argparse.ArgumentParser(description="构建 MediaReview 1.2.0 部署包")
+    parser = argparse.ArgumentParser(description="构建 MediaReview 1.2.1 部署包")
     parser.add_argument(
         "--allow-debug",
         action="store_true",
@@ -135,6 +135,9 @@ def main() -> int:
     print("==> 复制 8 个部署脚本与配置模板 ...")
     for script in ALL_SCRIPTS:
         shutil.copy(DEPLOY / "scripts" / script, deploy_dir / "scripts" / script)
+    # Stage 8D.2 §34：部署脚本统一 dot-source `..\version.ps1`（版本/Contract 唯一事实源），
+    # 该文件必须随包发布，否则部署包内 dot-source 会失败。
+    shutil.copy(DEPLOY / "version.ps1", deploy_dir / "version.ps1")
     shutil.copy(DEPLOY / "config.example.json", deploy_dir / "config.example.json")
 
     # 3. FFmpeg(可选)
@@ -173,7 +176,7 @@ def main() -> int:
             shutil.copy(src, deploy_dir / doc)
         elif doc == "HANDOVER.md":
             (deploy_dir / doc).write_text(
-                f"""# MediaReview 1.2.0 部署交接
+                f"""# MediaReview 1.2.1 部署交接
 
 ## 版本
 - Server: {VERSION}

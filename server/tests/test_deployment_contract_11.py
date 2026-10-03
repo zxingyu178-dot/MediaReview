@@ -9,7 +9,7 @@
 - 防火墙只开放 TCP 8766 + UDP 35001，不触碰其他端口。
 - 卸载默认保留数据，仅显式 -DeleteData 才删。
 - FFmpeg 优先随包、其次系统 PATH。
-- ``scripts/build_deploy.py`` 产出 ``MediaReview_Migration_1.2.0`` 根 + 8 脚本 +
+- ``scripts/build_deploy.py`` 产出 ``MediaReview_Migration_1.2.1`` 根 + 8 脚本 +
   SHA-256 校验和。
 - PyInstaller spec 产物名为 ``MediaReviewServer.exe``。
 - Android applicationId 与当前 2.0 产品线版本一致；LICENSE 与 THIRD_PARTY_NOTICES 存在。
@@ -179,7 +179,7 @@ def test_ffmpeg_prefers_bundled_then_system() -> None:
 # ---------------------------------------------------------------- build_deploy.py(F7)
 def test_build_deploy_uses_media_review_migration_root() -> None:
     builder = (ROOT / "scripts" / "build_deploy.py").read_text(encoding="utf-8")
-    assert "MediaReview_Migration_1.2.0" in builder
+    assert "MediaReview_Migration_1.2.1" in builder
     assert "MediaReviewServer.exe" in builder
 
 
@@ -193,8 +193,8 @@ def test_build_deploy_packages_all_eight_scripts_and_sha256() -> None:
 def test_build_deploy_version_matches_server() -> None:
     builder = (ROOT / "scripts" / "build_deploy.py").read_text(encoding="utf-8")
     init = (SERVER / "app" / "__init__.py").read_text(encoding="utf-8")
-    assert '__version__ = "1.2.0"' in init
-    assert "1.2.0" in builder
+    assert '__version__ = "1.2.1"' in init
+    assert "1.2.1" in builder
 
 
 # ---------------------------------------------------------------- 许可文档(F2)

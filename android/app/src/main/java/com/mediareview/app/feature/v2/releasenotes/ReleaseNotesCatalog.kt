@@ -71,6 +71,17 @@ object ReleaseNotesCatalog {
                 "提升真实服务器升级与连接稳定性",
             ),
         ),
+        ReleaseNote(
+            versionCode = 13,
+            versionName = "2.0.0-alpha6",
+            title = "MediaReview 2.0 Alpha 6",
+            highlights = listOf(
+                "修复连接旧版电脑端时仍可能继续加载数据的问题",
+                "优化服务器启动与切换时的兼容检查",
+                "提升服务器升级和失败回滚可靠性",
+                "完善手机与电脑端版本状态显示",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

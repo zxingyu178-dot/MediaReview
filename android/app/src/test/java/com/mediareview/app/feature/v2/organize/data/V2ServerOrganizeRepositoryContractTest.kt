@@ -7,6 +7,7 @@ import com.mediareview.app.feature.v2.data.server.V2MediaMapper
 import com.mediareview.app.feature.v2.data.server.V2ServerProfilePort
 import com.mediareview.app.feature.v2.data.server.V2ServerResourceCache
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
+import com.mediareview.app.onlineServerStatus
 import java.net.InetAddress
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -60,7 +61,7 @@ class V2ServerOrganizeRepositoryContractTest {
             apiFactory = ApiFactory(http, http, Json { ignoreUnknownKeys = true; coerceInputValues = true }),
             mapper = V2MediaMapper(MediaUrlResolver()),
             resources = V2ServerResourceCache(),
-            statusStore = V2ServerStatusStore(),
+            statusStore = onlineServerStatus(),
         )
     }
 

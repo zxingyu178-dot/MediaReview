@@ -1,4 +1,19 @@
-# MediaReview 升级与回滚说明（1.1.0）
+# MediaReview 升级与回滚说明（1.2.1）
+
+## Stage 8D.2 服务器变更补充（2026-10）
+
+- Server 版本：`1.2.0 → 1.2.1`（**API Contract 保持 2**，无 API 语义变化）；
+- 数据库迁移：**NO SCHEMA MIGRATION**（Alembic head 仍为 `0014_task_d_delete_nonce_duplicates`）；
+- 部署包命名：`MediaReview_Migration_1.2.1_<时间戳>.zip`；
+- **部署 Gate（新增）**：`install.ps1` 的成功条件从"health status=ok"升级为
+  `status=ok` + `version=1.2.1` + `api_contract>=2` + 六项 capabilities 齐全
+  （版本/Contract 事实源 = `deployment/version.ps1`）；
+  - 升级失败 → 停止新版本 → 自动回滚旧二进制/数据 → 校验旧版本重新健康 →
+    `exit != 0`，报告 `UPGRADE FAILED` + `ROLLBACK PASS|FAIL`；
+  - 首次安装失败 → 停止坏进程、删除自启任务、标记 `INSTALL FAILED`、`exit != 0`，
+    **不再打印"安装完成"**；
+  - `status.ps1` 会输出 `健康 / Server Version / API Contract / Compatibility`，
+    contract 不达标即非零退出。
 
 ## Stage 8D.1 服务器变更补充（2026-10）
 

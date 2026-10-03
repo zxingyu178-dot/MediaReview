@@ -2218,3 +2218,69 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 | 用户 APK | **NOT GENERATED — SMALL VERSION POLICY** |
 | 生产部署 | **NOT PERFORMED** |
 
+### 2026-10-03 — Stage 8D.2 Compatibility Gate / Server Access Guard / Deployment Preflight（2.0.0-alpha6，NO USER APK）
+
+分支 `feature/mediareview-v2-stage8d.2-server-gate-closure`（基于 `21b2c00`）。
+唯一目标：在整个 App 范围真正实现 `health → compatibility confirmed → business API`，
+并把 Windows 部署脚本改成「版本 / Contract 不正确 = 部署失败」。
+
+**P0 首次连接旧 Server（§4~§7）**
+- `PairingRepository.Result` 新增 `Incompatible(version, apiContract, connection)`；
+  `checkHealthy` 对 `api_contract < 2` 的旧 Server 返回 `Incompatible`，**不再伪装 `HealthOk`**；
+- `connectServer()` 收到 `Incompatible` 立即停止：**不调用 verify / 不保存 Server Mode / 不清 Token**，
+  返回含所需 Contract 的可见错误文案。
+
+**P0 启动 / 切源竞态（§8~§12）**
+- `V2HomeViewModel`：SERVER 冷启动与 Demo→Server 均改为
+  `restore local profile → 显示 V2 Shell → status=Probing → probe()`，
+  仅 `Online` 才 `reloadAll()`；`Incompatible/Offline/AuthRejected` 一律不 reload；
+- UI 仍立即显示（不回到 Splash 阻塞）；切 Demo 无需探测、立即可用。
+
+**P0 统一 Server Access Guard（§13~§19）**
+- 新增 `feature/v2/data/server/V2ServerAccessGuard.kt`：`requireBusinessAccess()` 按状态抛
+  `ServerIncompatible/NotReady/Offline/AuthRejected/NotConfigured`；`shouldLoadServerBusinessData(status)` 只认 `Online`；
+- `V2ServerMediaRepository` / `V2ServerOrganizeRepository` / `V2ServerReviewSessionRepository`
+  的 `private suspend fun <T> call(...)` **首行统一 Guard**（health / pairing 白名单例外）；
+- `V2MediaRepositoryRouter`：所有会发网络请求的 suspend 方法重新归类到 `dataActive()` 过 Gate；
+  `mediaById/coverUri/...` 纯内存读取保持不抛；`setAlbumCover` 为本地 DataStore，不过 Server Gate。
+
+**P0 Online 只能由 Health Probe 授予（§20~§26）**
+- `V2ServerStatusStore.onRequestSuccess()` 改为 no-op：普通业务请求成功**不能**把
+  `Incompatible/Probing/Unconfigured/AuthRejected` 升级为 `Online`；
+- `onRequestFailure` 仅在 `Online` 时降级；新增 `reset()` 清理 serverVersion / apiContract / compatibility；
+- Server A→B、断开重连、清配置均先 `reset()`，不残留旧服务器元数据。
+
+**P0 Windows 部署 Gate（§31~§45）**
+- Server `1.2.0 → 1.2.1`，**API Contract 保持 2**（验证 version 与 Contract 是两套概念）；
+- 新增 `deployment/version.ps1` 唯一事实源（`$ExpectedServerVersion=1.2.1` / `$RequiredApiContract=2`）；
+- `install.ps1`：`Test-HealthContract` 同时校验 `status` + `version` + `api_contract` + 能力清单
+  （review_session / review_nearest / organize / delete_nonce / duplicates_paged / library_selection）；
+- 删除「final health 失败仅 Warning 继续安装完成」：升级路径 final health 失败即自动回滚旧二进制 / config / DB 并重启旧版
+  （报告 `UPGRADE FAILED` + `ROLLBACK PASS|FAIL`）；首次安装失败则停进程、删计划任务、标记 `INSTALL FAILED`；
+  两者均 `exit != 0`；
+- `status.ps1` 输出 `健康 / Server Version / API Contract / Compatibility`，contract 不达标非零退出；
+  `diagnose.ps1` health.txt 记录 version/api_contract/capabilities/status/components；
+  `start/restart/repair` 均确认 health + contract ≥ 2；
+- `scripts/build_deploy.py` 补打包 `deployment/version.ps1`（修复部署包 dot-source 缺失缺陷）。
+
+**版本 / 更新日志**：`versionCode 12 → 13`、`versionName alpha5 → alpha6`；新增 Alpha 6。
+
+**测试与验证（真实执行）**
+
+| 项目 | 结果 |
+|---|---|
+| Server pytest（全量） | **452 passed / 0 failed / 0 error**（exit 0） |
+| Android JVM | **351 passed / 0 failed / 0 error**（47 结果文件聚合） |
+| Lint | **0 errors**（41 warnings，无新增） |
+| compileDebugKotlin | **BUILD SUCCESSFUL** |
+| 部署沙箱生命周期测试 | **17 通过 / 0 失败**（Gate 5 例 + 升级失败回滚镜像） |
+| Instrumentation（定向） | **8 / 8 passed**（Stage8D1CompatibilityUiTest / Stage8C1WhatsNewUiTest / Stage4BrowserUiTest） |
+| 用户 APK | **NOT GENERATED — SMALL VERSION POLICY** |
+| 生产部署 | **NOT PERFORMED** |
+
+> 诚实声明：`Stage8AServerModeTest` 依赖宿主机 Mock Server（`10.0.2.2:8799`），
+> 该 Mock Server 非仓库内产物，本阶段未重新运行；其覆盖的「health 先于业务」请求顺序
+> 已由 JVM MockWebServer 合同测试断言覆盖。`install.ps1` / `diagnose.ps1` 未在真实管理员
+> 环境端到端执行（需 admin + 真实 EXE），沙箱以镜像逻辑 + stub 覆盖。
+> `test_task_manager` 后台循环单例测试在整机高负载下偶发失败、单独复跑通过（历史已知，非本阶段引入）。
+

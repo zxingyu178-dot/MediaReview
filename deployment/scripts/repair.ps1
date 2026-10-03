@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 修复脚本(1.2.0)
+  MediaReview Server 修复脚本(1.2.1)
   检查缺失文件/服务/端口/ffmpeg/config/DB,重建缺失项,**不删除用户数据库**。
   用法:  .\repair.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]
 #>
@@ -13,6 +13,10 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
+
+# 版本与 API Contract 的唯一事实源
+. "$PSScriptRoot\..\version.ps1"
+
 $issues = @()
 $TaskName = "MediaReviewServer"
 $Exe      = Join-Path $InstallDir "MediaReviewServer\MediaReviewServer.exe"
@@ -85,9 +89,31 @@ if (-not $task) {
     schtasks /Run /TN $TaskName | Out-Null
 }
 
+# 8. 健康契约 Gate: 仅当无待处理项时才宣称"成功"
+$healthy = $false
 if ($issues.Count -eq 0) {
+    Write-Host "健康契约检查"
+    try {
+        $h = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/system/health" -TimeoutSec 5
+        if ($h.success -and $h.data.status -eq "ok" -and
+            $h.data.version -eq $ExpectedServerVersion -and
+            [int]$h.data.api_contract -ge $RequiredApiContract) {
+            $healthy = $true
+            Check "健康契约" $true "status=ok, version=$($h.data.version), contract=$($h.data.api_contract)"
+        } else {
+            Write-Host "  [!!]  健康契约 - status=$($h.data.status) version=$($h.data.version) contract=$($h.data.api_contract)(要求 version=$ExpectedServerVersion, contract>=$RequiredApiContract)" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  [!!]  健康契约 - 服务不可达($Port), 无法确认修复成功" -ForegroundColor Yellow
+    }
+}
+
+if ($issues.Count -eq 0 -and $healthy) {
     Write-Host "========== 全部正常 ==========" -ForegroundColor Green
     exit 0
+} elseif ($issues.Count -eq 0) {
+    Write-Host "文件/服务检查通过, 但未通过健康契约校验(status/版本/Contract)" -ForegroundColor Red
+    exit 3
 } else {
     Write-Host "存在需人工处理项: $($issues -join ', ')" -ForegroundColor Yellow
     exit 2

@@ -55,7 +55,7 @@ class V2ServerStatusStore @Inject constructor() {
         _status.value = status
     }
 
-    /** 探测到兼容：记录版本 + contract 并标记在线。 */
+    /** 探测到兼容：记录版本 + contract 并标记在线（**唯一**进入 Online 的入口）。 */
     fun recordCompatible(version: String, contract: Int) {
         _serverVersion.value = version
         _serverApiContract.value = contract
@@ -69,20 +69,36 @@ class V2ServerStatusStore @Inject constructor() {
         _status.value = V2ServerStatus.Incompatible
     }
 
-    /** 请求成功 → 在线（探测中的瞬时态不覆盖为在线之外的值）。 */
+    /**
+     * 业务请求成功（Stage 8D.2 §20~§22）：**不得**把状态提升为 Online。
+     *
+     * Online 只能由兼容的 health probe（[recordCompatible]）建立；普通请求成功
+     * 不能推翻 Incompatible / Probing / Unconfigured / AuthRejected。
+     * 正常情况下 Guard 已保证"非 Online 不会发出业务请求"，所以这里保持现状即可。
+     */
     fun onRequestSuccess() {
-        _status.value = V2ServerStatus.Online
+        // 故意 no-op：不改变 status（Online 保持 Online，其它状态不被"碰巧成功"污染）。
     }
 
-    /** 请求失败 → 按错误类型推导：401 = 认证失效；IO 异常 = 离线；其余保持现状。 */
+    /** 请求失败 → 按错误类型推导：401 = 认证失效；IO 异常 = 离线（仅从 Online 迁移）。 */
     fun onRequestFailure(error: Throwable) {
-        // 已知"版本过旧"不因后续请求失败被误标成离线/认证失败（§13/§17 语义优先）。
-        if (_status.value == V2ServerStatus.Incompatible) return
+        // §22/§23：只有 Online 才可能正在发业务请求；其它状态由 Guard 阻止，不得被覆盖。
+        if (_status.value != V2ServerStatus.Online) return
         when {
             error is HttpException && error.code() == 401 -> _status.value = V2ServerStatus.AuthRejected
             error is IOException -> _status.value = V2ServerStatus.Offline
             else -> Unit
         }
+    }
+
+    /**
+     * 切换服务器 / 断开 / 重新配对时调用（Stage 8D.2 §25）：
+     * 清空旧 Server 的版本 / contract / 兼容性元数据，避免残留。
+     */
+    fun reset() {
+        _serverVersion.value = ""
+        _serverApiContract.value = 0
+        _status.value = V2ServerStatus.Unconfigured
     }
 }
 

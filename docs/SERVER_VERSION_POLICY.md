@@ -58,6 +58,12 @@ library_selection
 
 ## 5. 版本历史
 
+### 1.2.1（Stage 8D.2 / 2026-10）
+- **只修 Bug，API Contract 保持 2**（正是本策略要验证的"版本与 Contract 分离"）；
+- 部署脚本引入版本 + Contract Gate：安装/升级后的 Server 必须
+  `version == 1.2.1` 且 `api_contract >= 2` 且能力清单齐全，否则视为部署失败
+  （升级自动回滚、首次安装标记 INSTALL FAILED）。
+
 ### 1.2.0（Stage 8D.1 / 2026-10）
 - 新增 `api_contract = 2` 与 `capabilities`（Health）；
 - Review Session V2、Organize APIs、duplicate pagination/detail、

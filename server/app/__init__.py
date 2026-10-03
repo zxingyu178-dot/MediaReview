@@ -1,6 +1,6 @@
 """MediaReview 中间层服务。"""
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 # API Contract:给 App 判断兼容性的正式字段(与人类可读的 __version__ 分开管理)。
 # - Server 版本给"给人看 / 部署 / 回滚"用;

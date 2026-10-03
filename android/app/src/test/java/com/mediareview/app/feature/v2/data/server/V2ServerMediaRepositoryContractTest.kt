@@ -8,6 +8,7 @@ import com.mediareview.app.feature.v2.model.V2SortField
 import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
+import com.mediareview.app.onlineServerStatus
 import java.io.IOException
 import java.net.InetAddress
 import kotlinx.coroutines.test.runTest
@@ -65,7 +66,7 @@ class V2ServerMediaRepositoryContractTest {
             coerceInputValues = true
         }
         val apiFactory = ApiFactory(http, http, json)
-        statusStore = V2ServerStatusStore()
+        statusStore = onlineServerStatus()
         repository = V2ServerMediaRepository(
             profilePort = object : V2ServerProfilePort {
                 override suspend fun baseUrl(): String = baseUrl
