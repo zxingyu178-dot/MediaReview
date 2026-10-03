@@ -28,6 +28,8 @@ object V2Colors {
     val CardScrim = Color(0x99000000)
     val TimeCapsule = Color(0xCC000000)
     val Favorite = Color(0xFFFF5C7A)
+    /** 警告色(如"服务器版本过旧"),区别于认证失败的红色。 */
+    val Warning = Color(0xFFFFB020)
     /** 封面加载 Skeleton 底色（浅灰，非纯黑）。 */
     val Skeleton = Color(0xFF2A2A30)
 }

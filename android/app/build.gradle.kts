@@ -29,8 +29,8 @@ android {
         targetSdk = 35
         // 版本规则见 docs/VERSION_POLICY.md：versionCode 只能递增，
         // 每次产品版本变更必须同步补充 feature/v2/releasenotes 的 Release Notes。
-        versionCode = 11
-        versionName = "2.0.0-alpha4"
+        versionCode = 12
+        versionName = "2.0.0-alpha5"
         // Stage 8B.1 §25：instrumentation 使用生产 Application（MediaReviewApp 负责 GSY Exo2 内核注册）；
         // Hilt 测试宿主 HiltTestActivity 位于 debug 源集（测试进程与 App 同进程）。
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

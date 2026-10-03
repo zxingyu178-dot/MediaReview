@@ -20,7 +20,7 @@ param(
     [string]$SourcePackage
 )
 $ErrorActionPreference = "Stop"
-$Version = "1.1.0"
+$Version = "1.2.0"
 $passed = 0
 $failed = 0
 
@@ -131,7 +131,7 @@ Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
 Set-Content -Path (Join-Path $InstallDir "VERSION.txt") -Value $Version -Encoding ASCII
 Set-Content -Path (Join-Path $DataRoot "config\CURRENT_VERSION") -Value $Version -Encoding ASCII
 Assert-True (Test-Path (Join-Path $InstallDir "MediaReviewServer\MediaReviewServer.exe")) "升级: 新程序已提升"
-Assert-True (((Get-Content (Join-Path $DataRoot "config\CURRENT_VERSION") -Raw).Trim()) -eq $Version) "升级: CURRENT_VERSION=1.1.0"
+Assert-True (((Get-Content (Join-Path $DataRoot "config\CURRENT_VERSION") -Raw).Trim()) -eq $Version) "升级: CURRENT_VERSION=1.2.0"
 Assert-True ((Test-Path (Join-Path $DataRoot "config\user_note.txt"))) "升级: 用户数据在升级后保留"
 
 # 5) 升级后重启健康

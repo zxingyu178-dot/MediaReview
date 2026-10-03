@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 安装/升级脚本(1.1.0)
+  MediaReview Server 安装/升级脚本(1.2.0)
   首次安装: 校验源包、磁盘空间、复制程序、初始化数据目录、配置端口/数据根、
   FFmpeg 检测、防火墙(仅 TCP 8766 + UDP 35001)、开机自启、启动与健康检查。
   已存在旧版本(检测 VERSION.txt/CURRENT_VERSION): 走事务式升级——
@@ -18,7 +18,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir  = $PSScriptRoot
 $TaskName   = "MediaReviewServer"
-$Version    = "1.1.0"
+$Version    = "1.2.0"
 $Report     = @()
 $Global:LASTEXITCODE = 0
 

@@ -1,6 +1,9 @@
 package com.mediareview.app.feature.v2.data
 
+import com.mediareview.app.feature.v2.data.server.ServerIncompatibleException
 import com.mediareview.app.feature.v2.data.server.V2ServerMediaRepository
+import com.mediareview.app.feature.v2.data.server.V2ServerStatus
+import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
@@ -28,12 +31,26 @@ class V2MediaRepositoryRouter @Inject constructor(
     private val demo: DemoMediaRepository,
     private val server: V2ServerMediaRepository,
     private val modeStore: V2DataModeStore,
+    private val statusStore: V2ServerStatusStore,
 ) : MediaRepository {
 
     override val mode: V2DataMode get() = modeStore.mode.value
 
     private fun active(): MediaRepository =
         if (modeStore.mode.value == V2DataMode.SERVER) server else demo
+
+    /**
+     * §17 fail-fast：已知 Server 版本过旧时,读取类接口立即失败,**不再**用一串请求
+     * 去"发现"电脑端过旧(避免首页出现 404/404/404)。UI 组合期使用的纯取值接口
+     * (`mediaById` / `*Uri`) 仍走 [active],避免在 Composition 中抛异常。
+     */
+    private fun dataActive(): MediaRepository {
+        if (modeStore.mode.value != V2DataMode.SERVER) return demo
+        if (statusStore.status.value == V2ServerStatus.Incompatible) {
+            throw ServerIncompatibleException(statusStore.serverVersion.value)
+        }
+        return server
+    }
 
     /** 切换数据源/服务器时必须两侧都失效，避免命中另一个服务器的缓存。 */
     override fun invalidateAuxiliaryCache() {
@@ -47,26 +64,26 @@ class V2MediaRepositoryRouter @Inject constructor(
         server.dropCachedMedia(mediaIds)
     }
 
-    override suspend fun folders(): List<V2Folder> = active().folders()
+    override suspend fun folders(): List<V2Folder> = dataActive().folders()
 
-    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = active().mediaPage(query)
+    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = dataActive().mediaPage(query)
 
-    override suspend fun media(): List<V2Media> = active().media()
+    override suspend fun media(): List<V2Media> = dataActive().media()
 
-    override suspend fun media(spec: V2SortSpec): List<V2Media> = active().media(spec)
+    override suspend fun media(spec: V2SortSpec): List<V2Media> = dataActive().media(spec)
 
     override suspend fun mediaInFolder(folderId: String, spec: V2SortSpec): List<V2Media> =
-        active().mediaInFolder(folderId, spec)
+        dataActive().mediaInFolder(folderId, spec)
 
     override suspend fun search(query: String, spec: V2SortSpec): List<V2Media> =
-        active().search(query, spec)
+        dataActive().search(query, spec)
 
     override fun mediaById(id: String): V2Media? = active().mediaById(id)
 
     override suspend fun setFavorite(mediaId: String, favorite: Boolean): Boolean =
         active().setFavorite(mediaId, favorite)
 
-    override suspend fun favorites(): List<V2Media> = active().favorites()
+    override suspend fun favorites(): List<V2Media> = dataActive().favorites()
 
     override suspend fun markReviewed(mediaId: String) = active().markReviewed(mediaId)
 
@@ -94,14 +111,14 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override fun spriteManifest(media: V2Media): V2SpriteManifest? = active().spriteManifest(media)
 
-    override suspend fun albums(): List<V2Album> = active().albums()
+    override suspend fun albums(): List<V2Album> = dataActive().albums()
 
     override suspend fun albumPage(
         albumId: String,
         page: Int,
         pageSize: Int,
         spec: V2SortSpec,
-    ): V2MediaPage = active().albumPage(albumId, page, pageSize, spec)
+    ): V2MediaPage = dataActive().albumPage(albumId, page, pageSize, spec)
 
     override suspend fun setAlbumCover(albumId: String, mediaId: String) =
         active().setAlbumCover(albumId, mediaId)

@@ -2176,3 +2176,45 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 **说明**：`tests/test_db.py::test_0010_...`（10 万行 `ORDER BY random()` 阈值 1.0s）对机器负载
 敏感，高负载并发时会超时；空载全量运行通过（本阶段未改动该测试）。
 
+### 2026-10-03 — Stage 8D.1 Server 兼容 / Keep 迁移 / 系统栏（2.0.0-alpha5，NO USER APK）
+
+分支 `feature/mediareview-v2-stage8d.1-compatibility-closure`（基于 `6dce891`）。
+
+**P0 Server API Contract**
+- Server `1.1.0 → 1.2.0`；新增 `SERVER_API_CONTRACT = 2` 与 `SERVER_CAPABILITIES`；
+  `GET /api/v1/system/health` 增加 `api_contract` / `capabilities`；
+- Android `REQUIRED_SERVER_API_CONTRACT = 2`；`HealthOut` 增加 `api_contract`(默认 1)/
+  `capabilities`(默认空)，旧 Server 缺字段不崩溃；
+- `PairingRepository.checkHealthy`：先判 contract，`< 2` 立即 Incompatible，
+  **不再请求业务 API**，且**不清 token / 不标记 AuthRejected**（版本不兼容 ≠ 401）；
+- `ConnectionState` 增加 `CompatibilityState` + `serverVersion` + `serverApiContract`；
+  `V2ServerStatus.Incompatible`；设置页提示"服务器版本过旧"（警告色）+ 双方版本；
+- §17 fail-fast：`V2MediaRepositoryRouter` 在已知 Incompatible 时对读取类接口直接抛
+  `ServerIncompatibleException`，避免首页 404 串。
+- 部署合同同步：`scripts/build_deploy.py`、`deployment/scripts/*.ps1`、
+  `deployment/tests/test_sandbox_lifecycle.ps1`、`server/pyproject.toml`、部署合同测试 → 1.2.0。
+
+**P0 旧 Keep 首次安全迁移**
+- `duplicate_scanner` 增加 Legacy 序号 ID 识别 + `(type, 成员集合)` 签名安全匹配：
+  优先稳定 `(group_id, media_id)`；否则仅当**同类型且成员集合完全相同**时迁移旧 Keep；
+  成员增减 / 类型改变 / 拆分合并一律 `keep=false`（禁止模糊迁移）；
+  迁移后 DB 只留稳定 ID（运行时业务数据迁移，无 schema 变更）。
+
+**P1 深色系统栏**
+- `MainActivity` 改 `enableEdgeToEdge(SystemBarStyle.dark(TRANSPARENT), ...)`：
+  深色背景 → 浅色状态栏/导航栏图标；Player/Viewer 全屏隐藏系统栏后退出恢复浅色图标。
+
+**版本 / 更新日志**：`versionCode 11 → 12`、`versionName alpha4 → alpha5`；新增 Alpha 5。
+
+**测试与验证（真实执行）**
+
+| 项目 | 结果 |
+|---|---|
+| Server pytest（全量） | **450 tests / 0 failed / 0 error**（新增 health contract 4 + legacy keep 迁移 7） |
+| Android JVM | **340 tests / 0 failed / 0 error**（新增兼容矩阵 6） |
+| Lint | **0 errors**（41 warnings，无新增） |
+| compileDebugKotlin / UnitTest / AndroidTest | **BUILD SUCCESSFUL** |
+| Instrumentation（定向） | SystemBarUiTest / Stage8D1CompatibilityUiTest / Stage8C1WhatsNewUiTest / Stage8AServerModeTest |
+| 用户 APK | **NOT GENERATED — SMALL VERSION POLICY** |
+| 生产部署 | **NOT PERFORMED** |
+

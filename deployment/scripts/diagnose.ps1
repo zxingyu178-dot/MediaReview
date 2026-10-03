@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 诊断脚本(1.1.0)
+  MediaReview Server 诊断脚本(1.2.0)
   收集: 版本/配置(脱敏)/health/日志/服务/端口/ffmpeg/Jellyfin/磁盘/数据库版本,
   输出 ZIP 到当前目录。
   用法:  .\diagnose.ps1  [-DataRoot ...] [-Port ...]

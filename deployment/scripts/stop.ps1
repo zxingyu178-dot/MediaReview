@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 停止脚本(1.1.0)
+  MediaReview Server 停止脚本(1.2.0)
   仅停止精确位于 InstallDir 下的 MediaReviewServer.exe 进程,绝不按端口误杀
   其他监听进程;同时停止计划任务。
   用法:  .\stop.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]

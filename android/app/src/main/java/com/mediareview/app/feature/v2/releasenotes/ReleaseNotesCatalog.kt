@@ -60,6 +60,17 @@ object ReleaseNotesCatalog {
                 "提升 Demo / Server 数据源切换可靠性",
             ),
         ),
+        ReleaseNote(
+            versionCode = 12,
+            versionName = "2.0.0-alpha5",
+            title = "MediaReview 2.0 Alpha 5",
+            highlights = listOf(
+                "增加手机与电脑端版本兼容检查",
+                "修复深色界面顶部状态图标显示问题",
+                "优化重复媒体升级后的保留选择迁移",
+                "提升真实服务器升级与连接稳定性",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

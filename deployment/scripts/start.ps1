@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 启动脚本(1.1.0)
+  MediaReview Server 启动脚本(1.2.0)
   精确按 MediaReviewServer.exe 绝对路径归属进程;已运行则直接返回。
   用法:  .\start.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766] [-WaitHealthy]
 #>

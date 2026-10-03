@@ -96,15 +96,17 @@ class Stage8C1WhatsNewUiTest {
 
     @Test
     fun multiVersionUpgradeShowsAllUnreadNotesInOneSheet() {
-        // 跨多个未安装版本（如 8 → 11，中间 9、10 未安装）
+        // 跨多个未安装版本（如 8 → 12，中间 9、10、11 未安装）
         setLastSeen(8)
         setContent()
 
         // 仍然只有一个 Sheet，且同时包含所有未读版本的内容（§21）
         compose.waitUntilExactlyOneExists(hasTestTag("whats_new_sheet"), timeoutMillis = 15_000)
-        compose.onNodeWithText("来自 2.0.0-alpha2").assertIsDisplayed()
+        // 多版本聚合时内容可能超出一屏，统一用 assertExists（tree 中存在即通过）。
+        compose.onNodeWithText("来自 2.0.0-alpha2").assertExists()
         compose.onNodeWithText("来自 2.0.0-alpha3").assertExists()
         compose.onNodeWithText("来自 2.0.0-alpha4").assertExists()
+        compose.onNodeWithText("来自 2.0.0-alpha5").assertExists()
 
         compose.onNodeWithText("知道了").performClick()
         compose.waitUntilDoesNotExist(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)

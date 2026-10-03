@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.mediareview.app.BuildConfig
+import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
@@ -47,6 +48,8 @@ fun V2ServerStatus.displayLabel(): String = when (this) {
     V2ServerStatus.Online -> "服务器在线"
     V2ServerStatus.Offline -> "服务器离线"
     V2ServerStatus.AuthRejected -> "认证失效"
+    // §13：版本过旧 ≠ 离线 / 认证失败，必须单独表达。
+    V2ServerStatus.Incompatible -> "服务器版本过旧"
 }
 
 /**
@@ -69,6 +72,7 @@ fun V2DataSourceSheet(
     val status by vm.serverStatus.collectAsState()
     val session by vm.serverSession.collectAsState()
     val connect by vm.connectState.collectAsState()
+    val serverVersion by vm.serverVersion.collectAsState()
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -100,6 +104,13 @@ fun V2DataSourceSheet(
             if (dataMode == V2DataMode.SERVER) {
                 Spacer(modifier = Modifier.size(V2Spacing.Md))
                 StatusRow(status = status, statusLabel = status.displayLabel())
+                if (status == V2ServerStatus.Incompatible) {
+                    // §13：明确区分"服务器在线"与"服务器版本过旧"，并给出双方版本。
+                    IncompatibleNotice(
+                        serverVersion = serverVersion,
+                        requiredContract = REQUIRED_SERVER_API_CONTRACT,
+                    )
+                }
                 if (session.configured) {
                     Text(
                         text = session.baseUrl,
@@ -112,6 +123,20 @@ fun V2DataSourceSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = if (session.paired) V2Colors.Accent else MediaDanger,
                     )
+                    // §36：Server 模式已连接时同时显示手机端与电脑端版本，方便排查。
+                    if (status == V2ServerStatus.Online && serverVersion.isNotBlank()) {
+                        Text(
+                            text = "手机：MediaReview ${BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MediaTextSecondary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Text(
+                            text = "电脑端：MediaReview Server $serverVersion",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MediaTextSecondary,
+                        )
+                    }
                 }
 
                 // 首次配置 / 认证失效 → Sheet 内的连接表单（不跳出 V2）
@@ -247,10 +272,48 @@ private fun DataSourceOption(
     }
 }
 
+/** §13/§36：旧 Server 的明确提示（含双方版本），不使用"认证失败"语义。 */
+@Composable
+private fun IncompatibleNotice(serverVersion: String, requiredContract: Int) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = V2Spacing.Sm)
+            .clip(RoundedCornerShape(V2Radius.Card))
+            .background(MediaSurfaceRaised)
+            .padding(V2Spacing.Md),
+    ) {
+        Text(
+            text = "服务器版本过旧",
+            style = MaterialTheme.typography.bodyLarge,
+            color = V2Colors.Warning,
+        )
+        Text(
+            text = "当前电脑端：${serverVersion.ifBlank { "未知" }}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MediaTextSecondary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            text = "手机需要：API Contract $requiredContract",
+            style = MaterialTheme.typography.bodySmall,
+            color = MediaTextSecondary,
+        )
+        Text(
+            text = "请升级 MediaReview Server",
+            style = MaterialTheme.typography.bodySmall,
+            color = MediaTextSecondary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
 @Composable
 private fun StatusRow(status: V2ServerStatus, statusLabel: String) {
     val tint = when (status) {
         V2ServerStatus.Online -> V2Colors.Accent
+        // §15：版本过旧使用警告色，而不是"认证失败"的红色。
+        V2ServerStatus.Incompatible -> V2Colors.Warning
         V2ServerStatus.AuthRejected, V2ServerStatus.Offline -> MediaDanger
         else -> MediaTextSecondary
     }

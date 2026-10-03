@@ -1,6 +1,6 @@
 #requires -Version 5.1
 <#
-  MediaReview Server 状态脚本(1.1.0,只读)
+  MediaReview Server 状态脚本(1.2.0,只读)
   报告: 安装、进程(PID/路径)、计划任务、端口、健康版本。
   退出码: 0 运行且健康 / 1 未安装 / 2 已安装未运行 / 3 运行但不健康
   用法:  .\status.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]

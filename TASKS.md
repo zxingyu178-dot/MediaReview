@@ -465,3 +465,22 @@
 - [x] `docs/PRODUCTION_READINESS.md` + `UPGRADE_ROLLBACK.md` 补充（NO SCHEMA MIGRATION）
 - [ ] **等待用户安装 Stage 8D APK 做整体体验验收**
 - [ ] 待定：similar 重复算法增强（本阶段明确不做）
+
+
+## Stage 8D.1 — Server 兼容 / Keep 迁移 / 系统栏（2026-10-03，NO USER APK）
+
+- [x] Server 版本 1.1.0 → 1.2.0；`SERVER_API_CONTRACT = 2`；health 返回 api_contract + capabilities
+- [x] Android `REQUIRED_SERVER_API_CONTRACT = 2`；HealthOut 旧字段兜底(默认 1)不崩溃
+- [x] 健康检查顺序：contract < 2 立即 Incompatible，不再请求业务 API
+- [x] 版本不兼容**不清 Token / 不标记 AuthRejected**；`Incompatible` 状态与"版本过旧"文案
+- [x] 设置页显示手机端 / 电脑端版本；兼容矩阵 `docs/COMPATIBILITY_MATRIX.md`
+- [x] §17 fail-fast：已知 Incompatible 时读取类接口直接失败（不再 404 串）
+- [x] Legacy exact/high 旧序号 ID 的 Keep 首次安全迁移（同类型 + 同成员集合才迁移）
+- [x] 分组真正变化（成员增减/类型改变/拆并）→ Keep 不继承
+- [x] 深色系统栏：MainActivity `SystemBarStyle.dark`（浅色图标）；Player 全屏不受影响
+- [x] 版本 versionCode 12 / 2.0.0-alpha5 + Alpha 5 更新日志
+- [x] `docs/SERVER_VERSION_POLICY.md`
+- [x] 更新 `PRODUCTION_READINESS.md`（兼容 Gate）与 `UPGRADE_ROLLBACK.md`（版本兼容行为）
+- [x] Server pytest 450 / Android JVM 340 / Lint 0 error / Compile PASS
+- [x] 模拟器截图：home/organize system bar + player 全屏与退出
+- [ ] **NO USER APK（小版本政策）；不部署生产；完成后停止，不进入 Stage 8E**

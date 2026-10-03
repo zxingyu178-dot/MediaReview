@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 修复脚本(1.1.0)
+  MediaReview Server 修复脚本(1.2.0)
   检查缺失文件/服务/端口/ffmpeg/config/DB,重建缺失项,**不删除用户数据库**。
   用法:  .\repair.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]
 #>

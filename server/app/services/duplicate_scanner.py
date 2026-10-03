@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -630,19 +631,62 @@ def _task_status(database: Database, task_id: str) -> str | None:
         return task.status if task is not None else None
 
 
+# Stage 8D.1 §21: 旧"序号身份"分组 ID 形态(exact:size:duration:idx / high:...)。
+# 只有这一类旧 ID 才允许走 Legacy Keep 安全迁移;稳定摘要 ID 之间仍严格按
+# (group_id, media_id) 恢复,绝不模糊匹配。
+_LEGACY_ORDINAL_GROUP_ID = re.compile(r"^(?:exact|high):\d+:\d+:\d+$")
+
+
+def _is_legacy_ordinal_group_id(group_id: str) -> bool:
+    """旧格式分组 ID: ``exact:<size>:<duration>:<number>`` / ``high:...``。"""
+    return bool(_LEGACY_ORDINAL_GROUP_ID.match(group_id))
+
+
+def _legacy_signature(group: DuplicateGroup) -> tuple[str, frozenset[str]]:
+    """Legacy 迁移的安全匹配签名: ``(type, 成员 mediaId 集合)``(§20/§23)。
+
+    只有 *类型相同* 且 *成员集合完全相同* 才算"同一个业务分组,只是 ID 算法升级";
+    成员增减 / 类型改变 / 拆分合并都会得到不同签名 → 不迁移(§22)。
+    """
+    return (group.type, frozenset(group.media_ids))
+
+
+def _keep_for(
+    group: DuplicateGroup,
+    media_id: str,
+    stable_keeps: dict[tuple[str, str], bool],
+    legacy_keeps: dict[tuple[str, frozenset[str]], dict[str, bool]],
+) -> bool:
+    """恢复某个成员的人工保留选择(优先级见 §23)。
+
+    1. 稳定的 ``(group_id, media_id)`` 完全一致 → 用原值;
+    2. 否则,若存在**同类型且成员集合完全相同**的旧序号分组 → 用该旧分组的原值
+       (仅这一次 ID 算法升级的安全 fallback,§18~§21);
+    3. 都不满足 → ``False``(绝不猜,§22)。
+    """
+    key = (group.group_id, media_id)
+    if key in stable_keeps:
+        return stable_keeps[key]
+    legacy = legacy_keeps.get(_legacy_signature(group))
+    if legacy is not None:
+        return bool(legacy.get(media_id, False))
+    return False
+
+
 def _persist_group_rows(
     session: Session,
     group: DuplicateGroup,
     keeps: dict[tuple[str, str], bool] | None = None,
+    legacy_keeps: dict[tuple[str, frozenset[str]], dict[str, bool]] | None = None,
 ) -> None:
     """在**原子替换事务内**写入单个分组 + 成员。
 
     调用前旧分组已在同一事务内整体删除,因此这里用 `add` 直接插入
     (`merge` 会对每行额外发一次 SELECT,大结果集下纯属浪费)。
 
-    ``keeps``(Stage 8C.2 §6~§11): 同一事务内读出的旧人工"保留"选择,
-    仅当 **(group_id, media_id) 完全一致** 时才恢复;分组语义变化(拆并/改类型)
-    或成员已消失时保持 `keep=False`,绝不自动继承。
+    ``keeps`` / ``legacy_keeps``(Stage 8C.2 §6~§11 + Stage 8D.1 §18~§24):
+    优先按稳定的 ``(group_id, media_id)`` 恢复;找不到时,仅当存在**同类型且成员
+    集合完全相同**的旧序号分组时,才做一次 Legacy 安全迁移;否则 ``keep=False``。
     """
     session.add(
         DuplicateGroupRow(
@@ -661,21 +705,39 @@ def _persist_group_rows(
                 media_id=media_id,
                 name=name,
                 fingerprint=f"{group.type}:{media_id}",
-                keep=bool(keeps.get((group.group_id, media_id), False)) if keeps else False,
+                keep=_keep_for(group, media_id, keeps or {}, legacy_keeps or {}),
             )
         )
 
 
-def _existing_keeps(session: Session) -> dict[tuple[str, str], bool]:
-    """读出当前持久化的全部人工"保留"选择,键为 ``(group_id, media_id)``。
+def _existing_keeps(
+    session: Session,
+) -> tuple[dict[tuple[str, str], bool], dict[tuple[str, frozenset[str]], dict[str, bool]]]:
+    """读出当前持久化的人工"保留"选择(Stage 8D.1 §23)。
+
+    返回两部分:
+
+    - ``stable``:  ``(group_id, media_id) -> keep``(严格精确恢复);
+    - ``legacy``:  ``(type, 成员集合) -> {media_id: keep}``,**仅**由旧序号 ID 分组构建,
+      用于第一次重扫时的安全迁移。
 
     Stage 8C.2 §8: **禁止**只按 media_id 保存 —— 同一文件可能从旧 exact 分组
     迁移到新的 similar 分组,那不是"同一个人工选择",不能自动继承。
     """
-    return {
-        (row.group_id, row.media_id): bool(row.keep)
-        for row in session.scalars(sa.select(DuplicateGroupMember)).all()
-    }
+    stable: dict[tuple[str, str], bool] = {}
+    legacy: dict[tuple[str, frozenset[str]], dict[str, bool]] = {}
+    groups = {row.group_id: row for row in session.scalars(sa.select(DuplicateGroupRow)).all()}
+    members_by_group: dict[str, list[DuplicateGroupMember]] = {}
+    for member in session.scalars(sa.select(DuplicateGroupMember)).all():
+        members_by_group.setdefault(member.group_id, []).append(member)
+        stable[(member.group_id, member.media_id)] = bool(member.keep)
+    for group_id, row in groups.items():
+        if not _is_legacy_ordinal_group_id(group_id):
+            continue
+        members = members_by_group.get(group_id, [])
+        signature = (row.type, frozenset(m.media_id for m in members))
+        legacy[signature] = {m.media_id: bool(m.keep) for m in members}
+    return stable, legacy
 
 
 def run_duplicate_scan(database: Database, task_id: str) -> None:
@@ -802,11 +864,11 @@ def _replace_persisted_groups(
                 list(live.library_ids),
             )
             return False
-        keeps = _existing_keeps(session)
+        keeps, legacy_keeps = _existing_keeps(session)
         session.execute(sa.delete(DuplicateGroupMember))
         session.execute(sa.delete(DuplicateGroupRow))
         for group in groups:
-            _persist_group_rows(session, group, keeps)
+            _persist_group_rows(session, group, keeps, legacy_keeps)
         task.progress = 99
         session.commit()
         return True

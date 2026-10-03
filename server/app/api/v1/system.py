@@ -62,6 +62,9 @@ class HealthData(BaseModel):
     instance_mode: str
     lifecycle_target: str
     components: dict[str, str]
+    # Stage 8D.1: App 判断兼容性的正式字段(旧 Server 无此字段,App 回退为 1)。
+    api_contract: int
+    capabilities: list[str]
 
 
 class StorageData(BaseModel):
@@ -144,7 +147,7 @@ def health(request: Request) -> Envelope[HealthData]:
     p5cb.1 起携带实例身份(instance_mode / lifecycle_target),供 Control Hub
     交叉校验"确为 AIHome.MediaReview 服务实例",而不只是看到 HTTP 200。
     """
-    from app import __version__
+    from app import SERVER_API_CONTRACT, SERVER_CAPABILITIES, __version__
 
     database_status = _database_status(request)
     jellyfin_configured = request.app.state.settings.jellyfin.is_configured()
@@ -159,6 +162,8 @@ def health(request: Request) -> Envelope[HealthData]:
             "database": database_status,
             "jellyfin": "not_configured" if not jellyfin_configured else "configured",
         },
+        api_contract=SERVER_API_CONTRACT,
+        capabilities=list(SERVER_CAPABILITIES),
     )
     return ok(data)
 

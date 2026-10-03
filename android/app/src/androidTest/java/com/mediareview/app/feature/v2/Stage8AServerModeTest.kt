@@ -135,6 +135,7 @@ class Stage8AServerModeTest {
             demo = demoRepository,
             server = repository,
             modeStore = modeStore,
+            statusStore = serverStatus,
         ),
         searchHistory = SearchHistoryStore(context),
         modeStore = modeStore,

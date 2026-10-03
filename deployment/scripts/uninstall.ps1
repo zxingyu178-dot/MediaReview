@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 卸载脚本(1.1.0)
+  MediaReview Server 卸载脚本(1.2.0)
   默认: 精确停止本服务进程(按绝对路径)、删除计划任务、删除程序文件,**保留用户数据**。
   只有显式加 -DeleteData 才删除 %ProgramData%\MediaReview 数据。
   用法:  .\uninstall.ps1            (保留数据)

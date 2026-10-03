@@ -23,12 +23,20 @@ data class ErrorBody(
     val details: JsonElement? = null,
 )
 
-/** 服务端健康检查。 */
+/**
+ * 服务端健康检查。
+ *
+ * Stage 8D.1 §7：旧 Server 不返回 `api_contract` / `capabilities`，
+ * 这里用默认值兜底(`api_contract = 1`, 空清单)，**不得 JSON 解析崩溃**；
+ * 兼容性判断以 `api_contract` 为准，`version` 仅用于展示。
+ */
 @Serializable
 data class HealthOut(
     val status: String = "",
     val version: String = "",
     val components: Map<String, String> = emptyMap(),
+    val api_contract: Int = 1,
+    val capabilities: List<String> = emptyList(),
 )
 
 /** 配对要求与已配对设备概览(GET /pairing/status)。 */

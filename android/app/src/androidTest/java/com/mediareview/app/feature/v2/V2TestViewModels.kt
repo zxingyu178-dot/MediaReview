@@ -23,6 +23,7 @@ import okhttp3.OkHttpClient
 internal fun testHomeViewModel(
     repository: MediaRepository,
     searchHistory: SearchHistoryStore,
+    statusStore: V2ServerStatusStore = V2ServerStatusStore(),
 ): V2HomeViewModel {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val profileStore = ServerProfileStore(context)
@@ -32,7 +33,6 @@ internal fun testHomeViewModel(
         OkHttpClient(),
         Json { ignoreUnknownKeys = true },
     )
-    val statusStore = V2ServerStatusStore()
     return V2HomeViewModel(
         repository = repository,
         searchHistory = searchHistory,

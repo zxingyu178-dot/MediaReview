@@ -76,6 +76,10 @@ class V2HomeViewModel @Inject constructor(
     val dataMode: StateFlow<V2DataMode> = modeStore.mode
     val serverStatus: StateFlow<V2ServerStatus> = statusStore.status
 
+    /** Server 人类可读版本 + API Contract（Stage 8D.1 §36：设置页展示/排查用）。 */
+    val serverVersion: StateFlow<String> = statusStore.serverVersion
+    val serverApiContract: StateFlow<Int> = statusStore.serverApiContract
+
     private val _serverSession = MutableStateFlow(V2ServerSession())
     val serverSession: StateFlow<V2ServerSession> = _serverSession.asStateFlow()
 

@@ -1,7 +1,7 @@
 #requires -Version 5.1
 #requires -RunAsAdministrator
 <#
-  MediaReview Server 重启脚本(1.1.0)
+  MediaReview Server 重启脚本(1.2.0)
   先精确停止本服务进程(按绝对路径),再启动并等待健康。
   用法:  .\restart.ps1 [-InstallDir ...] [-DataRoot ...] [-Port 8766]
 #>

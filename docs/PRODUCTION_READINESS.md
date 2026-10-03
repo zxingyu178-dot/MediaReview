@@ -1,15 +1,28 @@
-# MediaReview 生产就绪清单（Stage 8D / 2.0.0-alpha4）
+# MediaReview 生产就绪清单（Stage 8D.1 / 2.0.0-alpha5）
 
-> 本文件只做**准备度登记**。按 Stage 8D §31 要求：**本阶段不自动部署生产**。
+> 本文件只做**准备度登记**。Stage 8D / 8D.1 均**不自动部署生产**。
 
 ## 1. 版本
 
 | 组件 | 版本 | 位置 |
 | --- | --- | --- |
-| Android App | `versionCode 11` / `versionName 2.0.0-alpha4` | `android/app/build.gradle.kts` |
-| 更新日志 | Alpha 1~4 已登记 | `feature/v2/releasenotes/ReleaseNotesCatalog.kt` |
-| Server | `1.1.0` | `server/app/__init__.py` |
-| 生产 Server 状态 | **未部署**（Stage 8D 不执行部署） | — |
+| Android App | `versionCode 12` / `versionName 2.0.0-alpha5` | `android/app/build.gradle.kts` |
+| 更新日志 | Alpha 1~5 已登记 | `feature/v2/releasenotes/ReleaseNotesCatalog.kt` |
+| Server | `1.2.0` | `server/app/__init__.py` |
+| Server API Contract | `2` | `server/app/__init__.py` `SERVER_API_CONTRACT` |
+| 生产 Server 状态 | **未部署** | — |
+
+## 1.1 兼容性 Gate（Stage 8D.1 §37）
+
+```text
+Android Required API Contract = 2
+Server API Contract           = 2
+Compatibility                 = PASS
+```
+
+- App 只按 `api_contract` 判断兼容（见 `docs/SERVER_VERSION_POLICY.md`）；
+- 部署前必须确认 Server health 返回 `api_contract = 2`；
+- 兼容矩阵见 `docs/COMPATIBILITY_MATRIX.md`。
 
 ## 2. 数据库迁移
 

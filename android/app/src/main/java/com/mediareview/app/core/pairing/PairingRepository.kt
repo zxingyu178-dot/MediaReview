@@ -21,6 +21,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import retrofit2.HttpException
 
+/**
+ * Android 要求 Server 至少支持的 API Contract（Stage 8D.1 §6）。
+ *
+ * 兼容性判断**只用这个数字**，绝不做 `version == "1.2.0"` 之类的字符串硬判断：
+ * Server 版本给人看 / 部署 / 回滚，API Contract 给 App 判断兼容性（§9）。
+ */
+const val REQUIRED_SERVER_API_CONTRACT: Int = 2
+
 internal interface PairingStore {
     suspend fun current(): ServerProfile
     suspend fun saveBaseUrl(baseUrl: String)
@@ -119,7 +127,26 @@ class PairingRepository internal constructor(
     suspend fun checkHealthy(baseUrl: String): Result {
         return try {
             val resp = apiFor(baseUrl, authenticated = false).health()
-            if (resp.success && resp.data != null) {
+            val health = resp.data
+            if (resp.success && health != null) {
+                if (health.api_contract < REQUIRED_SERVER_API_CONTRACT) {
+                    // Stage 8D.1 §12/§14：旧 Server 可达但版本过旧 → 立即 INCOMPATIBLE，
+                    // 不再继续请求 pairing / jellyfin / media 等业务 API；且
+                    // **绝不清 token、绝不标记 AuthRejected / 要求重新配对**
+                    //（版本不兼容 ≠ 401，Server 升级后原 Token 应继续可用）。
+                    val incompatible = _connection.value.copy(
+                        mediaReview = OnlineState.Online,
+                        compatibility = CompatibilityState.Incompatible,
+                        serverVersion = health.version,
+                        serverApiContract = health.api_contract,
+                    )
+                    _connection.value = incompatible
+                    return Result.HealthOk(
+                        version = health.version,
+                        pairingRequired = null,
+                        connection = incompatible,
+                    )
+                }
                 val publicApi = apiFor(baseUrl, authenticated = false)
                 val pairingRequired = runCatching {
                     publicApi.pairingStatus().data?.pairing_required
@@ -162,6 +189,10 @@ class PairingRepository internal constructor(
                     paired = paired,
                     syncState = syncState,
                     authenticationRejected = authenticationRejected,
+                ).copy(
+                    compatibility = CompatibilityState.Compatible,
+                    serverVersion = health.version,
+                    serverApiContract = health.api_contract,
                 )
                 if (authenticationRejected && paired) {
                     tokenProvider.clear()
@@ -344,11 +375,24 @@ enum class OnlineState { Unknown, Online, Offline }
 enum class SyncState { Unknown, Idle, Syncing, Failed }
 enum class AuthenticationState { Unknown, Unpaired, Paired, Rejected, NotRequired }
 
+/**
+ * Server 版本兼容性（Stage 8D.1 §11）：
+ * - [Unknown]         尚未探测（或未配置）；
+ * - [Compatible]      `api_contract >=` [REQUIRED_SERVER_API_CONTRACT]；
+ * - [Incompatible]    旧 Server：可达且可能在线，但版本过旧**不是**认证/网络问题。
+ */
+enum class CompatibilityState { Unknown, Compatible, Incompatible }
+
 data class ConnectionState(
     val mediaReview: OnlineState = OnlineState.Unknown,
     val jellyfin: OnlineState = OnlineState.Unknown,
     val sync: SyncState = SyncState.Unknown,
     val authentication: AuthenticationState = AuthenticationState.Unpaired,
+    val compatibility: CompatibilityState = CompatibilityState.Unknown,
+    /** Server 人类可读版本（如 "1.2.0"），仅用于展示/排查。 */
+    val serverVersion: String = "",
+    /** Server 返回的 `api_contract`；旧 Server 缺失时为 1。 */
+    val serverApiContract: Int = 0,
 )
 
 internal fun restoredConnectionState(

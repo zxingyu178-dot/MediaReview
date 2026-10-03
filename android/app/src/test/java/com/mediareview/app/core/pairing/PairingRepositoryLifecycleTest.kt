@@ -282,13 +282,21 @@ private class FakePairingApi(
     private val healthFailure: Exception? = null,
     private val verifyFailure: Exception? = null,
     private val protectedFailure: Exception? = null,
+    // Stage 8D.1：默认返回兼容的 contract=2；旧 Server 用 healthContract=1 模拟。
+    private val healthContract: Int = 2,
+    private val healthVersion: String = "1.2.0",
 ) : PairingApi {
     var protectedCalls = 0
     override suspend fun health(): Envelope<HealthOut> {
         healthFailure?.let { throw it }
         return Envelope(
             success = true,
-            data = HealthOut(status = "ok", version = "1.1", components = mapOf("database" to "ok")),
+            data = HealthOut(
+                status = "ok",
+                version = healthVersion,
+                components = mapOf("database" to "ok"),
+                api_contract = healthContract,
+            ),
         )
     }
     override suspend fun pairingStatus() = Envelope(
@@ -305,4 +313,87 @@ private class FakePairingApi(
         verifyFailure?.let { throw it }
         return verifyResult
     }
+}
+
+/**
+ * Stage 8D.1 §16/§44：Server/API 兼容性矩阵（JVM 合同测试）。
+ */
+class PairingServerCompatibilityTest {
+
+    private fun repository(
+        store: FakePairingStore,
+        api: FakePairingApi,
+        tokenProvider: TokenProvider = TokenProvider(),
+    ): PairingRepository = PairingRepository(store, tokenProvider, FakePairingApiFactory(api))
+
+    @Test
+    fun `api_contract 2 视为兼容`() = runBlocking {
+        val store = FakePairingStore()
+        val result = repository(store, FakePairingApi(healthContract = 2)).checkHealthy("http://s:1")
+        val ok = result as PairingRepository.Result.HealthOk
+        assertEquals(CompatibilityState.Compatible, ok.connection.compatibility)
+        assertEquals("1.2.0", ok.connection.serverVersion)
+        assertEquals(2, ok.connection.serverApiContract)
+    }
+
+    @Test
+    fun `api_contract 3 向前兼容`() = runBlocking {
+        val store = FakePairingStore()
+        val result = repository(store, FakePairingApi(healthContract = 3)).checkHealthy("http://s:1")
+        val ok = result as PairingRepository.Result.HealthOk
+        assertEquals(CompatibilityState.Compatible, ok.connection.compatibility)
+        assertEquals(3, ok.connection.serverApiContract)
+    }
+
+    @Test
+    fun `api_contract 1 判定不兼容且不清 token`() = runBlocking {
+        val store = FakePairingStore(profile = ServerProfile("http://s:1", "tok"))
+        val tokenProvider = TokenProvider()
+        tokenProvider.set("tok", "http://s:1")
+        val result = repository(
+            store,
+            FakePairingApi(healthContract = 1, healthVersion = "1.1.0"),
+            tokenProvider,
+        ).checkHealthy("http://s:1")
+        val ok = result as PairingRepository.Result.HealthOk
+        assertEquals(CompatibilityState.Incompatible, ok.connection.compatibility)
+        assertEquals("1.1.0", ok.connection.serverVersion)
+        assertEquals(1, ok.connection.serverApiContract)
+        // §14：版本不兼容 ≠ 401，不得清凭据 / 不得标记认证失效。
+        assertEquals(0, store.invalidations)
+        assertTrue(tokenProvider.tokenFor("http://s:1") != null)
+    }
+
+    @Test
+    fun `字段缺失按旧 contract 1 处理`() {
+        assertEquals(1, HealthOut().api_contract)
+        assertTrue(HealthOut().capabilities.isEmpty())
+    }
+
+    @Test
+    fun `server offline 保持 offline 而非不兼容`() = runBlocking {
+        val store = FakePairingStore(profile = ServerProfile("http://s:1", "tok"))
+        val result = repository(store, FakePairingApi(healthFailure = IOException("offline")))
+            .checkHealthy("http://s:1")
+        val failure = result as PairingRepository.Result.Failure
+        assertEquals(OnlineState.Offline, failure.connection.mediaReview)
+        assertEquals(CompatibilityState.Unknown, failure.connection.compatibility)
+    }
+
+    @Test
+    fun `401 仍然表示认证失效`() = runBlocking {
+        val store = FakePairingStore(profile = ServerProfile("http://s:1", "stale"))
+        val tokenProvider = TokenProvider()
+        tokenProvider.set("stale", "http://s:1")
+        val result = repository(store, FakePairingApi(protectedFailure = unauthorized()), tokenProvider)
+            .checkHealthy("http://s:1")
+        // 401 仍走"认证失效"路径:connection.authentication=Rejected 且清除本地凭据。
+        val ok = result as PairingRepository.Result.HealthOk
+        assertEquals(AuthenticationState.Rejected, ok.connection.authentication)
+        assertEquals(1, store.invalidations)
+    }
+
+    private fun unauthorized(): HttpException = HttpException(
+        Response.error<Unit>(401, "{}".toResponseBody("application/json".toMediaType())),
+    )
 }
