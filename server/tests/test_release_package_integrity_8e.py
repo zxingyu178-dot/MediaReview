@@ -1,6 +1,7 @@
 """ReleasePackageIntegrityTest：实际产物与新鲜构建门禁。"""
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import zipfile
@@ -23,6 +24,21 @@ def builder():
 
 
 class TestReleasePackageIntegrity:
+    def test_binary_fixture_storage_never_falls_back_to_production(
+        self, builder, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(builder, "ROOT", tmp_path)
+
+        def inspect_fixture(*args, **kwargs):
+            root = Path(kwargs["env"]["MEDIAREVIEW_DATA_ROOT"])
+            config = json.loads((root / "config/config.json").read_text())
+            assert config["storage"]["data_root"] == str(root)
+            raise RuntimeError("fixture inspected before process startup")
+
+        monkeypatch.setattr(builder.subprocess, "Popen", inspect_fixture)
+        with pytest.raises(RuntimeError, match="fixture inspected"):
+            builder.verify_server_binary(tmp_path / "MediaReviewServer.exe")
+
     def test_old_server_exe_and_work_are_removed_before_rebuild(
         self, builder, tmp_path, monkeypatch
     ):

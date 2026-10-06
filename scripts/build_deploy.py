@@ -185,6 +185,7 @@ def verify_server_binary(exe: Path) -> dict:
             json.dumps(
                 {
                     "server": {"host": "127.0.0.1", "port": port},
+                    "storage": {"data_root": str(data_root)},
                     "jellyfin": {"url": "http://127.0.0.1:1", "api_key": ""},
                     "security": {"pairing_required": False},
                     "features": {"sprites": False, "duplicate_scan": False},
@@ -224,6 +225,12 @@ def verify_server_binary(exe: Path) -> dict:
                     except OSError:
                         time.sleep(0.5)
                 raise ValueError("Server EXE health 超时，PACKAGING BLOCKED")
+            except Exception:
+                output.flush()
+                failure = ROOT / "review_meta/stage8e/binary-failure.txt"
+                failure.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(data_root / "binary-output.txt", failure)
+                raise
             finally:
                 if process.poll() is None:
                     process.terminate()
