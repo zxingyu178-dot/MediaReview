@@ -29,7 +29,7 @@ Android 复用生产 Resolver，隔离业务 Bearer，支持受控错误分类�
 - 8D.2 回归 instrumentation：**8/8 通过**（Compatibility UI / What's New / Browser）。
 - 部署沙箱生命周期：**17 通过 / 0 失败**（版本 1.2.2 动态取自 version.ps1）。
 - 诊断 302/403 分类回归：已执行（Server 端 403→`forbidden`、3xx→`redirect`，Android 端独立分类断言）。
-- 最终 HEAD：`__FINAL_HEAD_SHORT__`（提交后写入交接包）。
+- 最终 HEAD：见交接包 `00_HANDOFF.md` 与 `git/LOG.txt`（本摘要不写死 SHA，避免与提交相互依赖）。
 
 ### 主 Agent 在本轮修复的执行期缺陷（诚实记录）
 
