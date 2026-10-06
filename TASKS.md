@@ -536,7 +536,9 @@
 - [x] 安装器拒绝绕过既有 WinSW 服务；SCM 查询失败必须在生产写入前停止。
 - [x] 正式 client_url 核对、部署预检和用户安装/局域网指南。
 - [x] 独立审查 Critical 0 / 未解决 Important 0；39 项部署与发布专项验证通过。
-- [ ] 本轮全量测试、真实 HTTP 播放、干净 EXE/APK 构建和最终交付完整性。
+- [x] 本轮全量Server487、Android JVM363、真实HTTP播放4/4；Ruff/format、Android编译/lint通过。
+- [x] 干净EXE/Release APK构建、实际health/manifest/签名通过；RC167项SHA256预提交完整性通过。
+- [x] 用户APK、RC和无二进制Handoff的最终HEAD生成门禁；最终文件/提交/远端与哈希记录见阶段交接包。
 
 生产当前仍为 1.1.0，未覆盖、未升级。Jellyfin 服务启动失败，无法验证自动登录。
 真实用户手机局域网：NOT TESTED。候选包交付后等待用户回家安装和验证。

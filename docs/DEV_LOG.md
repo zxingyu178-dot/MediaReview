@@ -2356,3 +2356,6 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 后续实际构建、全量验证及最终交付结果在本节追加；不将待执行项目标为通过。
 
 实际发布构建发现并修复验证基建问题：隔离配置缺少显式 storage.data_root，启动尝试默认日志路径并因权限拒绝，未覆盖生产；补齐临时存储配置，新增失败→通过回归并保留失败日志。真实新 EXE health 已验证1.2.2/Contract2/6capabilities。Release初次因本地签名配置残留迁移前路径而失败；只修正ignored key.properties的storeFile到项目已有原密钥，不改变签名身份。42项发布/部署补充回归通过。最终重建与全量结果另行追加。
+
+
+Stage8E最终验证：Server487 passed/0 failed，1条既有警告，220.54秒；Android JVM363/0，lint0errors/40warnings，compile/debug/androidTest构建通过；真实HTTP Server/Demo Full/Review四项29.311秒通过。Ruff通过，168文件格式通过。补充发布/部署42项通过，独立复核未解决Critical0/Important0。第二次干净PyInstaller及Gradle clean assembleRelease成功（Release 2m15s）；实际EXE health1.2.2/Contract2/6capabilities，实际APK code15/alpha8/com.mediareview.app与签名PASS。RC预提交167项SHA256逐项回验通过。最终文档提交之后重新核验相同构建输入与全部产物，生成最终HEAD交付；准确最终SHA/文件大小/哈希见阶段00_HANDOFF和RELEASE_MANIFEST，不在tracked文档硬写形成循环。Registry登记现有mediareview-build-deploy脚本，不新增受管服务。生产仍1.1.0/Jellyfin停止，手机LAN/首帧/旧安装原位升级NOT TESTED，生产覆盖与真实媒体永久删除NOT PERFORMED。候选发布仅READY_FOR_USER_VALIDATION，完成后停止。
