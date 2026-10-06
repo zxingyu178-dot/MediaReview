@@ -93,6 +93,17 @@ object ReleaseNotesCatalog {
                 "完善电脑端与手机端播放地址配置",
             ),
         ),
+        ReleaseNote(
+            versionCode = 15,
+            versionName = "2.0.0-alpha8",
+            title = "MediaReview 2.0 Alpha 8",
+            highlights = listOf(
+                "提供新版手机安装包与电脑端升级包",
+                "增加手机到 Jellyfin 的播放链路检测",
+                "完善电脑端与手机端播放地址配置说明",
+                "加强安装包版本、签名与升级文件完整性校验",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

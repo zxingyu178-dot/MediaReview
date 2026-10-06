@@ -1,41 +1,46 @@
 #!/usr/bin/env python3
-"""MediaReview 1.2.2 部署包构建。
-
-产出根目录固定为 ``MediaReview_Migration_1.2.2``,可执行文件名为 ``MediaReviewServer.exe``。
-
-步骤:
-1. 调用 PyInstaller 构建 Server EXE(server/dist/MediaReviewServer/MediaReviewServer.exe)
-2. 若存在 third_party/ffmpeg/{ffmpeg.exe,ffprobe.exe} 则一并打包
-3. 复制 8 个部署脚本(config.example.json 模板)
-4. 复制 Android APK(优先 release,否则 debug)
-5. 复制交接文档(LICENSE/THIRD_PARTY_NOTICES/README/HANDOVER/install-upgrade-rollback 等)
-6. 生成 SHA-256 校验和 SHA256SUMS.txt
-7. 压缩为 deploy_handoff/MediaReview_Migration_1.2.2_<时间戳>.zip 并回验校验和
-
-用法(项目根):
-    python scripts/build_deploy.py
+"""RC clean build/实际产物验证。旧 MediaReview_Migration_1.2.2 不再复用。
+默认重新构建；--prepare-only 记录本轮源/产物哈希与验证结果。
+最终提交后 --package-verified 重验本轮证据，源码或产物变化均拒绝。
+不读取生产配置，不部署、不发邮件。
 """
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import hashlib
+import json
+import os
+import re
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
+import time
+import urllib.request
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SERVER = ROOT / "server"
-DIST = SERVER / "dist" / "MediaReviewServer"
+DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
-FFMPEG_SRC = ROOT / "third_party" / "ffmpeg"
-APK_DIR = ROOT / "android" / "app" / "build" / "outputs" / "apk"
-
+APK_DIR = ROOT / "android/app/build/outputs/apk"
 VERSION = "1.2.2"
-PACKAGE_ROOT = f"MediaReview_Migration_{VERSION}"
+ANDROID_VERSION = "2.0.0-alpha8"
+ANDROID_CODE = 15
+ANDROID_PACKAGE = "com.mediareview.app"
+REQUIRED_CAPABILITIES = (
+    "review_session",
+    "review_nearest",
+    "organize",
+    "delete_nonce",
+    "duplicates_paged",
+    "library_selection",
+)
 ALL_SCRIPTS = (
     "install.ps1",
     "start.ps1",
@@ -46,29 +51,30 @@ ALL_SCRIPTS = (
     "diagnose.ps1",
     "uninstall.ps1",
 )
-DOCS = (
-    "README.md",
-    "LICENSE",
-    "THIRD_PARTY_NOTICES.md",
-    "HANDOVER.md",
-    "UPGRADE_ROLLBACK.md",
-)
+EVIDENCE = OUT / "stage8e-build-evidence.json"
 
 
 def sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def clean_generated(path: Path, expected: Path) -> None:
+    if path.absolute() != expected.absolute() or path.resolve() != expected.absolute():
+        raise ValueError("拒绝清理非预期构建目录或链接")
+    if path.exists():
+        shutil.rmtree(path)
 
 
 def build_exe() -> None:
-    """用 PyInstaller 构建 Server EXE(onedir)。"""
-    print("==> 构建 Server EXE ...")
+    clean_generated(SERVER / "dist", SERVER / "dist")
+    clean_generated(SERVER / "build/pyinstaller", SERVER / "build/pyinstaller")
     subprocess.run(  # noqa: S603
         [
-            str(SERVER / ".venv" / "Scripts" / "python.exe"),
+            str(SERVER / ".venv/Scripts/python.exe"),
             "-m",
             "PyInstaller",
             "packaging/mediareview_server.spec",
@@ -76,168 +82,387 @@ def build_exe() -> None:
             "dist",
             "--workpath",
             "build/pyinstaller",
+            "--clean",
             "--noconfirm",
         ],
         cwd=SERVER,
         check=True,
     )
+    if not (DIST / "MediaReviewServer.exe").is_file():
+        raise ValueError("Server EXE 构建失败")
 
 
-def find_apk() -> Path | None:
-    release = APK_DIR / "release" / "app-release.apk"
-    if release.is_file():
-        return release
-    debug = APK_DIR / "debug" / "app-debug.apk"
-    if debug.is_file():
-        return debug
-    return None
+def build_release_apk() -> Path:
+    clean_generated(APK_DIR / "release", APK_DIR / "release")
+    subprocess.run(  # noqa: S603
+        [
+            str(ROOT / "android/gradlew.bat"),
+            "--no-daemon",
+            "--offline",
+            "clean",
+            ":app:assembleRelease",
+        ],
+        cwd=ROOT / "android",
+        check=True,
+    )
+    apk = APK_DIR / "release/app-release.apk"
+    if not apk.is_file():
+        raise ValueError("没有新生成的签名 Release APK")
+    return apk
+
+
+def android_build_tools() -> Path:
+    sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    if not sdk:
+        raise ValueError("请使用 Environment 登记的 ANDROID_HOME")
+    tools = Path(sdk) / "build-tools"
+    candidates = sorted(
+        (
+            item
+            for item in tools.iterdir()
+            if item.is_dir() and re.fullmatch(r"\d+\.\d+\.\d+", item.name)
+        ),
+        key=lambda item: tuple(map(int, item.name.split("."))),
+        reverse=True,
+    )
+    for item in candidates:
+        if (item / "aapt.exe").is_file() and (item / "apksigner.bat").is_file():
+            return item
+    raise ValueError("已登记 SDK 中找不到 aapt/apksigner")
+
+
+def parse_apk_badging(output: str) -> dict:
+    match = re.search(r"package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", output)
+    if not match or (match[1], int(match[2]), match[3]) != (
+        ANDROID_PACKAGE,
+        ANDROID_CODE,
+        ANDROID_VERSION,
+    ):
+        raise ValueError("APK 自身 package/version 不符合 RC 要求")
+    return {"package": match[1], "version_code": int(match[2]), "version_name": match[3]}
+
+
+def verify_apk(apk: Path) -> dict:
+    tools = android_build_tools()
+    badging = subprocess.run(  # noqa: S603 SDK 登记路径
+        [str(tools / "aapt.exe"), "dump", "badging", str(apk)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )  # noqa: S603
+    android = parse_apk_badging(badging.stdout)
+    subprocess.run(  # noqa: S603 SDK 登记路径
+        [str(tools / "apksigner.bat"), "verify", "--verbose", str(apk)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )  # noqa: S603
+    return {**android, "signature": "PASS"}
+
+
+def validate_binary_health(data: dict) -> dict:
+    if (
+        data.get("status") != "ok"
+        or data.get("version") != VERSION
+        or data.get("api_contract") != 2
+        or not set(REQUIRED_CAPABILITIES).issubset(data.get("capabilities", []))
+    ):
+        raise ValueError("Server EXE 实际 health/版本/Contract/capabilities 不符合要求")
+    return {key: data[key] for key in ("status", "version", "api_contract", "capabilities")}
+
+
+def verify_server_binary(exe: Path) -> dict:
+    scratch = ROOT / ".e2e_tmp/stage8e-binary"
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="probe-", dir=scratch) as temporary:
+        data_root = Path(temporary)
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        config = data_root / "config/config.json"
+        config.parent.mkdir()
+        config.write_text(
+            json.dumps(
+                {
+                    "server": {"host": "127.0.0.1", "port": port},
+                    "jellyfin": {"url": "http://127.0.0.1:1", "api_key": ""},
+                    "security": {"pairing_required": False},
+                    "features": {"sprites": False, "duplicate_scan": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("MEDIAREVIEW") and key != "PYTHONPATH"
+        }
+        environment["MEDIAREVIEW_DATA_ROOT"] = str(data_root)
+        with (data_root / "binary-output.txt").open("w", encoding="utf-8") as output:
+            process = subprocess.Popen(  # noqa: S603 本轮新建 EXE 绝对路径
+                [str(exe.resolve())],
+                cwd=exe.parent,
+                env=environment,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )  # noqa: S603
+            try:
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        raise ValueError("Server EXE 隔离实例提前退出")
+                    try:
+                        with opener.open(
+                            f"http://127.0.0.1:{port}/api/v1/system/health", timeout=2
+                        ) as response:  # noqa: S310 回环地址由绑定端口构造
+                            envelope = json.load(response)
+                        if not envelope.get("success"):
+                            raise ValueError("Server EXE health envelope 无效")
+                        return validate_binary_health(envelope.get("data", {}))
+                    except OSError:
+                        time.sleep(0.5)
+                raise ValueError("Server EXE health 超时，PACKAGING BLOCKED")
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=10)
+
+
+def source_inputs() -> dict[str, str]:
+    result = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True)  # noqa: S603,S607
+    inputs = {}
+    for relative in result.stdout.decode("utf-8").split("\0"):
+        if relative.startswith(
+            ("server/app/", "server/packaging/", "android/app/src/main/", "android/gradle/")
+        ) or relative in {
+            "server/run_server.py",
+            "server/alembic.ini",
+            "server/pyproject.toml",
+            "android/app/build.gradle.kts",
+            "android/build.gradle.kts",
+            "android/settings.gradle.kts",
+            "android/gradle.properties",
+            "android/gradlew",
+            "android/gradlew.bat",
+            "scripts/build_deploy.py",
+        }:
+            inputs[relative] = sha256(ROOT / relative)
+    return inputs
+
+
+def server_files() -> dict[str, str]:
+    return {
+        path.relative_to(DIST).as_posix(): sha256(path)
+        for path in sorted(DIST.rglob("*"))
+        if path.is_file()
+    }
+
+
+def git_head(*, require_clean: bool = False) -> str:
+    if require_clean:
+        status = subprocess.run(  # noqa: S603
+            ["git", "status", "--porcelain"],  # noqa: S607 已登记 Git CLI
+            cwd=ROOT,
+            capture_output=True,
+            check=True,  # noqa: S607
+        )  # noqa: S603,S607
+        if status.stdout.strip():
+            raise ValueError("发布打包要求 Git clean")
+    return subprocess.run(  # noqa: S603
+        ["git", "rev-parse", "HEAD"],  # noqa: S607 已登记 Git CLI
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,  # noqa: S607
+    ).stdout.strip()  # noqa: S603,S607
+
+
+def release_manifest(evidence: dict, head: str, exe: Path, apk: Path) -> dict:
+    server = validate_binary_health({"status": "ok", **evidence["server"]})
+    android = evidence["android"]
+    if (
+        android.get("package"),
+        android.get("version_code"),
+        android.get("version_name"),
+        android.get("signature"),
+    ) != (ANDROID_PACKAGE, ANDROID_CODE, ANDROID_VERSION, "PASS"):
+        raise ValueError("已验证 APK 元数据不匹配")
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise ValueError("Git HEAD 无效")
+    return {
+        "server_version": server["version"],
+        "api_contract": server["api_contract"],
+        "required_capabilities": list(REQUIRED_CAPABILITIES),
+        "android_version_name": android["version_name"],
+        "android_version_code": android["version_code"],
+        "android_package": android["package"],
+        "git_head": head,
+        "server_exe_sha256": sha256(exe),
+        "apk_sha256": sha256(apk),
+        "apk_signature": "PASS",
+        "apk_size": apk.stat().st_size,
+        "production_deployment": "NOT PERFORMED",
+        "real_user_lan": "NOT TESTED",
+    }
+
+
+def render_handover(manifest: dict) -> str:
+    return f"""# MediaReview RC 部署交接
+
+- Server: {manifest["server_version"]}
+- API Contract: {manifest["api_contract"]}
+- Android: {manifest["android_version_name"]}
+- Android versionCode: {manifest["android_version_code"]}
+- Android package: {manifest["android_package"]}
+- Git HEAD: {manifest["git_head"]}
+- 状态：READY_FOR_USER_VALIDATION；用户真实 LAN 尚未验收。
+
+版本来自 EXE 实际 health 与 APK manifest，签名校验 PASS。
+安装前阅读 USER_INSTALL_GUIDE.md、UPGRADE_ROLLBACK.md、USER_LAN_VALIDATION.md。
+生产必须显式配置 jellyfin.client_url，不接受 request_host_fallback。
+本包不包含真实配置、数据库、凭据或用户媒体。禁止永久删除真实媒体。
+"""
 
 
 def write_sha256(root: Path) -> None:
-    """递归计算 root 下所有文件 SHA-256,写 SHA256SUMS.txt。"""
-    sums: list[str] = []
-    for f in sorted(p for p in root.rglob("*") if p.is_file() and p.name != "SHA256SUMS.txt"):
-        rel = f.relative_to(root).as_posix()
-        sums.append(f"{sha256(f)}  {rel}")
-    (root / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
+    lines = [
+        f"{sha256(path)}  {path.relative_to(root).as_posix()}"
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path.name != "SHA256SUMS.txt"
+    ]
+    (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def verify_zip(zip_path: Path, package_root: str) -> int:
+    with zipfile.ZipFile(zip_path) as archive:
+        lines = archive.read(f"{package_root}/SHA256SUMS.txt").decode("utf-8").splitlines()
+        expected = {f"{package_root}/SHA256SUMS.txt"}
+        for line in lines:
+            digest, relative = line.split("  ", 1)
+            entry = f"{package_root}/{relative}"
+            if hashlib.sha256(archive.read(entry)).hexdigest() != digest:
+                raise ValueError("ZIP SHA256 回验失败")
+            expected.add(entry)
+        if set(archive.namelist()) != expected or len(archive.namelist()) != len(expected):
+            raise ValueError("ZIP 有未登记文件或重复清单")
+        return len(lines)
+
+
+def prepare() -> dict:
+    build_head = git_head(require_clean=True)
+    OUT.mkdir(exist_ok=True)
+    EVIDENCE.unlink(missing_ok=True)
+    before = source_inputs()
+    build_exe()
+    apk = build_release_apk()
+    exe = DIST / "MediaReviewServer.exe"
+    evidence = {
+        "server": verify_server_binary(exe),
+        "android": verify_apk(apk),
+        "server_sha256": sha256(exe),
+        "server_files": server_files(),
+        "apk_sha256": sha256(apk),
+        "inputs": before,
+        "build_git_head": build_head,
+        "verified_at": dt.datetime.now(dt.UTC).isoformat(),
+    }
+    if source_inputs() != before:
+        raise ValueError("构建期间源码变化，拒绝记录新鲜构建证据")
+    EVIDENCE.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("Fresh EXE health / APK manifest / signature PASS; build evidence recorded.")
+    return evidence
+
+
+def package_verified() -> Path:
+    head = git_head(require_clean=True)
+    evidence = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+    age = dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(evidence["verified_at"])
+    exe, apk = DIST / "MediaReviewServer.exe", APK_DIR / "release/app-release.apk"
+    if (
+        not 0 <= age.total_seconds() <= 6 * 3600
+        or evidence["inputs"] != source_inputs()
+        or evidence["server_sha256"] != sha256(exe)
+        or evidence["server_files"] != server_files()
+        or evidence["apk_sha256"] != sha256(apk)
+    ):
+        raise ValueError("新鲜构建证据失效，禁止复用旧 EXE/APK")
+    evidence["server"] = verify_server_binary(exe)
+    evidence["android"] = verify_apk(apk)
+    manifest = release_manifest(evidence, head, exe, apk)
+    manifest["build_git_head"] = evidence["build_git_head"]
+    manifest["build_verified_at"] = evidence["verified_at"]
+    manifest["source_input_sha256"] = evidence["inputs"]
+    name = f"MediaReview_RC_{ANDROID_VERSION}_Server-{VERSION}_{dt.date.today():%Y%m%d}_{head[:7]}"
+    package = OUT / name
+    if package.exists():
+        raise ValueError("发布目录已存在，拒绝覆盖历史产物")
+    package.mkdir()
+    shutil.copytree(DIST, package / "MediaReviewServer")
+    (package / "scripts").mkdir()
+    for script in ALL_SCRIPTS:
+        shutil.copy2(DEPLOY / "scripts" / script, package / "scripts" / script)
+    for filename in ("version.ps1", "config.example.json"):
+        shutil.copy2(DEPLOY / filename, package / filename)
+    for filename in (
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "UPGRADE_ROLLBACK.md",
+        "USER_INSTALL_GUIDE.md",
+        "USER_LAN_VALIDATION.md",
+    ):
+        shutil.copy2(ROOT / filename, package / filename)
+    shutil.copy2(DEPLOY / "README.md", package / "README.md")
+    shutil.copy2(apk, package / "app-release.apk")
+    ffmpeg = ROOT / "third_party/ffmpeg"
+    if (ffmpeg / "ffmpeg.exe").is_file():
+        (package / "ffmpeg").mkdir()
+        for filename in ("ffmpeg.exe", "ffprobe.exe"):
+            if (ffmpeg / filename).is_file():
+                shutil.copy2(ffmpeg / filename, package / "ffmpeg" / filename)
+    (package / "HANDOVER.md").write_text(render_handover(manifest), encoding="utf-8")
+    (package / "RELEASE_MANIFEST.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    write_sha256(package)
+    zip_path = OUT / f"{name}.zip"
+    with zipfile.ZipFile(zip_path, "x", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(package.rglob("*")):
+            if path.is_file():
+                archive.write(path, f"{name}/{path.relative_to(package).as_posix()}")
+    count = verify_zip(zip_path, name)
+    user_apk = OUT / f"MediaReview_{ANDROID_VERSION}_stage8e.apk"
+    shutil.copy2(apk, user_apk)
+    (OUT / f"{name}_SHA256.txt").write_text(
+        f"git_head {head}\n"
+        f"zip {zip_path.name} {zip_path.stat().st_size} bytes {sha256(zip_path)}\n"
+        f"apk {user_apk.name} {user_apk.stat().st_size} bytes {sha256(user_apk)}\n"
+        f"exe MediaReviewServer.exe {sha256(exe)}\n",
+        encoding="utf-8",
+    )
+    print(f"RC INTEGRITY PASS: {count} SHA256 entries; {zip_path}")
+    return zip_path
 
 
 def main() -> int:
-    # 0. RC/正式包必须带签名 Release APK;仅显式 --allow-debug 时才允许回退 debug。
-    import argparse
-
-    parser = argparse.ArgumentParser(description="构建 MediaReview 1.2.2 部署包")
-    parser.add_argument(
-        "--allow-debug",
-        action="store_true",
-        help="Release APK 缺失时允许回退 debug APK(仅临时调试用)",
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--prepare-only", action="store_true")
+    actions.add_argument("--package-verified", action="store_true")
     args = parser.parse_args()
-
-    # 1. 构建 EXE
-    if not (DIST / "MediaReviewServer.exe").exists():
-        build_exe()
-    if not (DIST / "MediaReviewServer.exe").exists():
-        print("Server EXE 构建失败", file=sys.stderr)
+    try:
+        if not args.package_verified:
+            prepare()
+        if not args.prepare_only:
+            package_verified()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        print("PACKAGING BLOCKED：构建、产物验证或完整性门禁失败。", file=sys.stderr)
         return 1
-
-    # 2. 组装部署目录
-    deploy_dir = OUT / PACKAGE_ROOT
-    if deploy_dir.exists():
-        shutil.rmtree(deploy_dir)
-    (deploy_dir / "server").mkdir(parents=True)
-    (deploy_dir / "scripts").mkdir()
-    (deploy_dir / "ffmpeg").mkdir(exist_ok=True)
-
-    print("==> 复制 Server ...")
-    shutil.copytree(DIST, deploy_dir / "server" / "MediaReviewServer")
-
-    print("==> 复制 8 个部署脚本与配置模板 ...")
-    for script in ALL_SCRIPTS:
-        shutil.copy(DEPLOY / "scripts" / script, deploy_dir / "scripts" / script)
-    # Stage 8D.2 §34：部署脚本统一 dot-source `..\version.ps1`（版本/Contract 唯一事实源），
-    # 该文件必须随包发布，否则部署包内 dot-source 会失败。
-    shutil.copy(DEPLOY / "version.ps1", deploy_dir / "version.ps1")
-    shutil.copy(DEPLOY / "config.example.json", deploy_dir / "config.example.json")
-
-    # 3. FFmpeg(可选)
-    if (FFMPEG_SRC / "ffmpeg.exe").exists():
-        print("==> 打包 FFmpeg ...")
-        shutil.copy(FFMPEG_SRC / "ffmpeg.exe", deploy_dir / "ffmpeg" / "ffmpeg.exe")
-        if (FFMPEG_SRC / "ffprobe.exe").exists():
-            shutil.copy(FFMPEG_SRC / "ffprobe.exe", deploy_dir / "ffmpeg" / "ffprobe.exe")
-    else:
-        print(
-            "!! 未找到 third_party/ffmpeg/ffmpeg.exe,部署包不含 FFmpeg(install.ps1 会检测系统 PATH)"
-        )
-
-    # 4. Android APK(默认强制 release,缺失则失败;仅 --allow-debug 回退 debug)
-    apk = find_apk()
-    if apk and apk.name == "app-release.apk":
-        print(f"==> 复制 APK: {apk.name}")
-        shutil.copy(apk, deploy_dir / apk.name)
-    elif apk and args.allow_debug:
-        print(f"!! 警告: Release APK 缺失, 按 --allow-debug 回退 debug APK: {apk.name}")
-        shutil.copy(apk, deploy_dir / apk.name)
-    elif not apk:
-        print("!! 未找到 APK(android/app/build/outputs/apk/{release,debug})", file=sys.stderr)
-        return 1
-    else:
-        print(
-            "Release APK 缺失,RC/正式包必须使用签名 Release APK;如需临时调试请显式加 --allow-debug",
-            file=sys.stderr,
-        )
-        return 1
-
-    # 5. 交接文档
-    for doc in DOCS:
-        src = ROOT / doc
-        if src.is_file():
-            shutil.copy(src, deploy_dir / doc)
-        elif doc == "HANDOVER.md":
-            (deploy_dir / doc).write_text(
-                f"""# MediaReview 1.2.2 部署交接
-
-## 版本
-- Server: {VERSION}
-- Android: {VERSION}
-- 构建日期: {dt.datetime.now().strftime("%Y-%m-%d %H:%M")}
-
-## 部署
-1. 解压本 ZIP 到目标电脑。
-2. 右键 `scripts/install.ps1` → 使用 PowerShell 以管理员运行。
-3. 按提示确认 Jellyfin(编辑 `%ProgramData%\\MediaReview\\config\\config.json`)。
-4. 浏览器打开 `http://<电脑IP>:8766/admin` 生成配对码。
-5. 手机安装 APK,自动发现电脑,输入配对码完成。
-
-## 数据位置
-默认 `%ProgramData%\\MediaReview`(config/database/cache/logs)。
-
-## 备份
-至少备份 config 与 database;cache 可重建。
-
-## 升级/回滚
-见 `UPGRADE_ROLLBACK.md`。
-
-## 故障
-先运行 `scripts/diagnose.ps1` 导出诊断包。
-""",
-                encoding="utf-8",
-            )
-        else:
-            print(f"!! 缺少文档: {doc}")
-
-    # 6. SHA-256
-    print("==> 生成 SHA256SUMS.txt ...")
-    write_sha256(deploy_dir)
-
-    # 7. 压缩 ZIP
-    OUT.mkdir(exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M")
-    zip_path = OUT / f"{PACKAGE_ROOT}_{stamp}.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        for f in sorted(p for p in deploy_dir.rglob("*") if p.is_file()):
-            z.write(f, f.relative_to(OUT))
-
-    # 8. 回验每个校验和(在 ZIP 内核对一次)
-    with zipfile.ZipFile(zip_path) as z:
-        names = set(z.namelist())
-        sums_file = next(n for n in names if n.endswith("SHA256SUMS.txt"))
-        sums = z.read(sums_file).decode("utf-8").splitlines()
-        checked = 0
-        for line in sums:
-            digest, rel = line.split("  ", 1)
-            entry = f"{PACKAGE_ROOT}/{rel}".replace("\\", "/")
-            if entry not in names:
-                raise SystemExit(f"ZIP 内缺少文件: {entry}")
-            actual = hashlib.sha256(z.read(entry)).hexdigest()
-            if actual != digest:
-                raise SystemExit(f"ZIP 校验和失败: {entry}\n  期望 {digest}\n  实际 {actual}")
-            checked += 1
-    print(f"==> ZIP 内校验和回验通过: {checked} 个文件")
-
-    shutil.rmtree(deploy_dir)
-    print(f"==> 部署包已生成: {zip_path}")
     return 0
 
 

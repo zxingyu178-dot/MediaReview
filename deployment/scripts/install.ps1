@@ -129,6 +129,17 @@ function Restore-Previous([string]$InstallDir, [string]$backup, [string]$DataRoo
     Write-Report "restore: restored old version from $backup"
 }
 
+# 已由 ControlHub 管理的 WinSW 服务不能转换为平行计划任务；此处不写生产文件。
+try {
+    $managedService = Get-Service -ErrorAction Stop | Where-Object { $_.Name -eq 'AIHome.MediaReview' }
+} catch {
+    Write-Host '无法可靠查询现有 Windows 服务，安装已阻止，未写入生产文件。' -ForegroundColor Red
+    exit 1
+}
+if ($managedService) {
+    Write-Host '检测到 ControlHub 管理的 AIHome.MediaReview 服务，请按 USER_INSTALL_GUIDE.md 的受控升级流程操作；禁止创建平行任务。' -ForegroundColor Red
+    exit 1
+}
 try {
     # ---- 1. OS / 权限 ----
     Write-Step "操作系统与权限检查"
@@ -139,9 +150,13 @@ try {
     Write-Step "检查部署包完整性"
     $srcExe = Join-Path $ScriptDir "..\server\MediaReviewServer\MediaReviewServer.exe"
     if (-not (Test-Path $srcExe)) {
+        $srcExe = Join-Path $ScriptDir "..\MediaReviewServer\MediaReviewServer.exe"
+    }
+    if (-not (Test-Path $srcExe)) {
         throw "未找到服务器可执行文件: $srcExe (应为 MediaReviewServer.exe)"
     }
     Write-Report "Server 源: $srcExe"
+    $srcServerDir = Split-Path -Parent $srcExe
 
     # ---- 3. 磁盘空间检查(安装盘与数据盘至少 500MB) ----
     Write-Step "磁盘剩余空间检查"
@@ -176,7 +191,7 @@ try {
         $staging = Join-Path $InstallDir ".new"
         if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
         New-Item -ItemType Directory -Force -Path $staging | Out-Null
-        Copy-Item (Join-Path $ScriptDir "..\server\MediaReviewServer") (Join-Path $staging "MediaReviewServer") -Recurse -Force
+        Copy-Item $srcServerDir (Join-Path $staging "MediaReviewServer") -Recurse -Force
         $stagedExe = Join-Path $staging "MediaReviewServer\MediaReviewServer.exe"
         Write-Report "staged: $stagedExe"
 
@@ -213,7 +228,7 @@ try {
         # ================= 首次安装 =================
         Write-Step "首次安装 -> $Version"
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-        Copy-Item (Join-Path $ScriptDir "..\server\MediaReviewServer") (Join-Path $InstallDir "MediaReviewServer") -Recurse -Force
+        Copy-Item $srcServerDir (Join-Path $InstallDir "MediaReviewServer") -Recurse -Force
 
         Write-Step "初始化数据目录 $DataRoot"
         $configDir  = Join-Path $DataRoot "config"

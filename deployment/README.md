@@ -46,6 +46,13 @@ MediaReviewServer-<version>/
 
 ## 构建命令
 
+Stage 8E RC：构建器无条件清理指定的可再生目录、PyInstaller --clean、Gradle clean assembleRelease。
+实际EXE隔离health和APK版本/签名验证后才记录本轮证据。默认不允许旧EXE、旧APK或Debug回退。
+可先用 `--prepare-only` 构建验证，提交最终文档后用 `--package-verified` 重验同一轮源码/产物哈希与签名。
+该入口要求Git clean，构建证据超过6小时或源码/产物发生变化即拒绝打包。
+RC目录采用MediaReviewServer/，安装器兼容历史server/MediaReviewServer/目录。
+发现既有AIHome.MediaReview服务时禁止创建平行任务，按USER_INSTALL_GUIDE.md执行受控升级。
+
 开发机执行:
 
 ```bash

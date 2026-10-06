@@ -1,4 +1,17 @@
-# MediaReview 升级与回滚说明（1.2.1）
+# MediaReview 升级与回滚说明（Server 1.2.2 / Alpha8）
+
+## Stage 8E 受控升级边界
+
+现有 ControlHub WinSW 服务必须保留唯一身份 AIHome.MediaReview；不能改成平行计划任务。
+USER_INSTALL_GUIDE.md 给出该路径：停止服务后备份 config/database/旧二进制/服务定义，
+生成包含时间、旧版本、文件与SHA256的backup_manifest.json，再校验同盘staging并切换。
+health必须1.2.2/Contract2/能力齐全，readiness必须显式client_url权威、Direct可读。
+失败时先停止新版本，再恢复旧二进制、配置与完整数据库（含WAL/SHM），启动原服务并
+核验旧版本健康；不得仅靠CURRENT_VERSION文本判断回滚成功。
+没有可靠备份或服务控制权限时禁止开始覆盖。本阶段未执行生产升级或永久删除媒体。
+既有计划任务部署仍由原事务式安装器处理；它检测到WinSW服务时在写文件前拒绝。
+
+以下保留各历史阶段的升级规则和证据。
 
 ## Stage 8D.2 服务器变更补充（2026-10）
 

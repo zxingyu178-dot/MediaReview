@@ -1,5 +1,9 @@
 # MediaReview 1.1.0 部署交接说明
 
+> 此文档保留历史 1.1.0 交付记录。当前 Alpha8 RC 的 HANDOVER.md 由
+> scripts/build_deploy.py 从实际 EXE health / APK manifest 生成，版本与 Git HEAD
+> 以包内 RELEASE_MANIFEST.json 为准。安装见 USER_INSTALL_GUIDE.md。
+
 ## 版本
 
 - Server: 1.1.0-rc1（`MediaReviewServer.exe`）

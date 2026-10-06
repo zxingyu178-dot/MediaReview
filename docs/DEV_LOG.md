@@ -2346,3 +2346,11 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 **版本 / 更新日志**：Server `1.2.1 → 1.2.2`（API Contract 保持 `2`）；Android
 `versionCode 13 → 14`、`versionName alpha6 → alpha7` + Alpha 7 更新日志。
 
+
+## 2026-10-06 Stage 8E：RC 构建与交付门禁
+
+用户授权继续 Stage 8E；Android 升为 code15/alpha8，Server 保持1.2.2/Contract2。
+改造既有 build_deploy.py：清理固定生成目录，重新构建，验证运行中的实际 EXE 与 APK 自身 manifest/签名，绑定源输入和全部产物指纹，最终清洁 HEAD 打包，ZIP逐项校验。
+安装器兼容新 RC 目录，但检测既有 WinSW 服务时停止；SCM 查询失败也必须在生产写入前停止。独立审查两项 Important 经 RED/GREEN 回归关闭，39项专项验证通过。
+生产配置 client_url 与当前实体 WLAN 地址一致；Jellyfin 启动返回 SCM unavailable，原服务仍停止，自动登录未验证。未创建平行实例、未覆盖生产、未声称备份成功。手机不在家，实际 LAN 验收留待用户执行。
+后续实际构建、全量验证及最终交付结果在本节追加；不将待执行项目标为通过。
