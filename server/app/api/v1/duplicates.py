@@ -178,9 +178,7 @@ def persisted_all(
     return ok([_view(g) for g in duplicate_scanner.persisted_groups(db)])
 
 
-def _page_view(
-    db: Session, group_type: str, page: int, page_size: int
-) -> DuplicateGroupPageView:
+def _page_view(db: Session, group_type: str, page: int, page_size: int) -> DuplicateGroupPageView:
     groups, total = duplicate_scanner.persisted_groups_page(
         db, group_type, page=page, page_size=page_size
     )
@@ -262,9 +260,7 @@ def group_detail(
                     height=member.media.height if member.media is not None else None,
                     media_type=member.media.media_type if member.media is not None else None,
                     cover_url=(
-                        media_thumbnail_url(
-                            member.media.media_id, row_source_version(member.media)
-                        )
+                        media_thumbnail_url(member.media.media_id, row_source_version(member.media))
                         if member.media is not None
                         else None
                     ),

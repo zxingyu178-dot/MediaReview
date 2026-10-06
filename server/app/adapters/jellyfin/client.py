@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -57,7 +59,7 @@ def item_stream_url(host: str, item_id: str) -> str:
     return f"{base_url}/Videos/{_path_segment(item_id)}/stream?static=true"
 
 
-def item_hls_url(host: str, item_id: str) -> str:
+def item_hls_url(host: str, item_id: str, media_source_id: str) -> str:
     """构造不含凭据的 HLS 回退播放列表地址(Direct Play 失败时的唯一一次回退)。
 
     H.264/AAC 转码参数保持最小集;认证由调用方通过 headers 携带设备级凭据。
@@ -65,7 +67,7 @@ def item_hls_url(host: str, item_id: str) -> str:
     base_url = normalize_jellyfin_base_url(host)
     return (
         f"{base_url}/Videos/{_path_segment(item_id)}/master.m3u8"
-        f"?MediaSourceId={_path_segment(item_id)}&VideoCodec=h264&AudioCodec=aac"
+        f"?MediaSourceId={_path_segment(media_source_id)}&VideoCodec=h264&AudioCodec=aac"
     )
 
 
@@ -107,6 +109,7 @@ class JellyfinClient:
         self._config = config
         self._base_url = normalize_jellyfin_base_url(config.host)
         self._api_key = config.api_key.get_secret_value()
+        self._stream_key_lock = asyncio.Lock()
         ensure_jellyfin_url_excludes_api_key(self._base_url, self._api_key)
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
@@ -335,15 +338,43 @@ class JellyfinClient:
         ensure_jellyfin_url_excludes_api_key(stream_url, self._api_key)
         return stream_url
 
-    def hls_stream_url(self, item_id: str, *, base_url: str | None = None) -> str:
+    def hls_stream_url(
+        self, item_id: str, *, media_source_id: str, base_url: str | None = None
+    ) -> str:
         ensure_jellyfin_url_excludes_api_key(self._base_url, self._api_key)
-        url = item_hls_url(base_url or self._base_url, item_id)
+        url = item_hls_url(base_url or self._base_url, item_id, media_source_id)
         ensure_jellyfin_url_excludes_api_key(url, self._api_key)
         return url
+
+    async def playback_media_source_id(self, item_id: str) -> str | None:
+        """只接受 Jellyfin PlaybackInfo 返回的源 ID，未知时不给出猜测的 HLS。"""
+        try:
+            info = await self._get(
+                f"/Items/{_path_segment(item_id)}/PlaybackInfo",
+                params={"UserId": self._config.user_id} if self._config.user_id else None,
+            )
+        except JellyfinError:
+            return None
+        if not isinstance(info, dict):
+            return None
+        sources = info.get("MediaSources")
+        if not isinstance(sources, list):
+            return None
+        ids = [source.get("Id") for source in sources if isinstance(source, dict)]
+        ids = [value for value in ids if isinstance(value, str) and value.strip()]
+        return item_id if item_id in ids else next(iter(ids), None)
 
     # ---- 设备级播放凭据(Task C) ----
 
     async def ensure_device_stream_key(self, key_name: str) -> str:
+        # 单进程共享客户端串行化 list/create/read，避免并发首播创建重复命名 Key。
+        async with self._stream_key_lock:
+            key = await self._ensure_device_stream_key(key_name)
+            if key == self._api_key:
+                raise JellyfinError("设备播放凭据不能复用服务器管理凭据")
+            return key
+
+    async def _ensure_device_stream_key(self, key_name: str) -> str:
         """按名称读取/创建 Jellyfin 命名 key(幂等),返回 AccessToken。
 
         - 已存在:直接返回其 AccessToken,不重复创建;
@@ -364,6 +395,101 @@ class JellyfinClient:
             if item.get("AppName") == key_name and item.get("AccessToken"):
                 return str(item["AccessToken"])
         raise JellyfinError("Jellyfin 已创建播放凭据但无法回读,请检查其版本与权限")
+
+    async def direct_stream_probe(self, item_id: str, device_key: str) -> dict[str, Any]:
+        """Server→Jellyfin 的设备凭据检查：只读 1024 字节，绝不代理/下载完整视频。"""
+        result: dict[str, Any] = {
+            "status": "unreachable",
+            "http_status": None,
+            "content_type": "",
+            "content_length": None,
+            "content_range": None,
+            "bytes_read": 0,
+        }
+        request = self._http.build_request(
+            "GET",
+            self.video_stream_url(item_id),
+            headers={
+                "X-Emby-Token": device_key,
+                "Range": "bytes=0-1023",
+                "Accept": "video/*,application/octet-stream",
+                "Accept-Encoding": "identity",
+            },
+        )
+        # 不能让管理 API Key 掩盖设备 Key 失效。
+        request.headers.pop("Authorization", None)
+        try:
+            response = await self._http.send(request, stream=True, follow_redirects=False)
+            try:
+                status = response.status_code
+                content_type = response.headers.get("Content-Type", "").split(";")[0].lower()
+                length = response.headers.get("Content-Length", "")
+                content_range = response.headers.get("Content-Range", "")
+                # 上游 header 为不可信数据；仅输出允许的类型/数字/Range，拒绝任意反射文本。
+                valid_type = content_type in {
+                    "video/mp4",
+                    "video/webm",
+                    "video/x-matroska",
+                    "video/mpeg",
+                    "video/mp2t",
+                    "video/quicktime",
+                    "video/ogg",
+                    "video/x-msvideo",
+                    "application/octet-stream",
+                }
+                length_value = (
+                    int(length)
+                    if length.isascii() and length.isdigit() and len(length) <= 20
+                    else None
+                )
+                match = re.fullmatch(r"bytes 0-([0-9]{1,20})/([0-9]{1,20})", content_range)
+                range_bytes = int(match[1]) + 1 if match else None
+                valid_range = bool(
+                    match
+                    and 0 < range_bytes <= 1024
+                    and int(match[1]) < int(match[2])
+                    and (length_value is None or length_value == range_bytes)
+                )
+                result.update(
+                    http_status=status,
+                    content_type=content_type if valid_type else "unsupported",
+                    content_length=length_value,
+                    content_range=content_range if valid_range else None,
+                    status=(
+                        "auth_failed"
+                        if status == 401
+                        else "forbidden"
+                        if status == 403
+                        else "not_found"
+                        if status == 404
+                        else "redirect"
+                        if 300 <= status < 400
+                        else "server_error"
+                        if status >= 500
+                        else "http_error"
+                    ),
+                )
+                if status in (200, 206):
+                    async for chunk in response.aiter_bytes(chunk_size=1024):
+                        result["bytes_read"] += min(len(chunk), 1024 - result["bytes_read"])
+                        if result["bytes_read"] >= 1024:
+                            break
+                    metadata_valid = (
+                        status == 200
+                        and length_value is not None
+                        and length_value > 0
+                        and result["bytes_read"] == min(length_value, 1024)
+                    ) or (status == 206 and valid_range and result["bytes_read"] == range_bytes)
+                    result["status"] = (
+                        "readable"
+                        if valid_type and metadata_valid and result["bytes_read"] > 0
+                        else "invalid_stream"
+                    )
+            finally:
+                await response.aclose()
+        except httpx.HTTPError:
+            result["status"] = "unreachable"
+        return result
 
     async def revoke_device_stream_key(self, key_name: str) -> bool:
         """按名称撤销 Jellyfin 命名 key;不存在时返回 False(幂等)。"""

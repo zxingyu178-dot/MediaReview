@@ -133,21 +133,45 @@ def test_scan_scope_is_selected_and_available_only(tmp_path: Path) -> None:
     _seed_exact_pair(db, "included")
     # 未勾选库内 sha/size/duration 完全一致的成员: 不得混入
     _seed_media(
-        db, "tv-a", library_id="lib-tv", size=1000, duration=60_000,
-        quick_hash="q" * 64, sha256=_sha("included"), media_path="D:\\Media\\tv-a.mp4",
+        db,
+        "tv-a",
+        library_id="lib-tv",
+        size=1000,
+        duration=60_000,
+        quick_hash="q" * 64,
+        sha256=_sha("included"),
+        media_path="D:\\Media\\tv-a.mp4",
     )
     _seed_media(
-        db, "tv-b", library_id="lib-tv", size=1000, duration=60_000,
-        quick_hash="q" * 64, sha256=_sha("included"), media_path="D:\\Media\\tv-b.mp4",
+        db,
+        "tv-b",
+        library_id="lib-tv",
+        size=1000,
+        duration=60_000,
+        quick_hash="q" * 64,
+        sha256=_sha("included"),
+        media_path="D:\\Media\\tv-b.mp4",
     )
     # 勾选库内失效媒体对: 不得混入
     _seed_media(
-        db, "gone-a", size=2222, duration=60_000, quick_hash="q" * 64,
-        sha256="f" * 64, available=False, media_path="D:\\Media\\gone-a.mp4",
+        db,
+        "gone-a",
+        size=2222,
+        duration=60_000,
+        quick_hash="q" * 64,
+        sha256="f" * 64,
+        available=False,
+        media_path="D:\\Media\\gone-a.mp4",
     )
     _seed_media(
-        db, "gone-b", size=2222, duration=60_000, quick_hash="q" * 64,
-        sha256="f" * 64, available=False, media_path="D:\\Media\\gone-b.mp4",
+        db,
+        "gone-b",
+        size=2222,
+        duration=60_000,
+        quick_hash="q" * 64,
+        sha256="f" * 64,
+        available=False,
+        media_path="D:\\Media\\gone-b.mp4",
     )
 
     with db.session() as s:
@@ -211,12 +235,20 @@ def test_more_than_200_similar_groups_are_all_found(tmp_path: Path) -> None:
     _seed_library(db)
     for i in range(250):
         _seed_media(
-            db, f"s{i:03d}a", size=20_000 + i, duration=1_000,
-            quick_hash="q" * 64, media_path=f"D:\\Media\\s{i:03d}a.mp4",
+            db,
+            f"s{i:03d}a",
+            size=20_000 + i,
+            duration=1_000,
+            quick_hash="q" * 64,
+            media_path=f"D:\\Media\\s{i:03d}a.mp4",
         )
         _seed_media(
-            db, f"s{i:03d}b", size=20_000 + i, duration=30_000,
-            quick_hash="q" * 64, media_path=f"D:\\Media\\s{i:03d}b.mp4",
+            db,
+            f"s{i:03d}b",
+            size=20_000 + i,
+            duration=30_000,
+            quick_hash="q" * 64,
+            media_path=f"D:\\Media\\s{i:03d}b.mp4",
         )
 
     task_id = _run_scan(db)
@@ -259,9 +291,7 @@ def test_old_results_readable_while_new_scan_computes(tmp_path: Path, monkeypatc
     db.dispose()
 
 
-def _pause_or_cancel_during_first_phase(
-    tmp_path: Path, monkeypatch, status: str
-) -> None:
+def _pause_or_cancel_during_first_phase(tmp_path: Path, monkeypatch, status: str) -> None:
     db = _make_db(tmp_path)
     _seed_library(db)
     _seed_exact_pair(db, "oldpair")
@@ -332,9 +362,9 @@ def test_succeeded_scan_atomically_replaces_previous_results(tmp_path: Path) -> 
 
     # 旧媒体整对删除,新增另一对 -> 替换后只应剩新对
     with db.session() as s:
-        s.query(MediaCacheIndex).filter(MediaCacheIndex.media_id.in_(["oldpairx", "oldpairy"])).delete(
-            synchronize_session=False
-        )
+        s.query(MediaCacheIndex).filter(
+            MediaCacheIndex.media_id.in_(["oldpairx", "oldpairy"])
+        ).delete(synchronize_session=False)
         s.commit()
     _seed_exact_pair(db, "newpair")
     _run_scan(db)

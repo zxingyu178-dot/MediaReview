@@ -548,9 +548,7 @@ def test_media_folders_cover_latest_image(jellyfin_api_client) -> None:
     """有图片的文件夹:返回 created_at 最新图片的 media_id 与 cover_url。"""
     client, _transport = jellyfin_api_client
     _seed_cover_library(client)
-    folders = _folder_view(
-        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
-    )
+    folders = _folder_view(client.get("/api/v1/media/folders", params={"library_id": "lib-covers"}))
     by_name = {f["name"]: f for f in folders}
 
     album_a = by_name["AlbumA"]
@@ -566,9 +564,7 @@ def test_media_folders_cover_only_videos_is_none(jellyfin_api_client) -> None:
     """只有视频的文件夹:cover_media_id / cover_url 均为 None,image_count 为 0。"""
     client, _transport = jellyfin_api_client
     _seed_cover_library(client)
-    folders = _folder_view(
-        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
-    )
+    folders = _folder_view(client.get("/api/v1/media/folders", params={"library_id": "lib-covers"}))
     by_name = {f["name"]: f for f in folders}
 
     album_v = by_name["AlbumV"]
@@ -582,9 +578,7 @@ def test_media_folders_image_count(jellyfin_api_client) -> None:
     """image_count = 该文件夹内 IMAGE 数量,与 count 同一筛选范围。"""
     client, _transport = jellyfin_api_client
     _seed_cover_library(client)
-    folders = _folder_view(
-        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
-    )
+    folders = _folder_view(client.get("/api/v1/media/folders", params={"library_id": "lib-covers"}))
     by_name = {f["name"]: f for f in folders}
     assert by_name["AlbumA"]["image_count"] == 2  # 2 图 + 1 视频
     assert by_name["AlbumT"]["image_count"] == 2  # 2 图
@@ -595,9 +589,7 @@ def test_media_folders_cover_tie_break_by_media_id(jellyfin_api_client) -> None:
     """同一文件夹多张图片:created_at 相同时按 media_id 升序取封面。"""
     client, _transport = jellyfin_api_client
     _seed_cover_library(client)
-    folders = _folder_view(
-        client.get("/api/v1/media/folders", params={"library_id": "lib-covers"})
-    )
+    folders = _folder_view(client.get("/api/v1/media/folders", params={"library_id": "lib-covers"}))
     by_name = {f["name"]: f for f in folders}
     assert by_name["AlbumT"]["cover_media_id"] == "a-tie"
 

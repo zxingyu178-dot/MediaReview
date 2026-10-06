@@ -16,6 +16,8 @@ Jellyfin Server
 
 **视频播放原则**：Android 尽量直接连接 Jellyfin 播放（Direct Play，失败回退 HLS），中间层不转发完整视频流，只负责播放 URL 与设备级凭据签发。
 
+Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播放使用 `jellyfin.client_url`（例如 `http://192.168.1.20:8096`）。后者留空时按手机请求 host 推导，设置中的“检测播放链路”显示最终地址和两段连接结果。LAN 配置、端口检查与诊断说明见 [部署说明](deployment/README.md#手机播放地址与局域网检查)。
+
 ## 主要功能
 
 - Jellyfin 多媒体库读取与勾选

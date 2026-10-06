@@ -139,6 +139,8 @@ fun V2DataSourceSheet(
                     }
                 }
 
+                V2PlaybackDiagnosticPanel()
+
                 // 首次配置 / 认证失效 → Sheet 内的连接表单（不跳出 V2）
                 if (!session.configured || !session.paired) {
                     Text(

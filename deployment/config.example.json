@@ -5,6 +5,8 @@
   },
   "jellyfin": {
     "url": "http://127.0.0.1:8096",
+    "client_url": "",
+    "client_host_allowlist": [],
     "api_key": "__SET_DURING_SETUP__"
   },
   "storage": {

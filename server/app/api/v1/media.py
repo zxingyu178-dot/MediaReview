@@ -478,7 +478,7 @@ class PlaybackInfo(BaseModel):
     media_id: str
     title: str
     direct: PlaybackEndpoint
-    fallback_hls: PlaybackEndpoint
+    fallback_hls: PlaybackEndpoint | None = None
     resume_position_ms: int = 0
     stream_url: str
     requires_jellyfin_auth: bool = False
@@ -506,15 +506,15 @@ def _device_key_name(installation_id: str | None) -> str:
 
 
 async def _resolve_stream_key(db: Session, device, client: JellyfinClient) -> str:
-    """解析设备级播放凭据:设备行持久化复用;开发模式用共享命名 key。
+    """每次向 Jellyfin 对账固定命名 Key，值变化时同步设备行；开发模式用共享 Key。
 
     任何签发失败都抛 JellyfinError,由端点 fail-closed(不下发任何直连地址)。
     """
-    if device is not None and device.jellyfin_key_value:
-        return device.jellyfin_key_value
     name = _device_key_name(device.installation_id if device is not None else None)
     key = await client.ensure_device_stream_key(name)
-    if device is not None:
+    if device is not None and (
+        device.jellyfin_key_value != key or device.jellyfin_key_name != name
+    ):
         device.jellyfin_key_name = name
         device.jellyfin_key_value = key
         device.jellyfin_key_created_at = utc_now()
@@ -561,8 +561,15 @@ async def get_playback_info(
         raise ConfigError("无法为设备签发 Jellyfin 播放凭据,请稍后重试") from exc
 
     direct_url = client.video_stream_url(row.jellyfin_id, base_url=client_base)
-    hls_url = client.hls_stream_url(row.jellyfin_id, base_url=client_base)
+    source_id = await client.playback_media_source_id(row.jellyfin_id)
+    hls_url = (
+        client.hls_stream_url(row.jellyfin_id, media_source_id=source_id, base_url=client_base)
+        if source_id
+        else None
+    )
     for url in (direct_url, hls_url):
+        if url is None:
+            continue
         try:
             ensure_jellyfin_url_excludes_api_key(url, server_key)
         except ValueError:
@@ -578,7 +585,9 @@ async def get_playback_info(
             media_id=row.media_id,
             title=row.name,
             direct=PlaybackEndpoint(url=direct_url, headers=stream_headers),
-            fallback_hls=PlaybackEndpoint(url=hls_url, headers=dict(stream_headers)),
+            fallback_hls=(
+                PlaybackEndpoint(url=hls_url, headers=dict(stream_headers)) if hls_url else None
+            ),
             resume_position_ms=resume_position_ms,
             stream_url=direct_url,
             requires_jellyfin_auth=False,

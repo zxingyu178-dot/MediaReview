@@ -53,6 +53,9 @@ interface MediaReviewApi {
     @GET("/api/v1/system/health")
     suspend fun health(): Envelope<HealthOut>
 
+    @GET("/api/v1/system/playback-readiness")
+    suspend fun playbackReadiness(@Query("media_id") mediaId: String? = null): Envelope<com.mediareview.app.core.model.PlaybackReadinessDto>
+
     @GET("/api/v1/pairing/status")
     suspend fun pairingStatus(): Envelope<PairingStatusOut>
 

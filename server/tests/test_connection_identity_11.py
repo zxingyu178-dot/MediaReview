@@ -104,6 +104,8 @@ def _keys_serving_transport():
     """Task C 播放合同:提供 /Auth/Keys 命名 key 的最小 mock。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/PlaybackInfo"):
+            return httpx.Response(200, json={"MediaSources": [{"Id": "confirmed-source"}]})
         if request.method in ("GET", "POST") and request.url.path.endswith("/Auth/Keys"):
             return httpx.Response(
                 200,

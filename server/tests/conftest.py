@@ -100,6 +100,9 @@ def make_jellyfin_mock_transport() -> httpx.MockTransport:
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path.endswith("/PlaybackInfo"):
+            source = path.split("/Items/", 1)[1].removesuffix("/PlaybackInfo")
+            return httpx.Response(200, json={"MediaSources": [{"Id": source}]})
         if request.method in ("GET", "POST") and path.endswith("/Auth/Keys"):
             return httpx.Response(
                 200,

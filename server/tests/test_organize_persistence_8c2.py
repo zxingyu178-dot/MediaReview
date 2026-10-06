@@ -214,10 +214,7 @@ def test_removed_media_leaves_no_ghost_keep(tmp_path: Path) -> None:
     _run_scan(db)
 
     with db.session() as s:
-        members = [
-            (m.group_id, m.media_id, m.keep)
-            for m in s.query(DuplicateGroupMember).all()
-        ]
+        members = [(m.group_id, m.media_id, m.keep) for m in s.query(DuplicateGroupMember).all()]
     assert all(media_id != "ghostx" for _gid, media_id, _keep in members), "不得保留幽灵成员"
     assert all(keep is False for _gid, _mid, keep in members)
     db.dispose()
@@ -371,7 +368,11 @@ def test_pause_resume_keeps_original_scope(tmp_path: Path, monkeypatch) -> None:
 
     # 用户此时取消勾选 lib-tv,然后恢复扫描
     with db.session() as s:
-        s.merge(LibrarySelection(jellyfin_id="lib-tv", name="lib-tv", collection_type="movies", selected=False))
+        s.merge(
+            LibrarySelection(
+                jellyfin_id="lib-tv", name="lib-tv", collection_type="movies", selected=False
+            )
+        )
         s.get(BackgroundTask, task_id).status = "running"
         s.commit()
 

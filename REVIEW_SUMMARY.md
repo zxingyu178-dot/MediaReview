@@ -1,76 +1,55 @@
-# MediaReview 阶段审查摘要
+# MediaReview Stage 8D.3 审查摘要
 
-## 阶段
+当前阶段：Server Playback Reachability & Real Streaming。
+基线：20069bae1804db1f8affcb5170b27a5765c37d77。
+分支：feature/mediareview-v2-stage8d.3-server-playback-closure。
+版本：Server 1.2.2 / API Contract 2；Android code 14 / 2.0.0-alpha7。
 
-- 编号 / 名称：**Stage 8D.2 — Compatibility Gate / Server Access Guard / Deployment Preflight**
-- 分支：`feature/mediareview-v2-stage8d.2-server-gate-closure`（基于 `21b2c00`）
-- 产品版本：Android `versionCode 13` / `2.0.0-alpha6`；Server `1.2.0 → 1.2.1`（API Contract 仍为 `2`）
-- 小版本政策：**NO USER APK**
-- 目标：在整个 App 范围落实 `health → compatibility confirmed → business API`；
-  部署后 Server 版本 / API Contract 不正确即视为部署失败。
+## 目标与实际变更
 
-## 是否达到目标
+保持手机直接访问 Jellyfin，修复设备 Key 失效恢复、手机地址合同、HLS 真实源 ID，并增加独立手机诊断和真实 HTTP 播放测试。
+新增认证 GET /api/v1/system/playback-readiness；只进行最多1024字节的 Range GET，禁跟随跳转、禁管理认证回退，严格验证元数据，不返回 Token。
+Android 复用生产 Resolver，隔离业务 Bearer，支持受控错误分类、取消及会话隔离；仅在 Server 数据源设置区增加诊断。
+新增真实 MP4 instrumentation，生产 GSY Full/Review 页面要求真实播放进度持续增长，批阅需上滑第二项；另测 Demo Full/Review。
 
-达到（详见 `review_handoff/stage8d2_pkg/00~10`）。
+主要文件：JellyfinClient、media.py、playback_readiness.py、PlaybackReadinessDto、V2PlaybackDiagnostic、V2PlaybackDiagnosticPanel、3个androidTest文件及对应JVM/pytest回归。
+数据库：无schema变更，沿用设备行凭据字段。公共GSY/Demo实现无变更。
+部署配置模板公开client_url/client_host_allowlist，部署README补充LAN端口检查；既有版本预检/构建版本同步1.2.2。
+少量原有Python文件只按已配置Ruff规则清理排版/注解；不改变其业务逻辑。
 
-## 主要新增 / 修改
+## 验证进度（最终）
 
-### Android
-- `core/pairing/PairingRepository.kt`：新增 `Result.Incompatible(version, apiContract, connection)`；
-  旧 Server（`api_contract < 2`）不再伪装成 `HealthOk`，`connectServer()` 收到 Incompatible 立即停止，
-  **不 verify / 不保存 Server Mode / 不清 Token**。
-- `feature/v2/data/server/V2ServerAccessGuard.kt`（新增）：`requireBusinessAccess()` 统一 Guard，
-  按 `Online / Incompatible / Probing / Offline / AuthRejected / Unconfigured` 抛对应异常；
-  `shouldLoadServerBusinessData(status)` 只对 `Online` 返回 true。
-- 三个 Server 仓库（`V2ServerMediaRepository` / `V2ServerOrganizeRepository` /
-  `V2ServerReviewSessionRepository`）的 `private suspend fun <T> call(...)` 首行统一调用 Guard（最后一道防线）。
-- `feature/v2/data/server/V2ServerStatus.kt`：`onRequestSuccess()` 改为 no-op（普通业务请求成功
-  **不能**把 `Incompatible/Probing/...` 升级为 `Online`）；`onRequestFailure` 仅在 `Online` 时降级；
-  新增 `reset()` 清理 serverVersion / apiContract / compatibility。
-- `feature/v2/home/V2HomeViewModel.kt`：SERVER 冷启动与 Demo→Server 切换改为
-  `restore → 显示壳 → status=Probing → probe()`，仅 `Online` 才 `reloadAll()`（UI 仍立即显示，不阻塞 Splash）。
-- `feature/v2/data/V2MediaRepositoryRouter.kt`：所有会发网络请求的 suspend 方法重新归类到 `dataActive()`（过 Gate）；
-  纯内存读取接口保持不抛（避免 Composition 崩溃）；`setAlbumCover` 为本地 DataStore，不过 Server Gate。
-- 版本 bump `versionCode 13` / `versionName 2.0.0-alpha6` + Alpha 6 更新日志。
+- Server 全量 pytest：**471 passed / 0 failed / 0 error（exit 0）**。
+- Android JVM：**363 项通过，0 失败/错误**（51 个结果文件聚合），含 12 项诊断测试。
+- lintDebug / compileDebugKotlin / compileDebugAndroidTestKotlin / assembleDebug / assembleDebugAndroidTest：**通过**；lint **0 errors / 40 warnings**。
+- Ruff check . / format --check .：通过，162 文件已格式化。
+- 隔离真实 Jellyfin 10.11.11：Direct 206/1024 bytes、HLS 真实 MediaSourceId 及有效 manifest、删除 Key 后重建通过。
+- 独立静态复审：未解决 Critical 0 / Important 0。
+- **真实 HTTP 播放 instrumentation：4/4 通过**（Server 完整播放器真实起播、Server 批阅上滑第二条真实起播、Demo 完整播放器、Demo 批阅）。
+- 8D.2 回归 instrumentation：**8/8 通过**（Compatibility UI / What's New / Browser）。
+- 部署沙箱生命周期：**17 通过 / 0 失败**（版本 1.2.2 动态取自 version.ps1）。
+- 诊断 302/403 分类回归：已执行（Server 端 403→`forbidden`、3xx→`redirect`，Android 端独立分类断言）。
+- 最终 HEAD：`__FINAL_HEAD_SHORT__`（提交后写入交接包）。
 
-### Server / 部署
-- `app/__init__.py`：`__version__ = "1.2.1"`，`SERVER_API_CONTRACT = 2`（**不升 Contract**）；
-  `pyproject.toml` 同步 1.2.1。
-- `deployment/version.ps1`（新增）：`$ExpectedServerVersion` / `$RequiredApiContract` 唯一事实源。
-- `deployment/scripts/install.ps1`：`Test-HealthContract` 同时校验 `status` + `version` + `api_contract` + 能力清单；
-  最终健康失败**不再 Warning 假成功**——升级路径自动回滚旧版本并 `exit != 0`（`UPGRADE FAILED` + `ROLLBACK PASS|FAIL`），
-  首次安装失败则停进程、删自启任务、标记 `INSTALL FAILED` 并 `exit != 0`。
-- `status.ps1` / `diagnose.ps1` / `start.ps1` / `restart.ps1` / `repair.ps1`：输出 / 记录 version + api_contract（+ capabilities）。
-- `scripts/build_deploy.py`：VERSION → 1.2.1，并把 `deployment/version.ps1` 随部署包发布（修复 dot-source 缺失缺陷）。
-- 无 API 破坏性变更；**NO SCHEMA MIGRATION**。
+### 主 Agent 在本轮修复的执行期缺陷（诚实记录）
 
-## 测试结果（真实执行）
+1. 初次 Server 全量为 6 失败/460 通过（旧断言 + 高负载性能/调度测试）；初次 Android 全量 4 失败/359 通过（metadata 预期 RED、取消 fixture shutdown 超时、旧 alpha6 断言）。原始日志全部保留。
+2. **真实 HTTP 播放测试基建两处缺陷（非产品缺陷）**：① fixture 用 `127.0.0.1` 下发播放地址，被生产 `MediaUrlResolver` 正确拒绝（禁止回环目的地）→ 播放永远无法起播；改为设备 LAN 地址后仍失败，因 MockWebServer 只监听回环 → 改 `start(0.0.0.0, 0)` 后通过。② 原测试用反射读 GSY 内部 URL（`GSYComposeHostPlayer` 无公开 URL 访问器，恒为 null）→ 无论播放是否成功都会超时；改为核对**播放器真实发出的视频请求 URL == 生产解析 endpoint**（更强的事实证据）。
+3. 回归 instrumentation 首轮 2 项失败为模拟器 **SystemUI ANR 弹窗**抢占焦点（Espresso `RootViewWithoutFocusException`），关闭弹窗后 8/8 通过；与产品代码无关。
+4. 最终 Server 全量曾再次出现 2 项高负载偶发（100k 行排序 1.153s > 1.0s、task_manager 循环），单独复跑均通过，空闲后全量 471 passed/exit 0。
 
-| 项目 | 结果 |
-|---|---|
-| Server pytest 全量 | **452 passed / 0 failed / 0 error**（exit 0） |
-| Android JVM | **351 passed / 0 failed / 0 error**（47 个结果文件聚合） |
-| Lint | **0 errors**（41 warnings，无新增） |
-| compileDebugKotlin | **BUILD SUCCESSFUL** |
-| 部署沙箱生命周期测试 | **17 通过 / 0 失败**（Gate 5 例 + 升级失败回滚镜像） |
-| Instrumentation（定向） | **8 / 8 passed**（Stage8D1CompatibilityUiTest / Stage8C1WhatsNewUiTest / Stage4BrowserUiTest） |
-| 用户 APK | **NOT GENERATED — SMALL VERSION POLICY** |
-| 生产部署 | **NOT PERFORMED** |
+原始日志全部保留，不以定向通过代替最终全量。
 
-> 说明：`Stage8AServerModeTest` 依赖宿主机 Mock Server（`10.0.2.2:8799`），该 Mock Server 非仓库内产物，
-> 本阶段未重新运行；其覆盖的 Server 访问顺序已由 JVM 合同测试（§27/§28/§55）以 MockWebServer 请求顺序断言覆盖。
+## 已知问题与运维边界
 
-## 已知问题 / 遗留
+生产Deployment：NOT PERFORMED；Real User LAN Playback：NOT TESTED；NO USER APK。
+本机8766公开health返回Server1.1.0且无api_contract，未读取生产配置/媒体/凭据，也未升级服务。
+沿用既有Registry Service与ControlHub binding，本阶段不新增长期对象或生命周期入口。
+隔离Jellyfin已停止；自动审批拒绝删除本次临时目录，目录未清理并排除交接包。
 
-见 `07_KNOWN_ISSUES.md`。要点：`test_task_manager` 后台循环单例测试在整机高负载下偶发失败、单独复跑通过（历史已知）；
-未引入 Room / SWR / 新播放器功能；AGP/compileSdk 警告与 Kotlin deprecated icon 警告记为技术债。
+最高风险三项：用户真实LAN不可达仍需真实设备证据；Jellyfin命名API Key沿用其既有权限范围，不代表细粒度隔离；PlaybackInfo返回源与具体媒体编码/HLS转码兼容性仍取决于Jellyfin及媒体。
+不自动进入8E。最终交接包只在执行门禁完成、commit/push与Git clean之后生成。
 
-## 风险最高的三个点
-
-1. Guard 覆盖完整性（三分支仓库 call() + Router 重新分类已用 JVM 测试锁死「未 Online 时 0 业务请求」）。
-2. `onRequestSuccess` no-op 后 Online 的唯一来源是 health probe（已加「业务成功不能升级 Incompatible」测试）。
-3. 部署 Gate 的失败语义（final health 失败必须回滚 / 非零退出，已由沙箱镜像测试覆盖）。
-
-## 结论
-
-阶段结论：**合格**（Stage 8D.2 验收门槛满足；未生成用户 APK；未部署生产）。
+阶段结论：**合格（CODE_READY）** —— 执行门禁已闭合（Server pytest / Android JVM / lint / compile /
+真实 HTTP 播放 instrumentation / 8D.2 回归 instrumentation / 部署沙箱 全部 PASS，Git clean）。
+同时如实声明：**Real User LAN Playback: NOT TESTED**、生产部署 NOT PERFORMED、NO USER APK。

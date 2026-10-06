@@ -433,9 +433,9 @@ def review_progress_counts(session: Session, session_id: str) -> dict:
             sa.func.count().label("total"),
             sa.func.sum(sa.case((item.seen.is_(True), 1), else_=0)).label("seen"),
             sa.func.sum(sa.case((available, 0), else_=1)).label("unavailable"),
-            sa.func.sum(
-                sa.case((sa.and_(item.seen.is_(False), available), 1), else_=0)
-            ).label("remaining"),
+            sa.func.sum(sa.case((sa.and_(item.seen.is_(False), available), 1), else_=0)).label(
+                "remaining"
+            ),
         )
         .select_from(item)
         .join(MediaCacheIndex, MediaCacheIndex.media_id == item.media_id, isouter=True)

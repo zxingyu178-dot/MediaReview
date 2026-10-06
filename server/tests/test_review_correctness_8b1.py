@@ -36,9 +36,7 @@ def _media(media_id: str, *, name: str, available: bool = True) -> models.MediaC
 
 def _select_library(db: Database, library_id: str = "lib-a") -> None:
     with db.session() as session:
-        session.add(
-            models.LibrarySelection(jellyfin_id=library_id, name=library_id, selected=True)
-        )
+        session.add(models.LibrarySelection(jellyfin_id=library_id, name=library_id, selected=True))
         session.commit()
 
 

@@ -2284,3 +2284,65 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 > 环境端到端执行（需 admin + 真实 EXE），沙箱以镜像逻辑 + stub 覆盖。
 > `test_task_manager` 后台循环单例测试在整机高负载下偶发失败、单独复跑通过（历史已知，非本阶段引入）。
 
+### 2026-10-06 — Stage 8D.3 Server 播放链路闭环（2.0.0-alpha7，NO USER APK）
+
+分支 `feature/mediareview-v2-stage8d.3-server-playback-closure`（基于 `20069ba`）。
+用户真实反馈：DEMO 模式播放正常，SERVER 模式（完整播放器与批阅模式）都无法播放。
+本阶段只修 Server 播放链路，不重构公共播放器、不改 Demo 播放路径。
+
+**P0 设备播放凭据生命周期（原"永久信任 DB Key"）**
+- `JellyfinClient.ensure_device_stream_key`：按 `installation_id` 的**固定命名 Key** 每次向
+  Jellyfin 校准——存在即复用（幂等，不会产生 `MediaReview-xxx-1/2/3`），被删除即重建并更新 DB，
+  值变化即同步 DB；`_resolve_stream_key` 失败时 **fail-closed**（不下发任何直连地址），
+  管理 API Key 绝不作为设备凭据回退。
+
+**P0 播放地址合同（两种 Jellyfin 地址正式区分）**
+- `jellyfin.url`（Server→Jellyfin）与 `jellyfin.client_url`（手机→Jellyfin）分列；
+  `deployment/config.example.json` 公开 `client_url` + `client_host_allowlist`；
+  留空时走 `request_host_fallback`（保留端口/路径前缀，标记非权威）；
+  `deployment/README.md` 给出 LAN 示例与只读端口检查（不修改防火墙/Jellyfin 配置）。
+- `/playback` 返回 `stream_url_source` / `stream_url_authoritative`，URL 内绝不携带凭据。
+
+**P0 HLS 真实 MediaSourceId**
+- 原实现把 item ID 当作 MediaSourceId；现读取 Jellyfin `PlaybackInfo` 返回的真实
+  `MediaSources[].Id`；取不到真实源时**不下发猜测的 HLS URL**（Direct Stream 仍可独立使用）。
+- 隔离 Jellyfin 10.11.11 实测：`media_source_equals_item_id=true`（本次样例恰好相等），
+  但实现不再依赖该巧合。
+
+**新增认证诊断 `GET /api/v1/system/playback-readiness`**
+- Server→Jellyfin 与 Phone→Jellyfin 两层分离；返回地址来源/权威性、凭据状态、
+  `client_address_status`、媒体有效性、Direct Range 结果；`phone_reachability` 恒为 `not_tested`；
+- 有限 Range（`bytes=0-1023`）、禁跟随重定向、移除管理 Authorization、
+  严格校验 200/206 的 Content-Type/Content-Length/Content-Range 与实际读取字节数，
+  上游任意文本不反射（固定 MIME 白名单）；**绝不返回 API Key / X-Emby-Token / Authorization**。
+
+**P0 Android 手机播放链路检测（设置 → 数据源 → Server 信息）**
+- 新增 `V2PlaybackDiagnostic`：health/契约/配对门禁 → readiness → VIDEO `/playback` →
+  用**生产 `V2PlaybackResolver`** 得到同一 URL/headers → 独立 OkHttp 执行有限 Range GET
+  （不携带业务 Bearer、不跟随重定向）；分类区分未配置/未配对/不兼容/Server 不可达/
+  401/403/404/5xx/网络/非视频/可读流；切换连接或退出即取消，旧结果不覆盖新会话；
+  UI 只显示 host:port 与受控中文标签，不显示路径、凭据或异常原文。
+- 本阶段补强：Server 流检查的 403 与 302 分类独立（不得归为 401 或无媒体），
+  与手机探针分类一致。
+
+**真实 HTTP 播放验收（P0 §28~§31）**
+- `RealHttpPlaybackFixture`：设备内 MockWebServer 提供**真实 MP4 字节**与 Range 响应，
+  `/playback` 下发**设备局域网地址**（非回环、非 `127.0.0.1:1` 之类的假地址）与
+  `X-Emby-Token` 认证头；只记录"是否认证/是否 Range/请求 URL"，不打印凭据值。
+- `ServerFullPlayerPlaybackTest`：生产 Repository → Resolver → ViewModel → GSY 真实起播，
+  断言 `isPlaying`、`duration > 0`、`position > 500ms` 且**持续增长**（不把 Source Ready 当起播）；
+- `ServerReviewPlaybackTest`：生产批阅页面，**手势上滑**第 2 条后新 Source 真正播放，
+  且播放器实际请求的 URL 与生产解析出的 endpoint 一致；
+- 两个类各带 Demo 完整播放器 / Demo 批阅起播回归。
+
+**修复过程中发现的真实缺陷（测试基建，非产品）**
+- 初版 fixture 用 `127.0.0.1` 下发播放地址：生产 `MediaUrlResolver` 正确拒绝回环目的地，
+  播放永远无法起播（这正是"不能用无法播放的假地址证明 PASS"）；改用设备 LAN 地址
+  `10.0.2.15` 后仍失败，原因是 MockWebServer 只监听回环；改为 `start(0.0.0.0, 0)` 后通过。
+- 原测试用反射读取 GSY 内部 URL（`GSYComposeHostPlayer` 无公开 URL 访问器，返回 null）→
+  无论真实播放是否成功都会超时失败。改为核对**播放器真实发出的视频请求 URL** ==
+  生产解析的 endpoint（更强的事实证据），并在测试注释与交接文档中如实说明。
+
+**版本 / 更新日志**：Server `1.2.1 → 1.2.2`（API Contract 保持 `2`）；Android
+`versionCode 13 → 14`、`versionName alpha6 → alpha7` + Alpha 7 更新日志。
+

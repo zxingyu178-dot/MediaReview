@@ -501,3 +501,28 @@
 - [x] 版本 versionCode 13 / 2.0.0-alpha6 + Alpha 6 更新日志
 - [x] 回归：Server pytest 452 / Android JVM 351 / Lint 0 error / compileDebugKotlin PASS / 定向 Instrumentation 8/8
 - [ ] **NO USER APK（小版本政策）；不部署生产；完成后停止，不进入 Stage 8E**
+
+## Stage 8D.3 — Server 播放链路闭环（2026-10-06）
+
+- [x] 固定设备命名 Key 校准与删除/轮换恢复，失败关闭，不复用管理 Key。
+- [x] 认证 readiness、Server/Phone 分开、有限 Range 与脱敏输出。
+- [x] 正式公开 client_url/client_host_allowlist 与 request_host fallback 文档。
+- [x] HLS 仅采用 PlaybackInfo 返回的真实 MediaSourceId。
+- [x] Android 独立播放诊断、生产 Resolver、取消与会话隔离。
+- [x] 版本 Server 1.2.2 / Contract 2，Android code 14 / alpha7 与更新说明。
+- [x] Android JVM 363 项通过，lint/compile/debug/androidTest build 通过。
+- [x] 隔离 Jellyfin Direct/HLS 与撤销 Key 恢复验证。
+- [x] 独立静态复审未解决 Critical 0 / Important 0。
+- [x] 最终 Server 全量与真实 HTTP/Demo instrumentation 执行门禁。
+      Server pytest 471 passed / 0 failed（exit 0）；Android JVM 363 / 0；
+      lintDebug 0 errors / 40 warnings；compileDebugKotlin + compileDebugAndroidTestKotlin PASS；
+      真实 HTTP 播放 instrumentation 4/4（Server 完整播放器 + Server 批阅 + Demo 完整播放器 + Demo 批阅）；
+      8D.2 回归 instrumentation 8/8；部署沙箱 17 通过 / 0 失败。
+- [x] 修复真实 HTTP 播放测试基建缺陷：播放地址不得用回环假地址（生产 Resolver 拒绝），
+      MockWebServer 需绑定 0.0.0.0；内核 source 证据改为"真实视频请求 URL == 生产 endpoint"
+      （GSY Compose host player 无公开 URL 读取接口）。
+- [x] 补强诊断分类：Server 流检查 403 / 302 独立分类（不再归入 401 或无媒体）。
+- [ ] 最终 commit/push/clean 与无 APK 交接包。
+
+真实用户 LAN：NOT TESTED；生产部署：NOT PERFORMED；NO USER APK。
+完成后停止，不自动进入 8E。详情见 docs/STAGE8D3_PLAYBACK.md 与最终阶段交接包。

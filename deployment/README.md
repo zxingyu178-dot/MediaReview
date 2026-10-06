@@ -26,7 +26,25 @@ MediaReviewServer-<version>/
 3. 若需要修改端口/数据目录:`.\scripts\install.ps1 -Port 9000 -DataRoot D:\MediaReviewData`。
 4. 手机安装 APK,自动发现并配对。
 
-## 构建
+## 手机播放地址与局域网检查
+
+- `jellyfin.url` 是电脑端 Server 访问 Jellyfin 的地址，例如 `http://127.0.0.1:8096`。
+- `jellyfin.client_url` 是手机直连 Jellyfin 的地址，例如 `http://192.168.1.20:8096`；部署时替换为实际 LAN 地址，保留反向代理的路径前缀。
+- `client_url` 留空时，Server 使用本次手机请求的 host，搭配 `url` 的协议、端口与路径推导地址（`request_host_fallback`，非权威地址）。经过代理时建议显式配置 `client_url`。
+- `client_host_allowlist` 默认为空，仅为已确认手机可访问的内部主机名提供明确例外；不要用它允许 localhost。
+- 手机设置 → 数据源 → 我的服务器 → **检查手机播放链路** 可查看最终 Jellyfin host/port、地址来源、电脑端与手机端 Range 结果。诊断不展示 Token。
+
+部署前分别检查 MediaReview TCP 8766 与 `client_url` 对应 Jellyfin 端口。电脑监听正常不能证明手机可访问；必须从手机所在 Wi-Fi 做检测。HTTP 401/403 表示认证拒绝，404 表示播放资源不存在，5xx 表示 Jellyfin 错误；无法连接需检查 LAN 地址、Wi-Fi 隔离与防火墙规则。本阶段不自动修改防火墙或 Jellyfin 配置，也不覆盖生产部署。
+
+例如（非真实设备配置）：
+
+```json
+{"jellyfin":{"url":"http://127.0.0.1:8096","client_url":"http://192.168.1.20:8096","client_host_allowlist":[],"api_key":"__SET_DURING_SETUP__"}}
+```
+
+手机视频始终直接访问 Jellyfin，MediaReview Server 不中转视频。
+
+## 构建命令
 
 开发机执行:
 

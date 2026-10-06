@@ -44,6 +44,8 @@ class _KeyStore:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path.endswith("/PlaybackInfo"):
+            return httpx.Response(200, json={"MediaSources": [{"Id": "video-1"}]})
         if path.endswith("/Auth/Keys"):
             if self.fail:
                 return httpx.Response(500, json={"error": "boom"})

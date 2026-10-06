@@ -69,7 +69,7 @@ class DuplicateScanScope:
     library_ids: tuple[str, ...]
 
     @classmethod
-    def of(cls, library_ids) -> "DuplicateScanScope":
+    def of(cls, library_ids) -> DuplicateScanScope:
         return cls(library_ids=tuple(sorted(str(i) for i in library_ids)))
 
 
@@ -451,9 +451,7 @@ def last_successful_scan(session: Session) -> BackgroundTask | None:
     ).first()
 
 
-def _groups_from_rows(
-    session: Session, rows: list[DuplicateGroupRow]
-) -> list[DuplicateGroup]:
+def _groups_from_rows(session: Session, rows: list[DuplicateGroupRow]) -> list[DuplicateGroup]:
     """把分组行批量转换为领域对象: 成员用**一次 IN 查询**取回,禁止逐组 N+1。"""
     group_ids = [row.group_id for row in rows]
     members_by_group: dict[str, list[DuplicateGroupMember]] = {}
