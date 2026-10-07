@@ -104,3 +104,11 @@ health必须1.2.2/Contract2/能力齐全，readiness必须显式client_url权威
 隔离事务在 mock 服务确认停止、端口释放之后建立完整快照，备份配置、数据库及当时存在的 WAL/SHM、旧二进制、版本文件与 WinSW 定义；隐藏文件也纳入字节数、完整文件集合及 SHA256。切换后的 health/readiness 失败会停回同一实例、校验备份、恢复停服时快照并验证旧服务状态；恢复失败明确报告 `UPGRADE_FAILED_ROLLBACK_FAILED`，保留恢复资料。
 
 这些验证只使用假二进制及假数据库，不证明真实数据库迁移、实际 WinSW/ControlHub 升级或 Jellyfin 播放链已经通过。生产升级、手机安装迁移和家庭 LAN 验收仍待另行执行。
+
+## Stage 8E.2：来源门禁与官方合同阻断
+
+纳管入口在 Stop 前调用 verified-rc.ps1，要求 manifest、完整 checksum 集合及实际 EXE/版本/Contract 一致，拒绝新增、缺失、篡改、路径大小写歧义和 reparse。初始二进制清单保持不变，Stop 前及 staging 前后重新核对；停服期间来源改变会拒绝并按既有事务恢复旧 fixture。
+
+本地 UpgradePlan 包含 exact target、当前/目标版本、Contract、来源与 EXE 摘要、install/dataRoot、动作序列和可选 release HEAD。PS5.1/7 canonical 摘要一致，但不是官方审批。
+
+当前生产执行仍 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。现有单动作锁不能覆盖 Stop 后至 Start/恢复之间的文件事务；正式平台需提供同 GUI coordinator IPC、事务 reservation/lease、计划执行绑定和关联审计。不得直接调用 Helper/SCM 或新建独立 Controller 绕过。上述历史非纳管安装说明不构成既有 AIHome.MediaReview 的升级授权。

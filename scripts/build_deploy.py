@@ -308,6 +308,13 @@ def verify_version_ssot() -> None:
 def package_sources(*, include_artifacts: bool = True) -> dict[str, Path]:
     """RC 实际复制文件的唯一清单：目标相对路径 -> 源文件。"""
     sources = {f"scripts/{name}": DEPLOY / "scripts" / name for name in ALL_SCRIPTS}
+    sources.update(
+        {
+            f"scripts/{path.name}": path
+            for path in sorted((DEPLOY / "scripts").glob("*.ps1"))
+            if path.is_file()
+        }
+    )
     sources.update({name: DEPLOY / name for name in ("version.ps1", "config.example.json")})
     sources.update(
         {
@@ -609,13 +616,261 @@ def package_verified() -> Path:
     return zip_path
 
 
+# 原 Stage8E 正式 RC inventory 是完整 dist 的信任锚，不能接受现场重算的自声明清单。
+VERIFIED_RC_INVENTORY_SHA256 = "a1e784495ce1756761cc202949e7fbcf6630edb8ad3d59ec4ace2942045eef3d"
+VERIFIED_RUNTIME_HEAD = "a080422b0d03ca64f48b77856b54776ca265a15b"
+VERIFIED_APK_SHA256 = "600aa647aae8731e3b241592db9b303295f2cb04c4be6cb0c5011b418185bfab"
+VERIFIED_EXE_SHA256 = "51a1f9d26d7c4d0b8780221b4c7318231b7ff6efedf1fe4a00baad498e3ab3c0"
+
+
+def runtime_inputs() -> dict[str, str]:
+    return {
+        key: value for key, value in source_inputs().items() if key != "scripts/build_deploy.py"
+    }
+
+
+def verified_rc(source_rc: Path, manifest_path: Path) -> tuple[dict, dict[str, str]]:
+    if source_rc.is_symlink() or getattr(source_rc.stat(), "st_file_attributes", 0) & 0x400:
+        raise ValueError("原 RC 目录禁止链接/reparse")
+    source_rc = source_rc.resolve()
+    if sha256(source_rc / "SHA256SUMS.txt") != VERIFIED_RC_INVENTORY_SHA256:
+        raise ValueError("原正式 RC inventory 信任锚不匹配")
+    if manifest_path.resolve() != source_rc / "RELEASE_MANIFEST.json":
+        raise ValueError("必须显式指定同一原正式 RC 的 manifest")
+    expected = {}
+    for line in (source_rc / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+        if not match:
+            raise ValueError("原 RC SHA256 格式无效")
+        digest, relative = match.groups()
+        if (
+            relative in expected
+            or "\\" in relative
+            or ":" in relative
+            or relative.startswith("/")
+            or any(part in ("", ".", "..") for part in relative.split("/"))
+            or relative == "SHA256SUMS.txt"
+        ):
+            raise ValueError("原 RC SHA256 路径无效或重复")
+        expected[relative] = digest
+    actual = {}
+    for path in source_rc.rglob("*"):
+        if path.is_symlink() or (
+            hasattr(path.stat(), "st_file_attributes") and path.stat().st_file_attributes & 0x400
+        ):
+            raise ValueError("原 RC 禁止链接/reparse")
+        if path.is_file() and path.relative_to(source_rc).as_posix() != "SHA256SUMS.txt":
+            actual[path.relative_to(source_rc).as_posix()] = sha256(path)
+    if actual != expected:
+        raise ValueError("原 RC 完整文件集合或 SHA256 不匹配")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    required = {
+        "server_version": VERSION,
+        "api_contract": API_CONTRACT,
+        "android_version_name": ANDROID_VERSION,
+        "android_version_code": ANDROID_CODE,
+        "android_package": ANDROID_PACKAGE,
+        "apk_signature": "PASS",
+        "git_head": VERIFIED_RUNTIME_HEAD,
+        "apk_sha256": VERIFIED_APK_SHA256,
+        "server_exe_sha256": VERIFIED_EXE_SHA256,
+    }
+    if any(manifest.get(key) != value for key, value in required.items()):
+        raise ValueError("原正式 RC provenance/版本/二进制身份不匹配")
+    if (
+        expected.get("app-release.apk") != VERIFIED_APK_SHA256
+        or expected.get("MediaReviewServer/MediaReviewServer.exe") != VERIFIED_EXE_SHA256
+        or not re.fullmatch(r"[0-9a-f]{40}", manifest.get("build_git_head", ""))
+        or not manifest.get("build_verified_at")
+    ):
+        raise ValueError("原正式 RC 缺少已验证构建 provenance")
+    provenance = manifest.get("build_input_sha256", manifest.get("source_input_sha256"))
+    if not isinstance(provenance, dict) or runtime_inputs() != {
+        key: value for key, value in provenance.items() if key != "scripts/build_deploy.py"
+    }:
+        raise ValueError("运行时源输入与原正式 RC provenance 不匹配")
+    return manifest, actual
+
+
+def repackage_snapshot(source_rc: Path, manifest_path: Path) -> dict:
+    manifest, files = verified_rc(source_rc, manifest_path)
+    verify_version_ssot()
+    return {
+        "source_rc": str(source_rc.resolve()),
+        "source_manifest": manifest,
+        "source_files": files,
+        "source_sha256sums": sha256(source_rc / "SHA256SUMS.txt"),
+        "runtime_inputs": runtime_inputs(),
+        "package_inputs": package_inputs(include_artifacts=False),
+        "builder_sha256": sha256(Path(__file__)),
+        "package_git_head": git_head(require_clean=True),
+    }
+
+
+def repackage_receipt_path(receipt: Path, source_rc: Path, *, creating: bool) -> Path:
+    """收据仅允许 OUT 内扁平 JSON；先检查原路径，再规范化，禁止重定向。"""
+    for candidate in (receipt, OUT):
+        for ancestor in (candidate, *candidate.parents):
+            try:
+                info = ancestor.lstat()
+            except FileNotFoundError:
+                continue
+            if ancestor.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ValueError("repackage receipt 路径禁止链接/reparse")
+    resolved = receipt.resolve()
+    output = OUT.resolve()
+    source = source_rc.resolve()
+    if (
+        resolved.parent != output
+        or resolved.is_relative_to(source)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*\.json", receipt.name)
+    ):
+        raise ValueError("repackage receipt 仅允许 OUT 内新的扁平 JSON 文件")
+    if creating and resolved.exists():
+        raise ValueError("repackage receipt 已存在，拒绝覆盖；请指定新的 JSON 文件名")
+    if not creating and not resolved.is_file():
+        raise ValueError("repackage receipt 必须是已有普通 JSON 文件")
+    return resolved
+
+
+def prepare_repackage(source_rc: Path, manifest_path: Path, receipt: Path | None = None) -> Path:
+    receipt = repackage_receipt_path(
+        receipt or OUT / "stage8e2-repackage-evidence.json", source_rc, creating=True
+    )
+    snapshot = repackage_snapshot(source_rc, manifest_path)
+    if snapshot != repackage_snapshot(source_rc, manifest_path):
+        raise ValueError("准备期间输入变化")
+    OUT.mkdir(exist_ok=True)
+    receipt = repackage_receipt_path(receipt, source_rc, creating=True)
+    with receipt.open("x", encoding="utf-8") as stream:
+        json.dump(
+            {
+                "mode": "repackage-verified",
+                "verified_at": dt.datetime.now(dt.UTC).isoformat(),
+                **snapshot,
+            },
+            stream,
+            ensure_ascii=False,
+            indent=2,
+        )
+    print(f"REPACKAGE RECEIPT: {receipt}")
+    return receipt
+
+
+def repackage_verified(source_rc: Path, manifest_path: Path, receipt: Path) -> Path:
+    receipt = repackage_receipt_path(receipt, source_rc, creating=False)
+    evidence = json.loads(receipt.read_text(encoding="utf-8"))
+    snapshot = repackage_snapshot(source_rc, manifest_path)
+    age = dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(evidence["verified_at"])
+    if (
+        evidence.get("mode") != "repackage-verified"
+        or not 0 <= age.total_seconds() <= 21600
+        or any(evidence.get(key) != value for key, value in snapshot.items())
+    ):
+        raise ValueError("repackage receipt 失效：源码、脚本、原 RC 或 HEAD 变化")
+    manifest = dict(snapshot["source_manifest"])
+    head = snapshot["package_git_head"]
+    manifest.update(
+        runtime_build_git_head=manifest["build_git_head"],
+        runtime_release_git_head=manifest["git_head"],
+        runtime_source_inputs=snapshot["runtime_inputs"],
+        package_git_head=head,
+        git_head=head,
+        package_input_sha256=snapshot["package_inputs"],
+        original_release_manifest_sha256=snapshot["source_files"]["RELEASE_MANIFEST.json"],
+        repackaged_at=evidence["verified_at"],
+    )
+    name = f"MediaReview_RC_Alpha8_Server-{VERSION}_{head[:7]}"
+    package, zip_path = OUT / name, OUT / f"{name}.zip"
+    if package.exists() or zip_path.exists():
+        raise ValueError("发布产物已存在，拒绝覆盖历史产物")
+    sources = package_sources(include_artifacts=False)
+    expected = {
+        relative: snapshot["package_inputs"][path.relative_to(ROOT).as_posix()]
+        for relative, path in sources.items()
+    }
+    for relative, digest in snapshot["source_files"].items():
+        if relative == "app-release.apk" or relative.startswith("MediaReviewServer/"):
+            sources[relative] = source_rc / relative
+            expected[relative] = digest
+    generated = {
+        "RELEASE_MANIFEST.json": json.dumps(manifest, ensure_ascii=False, indent=2),
+        "HANDOVER.md": render_handover(manifest),
+    }
+    expected.update(
+        {key: hashlib.sha256(value.encode("utf-8")).hexdigest() for key, value in generated.items()}
+    )
+    created = []
+    try:
+        package.mkdir()
+        created.append(package)
+        for relative, path in sources.items():
+            destination = package / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, destination)
+            if sha256(destination) != expected[relative]:
+                raise ValueError("复制期间输入变化")
+        for relative, content in generated.items():
+            (package / relative).write_bytes(content.encode("utf-8"))
+        write_sha256(package)
+        with zipfile.ZipFile(zip_path, "x", zipfile.ZIP_DEFLATED) as archive:
+            created.append(zip_path)
+            for path in sorted(package.rglob("*")):
+                if path.is_file():
+                    archive.write(path, f"{name}/{path.relative_to(package).as_posix()}")
+        verify_zip(zip_path, name)
+        verify_receipted_package(zip_path, package, expected)
+        if snapshot != repackage_snapshot(source_rc, manifest_path):
+            raise ValueError("最终输入或 HEAD 漂移，receipt 失效")
+        verify_zip(zip_path, name)
+        verify_receipted_package(zip_path, package, expected)
+        if snapshot != repackage_snapshot(source_rc, manifest_path):
+            raise ValueError("最终 HEAD 或输入漂移")
+    except BaseException:
+        for path in reversed(created):
+            if path == package:
+                clean_generated(path, package)
+            else:
+                path.unlink(missing_ok=True)
+        raise
+    return zip_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--prepare-only", action="store_true")
     actions.add_argument("--package-verified", action="store_true")
+    actions.add_argument(
+        "--prepare-repackage",
+        action="store_true",
+        help="只读验证原正式 RC 并记录重打包 receipt，不构建",
+    )
+    actions.add_argument(
+        "--repackage-verified",
+        action="store_true",
+        help="消费 prepare-repackage receipt；HEAD/脚本/原 RC 漂移均拒绝",
+    )
+    parser.add_argument(
+        "--source-rc", type=Path, help="原正式 RC 解压目录，包含完整 Server dist 与同一 APK"
+    )
+    parser.add_argument(
+        "--source-manifest", type=Path, help="该原正式 RC 内的 RELEASE_MANIFEST.json"
+    )
+    parser.add_argument("--repackage-receipt", type=Path, help="prepare-repackage receipt 路径")
     args = parser.parse_args()
+    if args.prepare_repackage or args.repackage_verified:
+        if not args.source_rc or not args.source_manifest:
+            parser.error("重打包必须显式指定 --source-rc 和 --source-manifest")
+        if args.repackage_verified and not args.repackage_receipt:
+            parser.error("最终重打包必须显式指定 --repackage-receipt")
     try:
+        if args.prepare_repackage:
+            prepare_repackage(args.source_rc, args.source_manifest, args.repackage_receipt)
+            return 0
+        if args.repackage_verified:
+            repackage_verified(args.source_rc, args.source_manifest, args.repackage_receipt)
+            return 0
         if not args.package_verified:
             prepare()
         if not args.prepare_only:

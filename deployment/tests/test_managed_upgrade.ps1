@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param([string]$TestCase = '')
 $ErrorActionPreference = 'Stop'
@@ -20,7 +20,7 @@ function Snapshot($Path) {
 # visible there when this harness is invoked with &, so capture the action.
 $snapshotAction = ${function:Snapshot}
 try {
-    foreach ($case in @('stopcreates','stopremoves','hiddencorrupt','backupadded','stopfail','firststartfail','switchfail','success','healthfail','copyfail','backupfail','rollbackfail','portbusy','wrongidentity','absentsidecars','whatif','dryrun')) {
+    foreach ($case in @('sourcemutated','stopcreates','stopremoves','hiddencorrupt','backupadded','stopfail','firststartfail','switchfail','success','healthfail','copyfail','backupfail','rollbackfail','portbusy','wrongidentity','absentsidecars','whatif','dryrun')) {
         if ($TestCase -and $case -ne $TestCase) { continue }
         $caseRoot = Join-Path $root $case
         foreach ($dir in @('install\MediaReviewServer','package\MediaReviewServer','data\config','data\database','data\service\main')) {
@@ -37,6 +37,13 @@ try {
             Set-Content -LiteralPath $hiddenPath -Value "fake-$hidden" -Encoding UTF8
             (Get-Item -LiteralPath $hiddenPath -Force).Attributes = [IO.FileAttributes]::Hidden
         }
+        # Complete fake RC inventory; fake EXE bytes are never executed.
+        $package = Join-Path $caseRoot 'package'
+        @{ server_version = '1.2.2'; api_contract = 2; server_exe_sha256 = (Get-FileHash -LiteralPath (Join-Path $package 'MediaReviewServer\MediaReviewServer.exe')).Hash.ToLowerInvariant() } |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $package 'RELEASE_MANIFEST.json') -Encoding UTF8
+        @(Get-ChildItem -LiteralPath $package -File -Recurse -Force | ForEach-Object {
+            (Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant() + '  ' + $_.FullName.Substring($package.Length + 1).Replace('\','/')
+        }) | Set-Content -LiteralPath (Join-Path $package 'SHA256SUMS.txt') -Encoding UTF8
         if ($case -in @('absentsidecars','stopcreates')) {
             Remove-Item -LiteralPath (Join-Path $caseRoot 'data\database\mediareview.db-wal')
             Remove-Item -LiteralPath (Join-Path $caseRoot 'data\database\mediareview.db-shm')
@@ -51,6 +58,7 @@ try {
                 param($name)
                 $state.Calls.Add("stop:$name"); $state.Stops++; $state.Running = $false
                 if ($state.Stops -eq 1) {
+                    if ($case -eq 'sourcemutated') { Set-Content -LiteralPath (Join-Path $caseRoot 'package\MediaReviewServer\MediaReviewServer.exe') -Value 'changed-after-validation' -Encoding UTF8 }
                     foreach ($suffix in @('wal','shm')) {
                         $sidecar = Join-Path $caseRoot "data\database\mediareview.db-$suffix"
                         if ($case -eq 'stopcreates') { Set-Content -LiteralPath $sidecar -Value "fake-stop-$suffix" -Encoding UTF8 }
@@ -127,7 +135,7 @@ try {
             Assert ((Get-Content -LiteralPath (Join-Path $caseRoot 'install\MediaReviewServer\MediaReviewServer.exe') -Raw).Trim() -like 'fake-old-*') "$case old binary retained/restored"
             Assert (Test-Path -LiteralPath (Join-Path $caseRoot 'install\MediaReviewServer\dependency.dll')) "$case old dependency restored"
             Assert (-not (Test-Path -LiteralPath (Join-Path $caseRoot 'install\MediaReviewServer\new.dll'))) "$case new dependency absent"
-            if ($case -in @('healthfail','absentsidecars','stopcreates','stopremoves','stopfail','firststartfail','switchfail','copyfail','backupfail','portbusy')) {
+            if ($case -in @('sourcemutated','healthfail','absentsidecars','stopcreates','stopremoves','stopfail','firststartfail','switchfail','copyfail','backupfail','portbusy')) {
                 # Compare only restored sources; backup evidence deliberately remains.
                 $restored = @(Get-ChildItem -LiteralPath (Join-Path $caseRoot 'data') -File -Recurse -Force | Where-Object { $_.FullName -notlike '*\backups\*' } | Sort-Object FullName | ForEach-Object { "$($_.FullName):$((Get-FileHash -LiteralPath $_.FullName).Hash)" }) -join '|'
                 Assert ($restored -eq $state.StoppedData) "$case config DB WAL SHM definition restored to stopped snapshot exactly"

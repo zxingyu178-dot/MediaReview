@@ -1,7 +1,7 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 既有 AIHome.MediaReview 受控升级事务。默认 Dry Run / WhatIf 零写入。
-Stage8E.1 只开放隔离 fixture 执行；生产 Execute 在任何写入/服务操作前拒绝。
+Stage8E.2 只开放隔离 fixture 执行；生产 Execute 在任何写入/服务操作前拒绝。
 未来生产适配器必须接入 ControlHub 官方 coordinator（批准绑定及审计），不能
 把底层 ControlHubServiceHelper.exe 或 SCM 命令当作独立生命周期入口。
 退出结果 Status 区分升级成功、失败恢复成功、恢复失败和生产封锁。
@@ -20,6 +20,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\version.ps1"
+. "$PSScriptRoot\verified-rc.ps1"
 $ServiceName = 'AIHome.MediaReview'
 $Port = 8766
 $healthUrl = 'http://127.0.0.1:8766/api/v1/system/health'
@@ -108,12 +109,11 @@ $plan = [ordered]@{
     DataRoot = $DataRoot; SourcePackage = $SourcePackage; ServiceState = 'unknown'; JellyfinState = 'unknown'
     BackupPath = $backupPath; ReplacePaths = @($binaryPath, (Join-Path $InstallDir 'VERSION.txt'))
     HealthTarget = $healthUrl; Readiness = 'SCM running + health identity + database ok + exact version/contract'
-    RollbackPath = $backupPath; ProductionExecution = 'BLOCKED_STAGE8E1'; ErrorCode = $null
-}
-# Production execute is denied before querying DB/config, adapter or creating files.
-if ($Execute -and -not $WhatIfPreference -and -not $FixtureRoot) {
-    $plan.Status = 'PRODUCTION_EXECUTION_BLOCKED'; $plan.ErrorCode = 'OFFICIAL_COORDINATOR_BRIDGE_REQUIRED'
-    return [pscustomobject]$plan
+    RollbackPath = $backupPath; ProductionExecution = 'BLOCKED_OFFICIAL_BRIDGE'; ErrorCode = $null
+    ControlHubCapability = 'NOT_PROVEN_OFFICIAL_BRIDGE_REQUIRED'
+    OfficialBridgeBlocker = 'OFFICIAL_COORDINATOR_BRIDGE_REQUIRED'
+    RequiredBridgeCapabilities = @('shared_transaction_mutex','exact_target_binding','approval_plan_digest','official_audit')
+    MissingOfficialCapabilities = @('same_instance_ipc','transaction_scope_mutex','upgrade_plan_execution_binding','plan_step_audit_correlation')
 }
 if ($FixtureRoot) {
     $FixtureRoot = Get-CanonicalPath $FixtureRoot
@@ -133,6 +133,25 @@ if ($FixtureRoot) {
         }
     }
     if (-not $FixtureAdapter) { throw 'Fixture requires explicit mock adapter' }
+}
+# RC identity is checked before all production execution gating and lifecycle calls.
+$verifiedRc = $null
+if ($SourcePackage) {
+    try { $verifiedRc = Test-VerifiedRc $SourcePackage $ExpectedServerVersion $RequiredApiContract }
+    catch {
+        $plan.Status = 'SOURCE_PACKAGE_INVALID'; $plan.ErrorCode = 'SOURCE_PACKAGE_INVALID'
+        return [pscustomobject]$plan
+    }
+    $plan.SourcePackageHash = $verifiedRc.sourcePackageHash
+    $plan.ServerExeHash = $verifiedRc.serverExeHash
+    $plan.ReleaseGitHead = $verifiedRc.releaseGitHead
+}
+# Production execute is denied before querying DB/config, adapter or creating files.
+if ($Execute -and -not $WhatIfPreference -and -not $FixtureRoot) {
+    $plan.Status = 'PRODUCTION_EXECUTION_BLOCKED'; $plan.ErrorCode = 'OFFICIAL_COORDINATOR_BRIDGE_REQUIRED'
+    return [pscustomobject]$plan
+}
+if ($FixtureRoot) {
     $plan.ServiceState = Invoke-Adapter 'Status' $ServiceName
     $currentHealth = Invoke-Adapter 'Health' $healthUrl
     $plan.CurrentVersion = $currentHealth.data.version
@@ -142,8 +161,19 @@ if ($FixtureRoot) {
     try { $plan.JellyfinState = (Get-Service -Name 'JellyfinServer' -ErrorAction Stop).Status.ToString() } catch { }
     try { $plan.CurrentVersion = (Invoke-RestMethod -Uri $healthUrl -TimeoutSec 3).data.version } catch { }
 }
+if ($verifiedRc) {
+    $immutablePlan = [ordered]@{
+        service = $ServiceName; currentVersion = $plan.CurrentVersion; targetVersion = $ExpectedServerVersion
+        apiContract = $RequiredApiContract; sourcePackageHash = $verifiedRc.sourcePackageHash
+        serverExeHash = $verifiedRc.serverExeHash; installDir = $InstallDir; dataRoot = $DataRoot
+        actionSequence = @('Stop','Backup','Stage','Switch','Start','Readiness','Rollback')
+    }
+    if ($verifiedRc.releaseGitHead) { $immutablePlan.releaseGitHead = $verifiedRc.releaseGitHead }
+    try { $plan.PlanDigest = Get-UpgradePlanDigest $immutablePlan; $plan.PlanDigestAuthority = 'LOCAL_PLAN_ONLY_NOT_OFFICIAL_APPROVAL' }
+    catch { $plan.Status = 'UPGRADE_PLAN_INVALID'; $plan.ErrorCode = 'UPGRADE_PLAN_INVALID'; return [pscustomobject]$plan }
+}
 if (-not $Execute -or $WhatIfPreference) { return [pscustomobject]$plan }
-# No production adapter is accepted in Stage8E.1. This engine runs only fake files
+# No production adapter is accepted in Stage8E.2. This engine runs only fake files
 # and explicitly injected fixture lifecycle actions under the validated temp root.
 if (-not $PSCmdlet.ShouldProcess($ServiceName, '隔离 fixture 升级及失败恢复')) { return [pscustomobject]$plan }
 $groups = @(
@@ -169,6 +199,8 @@ try {
         if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) { throw 'Required install/service file missing' }
     }
     if ($plan.ServiceState -ne 'running' -or -not (Test-ManagedHealth $currentHealth $plan.CurrentVersion $currentHealth.data.api_contract)) { throw 'Initial managed identity/health mismatch' }
+    $recheckedRc = Test-VerifiedRc $SourcePackage $ExpectedServerVersion $RequiredApiContract
+    if ($recheckedRc.sourcePackageHash -cne $verifiedRc.sourcePackageHash) { throw 'Source identity changed before Stop' }
     $phase = 'STOP'; $stopped = $true
     $null = Invoke-Adapter 'Stop' $ServiceName; Wait-ServiceState 'stopped'; Wait-PortFree
     $phase = 'BACKUP'
@@ -196,9 +228,13 @@ try {
     @{ service = $ServiceName; service_state = 'stopped'; port_free = $true; old_version = $plan.CurrentVersion; target_version = $ExpectedServerVersion; files = @($manifest); groups = @($groups | ForEach-Object { @{ name = $_.Name; existed = $_.Exists } }) } |
         ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $backupPath 'backup_manifest.json') -Encoding UTF8
     $backupReady = $true; $phase = 'STAGING'
-    $sourceFiles = @(Get-FileInventory $source)
+    $recheckedRc = Test-VerifiedRc $SourcePackage $ExpectedServerVersion $RequiredApiContract
+    if ($recheckedRc.sourcePackageHash -cne $verifiedRc.sourcePackageHash) { throw 'Source identity changed after Stop' }
+    $sourceFiles = @($verifiedRc.binaryInventory)
     Copy-Item -LiteralPath $source -Destination $stage -Recurse -Force
     if ($FixtureFault -eq 'copyfail') { throw 'Fixture staging copy failure' }
+    $recheckedRc = Test-VerifiedRc $SourcePackage $ExpectedServerVersion $RequiredApiContract
+    if ($recheckedRc.sourcePackageHash -cne $verifiedRc.sourcePackageHash) { throw 'Source identity changed during staging' }
     Assert-Inventory $source $sourceFiles
     Assert-Inventory $stage $sourceFiles
     $phase = 'SWITCH'; $switched = $true

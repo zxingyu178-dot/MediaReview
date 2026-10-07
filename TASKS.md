@@ -558,3 +558,18 @@
 - [ ] 生产升级、旧手机迁移、真实家庭LAN验收：本阶段不执行。
 
 当前有条件交接范围，整体PRE_LAN_READY尚未达到；不自动进入8F。
+
+## Stage 8E.2：官方升级桥接与可信RC
+
+- [x] 官方源码与安装PYZ只读审查，独立复核最小façade不足；具体缺口见STAGE8E2_CONTROLHUB_BRIDGE。
+- [x] RC完整SHA256集合、manifest/EXE身份、Stop前拒绝与来源突变恢复；PS5.1/7验证。
+- [x] 固定schema本地升级计划摘要；跨引擎canonical和路径大小写复审问题修复。
+- [x] verified repackage实现、原全库存信任锚、runtime build/release/package来源分开；receipt路径覆盖问题修复。
+- [x] 新重复模块与既有脚本登记更新；无新服务/binding。
+- [x] 最终全量验证和整体独立复审通过；交付流程已准备，最终提交/远端clean/十一份说明ZIP与邮件以Handoff及脱敏回执记录为准。
+- [ ] 官方同实例IPC、事务互斥、计划执行绑定和逐步审计：BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。
+- [ ] 实际新部署RC：未生成，按本阶段规则等待官方bridge完成；用户APK不变。
+- [ ] 生产Execute/旧手机迁移/实际家庭LAN：NOT PERFORMED / NOT TESTED。
+
+Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UNKNOWN。本阶段不修复、不重启，不进入新功能阶段。
+

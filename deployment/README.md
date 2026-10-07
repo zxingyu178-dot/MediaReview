@@ -69,3 +69,18 @@ python scripts/build_deploy.py
 本阶段只验证隔离 fixture 中的备份、切换及失败恢复事务；**生产 `-Execute` 当前会拒绝执行**。ControlHub 现有底层 helper 不能代替官方 coordinator 的共享互斥、批准绑定和审计。正式生产适配器等待官方入口支持，当前不得将此脚本用于实际升级，也不得把 fixture 通过当成生产升级完成。
 
 隔离回归入口：`deployment/tests/test_managed_upgrade.ps1`。既有 Alpha8 APK/Server 1.2.2 RC 继续保留，本阶段不重新构建用户产物。
+
+## Stage 8E.2：可信来源与重打包
+
+升级预览及执行首先校验来源 RC 的 manifest、完整 SHA256 文件集合、实际 EXE、版本和 Contract。缺失、篡改、额外文件、大小写不一致和 reparse 路径会在生命周期操作前拒绝。预览中的计划摘要仅为本地身份，不能作为官方批准。
+
+正式桥接当前为 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；官方同实例 IPC、升级全过程事务 lease、UpgradePlan 执行绑定和计划审计关联尚未取得。生产 Execute 继续封锁，本阶段未实际生成新 RC。
+
+待官方桥接闭合后，可在最终提交且 Git clean 时使用既有发布工具的两步重打包入口（SOURCE_RC 为占位）：
+
+```text
+python scripts/build_deploy.py --prepare-repackage --source-rc SOURCE_RC --source-manifest SOURCE_RC/RELEASE_MANIFEST.json --repackage-receipt deploy_handoff/stage8e2_receipt.json
+python scripts/build_deploy.py --repackage-verified --source-rc SOURCE_RC --source-manifest SOURCE_RC/RELEASE_MANIFEST.json --repackage-receipt deploy_handoff/stage8e2_receipt.json
+```
+
+receipt 只能是部署输出根内新的平面 JSON 文件，独占创建，已有文件、嵌套路径、来源内路径及链接均拒绝；不能覆盖原 manifest 或 APK。有效期6小时，来源、工具输入或最终 HEAD 变化均须重新验证。只复用固定可信原 RC 的 APK 和整个 Server dist，不 clean build、不重签、不输出新独立 APK。manifest 分别保留真实 runtime build/release 与 package Git HEAD。

@@ -2376,3 +2376,11 @@ Stage8E最终验证：Server487 passed/0 failed，1条既有警告，220.54秒�
 Alpha4和Alpha8证书不同，原位迁移BLOCKED，旧手机App未动。Jellyfin历史returncode1根因UNKNOWN；开始Stopped，后续外部动作使服务Running，回环8096可响应，未归属启动发起者。本阶段无Jellyfin/生产MediaReview生命周期动作、无真实DB复制/修改、无真实媒体删除。生产MediaReview仍1.1.0，真实手机LAN NOT TESTED。
 
 自动审批拒绝审查假数据目录的清理，保留并写明恢复/交接边界；不绕过重试。最终测试、提交/远端/清洁状态及SHA256交付清单以Stage8E.1 Handoff证据为准，不自动开启8F。
+
+## 2026-10-07 Stage 8E.2 — 官方升级合同与可信来源
+
+来源 Gate、跨 PowerShell canonical plan、来源变化恢复及 verified repackage 实现完成。原 runtime/API/schema/Android版本与原 APK/EXE 不变；生产执行及新部署 RC 未执行。官方既有 per-action 锁、manifest批准与审计不足以覆盖升级事务，缺口为同实例 IPC、transaction lease、实际计划执行绑定及步骤审计关联，结论 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。没有修改 ControlHub 正式合同或安装版。
+
+最终 Server561项通过（312.084秒，零失败/跳过，1条既有警告）；PS5.1/7来源专项各164断言、事务各129断言；重打包90项及独立复审通过；既有ControlHub合同88项通过。Ruff/format/diff通过；正式WhatIf两引擎来源与本地计划摘要一致，仅LOCAL_PLAN，不构成官方批准。独立审查关闭canonical转义、清单大小写、receipt原文件覆盖P1。原始red/final/review证据留在交接包；部分早期PS调试输出覆盖的限制已记录。
+
+用户确认其启动Jellyfin，历史退出码1根因UNKNOWN。生产MediaReview仍1.1.0；手机证书NOT VERIFIED；所有真实手机/LAN/播放/首帧/五项批阅NOT TESTED，按用户决定不迁移App、不发APK。新脚本登记Registry而无新服务/binding。重要交接按最终Git/远端/SHA及Hermes回执确认；不自动进入下一阶段。清理自动审批拒绝的临时目录保留、不重试。
