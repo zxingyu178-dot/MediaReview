@@ -52,5 +52,3 @@ Interface: --repackage-verified 消费原正式RC manifest与同一APK/Server完
 - [x] 更新DEV_LOG/TASKS/REVIEW_SUMMARY，记录用户启动Jellyfin与手机全部NOT TESTED。
 - [ ] 提交/push/核对远端与clean，生成8E.2规定十一份说明、git/logs/source/SHA256交接ZIP。
 - [ ] 不自动升级生产，不自动进入下一功能阶段；重要无APK交接邮件按既有用户授权及Hermes入口执行。
-
-
