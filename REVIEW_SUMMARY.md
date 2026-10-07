@@ -1,34 +1,32 @@
-# MediaReview Stage 8E 审查摘要
+# MediaReview Stage 8E.1 审查摘要
 
-阶段：候选发布、生产预检与真实局域网验收准备。
-基线：0b3fda176110b9accbdf6efc0dd09c58edef8023。
-分支：feature/mediareview-v2-stage8e-real-lan-rc。
-Server 1.2.2 / API Contract 2；Android code15 / 2.0.0-alpha8。
+阶段：Pre-LAN Closure / Upgrade Safety。基线 a080422b0d03ca64f48b77856b54776ca265a15b；分支 feature/mediareview-v2-stage8e.1-pre-lan-closure。
+Android Alpha8/code15、Server1.2.2/Contract2保持；运行时代码、播放器/首页/批阅/图片Viewer/整理业务、API及数据库schema未修改。
 
 ## 实际变更
 
-既有打包脚本改为干净构建，不复用旧 EXE/APK；启动隔离的实际 EXE 校验 health，读取实际 APK manifest 并验证签名。记录构建输入和整个 Server 分发目录指纹，最终清洁 HEAD 打包时重复核对，逐项回验 ZIP SHA256。Server 与 Android 版本分别写入生成的 HANDOVER/RELEASE_MANIFEST。
-安装脚本兼容新 RC 目录，拒绝绕过既有 WinSW 服务；SCM 查询失败时在任何生产写入前停止。新增发布完整性测试、预检报告、安装指南和 LAN 验收说明。Android 仅升级版本与累计更新说明；无播放器、API 或数据库改动。
-主要位置：scripts/build_deploy.py、deployment/scripts/install.ps1、Android release notes/version、server/tests/test_release_package_integrity_8e.py。
+发布工具统一枚举全部RC复制源，prepare分离build_inputs/package_inputs，拒绝旧receipt及两类输入漂移；最终staging、ZIP和独立APK均与原receipt连接，保护历史产物，失败清理仅本轮输出。新增变更拒绝及TOCTOU回归。
+
+既有纳管服务升级脚本默认只读WhatIf；隔离事务实现停服后快照、配置/DB/WAL/SHM/旧binary/WinSW一致备份与完整hash集合、staging/switch/health与恢复，17场景121断言。停服前快照及隐藏文件两项审查问题已修复；测试闭包作用域问题有实证修复。脚本已登记既有全局Registry、项目引用和CHANGELOG，不新增服务/binding。
+
+正式生产adapter尚缺官方共享锁、批准绑定和审计入口，**生产Execute保持BLOCKED**。完整事务fixture通过不能写成正式可运行生产升级工具；整体PRE_LAN_READY未达到。
 
 ## 已执行验证
 
-- 部署/发布补充专项42项通过；SCM写入保护与遗漏输入指纹两项均有先失败后通过记录。
-- 独立复审：Critical 0 / 未解决 Important 0。
-- Android JVM363项通过，0失败/错误；lint0errors/40warnings；编译、debug与androidTest构建通过。
-- Ruff check/format与git diff --check通过。
-- Server最终全量487 passed，0失败/错误，1条既有依赖弃用警告；220.54秒。
-- 本轮真实HTTP播放4/4通过，29.311秒；Server与Demo完整播放器/批阅均实际播放且进度增长。
-- 干净PyInstaller构建与Gradle clean assembleRelease通过；实际EXE health=ok/1.2.2/Contract2/六项能力。
-- 实际APK= com.mediareview.app/code15/alpha8；apksigner PASS（v2/RSA2048）。
-- RC预提交完整性实测167项SHA256全部通过；最终文档提交后以同一已验证构建输入、重新核验实际产物生成最终HEAD包，最终交付结果见00_HANDOFF。
-- 构建与签名初次失败如实保留，隔离存储配置和本地迁移密钥路径已修复；未修改Server Runtime。
-- 已登记既有打包脚本mediareview-build-deploy，并补项目Registry引用和全局CHANGELOG；未新增长期服务。
+- Server最终串行529项通过，0failures/0errors/0skipped，313.650秒，1条既有Starlette/httpx弃用警告。首轮并行负载下100k行random查询1.204秒超1秒门槛，原失败日志保留，未放宽断言。
+- 包装专项58项与部署相关回归84项通过；独立复审关闭两项时序P1。
+- 升级17场景121断言，PS7、PS5.1及当前命令宿主直接调用通过；AST通过。
+- Server按项目cwd的ruff check/format通过，builder专项check/format通过；git diff --check通过。错误cwd的初次lint调用如实保留并纠正。
+- Android lint成功：0errors、40warnings、10information；本阶段JVM测试未重跑，先前Stage8E的363项仅历史基线。
+- 原Alpha8 Release APK真实GSY内核4/4通过：完整005 40s/1280×720/523→1661ms；批阅001 24s/1280×720/700→1936ms，006 22s/1024×768/508→1736ms，Downloads002 10s/1280×720/564→1766ms。未修改/重签目标APK；测试专用helper只读取实际内核并导航实际页面。
+- 黑盒首页、Demo图片、收藏、整理、首次更新/重启不自动弹/设置手动Alpha8通过；累计历史更新fixture显示Alpha2至Alpha8，关闭后已读15、重启不再自动弹，通过；安装APK哈希不变，未进行旧手机迁移。
+- 静态版本声明、既有实际EXE隔离health、现有manifest与EXE/APK哈希一致；未重建用户APK/RC。
 
-## 生产与用户验收边界
+## 边界、风险与遗留
 
-既有生产仍1.1.0，未覆盖，未执行备份；Jellyfin服务启动失败，自动登录未验证。已核对现有client_url与物理WLAN地址一致，不能代替手机连接证明。用户不在家，真实用户LAN与首帧耗时NOT TESTED。永久删除真实媒体NOT PERFORMED。
+旧Alpha4与Alpha8证书不同，原位升级BLOCKED；用户决定暂不迁移，实际手机安装身份未核实。Jellyfin历史退出码1根因UNKNOWN，开始Stopped，后续非本阶段动作变为Running/8096回环可响应，启动发起者未归属。本阶段未启动/停止/改配置；生产MediaReview仍1.1.0，未复制/修改真实DB，未删除真实媒体。Real Jellyfin LAN NOT TESTED。
 
-最高风险：用户手机实际网络路径待验；生产升级需要现有服务控制权限与停机备份；首次真机播放耗时尚无实测数据。
-候选包完成后仅等待用户安装验收，不自动进入下一阶段。
-阶段结论：有条件合格（READY_FOR_USER_VALIDATION；真实LAN未测试，生产未升级）。
+最高风险三项：正式ControlHub升级入口未闭合；旧手机签名与迁移数据边界未验；实际手机网络/Server视频与连续批阅尚未验收。
+审查假数据清理遭自动审批拒绝，目录保留并说明，不绕过重试。交付以最终Git提交、远端验证、clean及Stage8E.1 Handoff SHA256为准；不自动进入8F。
+
+阶段结论：有条件合格（离线实现与证据可交接，正式升级BLOCKED，整体PRE_LAN_READY未达到）。

@@ -97,3 +97,10 @@ health必须1.2.2/Contract2/能力齐全，readiness必须显式client_url权威
 - `scripts\status.ps1` — 显示进程、端口、健康状态与版本。
 - `%ProgramData%\MediaReview\deploy_report.txt` — 最近一次安装/升级的步骤报告。
 - `%ProgramData%\MediaReview\config\CURRENT_VERSION` — 当前运行版本。
+# Stage 8E.1：离线升级事务验证
+
+新增 `deployment/scripts/upgrade-aihome-managed.ps1`。默认及 `-WhatIf` 为只读预览；生产执行在任何写入和生命周期操作前封锁。正式 ControlHub 生产适配器尚未开放，不能据此执行既有服务升级。
+
+隔离事务在 mock 服务确认停止、端口释放之后建立完整快照，备份配置、数据库及当时存在的 WAL/SHM、旧二进制、版本文件与 WinSW 定义；隐藏文件也纳入字节数、完整文件集合及 SHA256。切换后的 health/readiness 失败会停回同一实例、校验备份、恢复停服时快照并验证旧服务状态；恢复失败明确报告 `UPGRADE_FAILED_ROLLBACK_FAILED`，保留恢复资料。
+
+这些验证只使用假二进制及假数据库，不证明真实数据库迁移、实际 WinSW/ControlHub 升级或 Jellyfin 播放链已经通过。生产升级、手机安装迁移和家庭 LAN 验收仍待另行执行。

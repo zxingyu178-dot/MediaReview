@@ -2359,3 +2359,20 @@ ControlHub 中"家庭媒体管家"显示"离线"，"打开应用"按钮禁用。
 
 
 Stage8E最终验证：Server487 passed/0 failed，1条既有警告，220.54秒；Android JVM363/0，lint0errors/40warnings，compile/debug/androidTest构建通过；真实HTTP Server/Demo Full/Review四项29.311秒通过。Ruff通过，168文件格式通过。补充发布/部署42项通过，独立复核未解决Critical0/Important0。第二次干净PyInstaller及Gradle clean assembleRelease成功（Release 2m15s）；实际EXE health1.2.2/Contract2/6capabilities，实际APK code15/alpha8/com.mediareview.app与签名PASS。RC预提交167项SHA256逐项回验通过。最终文档提交之后重新核验相同构建输入与全部产物，生成最终HEAD交付；准确最终SHA/文件大小/哈希见阶段00_HANDOFF和RELEASE_MANIFEST，不在tracked文档硬写形成循环。Registry登记现有mediareview-build-deploy脚本，不新增受管服务。生产仍1.1.0/Jellyfin停止，手机LAN/首帧/旧安装原位升级NOT TESTED，生产覆盖与真实媒体永久删除NOT PERFORMED。候选发布仅READY_FOR_USER_VALIDATION，完成后停止。
+
+
+## 2026-10-07 Stage 8E.1：Pre-LAN Closure / Upgrade Safety
+
+基线 a080422，分支 feature/mediareview-v2-stage8e.1-pre-lan-closure。用户决定继续离线收尾，暂不迁移 App。Android 运行时代码与 Server 运行时代码未改，沿用 Alpha8/code15、Server1.2.2/Contract2；未重新构建用户 APK 或 RC。
+
+发布工具新增统一 package_sources/package_inputs，prepare 分离 build_inputs/package_inputs，拒绝旧 receipt、输入漂移及EXE/APK替换；最终 staging/ZIP/独立APK均连接原 receipt，失败仅清理本轮输出，保护历史交付。两项时序P1经独立复现、修复和复审关闭，包装58项与相关部署回归84项通过。静态声明、既有最终EXE隔离health和现有manifest版本/哈希一致。
+
+升级工具默认只读/WhatIf，固定既有 AIHome.MediaReview 身份；隔离事务覆盖停服后完整快照、隐藏文件、DB/WAL/SHM/config/WinSW备份、staging与switch、health失败恢复、备份污染和恢复失败。停服前快照/隐藏文件两项审查问题已关闭；测试闭包宿主作用域缺陷实证定位后修复。PS7/PS5.1及直接调用17场景121断言通过。脚本已登记现有全局Registry并更新CHANGELOG，未新增服务/binding。
+
+正式生产adapter仍BLOCKED：官方协调入口尚无经验证的共享锁、批准绑定与审计桥接，生产-Execute在任何写入/生命周期操作前拒绝。不能用fixture成功替代正式升级可用性，因此整体未达到PRE_LAN_READY。
+
+实际既有Alpha8 Release APK在独立模拟器上测量：完整005为40s/1280×720/523→1661ms；批阅001为24s/1280×720/700→1936ms，006为22s/1024×768/508→1736ms，Downloads002为10s/1280×720/564→1766ms。全部isPlaying并由真实GSY内核读取，未注入播放状态。首次/重启/手动更新说明、首页/图片/收藏/整理有黑盒证据；累计历史更新fixture显示Alpha2至Alpha8，关闭持久化后重启不再自动弹，DataStore恢复原值且安装APK哈希不变；原始XML与结构化证据已保存。最终串行Server529项通过，0失败/0错误/0跳过，313.650秒，既有警告1条，未放宽性能断言。Android lint 0errors/40warnings，Server既有配置cwd下ruff check/format通过；错误cwd的初次lint调用和并行负载下性能测试失败均保留并纠正。
+
+Alpha4和Alpha8证书不同，原位迁移BLOCKED，旧手机App未动。Jellyfin历史returncode1根因UNKNOWN；开始Stopped，后续外部动作使服务Running，回环8096可响应，未归属启动发起者。本阶段无Jellyfin/生产MediaReview生命周期动作、无真实DB复制/修改、无真实媒体删除。生产MediaReview仍1.1.0，真实手机LAN NOT TESTED。
+
+自动审批拒绝审查假数据目录的清理，保留并写明恢复/交接边界；不绕过重试。最终测试、提交/远端/清洁状态及SHA256交付清单以Stage8E.1 Handoff证据为准，不自动开启8F。

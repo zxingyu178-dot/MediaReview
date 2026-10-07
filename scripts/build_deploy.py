@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -30,6 +31,7 @@ DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
 VERSION = "1.2.2"
+API_CONTRACT = 2
 ANDROID_VERSION = "2.0.0-alpha8"
 ANDROID_CODE = 15
 ANDROID_PACKAGE = "com.mediareview.app"
@@ -50,6 +52,7 @@ ALL_SCRIPTS = (
     "repair.ps1",
     "diagnose.ps1",
     "uninstall.ps1",
+    "upgrade-aihome-managed.ps1",
 )
 EVIDENCE = OUT / "stage8e-build-evidence.json"
 
@@ -164,7 +167,7 @@ def validate_binary_health(data: dict) -> dict:
     if (
         data.get("status") != "ok"
         or data.get("version") != VERSION
-        or data.get("api_contract") != 2
+        or data.get("api_contract") != API_CONTRACT
         or not set(REQUIRED_CAPABILITIES).issubset(data.get("capabilities", []))
     ):
         raise ValueError("Server EXE 实际 health/版本/Contract/capabilities 不符合要求")
@@ -271,6 +274,78 @@ def server_files() -> dict[str, str]:
     }
 
 
+def verify_version_ssot() -> None:
+    """只读静态声明；不导入 Server 或执行部署脚本。"""
+
+    def field(relative: str, pattern: str) -> str:
+        match = re.search(pattern, (ROOT / relative).read_text(encoding="utf-8"), re.MULTILINE)
+        if not match:
+            raise ValueError(f"版本 SSOT 声明缺失：{relative}")
+        return match[1]
+
+    declarations = (
+        field("server/app/__init__.py", r'^__version__\s*=\s*"([^"]+)"\s*$'),
+        field("deployment/version.ps1", r'^\$ExpectedServerVersion\s*=\s*"([^"]+)"\s*$'),
+        tomllib.loads((SERVER / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+            "version"
+        ],
+    )
+    contracts = (
+        field("server/app/__init__.py", r"^SERVER_API_CONTRACT\s*=\s*(\d+)\s*$"),
+        field("deployment/version.ps1", r"^\$RequiredApiContract\s*=\s*(\d+)\s*$"),
+    )
+    android = "android/app/build.gradle.kts"
+    if (
+        any(value != VERSION for value in declarations)
+        or any(int(value) != API_CONTRACT for value in contracts)
+        or field(android, r'^\s*versionName\s*=\s*"([^"]+)"\s*$') != ANDROID_VERSION
+        or int(field(android, r"^\s*versionCode\s*=\s*(\d+)\s*$")) != ANDROID_CODE
+        or field(android, r'^\s*applicationId\s*=\s*"([^"]+)"\s*$') != ANDROID_PACKAGE
+    ):
+        raise ValueError("版本 SSOT 不一致：源码、部署声明与 builder 必须匹配")
+
+
+def package_sources(*, include_artifacts: bool = True) -> dict[str, Path]:
+    """RC 实际复制文件的唯一清单：目标相对路径 -> 源文件。"""
+    sources = {f"scripts/{name}": DEPLOY / "scripts" / name for name in ALL_SCRIPTS}
+    sources.update({name: DEPLOY / name for name in ("version.ps1", "config.example.json")})
+    sources.update(
+        {
+            name: ROOT / name
+            for name in (
+                "LICENSE",
+                "THIRD_PARTY_NOTICES.md",
+                "UPGRADE_ROLLBACK.md",
+                "USER_INSTALL_GUIDE.md",
+                "USER_LAN_VALIDATION.md",
+            )
+        }
+    )
+    sources["README.md"] = DEPLOY / "README.md"
+    ffmpeg = ROOT / "third_party/ffmpeg"
+    if (ffmpeg / "ffmpeg.exe").is_file():
+        for name in ("ffmpeg.exe", "ffprobe.exe"):
+            if (ffmpeg / name).is_file():
+                sources[f"ffmpeg/{name}"] = ffmpeg / name
+    if include_artifacts:
+        sources.update(
+            {
+                f"MediaReviewServer/{path.relative_to(DIST).as_posix()}": path
+                for path in sorted(DIST.rglob("*"))
+                if path.is_file()
+            }
+        )
+        sources["app-release.apk"] = APK_DIR / "release/app-release.apk"
+    return sources
+
+
+def package_inputs(*, include_artifacts: bool = True) -> dict[str, str]:
+    return {
+        source.relative_to(ROOT).as_posix(): sha256(source)
+        for source in package_sources(include_artifacts=include_artifacts).values()
+    }
+
+
 def git_head(*, require_clean: bool = False) -> str:
     if require_clean:
         status = subprocess.run(  # noqa: S603
@@ -361,11 +436,32 @@ def verify_zip(zip_path: Path, package_root: str) -> int:
         return len(lines)
 
 
+def verify_receipted_package(zip_path: Path, package: Path, expected: dict[str, str]) -> None:
+    """最终内容必须连接原 receipt；现场 SHA 清单不是新的信任根。"""
+    members = {f"{package.name}/{relative}" for relative in expected}
+    members.add(f"{package.name}/SHA256SUMS.txt")
+    with zipfile.ZipFile(zip_path) as archive:
+        if set(archive.namelist()) != members or len(archive.namelist()) != len(members):
+            raise ValueError("ZIP receipt 成员集合不匹配")
+        for relative, digest in expected.items():
+            if hashlib.sha256(archive.read(f"{package.name}/{relative}")).hexdigest() != digest:
+                raise ValueError(f"ZIP 内容与原 receipt 证据不匹配：{relative}")
+    staging = {
+        path.relative_to(package).as_posix(): sha256(path)
+        for path in package.rglob("*")
+        if path.is_file() and path.relative_to(package).as_posix() != "SHA256SUMS.txt"
+    }
+    if staging != expected:
+        raise ValueError("staging 内容与原 receipt 证据不匹配")
+
+
 def prepare() -> dict:
     build_head = git_head(require_clean=True)
     OUT.mkdir(exist_ok=True)
     EVIDENCE.unlink(missing_ok=True)
+    verify_version_ssot()
     before = source_inputs()
+    package_before = package_inputs(include_artifacts=False)
     build_exe()
     apk = build_release_apk()
     exe = DIST / "MediaReviewServer.exe"
@@ -375,12 +471,13 @@ def prepare() -> dict:
         "server_sha256": sha256(exe),
         "server_files": server_files(),
         "apk_sha256": sha256(apk),
-        "inputs": before,
+        "build_inputs": before,
+        "package_inputs": package_inputs(),
         "build_git_head": build_head,
         "verified_at": dt.datetime.now(dt.UTC).isoformat(),
     }
-    if source_inputs() != before:
-        raise ValueError("构建期间源码变化，拒绝记录新鲜构建证据")
+    if source_inputs() != before or package_inputs(include_artifacts=False) != package_before:
+        raise ValueError("构建期间源码或打包输入变化，拒绝记录新鲜构建证据")
     EVIDENCE.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
     print("Fresh EXE health / APK manifest / signature PASS; build evidence recorded.")
     return evidence
@@ -389,69 +486,125 @@ def prepare() -> dict:
 def package_verified() -> Path:
     head = git_head(require_clean=True)
     evidence = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+    if not isinstance(evidence, dict) or not {"build_inputs", "package_inputs"}.issubset(evidence):
+        raise ValueError("旧构建证据缺少 build_inputs/package_inputs，必须重新 prepare")
     age = dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(evidence["verified_at"])
     exe, apk = DIST / "MediaReviewServer.exe", APK_DIR / "release/app-release.apk"
     if (
         not 0 <= age.total_seconds() <= 6 * 3600
-        or evidence["inputs"] != source_inputs()
+        or evidence["build_inputs"] != source_inputs()
+        or evidence["package_inputs"] != package_inputs()
         or evidence["server_sha256"] != sha256(exe)
         or evidence["server_files"] != server_files()
         or evidence["apk_sha256"] != sha256(apk)
     ):
         raise ValueError("新鲜构建证据失效，禁止复用旧 EXE/APK")
+    verify_version_ssot()
     evidence["server"] = verify_server_binary(exe)
     evidence["android"] = verify_apk(apk)
+    if (
+        evidence["build_inputs"] != source_inputs()
+        or evidence["package_inputs"] != package_inputs()
+    ):
+        raise ValueError("产物验证期间输入变化，构建证据失效")
     manifest = release_manifest(evidence, head, exe, apk)
     manifest["build_git_head"] = evidence["build_git_head"]
     manifest["build_verified_at"] = evidence["verified_at"]
-    manifest["source_input_sha256"] = evidence["inputs"]
+    manifest["source_input_sha256"] = evidence["build_inputs"]
+    manifest["build_input_sha256"] = evidence["build_inputs"]
+    manifest["package_input_sha256"] = evidence["package_inputs"]
     name = f"MediaReview_RC_{ANDROID_VERSION}_Server-{VERSION}_{dt.date.today():%Y%m%d}_{head[:7]}"
     package = OUT / name
-    if package.exists():
-        raise ValueError("发布目录已存在，拒绝覆盖历史产物")
-    package.mkdir()
-    shutil.copytree(DIST, package / "MediaReviewServer")
-    (package / "scripts").mkdir()
-    for script in ALL_SCRIPTS:
-        shutil.copy2(DEPLOY / "scripts" / script, package / "scripts" / script)
-    for filename in ("version.ps1", "config.example.json"):
-        shutil.copy2(DEPLOY / filename, package / filename)
-    for filename in (
-        "LICENSE",
-        "THIRD_PARTY_NOTICES.md",
-        "UPGRADE_ROLLBACK.md",
-        "USER_INSTALL_GUIDE.md",
-        "USER_LAN_VALIDATION.md",
-    ):
-        shutil.copy2(ROOT / filename, package / filename)
-    shutil.copy2(DEPLOY / "README.md", package / "README.md")
-    shutil.copy2(apk, package / "app-release.apk")
-    ffmpeg = ROOT / "third_party/ffmpeg"
-    if (ffmpeg / "ffmpeg.exe").is_file():
-        (package / "ffmpeg").mkdir()
-        for filename in ("ffmpeg.exe", "ffprobe.exe"):
-            if (ffmpeg / filename).is_file():
-                shutil.copy2(ffmpeg / filename, package / "ffmpeg" / filename)
-    (package / "HANDOVER.md").write_text(render_handover(manifest), encoding="utf-8")
-    (package / "RELEASE_MANIFEST.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    write_sha256(package)
     zip_path = OUT / f"{name}.zip"
-    with zipfile.ZipFile(zip_path, "x", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(package.rglob("*")):
-            if path.is_file():
-                archive.write(path, f"{name}/{path.relative_to(package).as_posix()}")
-    count = verify_zip(zip_path, name)
     user_apk = OUT / f"MediaReview_{ANDROID_VERSION}_stage8e.apk"
-    shutil.copy2(apk, user_apk)
-    (OUT / f"{name}_SHA256.txt").write_text(
-        f"git_head {head}\n"
-        f"zip {zip_path.name} {zip_path.stat().st_size} bytes {sha256(zip_path)}\n"
-        f"apk {user_apk.name} {user_apk.stat().st_size} bytes {sha256(user_apk)}\n"
-        f"exe MediaReviewServer.exe {sha256(exe)}\n",
-        encoding="utf-8",
+    checksum_path = OUT / f"{name}_SHA256.txt"
+    outputs = (package, zip_path, user_apk, checksum_path)
+    if any(path.exists() for path in outputs):
+        raise ValueError("发布产物已存在，拒绝覆盖历史产物")
+    sources = package_sources()
+    expected = {
+        relative: evidence["package_inputs"][source.relative_to(ROOT).as_posix()]
+        for relative, source in sources.items()
+    }
+    if (
+        expected["MediaReviewServer/MediaReviewServer.exe"] != evidence["server_sha256"]
+        or expected["app-release.apk"] != evidence["apk_sha256"]
+        or manifest["server_exe_sha256"] != evidence["server_sha256"]
+        or manifest["apk_sha256"] != evidence["apk_sha256"]
+    ):
+        raise ValueError("原 receipt 的 EXE/APK 证据不一致")
+    generated = {
+        "HANDOVER.md": render_handover(manifest),
+        "RELEASE_MANIFEST.json": json.dumps(manifest, ensure_ascii=False, indent=2),
+    }
+    expected.update(
+        {
+            relative: hashlib.sha256(text.encode("utf-8")).hexdigest()
+            for relative, text in generated.items()
+        }
     )
+    # 仅清理本轮创建的输出；历史交付在上面的存在检查中受保护。
+    created = []
+    try:
+        package.mkdir()
+        created.append(package)
+        for relative, source in sources.items():
+            destination = package / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            if sha256(destination) != expected[relative]:
+                raise ValueError("复制期间打包输入变化，构建证据失效")
+        for relative, text in generated.items():
+            (package / relative).write_bytes(text.encode("utf-8"))
+        write_sha256(package)
+        with zipfile.ZipFile(zip_path, "x", zipfile.ZIP_DEFLATED) as archive:
+            created.append(zip_path)
+            for path in sorted(package.rglob("*")):
+                if path.is_file():
+                    archive.write(path, f"{name}/{path.relative_to(package).as_posix()}")
+        count = verify_zip(zip_path, name)
+        verify_receipted_package(zip_path, package, expected)
+        # 从已核对的 staging 导出，不再从变化中的 live APK 取第二份内容。
+        with user_apk.open("xb"):
+            created.append(user_apk)
+        shutil.copy2(package / "app-release.apk", user_apk)
+        if sha256(user_apk) != evidence["apk_sha256"]:
+            raise ValueError("独立 APK 与原 receipt 证据不匹配")
+        zip_digest = sha256(zip_path)
+        checksum_text = (
+            f"git_head {head}\n"
+            f"zip {zip_path.name} {zip_path.stat().st_size} bytes {zip_digest}\n"
+            f"apk {user_apk.name} {user_apk.stat().st_size} bytes {evidence['apk_sha256']}\n"
+            f"exe MediaReviewServer.exe {evidence['server_sha256']}\n"
+        )
+        with checksum_path.open("x", encoding="utf-8", newline="\n") as handle:
+            created.append(checksum_path)
+            handle.write(checksum_text)
+        # 最后快照检查覆盖 ZIP、独立 APK 和摘要导出的全过程。
+        verify_zip(zip_path, name)
+        verify_receipted_package(zip_path, package, expected)
+        if (
+            sha256(zip_path) != zip_digest
+            or sha256(user_apk) != evidence["apk_sha256"]
+            or checksum_path.read_text(encoding="utf-8") != checksum_text
+        ):
+            raise ValueError("最终交付产物与原 receipt 证据不匹配")
+        if (
+            evidence["build_inputs"] != source_inputs()
+            or evidence["package_inputs"] != package_inputs()
+            or evidence["server_files"] != server_files()
+            or evidence["server_sha256"] != sha256(exe)
+            or evidence["apk_sha256"] != sha256(apk)
+            or git_head(require_clean=True) != head
+        ):
+            raise ValueError("导出期间源码、打包输入或产物变化，构建证据失效")
+    except BaseException:
+        for path in reversed(created):
+            if path == package:
+                clean_generated(path, package)
+            else:
+                path.unlink(missing_ok=True)
+        raise
     print(f"RC INTEGRITY PASS: {count} SHA256 entries; {zip_path}")
     return zip_path
 

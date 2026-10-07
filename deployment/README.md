@@ -62,3 +62,10 @@ python scripts/build_deploy.py
 - 自动调用 PyInstaller 构建 Server EXE。
 - 若存在 `third_party/ffmpeg/ffmpeg.exe`(与 ffprobe.exe)会一并打包;
   否则部署时由 `install.ps1` 检测系统 PATH 中的 ffmpeg,缺失会告警(雪碧图不可用)。
+# Stage 8E.1：既有纳管服务升级边界
+
+`scripts/upgrade-aihome-managed.ps1` 默认只读，可使用 `-WhatIf` 查看当前版本、目录、服务状态及拟议备份/回滚路径。它不创建第二个服务或计划任务，固定沿用既有 `AIHome.MediaReview` 身份。
+
+本阶段只验证隔离 fixture 中的备份、切换及失败恢复事务；**生产 `-Execute` 当前会拒绝执行**。ControlHub 现有底层 helper 不能代替官方 coordinator 的共享互斥、批准绑定和审计。正式生产适配器等待官方入口支持，当前不得将此脚本用于实际升级，也不得把 fixture 通过当成生产升级完成。
+
+隔离回归入口：`deployment/tests/test_managed_upgrade.ps1`。既有 Alpha8 APK/Server 1.2.2 RC 继续保留，本阶段不重新构建用户产物。

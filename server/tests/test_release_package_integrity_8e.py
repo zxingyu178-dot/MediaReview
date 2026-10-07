@@ -1,5 +1,7 @@
 """ReleasePackageIntegrityTest：实际产物与新鲜构建门禁。"""
 
+import datetime as dt
+import hashlib
 import importlib.util
 import json
 import shutil
@@ -21,6 +23,360 @@ def builder():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def prepared_builder(builder, tmp_path, monkeypatch):
+    """只替代昂贵构建/二进制探针，保留真实 receipt、文件复制与 ZIP 门禁。"""
+    for name, path in {
+        "ROOT": tmp_path,
+        "SERVER": tmp_path / "server",
+        "DIST": tmp_path / "server/dist/MediaReviewServer",
+        "DEPLOY": tmp_path / "deployment",
+        "OUT": tmp_path / "deploy_handoff",
+        "APK_DIR": tmp_path / "android/app/build/outputs/apk",
+        "EVIDENCE": tmp_path / "deploy_handoff/stage8e-build-evidence.json",
+    }.items():
+        monkeypatch.setattr(builder, name, path)
+    source_paths = (
+        "server/app/__init__.py",
+        "server/pyproject.toml",
+        "android/app/build.gradle.kts",
+    )
+    package_paths = (
+        *(f"deployment/scripts/{name}" for name in builder.ALL_SCRIPTS),
+        "deployment/scripts/upgrade-aihome-managed.ps1",
+        "deployment/version.ps1",
+        "deployment/config.example.json",
+        "deployment/README.md",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "UPGRADE_ROLLBACK.md",
+        "USER_INSTALL_GUIDE.md",
+        "USER_LAN_VALIDATION.md",
+    )
+    for relative in set(source_paths + package_paths):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        original = ROOT / relative
+        target.write_bytes(original.read_bytes() if original.is_file() else b"fixture")
+    exe = builder.DIST / "MediaReviewServer.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"fresh-exe")
+    (exe.parent / "_internal").mkdir()
+    (exe.parent / "_internal/runtime.dll").write_bytes(b"runtime")
+    apk = builder.APK_DIR / "release/app-release.apk"
+    apk.parent.mkdir(parents=True)
+    apk.write_bytes(b"fresh-apk")
+    ffmpeg = tmp_path / "third_party/ffmpeg/ffmpeg.exe"
+    ffmpeg.parent.mkdir(parents=True)
+    ffmpeg.write_bytes(b"fixture-ffmpeg")
+    monkeypatch.setattr(builder, "git_head", lambda **kwargs: "a" * 40)
+    monkeypatch.setattr(
+        builder,
+        "source_inputs",
+        lambda: {relative: builder.sha256(tmp_path / relative) for relative in source_paths},
+    )
+    monkeypatch.setattr(builder, "build_exe", lambda: None)
+    monkeypatch.setattr(builder, "build_release_apk", lambda: apk)
+    monkeypatch.setattr(
+        builder,
+        "verify_server_binary",
+        lambda path: {
+            "status": "ok",
+            "version": "1.2.2",
+            "api_contract": 2,
+            "capabilities": list(builder.REQUIRED_CAPABILITIES),
+        },
+    )
+    monkeypatch.setattr(
+        builder,
+        "verify_apk",
+        lambda path: {
+            "package": "com.mediareview.app",
+            "version_code": 15,
+            "version_name": "2.0.0-alpha8",
+            "signature": "PASS",
+        },
+    )
+    builder.prepare()
+    return builder
+
+
+class TestReleasePackageInputs8E1:
+    @staticmethod
+    def assert_no_delivery(builder):
+        assert set(builder.OUT.iterdir()) == {builder.EVIDENCE}
+
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            "android/app/build/outputs/apk/release/app-release.apk",
+            "server/dist/MediaReviewServer/_internal/runtime.dll",
+            "server/app/__init__.py",
+            "USER_INSTALL_GUIDE.md",
+        ],
+    )
+    def test_input_change_after_zip_verification_blocks_delivery(
+        self, prepared_builder, monkeypatch, relative
+    ):
+        builder = prepared_builder
+        verify = builder.verify_zip
+
+        def drift(path, name):
+            count = verify(path, name)
+            (builder.ROOT / relative).write_bytes(b"REPLACED-AFTER-ZIP")
+            return count
+
+        monkeypatch.setattr(builder, "verify_zip", drift)
+        with pytest.raises(ValueError, match="输入|证据"):
+            builder.package_verified()
+        self.assert_no_delivery(builder)
+
+    @pytest.mark.parametrize(
+        "relative",
+        ["MediaReviewServer/MediaReviewServer.exe", "app-release.apk", "USER_INSTALL_GUIDE.md"],
+    )
+    def test_staging_change_before_checksums_blocks_delivery(
+        self, prepared_builder, monkeypatch, relative
+    ):
+        builder = prepared_builder
+        write = builder.write_sha256
+
+        def drift(package):
+            (package / relative).write_bytes(b"REPLACED-STAGING")
+            write(package)
+
+        monkeypatch.setattr(builder, "write_sha256", drift)
+        with pytest.raises(ValueError, match="receipt|证据"):
+            builder.package_verified()
+        self.assert_no_delivery(builder)
+
+    def test_independent_apk_exports_verified_staging_and_rejects_copy_tampering(
+        self, prepared_builder, monkeypatch
+    ):
+        builder = prepared_builder
+        copy = builder.shutil.copy2
+        exported = []
+
+        def tamper(source, target):
+            result = copy(source, target)
+            if target.name == f"MediaReview_{builder.ANDROID_VERSION}_stage8e.apk":
+                exported.append(source)
+                target.write_bytes(b"REPLACED-EXPORTED-APK")
+            return result
+
+        monkeypatch.setattr(builder.shutil, "copy2", tamper)
+        with pytest.raises(ValueError, match="APK|receipt|证据"):
+            builder.package_verified()
+        assert len(exported) == 1
+        assert exported[0].parent.parent == builder.OUT
+        assert exported[0].name == "app-release.apk"
+        self.assert_no_delivery(builder)
+
+    def test_copy_failure_cleans_partial_delivery(self, prepared_builder, monkeypatch):
+        builder = prepared_builder
+        copy = builder.shutil.copy2
+
+        def failed(source, target):
+            copy(source, target)
+            raise OSError("injected copy failure")
+
+        monkeypatch.setattr(builder.shutil, "copy2", failed)
+        with pytest.raises(OSError, match="injected"):
+            builder.package_verified()
+        self.assert_no_delivery(builder)
+
+    @pytest.mark.parametrize(
+        "relative",
+        ["MediaReviewServer/MediaReviewServer.exe", "RELEASE_MANIFEST.json", "new-file.txt"],
+    )
+    def test_rehashed_zip_change_during_apk_export_blocks_delivery(
+        self, prepared_builder, monkeypatch, relative
+    ):
+        builder = prepared_builder
+        copy = builder.shutil.copy2
+
+        def tamper(source, target):
+            result = copy(source, target)
+            if target.name == f"MediaReview_{builder.ANDROID_VERSION}_stage8e.apk":
+                archive_path = next(builder.OUT.glob("*.zip"))
+                prefix = archive_path.stem + "/"
+                with zipfile.ZipFile(archive_path) as archive:
+                    members = {name: archive.read(name) for name in archive.namelist()}
+                members[prefix + relative] = b"REPLACED-FINAL-ZIP"
+                members[prefix + "SHA256SUMS.txt"] = "".join(
+                    f"{hashlib.sha256(content).hexdigest()}  {name.removeprefix(prefix)}\n"
+                    for name, content in members.items()
+                    if name != prefix + "SHA256SUMS.txt"
+                ).encode()
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for name, content in members.items():
+                        archive.writestr(name, content)
+            return result
+
+        monkeypatch.setattr(builder.shutil, "copy2", tamper)
+        with pytest.raises(ValueError, match="receipt|证据"):
+            builder.package_verified()
+        self.assert_no_delivery(builder)
+
+    def test_prepare_records_separate_build_and_package_inputs(self, prepared_builder):
+        builder = prepared_builder
+        receipt = json.loads(builder.EVIDENCE.read_text(encoding="utf-8"))
+        assert receipt["build_inputs"] == builder.source_inputs()
+        assert receipt["package_inputs"] == builder.package_inputs()
+        assert "deployment/scripts/upgrade-aihome-managed.ps1" in receipt["package_inputs"]
+
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            "deployment/scripts/install.ps1",
+            "deployment/version.ps1",
+            "deployment/config.example.json",
+            "USER_INSTALL_GUIDE.md",
+            "deployment/scripts/upgrade-aihome-managed.ps1",
+            "third_party/ffmpeg/ffmpeg.exe",
+            "server/dist/MediaReviewServer/MediaReviewServer.exe",
+            "server/dist/MediaReviewServer/_internal/runtime.dll",
+            "android/app/build/outputs/apk/release/app-release.apk",
+            "server/app/__init__.py",
+        ],
+    )
+    def test_prepare_then_input_change_blocks_before_packaging(self, prepared_builder, relative):
+        builder = prepared_builder
+        path = builder.ROOT / relative
+        path.write_bytes(path.read_bytes() + b"\nchanged")
+        with pytest.raises(ValueError, match="证据|输入"):
+            builder.package_verified()
+        assert not list(builder.OUT.glob("*.zip"))
+        assert not list(builder.OUT.glob("MediaReview_RC_*"))
+
+    @pytest.mark.parametrize("mutation", ["legacy", "expired", "future"])
+    def test_old_receipt_is_rejected(self, prepared_builder, mutation):
+        builder = prepared_builder
+        receipt = json.loads(builder.EVIDENCE.read_text(encoding="utf-8"))
+        if mutation == "legacy":
+            receipt["inputs"] = receipt.get("build_inputs", receipt.get("inputs"))
+            receipt.pop("build_inputs", None)
+            receipt.pop("package_inputs", None)
+        else:
+            delta = dt.timedelta(hours=-7 if mutation == "expired" else 1)
+            receipt["verified_at"] = (dt.datetime.now(dt.UTC) + delta).isoformat()
+        builder.EVIDENCE.write_text(json.dumps(receipt), encoding="utf-8")
+        with pytest.raises(ValueError, match="证据|输入"):
+            builder.package_verified()
+        assert not list(builder.OUT.glob("*.zip"))
+
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            "deployment/README.md",
+            "deployment/scripts/install.ps1",
+            "third_party/ffmpeg/ffmpeg.exe",
+            "server/dist/MediaReviewServer/_internal/runtime.dll",
+        ],
+    )
+    def test_package_input_deletion_blocks(self, prepared_builder, relative):
+        builder = prepared_builder
+        (builder.ROOT / relative).unlink()
+        with pytest.raises((ValueError, OSError)):
+            builder.package_verified()
+        assert not list(builder.OUT.glob("*.zip"))
+
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            "third_party/ffmpeg/ffprobe.exe",
+            "server/dist/MediaReviewServer/_internal/new.dll",
+        ],
+    )
+    def test_package_input_addition_blocks(self, prepared_builder, relative):
+        builder = prepared_builder
+        (builder.ROOT / relative).write_bytes(b"new-input")
+        with pytest.raises(ValueError, match="证据"):
+            builder.package_verified()
+        assert not list(builder.OUT.glob("*.zip"))
+
+    @pytest.mark.parametrize("relative", ["USER_INSTALL_GUIDE.md", "server/app/__init__.py"])
+    def test_input_change_during_build_rejects_receipt(
+        self, prepared_builder, monkeypatch, relative
+    ):
+        builder = prepared_builder
+        monkeypatch.setattr(
+            builder, "build_exe", lambda: (builder.ROOT / relative).write_bytes(b"drift")
+        )
+        with pytest.raises(ValueError, match="输入|源码"):
+            builder.prepare()
+        assert not builder.EVIDENCE.exists()
+
+    def test_input_change_during_probe_blocks(self, prepared_builder, monkeypatch):
+        builder = prepared_builder
+        probe = builder.verify_server_binary
+
+        def drift(path):
+            (builder.ROOT / "USER_INSTALL_GUIDE.md").write_bytes(b"drift")
+            return probe(path)
+
+        monkeypatch.setattr(builder, "verify_server_binary", drift)
+        with pytest.raises(ValueError, match="输入"):
+            builder.package_verified()
+        assert not list(builder.OUT.glob("*.zip"))
+
+    def test_input_change_during_copy_blocks(self, prepared_builder, monkeypatch):
+        builder = prepared_builder
+        copy = builder.shutil.copy2
+
+        def drift(source, target):
+            source.write_bytes(source.read_bytes() + b"drift")
+            return copy(source, target)
+
+        monkeypatch.setattr(builder.shutil, "copy2", drift)
+        with pytest.raises(ValueError, match="输入"):
+            builder.package_verified()
+        assert not list(builder.OUT.glob("*.zip"))
+
+    def test_all_copied_sources_are_receipted_and_manifest_preserves_inputs(self, prepared_builder):
+        builder = prepared_builder
+        receipt = json.loads(builder.EVIDENCE.read_text(encoding="utf-8"))
+        archive_path = builder.package_verified()
+        with zipfile.ZipFile(archive_path) as archive:
+            prefix = archive_path.stem + "/"
+            manifest = json.loads(archive.read(prefix + "RELEASE_MANIFEST.json"))
+            assert manifest["server_exe_sha256"] == receipt["server_sha256"]
+            assert manifest["apk_sha256"] == receipt["apk_sha256"]
+            assert manifest["build_input_sha256"] == receipt["build_inputs"]
+            assert manifest["package_input_sha256"] == receipt["package_inputs"]
+            copied = set()
+            for destination, source in builder.package_sources().items():
+                relative = source.relative_to(builder.ROOT).as_posix()
+                assert builder.sha256(source) == receipt["package_inputs"][relative]
+                assert archive.read(prefix + destination) == source.read_bytes()
+                copied.add(prefix + destination)
+            assert set(archive.namelist()) == copied | {
+                prefix + name for name in ("HANDOVER.md", "RELEASE_MANIFEST.json", "SHA256SUMS.txt")
+            }
+            exported = builder.OUT / f"MediaReview_{builder.ANDROID_VERSION}_stage8e.apk"
+            assert builder.sha256(exported) == receipt["apk_sha256"]
+            assert exported.read_bytes() == archive.read(prefix + "app-release.apk")
+
+    def test_version_ssot_matches_source_deployment_and_builder(self, builder):
+        builder.verify_version_ssot()
+
+    @pytest.mark.parametrize(
+        "relative,old,new",
+        [
+            ("server/app/__init__.py", '__version__ = "1.2.2"', '__version__ = "1.2.3"'),
+            ("deployment/version.ps1", "$RequiredApiContract = 2", "$RequiredApiContract = 1"),
+            ("server/pyproject.toml", 'version = "1.2.2"', 'version = "1.2.3"'),
+            ("android/app/build.gradle.kts", "versionCode = 15", "versionCode = 14"),
+        ],
+    )
+    def test_version_ssot_drift_blocks_prepare(self, prepared_builder, relative, old, new):
+        builder = prepared_builder
+        path = builder.ROOT / relative
+        path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+        with pytest.raises(ValueError, match="版本|SSOT"):
+            builder.prepare()
 
 
 class TestReleasePackageIntegrity:
@@ -140,7 +496,10 @@ class TestReleasePackageIntegrity:
         def run(command, **kwargs):
             if "dump" in command:
                 return SimpleNamespace(
-                    stdout="package: name='com.mediareview.app' versionCode='15' versionName='2.0.0-alpha8'"
+                    stdout=(
+                        "package: name='com.mediareview.app' versionCode='15' "
+                        "versionName='2.0.0-alpha8'"
+                    )
                 )
             raise subprocess.CalledProcessError(1, command)
 
@@ -193,10 +552,12 @@ class TestReleasePackageIntegrity:
             return "'" + str(path).replace("'", "''") + "'"
 
         command = (
-            "& { function Get-Service { [CmdletBinding()]param([string]$Name); Write-Error 'SCM unavailable' }; "
-            f"& {quote(script)} -InstallDir {quote(tmp_path / 'install')} -DataRoot {quote(data_root)} }}; exit $LASTEXITCODE"
+            "& { function Get-Service { [CmdletBinding()]param([string]$Name); "
+            "Write-Error 'SCM unavailable' }; "
+            f"& {quote(script)} -InstallDir {quote(tmp_path / 'install')} "
+            f"-DataRoot {quote(data_root)} }}; exit $LASTEXITCODE"
         )
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 固定 PowerShell 与隔离测试脚本
             [
                 r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
                 "-NoProfile",
