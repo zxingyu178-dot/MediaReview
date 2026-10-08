@@ -4,10 +4,13 @@ import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.model.Envelope
 import com.mediareview.app.core.model.MediaSummary
 import com.mediareview.app.core.model.ProgressRequest
+import com.mediareview.app.core.model.SpriteManifestDto
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.MediaReviewApi
+import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.data.AlbumCoverStore
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.SpritePrepareResult
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -22,6 +25,12 @@ import com.mediareview.app.feature.v2.model.V2TypeFilter
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 
 /**
@@ -126,6 +135,11 @@ class V2ServerMediaRepository internal constructor(
     private val foldersMutex = Mutex()
     private var foldersCacheEntry: FoldersCacheEntry? = null
 
+    private val spriteLock = Any()
+    private var spriteBase: String? = null
+    private var spriteGeneration = 0L
+    private val spriteReady = mutableMapOf<String, SpritePrepareResult.Ready>()
+
     // ---------- 访问层 ----------
 
     private suspend fun apiWithBase(): Pair<MediaReviewApi, String> {
@@ -211,11 +225,21 @@ class V2ServerMediaRepository internal constructor(
      */
     override fun invalidateAuxiliaryCache() {
         foldersCacheEntry = null
+        synchronized(spriteLock) {
+            spriteGeneration++
+            spriteReady.clear()
+            spriteBase = null
+        }
     }
 
     /** Stage 8C §24：最终删除 success/missing 后，缓存不得继续命中已不存在的媒体。 */
     override fun dropCachedMedia(mediaIds: List<String>) {
         if (mediaIds.isNotEmpty()) resources.removeAll(mediaIds)
+        synchronized(spriteLock) {
+            // 删除可能与生成在途交叉；同时淘汰在途代次，禁止删除后写回缓存。
+            spriteGeneration++
+            mediaIds.forEach(spriteReady::remove)
+        }
     }
 
     override suspend fun media(): List<V2Media> =
@@ -339,9 +363,106 @@ class V2ServerMediaRepository internal constructor(
     override fun imageUri(media: V2Media): String =
         resources.originalUrl(media.id) ?: resources.coverUrl(media.id).orEmpty()
 
-    override fun spriteUri(media: V2Media): String? = null
+    override suspend fun prepareSprite(mediaId: String): SpritePrepareResult = withContext(Dispatchers.IO) {
+        // 墙钟总预算包含 HTTP 等待，不能让慢请求把有限轮询拖成数分钟。
+        withTimeoutOrNull(SPRITE_TIMEOUT_MS) { prepareSpriteWithinBudget(mediaId) }
+            ?: SpritePrepareResult.Failed("预览生成失败")
+    }
 
-    override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
+    private suspend fun prepareSpriteWithinBudget(mediaId: String): SpritePrepareResult {
+        var base: String? = null
+        var generation = -1L
+        try {
+            accessGuard.requireBusinessAccess()
+            val (api, selectedBase) = apiWithBase()
+            base = selectedBase
+            generation = synchronized(spriteLock) {
+                if (spriteBase != selectedBase) {
+                    spriteGeneration++
+                    spriteReady.clear()
+                    spriteBase = selectedBase
+                }
+                spriteGeneration
+            }
+            synchronized(spriteLock) { spriteReady[mediaId] }?.let { return it }
+            suspend fun checkCurrent() {
+                currentCoroutineContext().ensureActive()
+                require(profilePort.baseUrl() == selectedBase && synchronized(spriteLock) {
+                    spriteGeneration == generation && spriteBase == selectedBase
+                }) { "服务器或缓存已切换" }
+                accessGuard.requireBusinessAccess()
+            }
+            checkCurrent()
+            val ensured = unwrap(api.ensureSprite(mediaId))
+            checkCurrent()
+            when (ensured.status) {
+                "ready" -> Unit
+                "pending", "running" -> {
+                    require(ensured.task_id.isNotBlank()) { "雪碧图生成任务缺失" }
+                    var succeeded = false
+                    for (attempt in 0 until SPRITE_MAX_POLLS) {
+                        if (attempt > 0) delay(SPRITE_POLL_INTERVAL_MS)
+                        checkCurrent()
+                        val task = unwrap(api.taskDetail(ensured.task_id))
+                        checkCurrent()
+                        require(task.task_id == ensured.task_id && task.media_id == mediaId) {
+                            "雪碧图任务身份不匹配"
+                        }
+                        when (task.status) {
+                            "succeeded" -> { succeeded = true; break }
+                            "pending", "running" -> Unit
+                            "failed" -> error("雪碧图生成失败")
+                            "cancelled" -> error("雪碧图生成已取消")
+                            else -> error("雪碧图任务状态无效")
+                        }
+                    }
+                    check(succeeded) { "雪碧图仍在生成，请稍后重试" }
+                }
+                else -> error("雪碧图准备状态无效")
+            }
+            checkCurrent()
+            val dto = unwrap(api.spriteManifest(mediaId))
+            val ready = mapSprite(dto, mediaId, selectedBase)
+            checkCurrent()
+            synchronized(spriteLock) {
+                // 网络后最终写入也检查代次，与失效操作互斥。
+                require(spriteGeneration == generation && spriteBase == selectedBase) { "雪碧图缓存已失效" }
+                spriteReady[mediaId] = ready
+            }
+            statusStore.onRequestSuccess()
+            return ready
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            // 旧服务器的晚到失败不得污染新服务器连接状态。
+            if (base != null && profilePort.baseUrl() == base && synchronized(spriteLock) {
+                generation == spriteGeneration && spriteBase == base
+            }) statusStore.onRequestFailure(error)
+            return SpritePrepareResult.Failed("预览生成失败")
+        }
+    }
+
+    private fun mapSprite(dto: SpriteManifestDto, mediaId: String, base: String): SpritePrepareResult.Ready {
+        require(dto.status == "ready" && dto.media_id == mediaId) { "雪碧图清单状态或媒体身份无效" }
+        require(dto.columns > 0 && dto.rows > 0 && dto.count > 0 &&
+            dto.count.toLong() <= dto.columns.toLong() * dto.rows &&
+            dto.tile_width > 0 && dto.tile_height > 0 &&
+            dto.columns.toLong() * dto.tile_width <= Int.MAX_VALUE &&
+            dto.rows.toLong() * dto.tile_height <= Int.MAX_VALUE &&
+            dto.interval_ms > 0 && dto.total_duration_ms > 0 &&
+            dto.video_width >= 0 && dto.video_height >= 0) { "雪碧图清单尺寸或时间无效" }
+        val uri = MediaUrlResolver().resolve(dto.url.orEmpty(), base)
+        return SpritePrepareResult.Ready(uri, V2SpriteManifest(
+            source = mediaId, columns = dto.columns, rows = dto.rows,
+            cell_width = dto.tile_width, cell_height = dto.tile_height,
+            frame_interval_s = dto.interval_ms / 1000.0,
+            duration_s = dto.total_duration_ms / 1000.0, frame_count = dto.count,
+        ))
+    }
+
+    override fun spriteUri(media: V2Media): String? = synchronized(spriteLock) { spriteReady[media.id]?.uri }
+
+    override fun spriteManifest(media: V2Media): V2SpriteManifest? = synchronized(spriteLock) { spriteReady[media.id]?.manifest }
 
     // ---------- 相册（书架） ----------
 
@@ -419,5 +540,9 @@ class V2ServerMediaRepository internal constructor(
          * 该窗口内共享同一次 HTTP（消除重复的 `GET /media/folders`）。
          */
         const val FOLDERS_CACHE_TTL_MS = 5_000L
+
+        const val SPRITE_MAX_POLLS = 20
+        const val SPRITE_POLL_INTERVAL_MS = 500L
+        const val SPRITE_TIMEOUT_MS = 15_000L
     }
 }

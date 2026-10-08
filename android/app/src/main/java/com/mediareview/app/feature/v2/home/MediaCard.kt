@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -74,6 +75,10 @@ fun MediaCard(
     onSpritePreviewStop: () -> Unit = {},
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    previewPreparing: Boolean = false,
+    previewError: String? = null,
+    spriteRequestKey: Any? = null,
+    onSpritePreviewError: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val hasSprite = spriteUri != null && manifest != null
@@ -100,18 +105,19 @@ fun MediaCard(
                     shadowElevation = 12.dp.toPx()
                 }
             }
-            .pointerInput(media.id, hasSprite) {
-                if (!hasSprite) return@pointerInput
+            .pointerInput(media.id, media.isVideo) {
+                if (!media.isVideo) return@pointerInput
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     // 长按 = 启动开关（含 slop 取消：纵向位移交还滚动）
                     val lp = awaitLongPressOrCancellation(down.id)
                     if (lp == null) return@awaitEachGesture
+                    lp.consume()
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onSpritePreviewRequest()
-                    // 消费本次手势直到抬起，避免松手被当作普通点击打开媒体
+                    // Initial 先于内层 clickable 的 Main pass，消费抬起前阻止普通点击。
                     while (true) {
-                        val event = awaitPointerEvent()
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         change.consume()
                         if (!change.pressed) break
@@ -196,6 +202,18 @@ fun MediaCard(
                         durationMs = media.durationMs,
                         onAutoStop = onSpritePreviewStop, // 安全停止（约 6.5s 无操作）
                         modifier = Modifier.fillMaxSize(),
+                        requestKey = spriteRequestKey ?: spriteUri,
+                        onLoadError = onSpritePreviewError,
+                    )
+                }
+                if (previewPreparing || previewError != null) {
+                    Text(
+                        text = if (previewPreparing) "预览准备中…" else "预览生成失败",
+                        color = MediaTextPrimary,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.align(Alignment.TopStart).padding(V2Spacing.Sm)
+                            .clip(RoundedCornerShape(6.dp)).background(V2Colors.TimeCapsule)
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
                     )
                 }
             }

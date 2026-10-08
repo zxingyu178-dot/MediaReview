@@ -1,0 +1,13 @@
+# Stage 8F：服务器预览与图片连续浏览
+
+用户提供的 Stage8F 规范为已确认设计。本阶段只实现服务器雪碧图预览、Viewer真实待删除、相册错误语义及分页连续浏览。
+
+预览沿用现有 sprite/task API。Repository负责ensure、有限轮询、DTO校验、URL解析和按服务器身份隔离的Ready缓存；ViewModel持有Idle/Preparing/Ready/Error及可取消客户端job，Compose只渲染。滚动取消客户端请求与预览，不取消服务器任务。Demo立即Ready，仍用内置素材，全局Coil负责Bearer认证。
+
+Viewer每次打开读取Repository待删除集合，Loading/Ready/Error分别呈现；加入和撤销只在成功确认后改变图标。ImageViewerState只负责索引和UI显隐，组织中心复用同一Repository真值。
+
+相册第一页区分Loading/Ready/Empty/Error，只有服务器明确空结果才Empty；后续失败保留已加载页、总数与页码，可重试。封面设置和书架刷新失败保留旧数据。专用Album Viewer上下文保存albumId、sortSpec、页码、50张窗口和total；接近尾部追加下一页，不全量下载，保持当前mediaId/index稳定。
+
+Android Alpha9/code16；Server1.2.2/Contract2，无明确Server缺陷时runtime不变。ControlHub仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT，不修改生命周期脚本。本阶段只模拟器/fixture，真实手机及家庭LAN未测。
+
+开发期仅相关JVM、compile及目标instrumentation；最终统一testDebugUnitTest/lintDebug/connectedDebugAndroidTest/assembleRelease，最后一次生成用户APK并在clean模拟器环境进行Release smoke。交接只九份说明，状态仅CODE_READY/READY_FOR_USER_VALIDATION；完成后停止等待审查。

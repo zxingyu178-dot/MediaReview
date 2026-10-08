@@ -9,6 +9,7 @@ import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.core.pairing.normalizeBaseUrl
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.SpritePrepareResult
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.V2DataModeStore
@@ -30,6 +31,7 @@ import com.mediareview.app.feature.v2.perf.V2Perf
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -38,6 +40,62 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+sealed interface SpritePreviewState {
+    val mediaId: String?
+    data object Idle : SpritePreviewState { override val mediaId: String? = null }
+    data class Preparing(override val mediaId: String) : SpritePreviewState
+    data class Ready(
+        override val mediaId: String,
+        val uri: String,
+        val manifest: com.mediareview.app.feature.v2.model.V2SpriteManifest,
+        val requestId: Long,
+    ) : SpritePreviewState
+    data class Error(override val mediaId: String, val message: String) : SpritePreviewState
+}
+
+/** ViewModel 的单实例预览请求：代次同时隔离 Repository 与 Coil 晚到回调。 */
+internal class SpritePreviewController(
+    private val scope: CoroutineScope,
+    private val prepare: suspend (String) -> SpritePrepareResult,
+) {
+    private val _state = MutableStateFlow<SpritePreviewState>(SpritePreviewState.Idle)
+    val state: StateFlow<SpritePreviewState> = _state.asStateFlow()
+    private var job: Job? = null
+    private var generation = 0L
+
+    fun start(mediaId: String) {
+        stop()
+        val requestId = generation
+        _state.value = SpritePreviewState.Preparing(mediaId)
+        job = scope.launch {
+            try {
+                val result = prepare(mediaId)
+                if (requestId != generation) return@launch
+                _state.value = when (result) {
+                    is SpritePrepareResult.Ready -> SpritePreviewState.Ready(mediaId, result.uri, result.manifest, requestId)
+                    is SpritePrepareResult.Failed -> SpritePreviewState.Error(mediaId, "预览生成失败")
+                }
+            } catch (cancelled: CancellationException) {
+                if (requestId == generation) _state.value = SpritePreviewState.Idle
+                throw cancelled
+            } catch (_: Throwable) {
+                if (requestId == generation) _state.value = SpritePreviewState.Error(mediaId, "预览生成失败")
+            }
+        }
+    }
+
+    fun stop() {
+        generation++
+        job?.cancel()
+        job = null
+        _state.value = SpritePreviewState.Idle
+    }
+
+    fun fail(request: SpritePreviewState.Ready) {
+        if (_state.value === request) _state.value = SpritePreviewState.Error(request.mediaId, "预览生成失败")
+    }
+}
 
 /** 首页/书架模式切换。 */
 enum class V2HomeTab { MEDIA, SHELF }
@@ -197,18 +255,22 @@ class V2HomeViewModel @Inject constructor(
     // ---------- 雪碧图预览单实例状态 ----------
 
     /** 当前播放雪碧图预览的媒体 id（null = 无预览）。 */
-    var activePreviewMediaId by mutableStateOf<String?>(null)
-        private set
+    private val previewController = SpritePreviewController(viewModelScope, repository::prepareSprite)
+    val spritePreviewState: StateFlow<SpritePreviewState> = previewController.state
+    val activePreviewMediaId: String? get() = spritePreviewState.value.mediaId
 
     /** 请求播放某媒体雪碧图（同一时间仅 1 个 Preview）。 */
     fun startSpritePreview(mediaId: String) {
-        activePreviewMediaId = mediaId
+        if (repository.mediaById(mediaId)?.isVideo == false) return
+        previewController.start(mediaId)
     }
 
     /** 停止当前雪碧图预览（滚动 / 切 Tab / 打开媒体 / 等）。 */
     fun stopSpritePreview() {
-        activePreviewMediaId = null
+        previewController.stop()
     }
+
+    fun onSpriteFileError(request: SpritePreviewState.Ready) = previewController.fail(request)
 
     init {
         V2Perf.openHome()
@@ -243,6 +305,7 @@ class V2HomeViewModel @Inject constructor(
 
     /** 切换数据源（设置里的 ● Demo / ○ 我的服务器）。Server 挂了也能随时切回 Demo。 */
     fun setDataMode(mode: V2DataMode) {
+        stopSpritePreview()
         viewModelScope.launch {
             if (mode == repository.mode) return@launch
             // 阶段 8A.1.1 §4: 切换数据源必须失效辅助缓存
@@ -282,6 +345,7 @@ class V2HomeViewModel @Inject constructor(
      * 手动输入地址 → 复用 1.1 的 PairingRepository.checkHealthy / verifyAndPair → 配对待 token。
      */
     fun connectServer() {
+        stopSpritePreview()
         val state = _connectState.value
         if (state.busy) return
         val address = runCatching { normalizeBaseUrl(state.address) }.getOrElse { error ->
@@ -360,6 +424,7 @@ class V2HomeViewModel @Inject constructor(
 
     /** 断开服务器配置（保留 Demo 可用）。 */
     fun clearServerConfig() {
+        stopSpritePreview()
         viewModelScope.launch {
             pairingRepository.clear()
             // 阶段 8A.1.1 §4: 断开连接必须失效辅助缓存,避免下次连别的服务器命中旧数据
@@ -380,6 +445,7 @@ class V2HomeViewModel @Inject constructor(
     fun folderCount(folderId: String): Int = _folderCounts.value[folderId] ?: 0
 
     fun setTab(tab: V2HomeTab) {
+        stopSpritePreview()
         currentTab = tab
     }
 
@@ -413,6 +479,7 @@ class V2HomeViewModel @Inject constructor(
     }
 
     fun setSearchMode(active: Boolean) {
+        stopSpritePreview()
         searchActive = active
         if (!active) {
             searchQuery = ""
@@ -506,6 +573,7 @@ class V2HomeViewModel @Inject constructor(
      * @return true = 已建立上下文；false = 该 media 连数据源都查不到（不建立上下文，调用方应提示）
      */
     fun openMedia(mediaId: String): Boolean {
+        stopSpritePreview()
         val list = _currentList.value
         val index = list.indexOfFirst { it.id == mediaId }
         if (index < 0) {
@@ -538,6 +606,7 @@ class V2HomeViewModel @Inject constructor(
      * 阶段 8B §10：找不到 mediaId 时不建立上下文、不静默指向第 1 项。
      */
     fun openMediaIn(list: List<V2Media>, mediaId: String): Boolean {
+        stopSpritePreview()
         val index = list.indexOfFirst { it.id == mediaId }
         if (index < 0) return false
         contextQueue = V2ContextQueue(
@@ -558,6 +627,7 @@ class V2HomeViewModel @Inject constructor(
      * 阶段 8B §10：找不到 mediaId 时不建立上下文、不静默指向第 1 项。
      */
     fun openMediaInVideoQueue(queue: List<V2Media>, mediaId: String): Boolean {
+        stopSpritePreview()
         val videos = queue.filter { it.isVideo }
         val index = videos.indexOfFirst { it.id == mediaId }
         if (index < 0) return false
@@ -764,6 +834,7 @@ class V2HomeViewModel @Inject constructor(
     )
 
     private fun resetPager() {
+        stopSpritePreview()
         listGeneration++
         loadedPage = 1
         _hasMore.value = false

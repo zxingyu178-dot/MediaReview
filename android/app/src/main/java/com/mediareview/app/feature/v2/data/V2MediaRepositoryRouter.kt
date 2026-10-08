@@ -108,6 +108,12 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override fun imageUri(media: V2Media): String = active().imageUri(media)
 
+    override suspend fun prepareSprite(mediaId: String): SpritePrepareResult {
+        val selected = dataActive()
+        val result = selected.prepareSprite(mediaId)
+        return if (mode == selected.mode) result else SpritePrepareResult.Failed("数据源已切换")
+    }
+
     override fun spriteUri(media: V2Media): String? = active().spriteUri(media)
 
     override fun spriteManifest(media: V2Media): V2SpriteManifest? = active().spriteManifest(media)

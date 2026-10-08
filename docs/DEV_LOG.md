@@ -2384,3 +2384,12 @@ Alpha4和Alpha8证书不同，原位迁移BLOCKED，旧手机App未动。Jellyfi
 最终 Server561项通过（312.084秒，零失败/跳过，1条既有警告）；PS5.1/7来源专项各164断言、事务各129断言；重打包90项及独立复审通过；既有ControlHub合同88项通过。Ruff/format/diff通过；正式WhatIf两引擎来源与本地计划摘要一致，仅LOCAL_PLAN，不构成官方批准。独立审查关闭canonical转义、清单大小写、receipt原文件覆盖P1。原始red/final/review证据留在交接包；部分早期PS调试输出覆盖的限制已记录。
 
 用户确认其启动Jellyfin，历史退出码1根因UNKNOWN。生产MediaReview仍1.1.0；手机证书NOT VERIFIED；所有真实手机/LAN/播放/首帧/五项批阅NOT TESTED，按用户决定不迁移App、不发APK。新脚本登记Registry而无新服务/binding。重要交接按最终Git/远端/SHA及Hermes回执确认；不自动进入下一阶段。清理自动审批拒绝的临时目录保留、不重试。
+
+## 2026-10-08 Stage 8F：服务器预览与图片连续浏览
+
+基线98a0352，分支feature/mediareview-v2-stage8f-media-experience。用户明确授权本阶段三项Android体验修复和Alpha9交付；官方升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。Server保持1.2.2/Contract2，运行时代码和生产服务不动；真实手机迁移与家庭LAN本阶段不执行。
+
+Task1服务器雪碧图：Repository接通ensure、有限task轮询、manifest校验/单位转换及URL解析，15秒总等待预算、20轮上限；Ready缓存绑定服务器身份与失效代次。ViewModel提供可取消Preparing/Ready/Error，Home/Search首次长按不要求已有缓存，滚动/离页/换源取消客户端等待，不取消服务器生成。全局Coil加载与认证，文件失败保留Poster。
+
+TDD首轮14 Repository、5 Controller测试按缺失能力失败，最终类型化测试45项JVM通过且compileDebugKotlin成功。独立审查发现慢文件加载消耗6.5秒播放预算；实际UI另发现长按误触普通点击，均修复。慢HTTP有效RED复现提前停止；取消用例通过。最初新增fixture因主线程DNS失败，修正基建后重新取得有效RED，原日志保留。修复后5项UI与12项相关JVM通过，实际像素验证帧变化、位图就绪后完整播放预算及加载中取消。独立复审与Task1提交结论另行追加。Server sprite/task专项20项通过；不重复未改Server的全量测试。
+Task1最终复审：Critical 0、Important 0，慢文件计时与长按误点击均关闭；允许提交。完整Server认证及Home/Search端到端fixture仍在Task4验收，不将当前组件测试冒充完整链路。

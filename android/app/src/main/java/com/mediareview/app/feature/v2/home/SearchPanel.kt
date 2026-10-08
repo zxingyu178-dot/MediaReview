@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,6 +58,14 @@ fun SearchPanel(
     val list by vm.currentList.collectAsState()
     val query = vm.searchQuery
     val history = vm.recentSearches
+    val previewState by vm.spritePreviewState.collectAsState()
+    val gridState = rememberLazyGridState()
+    DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling) vm.stopSpritePreview()
+        }
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(horizontal = V2Spacing.Lg)) {
         if (query.isBlank() && history.isNotEmpty()) {
@@ -104,6 +116,7 @@ fun SearchPanel(
         } else {
             // 搜索结果（真实过滤 Demo 数据）
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(2),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = V2Spacing.Sm, bottom = V2Spacing.Xl),
@@ -111,14 +124,22 @@ fun SearchPanel(
                 verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
             ) {
                 items(list, key = { it.id }) { media ->
+                    val cardPreview = previewState.takeIf { it.mediaId == media.id }
                     MediaCard(
                         media = media,
                         coverUri = vm.coverUri(media),
                         spriteUri = vm.spriteUri(media),
                         manifest = vm.spriteManifest(media),
-                        isSpritePreviewing = false,
-                        onSpritePreviewRequest = {},
-                        onClick = { onOpenMedia(media) },
+                        isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
+                        onSpritePreviewRequest = { vm.startSpritePreview(media.id) },
+                        onSpritePreviewStop = vm::stopSpritePreview,
+                        onClick = { vm.stopSpritePreview(); onOpenMedia(media) },
+                        previewPreparing = cardPreview is SpritePreviewState.Preparing,
+                        previewError = (cardPreview as? SpritePreviewState.Error)?.message,
+                        spriteRequestKey = cardPreview,
+                        onSpritePreviewError = {
+                            (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
+                        },
                     )
                 }
             }

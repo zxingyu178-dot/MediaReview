@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 
 /** 帧切换间隔（约 200ms，视觉测试后可调：不能闪图也不能像 PPT）。 */
 private const val FRAME_INTERVAL_MS = 200L
@@ -70,20 +72,52 @@ fun SpritePreviewContent(
     durationMs: Long,
     onAutoStop: () -> Unit,
     modifier: Modifier = Modifier,
+    requestKey: Any = spriteUri,
+    onLoadError: () -> Unit = {},
 ) {
     val frameCount = manifest.frame_count.coerceAtLeast(1)
     val cols = manifest.columns.coerceAtLeast(1)
     val cellW = manifest.cell_width.coerceAtLeast(1)
     val cellH = manifest.cell_height.coerceAtLeast(1)
 
-    var tick by remember { mutableIntStateOf(0) }
+    var tick by remember(spriteUri, requestKey) { mutableIntStateOf(0) }
     val frameIndex = spriteFrameIndexAtTick(tick, frameCount)
     // 当前帧对应时间 = 进度 (frameIndex+1)/frameCount 对应的时长
     val currentTimeMs = if (frameCount <= 1) durationMs else durationMs * (frameIndex + 1) / frameCount
 
-    // 自动播放：逐帧推进；到达末尾回绕；达到安全时长后请求停止
-    LaunchedEffect(spriteUri) {
-        var start = SystemClock.uptimeMillis()
+    val col = frameIndex % cols
+    val row = frameIndex / cols
+
+    val context = LocalContext.current
+    // 请求更换时不能沿用上次位图，否则新下载会被当作已经开始播放。
+    val bitmap by key(spriteUri, requestKey) {
+        produceState<ImageBitmap?>(initialValue = null) {
+            value = try {
+                val request = ImageRequest.Builder(context)
+                    .data(spriteUri)
+                    .allowHardware(false) // 需要软件位图以便按 cell 裁剪
+                    .build()
+                val result = context.imageLoader.execute(request)
+                val decoded = result.drawable?.toBitmap()
+                if (decoded == null || decoded.width < manifest.columns.toLong() * cellW ||
+                    decoded.height < manifest.rows.toLong() * cellH) {
+                    onLoadError()
+                    null
+                } else decoded.asImageBitmap()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                onLoadError()
+                null
+            }
+        }
+    }
+
+    // 有效完整位图就绪后才开始播放；下载时间不占用 6.5 秒预算。
+    LaunchedEffect(spriteUri, requestKey, bitmap) {
+        tick = 0
+        if (bitmap == null) return@LaunchedEffect
+        val start = SystemClock.uptimeMillis()
         while (true) {
             delay(FRAME_INTERVAL_MS)
             tick++
@@ -91,22 +125,6 @@ fun SpritePreviewContent(
                 onAutoStop()
                 break
             }
-        }
-    }
-
-    val col = frameIndex % cols
-    val row = frameIndex / cols
-
-    val context = LocalContext.current
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, spriteUri) {
-        value = try {
-            val request = ImageRequest.Builder(context)
-                .data(spriteUri)
-                .allowHardware(false) // 需要软件位图以便按 cell 裁剪
-                .build()
-            context.imageLoader.execute(request).drawable?.toBitmap()?.asImageBitmap()
-        } catch (_: Exception) {
-            null
         }
     }
 

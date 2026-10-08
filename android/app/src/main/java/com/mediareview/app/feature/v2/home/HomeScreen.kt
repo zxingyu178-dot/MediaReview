@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -463,7 +464,8 @@ fun MediaGrid(
     modifier: Modifier = Modifier,
 ) {
     val gridState = rememberLazyGridState()
-    val previewId = vm.activePreviewMediaId
+    val previewState by vm.spritePreviewState.collectAsState()
+    DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
     val loading by vm.listLoading.collectAsState()
     val hasMore by vm.hasMore.collectAsState()
     val total by vm.totalCount.collectAsState()
@@ -549,12 +551,13 @@ fun MediaGrid(
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(V2Spacing.Md),
     ) {
         items(list, key = { it.id }) { media ->
+            val cardPreview = previewState.takeIf { it.mediaId == media.id }
             MediaCard(
                 media = media,
                 coverUri = vm.coverUri(media),
                 spriteUri = vm.spriteUri(media),
                 manifest = vm.spriteManifest(media),
-                isSpritePreviewing = previewId == media.id && media.isVideo,
+                isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
                 onSpritePreviewRequest = {
                     vm.startSpritePreview(media.id)
                 },
@@ -562,6 +565,12 @@ fun MediaGrid(
                 onClick = {
                     vm.stopSpritePreview()
                     onOpenMedia(media)
+                },
+                previewPreparing = cardPreview is SpritePreviewState.Preparing,
+                previewError = (cardPreview as? SpritePreviewState.Error)?.message,
+                spriteRequestKey = cardPreview,
+                onSpritePreviewError = {
+                    (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
                 },
             )
         }
