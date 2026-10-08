@@ -7,6 +7,12 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
@@ -21,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -31,6 +39,7 @@ import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerContext
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerState
+import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteState
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 
 /**
@@ -39,7 +48,7 @@ import com.mediareview.app.ui.theme.MediaImmersiveBackground
  * - HorizontalPager 左右翻图；scale==1 翻页、scale>1 拖动图片
  * - 单击显隐 UI；双击 1.0x↔2.5x（以点击点为中心）；双指缩放 1~5x；平移带边界
  * - 预加载 N-1 / N+1 / N+2
- * - 收藏（真实状态）；待删除（会话内 pendingDeleteIds，不再用 markReviewed）
+ * - 收藏与待删除均由 Repository 确认；读取未知时禁用待删除并提供重试
  * - 信息面板 ModalBottomSheet；沉浸式黑底，离开恢复系统栏
  */
 @Composable
@@ -69,6 +78,16 @@ fun V2ImageViewer(
 
     val pagerState = rememberPagerState(initialPage = viewerContext.initialIndex) { ids.size }
     val viewerState = remember { ImageViewerState(viewerContext.initialIndex) }
+    val pendingState by vm.viewerPendingDeleteState.collectAsState()
+    val pendingBusy by vm.viewerPendingDeleteBusy.collectAsState()
+    var pendingSession by remember(vm, initialMediaId) { mutableStateOf<Long?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    DisposableEffect(vm, initialMediaId) {
+        val session = vm.openViewerPendingDelete()
+        pendingSession = session
+        onDispose { vm.closeViewerPendingDelete(session) }
+    }
+    LaunchedEffect(vm) { vm.viewerPendingDeleteMessages.collect { snackbar.showSnackbar(it) } }
 
     // 收藏等状态变化经 currentList 刷新驱动重绘
     val list by vm.currentList.collectAsState()
@@ -142,13 +161,28 @@ fun V2ImageViewer(
         if (viewerState.uiVisible && currentMedia != null) {
             ImageViewerBottomBar(
                 isFavorite = currentMedia.isFavorite,
-                isPendingDelete = viewerState.isPendingDelete(currentMedia.id),
+                isPendingDelete = (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(currentMedia.id) == true,
                 onToggleFavorite = { vm.setFavorite(currentMedia.id, !currentMedia.isFavorite) },
                 onInfo = { showInfo = true },
-                onTogglePendingDelete = { viewerState.togglePendingDelete(currentMedia.id) },
+                onTogglePendingDelete = { pendingSession?.let { vm.toggleViewerPendingDelete(it, currentMedia.id) } },
                 modifier = Modifier.align(Alignment.BottomCenter),
+                pendingDeleteEnabled = pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
+                pendingDeleteLabel = when (pendingState) {
+                    ViewerPendingDeleteState.Loading -> "正在加载…"
+                    is ViewerPendingDeleteState.Error -> "状态未知"
+                    is ViewerPendingDeleteState.Ready -> null
+                },
             )
         }
+        if (viewerState.uiVisible && pendingState is ViewerPendingDeleteState.Error) {
+            Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("待删除状态加载失败", color = androidx.compose.ui.graphics.Color.White)
+                TextButton(onClick = { pendingSession?.let { vm.retryViewerPendingDelete(it) } }, modifier = Modifier.testTag("viewer_delete_retry")) {
+                    Text("重新加载")
+                }
+            }
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 145.dp))
     }
 
     if (showInfo && currentMedia != null) {

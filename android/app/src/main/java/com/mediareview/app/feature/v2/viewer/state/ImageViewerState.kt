@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /**
- * 图片查看器页面级状态：currentIndex / uiVisible / pendingDeleteIds。
+ * 图片查看器页面级状态：currentIndex / uiVisible。
  * 缩放状态保持每页局部（见 ZoomableImage）。
  */
 class ImageViewerState(initialIndex: Int = 0) {
@@ -14,10 +14,6 @@ class ImageViewerState(initialIndex: Int = 0) {
         private set
 
     var uiVisible by mutableStateOf(true)
-        private set
-
-    /** 待删除标记（会话内状态；未来正式接 Server 时映射到真实 Delete Queue）。 */
-    var pendingDeleteIds: Set<String> by mutableStateOf(emptySet())
         private set
 
     fun updateCurrentIndex(index: Int) {
@@ -32,13 +28,4 @@ class ImageViewerState(initialIndex: Int = 0) {
         uiVisible = visible
     }
 
-    fun togglePendingDelete(mediaId: String) {
-        pendingDeleteIds = if (mediaId in pendingDeleteIds) {
-            pendingDeleteIds - mediaId
-        } else {
-            pendingDeleteIds + mediaId
-        }
-    }
-
-    fun isPendingDelete(mediaId: String): Boolean = mediaId in pendingDeleteIds
 }

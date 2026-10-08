@@ -578,7 +578,8 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] Server sprite Repository异步准备、DTO校验、有限轮询、身份缓存及客户端取消；Home/Search状态和Coil失败反馈。
 - [x] 45项相关JVM与compile通过；慢加载/长按冲突修复后5UI+12相关JVM通过，原RED/GREEN保留。
 - [x] Task1独立复审通过（Critical 0/Important 0）并按阶段第一笔提交。
-- [ ] Viewer待删除映射Repository真值，读取/写入失败状态和Organize双向一致。
+- [x] Viewer待删除映射Repository真值，读取/写入失败状态与重试、Organize双向一致；53JVM+组件UI验证通过。
+- [x] Task2独立审查通过（Critical 0/Important 0）并按阶段第二笔提交。
 - [ ] 相册错误保留与重试、50/page的Viewer连续翻页。
 - [ ] Alpha9/code16、更新说明、最终四项Android门禁和Release真实smoke。
 - [ ] 最终Git push/clean、九份说明Handoff与已授权QQ邮件（不发APK）。

@@ -38,6 +38,8 @@ fun ImageViewerBottomBar(
     onInfo: () -> Unit,
     onTogglePendingDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    pendingDeleteEnabled: Boolean = true,
+    pendingDeleteLabel: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -65,11 +67,12 @@ fun ImageViewerBottomBar(
         )
         BottomAction(
             icon = Icons.Default.DeleteOutline,
-            label = if (isPendingDelete) "已标记" else "待删除",
+            label = pendingDeleteLabel ?: if (isPendingDelete) "撤销待删除" else "待删除",
             tint = if (isPendingDelete) V2Colors.Accent else MediaTextPrimary,
             tag = "viewer_delete",
             modifier = Modifier.weight(1f),
             onClick = onTogglePendingDelete,
+            enabled = pendingDeleteEnabled,
         )
     }
 }
@@ -82,12 +85,13 @@ private fun BottomAction(
     tag: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        IconButton(onClick = onClick, modifier = Modifier.testTag(tag)) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.testTag(tag)) {
             Icon(icon, label, tint = tint, modifier = Modifier.size(26.dp))
         }
         Text(label, style = MaterialTheme.typography.labelSmall, color = tint)

@@ -28,6 +28,7 @@ import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import com.mediareview.app.feature.v2.perf.V2Perf
+import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -272,6 +273,20 @@ class V2HomeViewModel @Inject constructor(
 
     fun onSpriteFileError(request: SpritePreviewState.Ready) = previewController.fail(request)
 
+    /** Viewer 全屏覆盖根页面，待删除提示只交给 Viewer 的消息入口。 */
+    private val _viewerPendingDeleteMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val viewerPendingDeleteMessages: SharedFlow<String> = _viewerPendingDeleteMessages
+    private val viewerPendingController = ViewerPendingDeleteController(
+        viewModelScope, repository::pendingDeleteIds, repository::setPendingDelete,
+        { _viewerPendingDeleteMessages.tryEmit(it) },
+    )
+    val viewerPendingDeleteState = viewerPendingController.state
+    val viewerPendingDeleteBusy = viewerPendingController.busy
+    fun openViewerPendingDelete(): Long = viewerPendingController.open()
+    fun closeViewerPendingDelete(session: Long) = viewerPendingController.close(session)
+    fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
+    fun toggleViewerPendingDelete(session: Long, mediaId: String) = viewerPendingController.toggle(session, mediaId)
+
     init {
         V2Perf.openHome()
         viewModelScope.launch {
@@ -308,6 +323,7 @@ class V2HomeViewModel @Inject constructor(
         stopSpritePreview()
         viewModelScope.launch {
             if (mode == repository.mode) return@launch
+            viewerPendingController.invalidate()
             // 阶段 8A.1.1 §4: 切换数据源必须失效辅助缓存
             repository.invalidateAuxiliaryCache()
             // Stage 8D.2 §25：切换数据源先清掉旧 Server 的版本 / contract / 兼容性元数据
@@ -380,6 +396,7 @@ class V2HomeViewModel @Inject constructor(
             }
             when (val paired = pairingRepository.verifyAndPair(address, _connectState.value.code)) {
                 is PairingRepository.Result.Paired -> {
+                    viewerPendingController.invalidate()
                     _connectState.value = _connectState.value.copy(
                         busy = false,
                         message = "配对成功",
@@ -425,6 +442,7 @@ class V2HomeViewModel @Inject constructor(
     /** 断开服务器配置（保留 Demo 可用）。 */
     fun clearServerConfig() {
         stopSpritePreview()
+        viewerPendingController.invalidate()
         viewModelScope.launch {
             pairingRepository.clear()
             // 阶段 8A.1.1 §4: 断开连接必须失效辅助缓存,避免下次连别的服务器命中旧数据

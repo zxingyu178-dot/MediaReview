@@ -2393,3 +2393,8 @@ Task1服务器雪碧图：Repository接通ensure、有限task轮询、manifest�
 
 TDD首轮14 Repository、5 Controller测试按缺失能力失败，最终类型化测试45项JVM通过且compileDebugKotlin成功。独立审查发现慢文件加载消耗6.5秒播放预算；实际UI另发现长按误触普通点击，均修复。慢HTTP有效RED复现提前停止；取消用例通过。最初新增fixture因主线程DNS失败，修正基建后重新取得有效RED，原日志保留。修复后5项UI与12项相关JVM通过，实际像素验证帧变化、位图就绪后完整播放预算及加载中取消。独立复审与Task1提交结论另行追加。Server sprite/task专项20项通过；不重复未改Server的全量测试。
 Task1最终复审：Critical 0、Important 0，慢文件计时与长按误点击均关闭；允许提交。完整Server认证及Home/Search端到端fixture仍在Task4验收，不将当前组件测试冒充完整链路。
+
+Task2真实Viewer待删除：ImageViewerState移除本地fake集合，只保留页索引和UI显隐。VM持有独立Loading/Ready/Error状态、session代次和busy；每次进入读取Repository，写入确认成功才改图标，失败保持原值并提示，离页/换源隔离晚到结果。未知/正在写状态禁用按钮，读取错误可重试；专属Viewer事件仅由一个Snackbar入口显示。实际DemoMediaRepository与整理仓库共享同一队列，加入/整理撤销/重开状态一致。
+
+7项有效RED确认缺失能力，GREEN类型化相关JVM共53项通过，compileDebugKotlin通过。UI初次10项中9通过，Info返回受测试AVD系统覆盖层抢焦点；诊断确认SystemUI ANR及fresh AVD首次ImmersiveModeConfirmation，正常Wait/Got it完成初始化后，原Espresso与信息关闭断言单项1/1通过（33s）。未修改InfoSheet产品代码、未放松断言，失败与恢复证据均保留。当前仅组件/Repository验证，完整真实App fixture由Task4完成。Task2独立审查与提交结论另行追加。
+Task2独立审查：Spec符合、Quality Approved，Critical 0/Important 0，允许提交。两项Minor留给最终分支审查：旧write晚到而新write仍busy的额外竞态测试未专门覆盖（现有代次保护正确）；既有AGP/compileSdk兼容警告保留，未升级环境。

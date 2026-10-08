@@ -1,7 +1,10 @@
 package com.mediareview.app.feature.v2.viewer
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -13,6 +16,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataMode
+import com.mediareview.app.feature.v2.data.V2DataModeStore
+import com.mediareview.app.feature.v2.data.DemoMediaRepository
+import com.mediareview.app.feature.v2.data.AlbumCoverStore
+import com.mediareview.app.feature.v2.organize.data.V2DemoOrganizeRepository
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.testHomeViewModel
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -26,8 +33,13 @@ import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import org.junit.Rule
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 
 /**
  * 图片查看器 Compose UI 测试（在模拟器/真机上运行）：
@@ -39,8 +51,19 @@ class ImageViewerUiTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private fun newVm(): V2HomeViewModel {
-        val vm = testHomeViewModel(FakeViewerRepository(), StubSearchHistory())
+    private lateinit var modeStore: V2DataModeStore
+    private lateinit var originalMode: V2DataMode
+
+    @Before fun isolateMode() = runBlocking {
+        modeStore = V2DataModeStore(ApplicationProvider.getApplicationContext())
+        originalMode = modeStore.bootstrap()
+        modeStore.set(V2DataMode.DEMO)
+    }
+
+    @After fun restoreMode() = runBlocking { modeStore.set(originalMode) }
+
+    private fun newVm(repository: FakeViewerRepository = FakeViewerRepository()): V2HomeViewModel {
+        val vm = testHomeViewModel(repository, StubSearchHistory())
         compose.waitUntil(5_000) { vm.currentList.value.isNotEmpty() }
         vm.openMedia("img2")
         return vm
@@ -86,13 +109,100 @@ class ImageViewerUiTest {
     }
 
     @Test
-    fun pendingDeleteToggleChangesLabel() {
-        val vm = newVm()
+    fun pendingDeleteWritesRepositoryBeforeLabelChanges() {
+        val repository = FakeViewerRepository()
+        val vm = newVm(repository)
         setViewer(vm)
+        compose.waitUntil(5_000) { repository.reads == 1 }
         compose.onNodeWithText("待删除").assertIsDisplayed()
         compose.onNodeWithTag("viewer_delete").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("已标记").assertIsDisplayed()
+        assertEquals(setOf("img2"), repository.pending)
+        compose.onNodeWithText("撤销待删除").assertIsDisplayed()
+        compose.onNodeWithTag("viewer_delete").performClick()
+        compose.waitForIdle()
+        assertEquals(emptySet<String>(), repository.pending)
+        compose.onNodeWithText("待删除").assertIsDisplayed()
+    }
+
+    @Test fun initialPendingIsReadFromRepository() {
+        val repository = FakeViewerRepository().apply { pending = setOf("img2") }
+        setViewer(newVm(repository))
+        compose.waitUntil(5_000) { repository.reads == 1 }
+        compose.onNodeWithText("撤销待删除").assertIsDisplayed()
+    }
+
+    @Test fun addFailureRetainsIconAndShowsSnackbar() {
+        val repository = FakeViewerRepository().apply { writeSuccess = false }
+        setViewer(newVm(repository))
+        compose.waitUntil(5_000) { repository.reads == 1 }
+        compose.onNodeWithTag("viewer_delete").performClick()
+        compose.onNodeWithText("加入待删除失败").assertIsDisplayed()
+        compose.onNodeWithText("待删除").assertIsDisplayed()
+        assertEquals(emptySet<String>(), repository.pending)
+    }
+
+    @Test fun loadFailureDisablesDeleteAndRetryRestoresKnownState() {
+        val repository = FakeViewerRepository().apply { readFailure = true; pending = setOf("img2") }
+        setViewer(newVm(repository))
+        compose.onNodeWithText("待删除状态加载失败").assertIsDisplayed()
+        compose.onNodeWithTag("viewer_delete").assertIsNotEnabled()
+        compose.runOnIdle { repository.readFailure = false }
+        compose.onNodeWithTag("viewer_delete_retry").performClick()
+        compose.onNodeWithText("撤销待删除").assertIsDisplayed()
+        compose.onNodeWithTag("viewer_delete").assertIsEnabled()
+    }
+
+    @Test fun loadingAndWriteBusyDisableDeleteWithoutOptimisticIcon() {
+        val read = CompletableDeferred<Set<String>>()
+        val write = CompletableDeferred<Boolean>()
+        val repository = FakeViewerRepository().apply { readGate = read; writeGate = write }
+        setViewer(newVm(repository))
+        compose.onNodeWithTag("viewer_delete").assertIsNotEnabled()
+        compose.onNodeWithText("正在加载…").assertIsDisplayed()
+        read.complete(emptySet())
+        compose.waitForIdle()
+        compose.onNodeWithTag("viewer_delete").performClick()
+        compose.onNodeWithTag("viewer_delete").assertIsNotEnabled()
+        compose.onNodeWithText("待删除").assertIsDisplayed()
+        assertEquals(emptySet<String>(), repository.pending)
+        write.complete(true)
+        compose.waitForIdle()
+        compose.onNodeWithText("撤销待删除").assertIsDisplayed()
+        assertEquals(setOf("img2"), repository.pending)
+    }
+
+    @Test fun undoFailureRetainsConfirmedPendingIcon() {
+        val repository = FakeViewerRepository().apply { pending = setOf("img2"); writeSuccess = false }
+        setViewer(newVm(repository))
+        compose.waitUntil(5_000) { repository.reads == 1 }
+        compose.onNodeWithTag("viewer_delete").performClick()
+        compose.onNodeWithText("撤销待删除失败").assertIsDisplayed()
+        compose.onNodeWithText("撤销待删除").assertIsDisplayed()
+        assertEquals(setOf("img2"), repository.pending)
+    }
+
+    @Test fun realDemoViewerAndOrganizeShareQueueAndReopenReadsUndo() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repository = DemoMediaRepository(context, AlbumCoverStore(context))
+        val organize = V2DemoOrganizeRepository(repository)
+        val vm = testHomeViewModel(repository, StubSearchHistory())
+        compose.waitUntil(5_000) { vm.currentList.value.any { !it.isVideo } }
+        val id = vm.currentList.value.first { !it.isVideo }.id
+        compose.runOnIdle { vm.openMedia(id) }
+        val visible = mutableStateOf(true)
+        compose.setContent { if (visible.value) V2ImageViewer(vm, id, onBack = { visible.value = false }) }
+        compose.waitForIdle()
+        compose.onNodeWithTag("viewer_delete").performClick()
+        compose.onNodeWithText("撤销待删除").assertIsDisplayed()
+        compose.onNodeWithTag("viewer_back").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(id), runBlocking { organize.loadDeleteQueue().map { it.mediaId } })
+        runBlocking { organize.restoreDeleteItem(id) }
+        compose.runOnIdle { visible.value = true }
+        compose.waitForIdle()
+        compose.onNodeWithText("待删除").assertIsDisplayed()
+        assertEquals(emptySet<String>(), runBlocking { repository.pendingDeleteIds() })
     }
 }
 
@@ -112,6 +222,12 @@ private class StubSearchHistory : SearchHistoryStore(ApplicationProvider.getAppl
 
 /** 测试用内存数据仓库：3 图 + 1 视频。 */
 private class FakeViewerRepository : MediaRepository {
+    var pending: Set<String> = emptySet()
+    var readFailure = false
+    var writeSuccess = true
+    var reads = 0
+    var readGate: CompletableDeferred<Set<String>>? = null
+    var writeGate: CompletableDeferred<Boolean>? = null
     private val catalog = listOf(
         media("img1", "IMG-001", V2MediaType.IMAGE, 1280, 720),
         media("img2", "IMG-002", V2MediaType.IMAGE, 720, 1280),
@@ -142,8 +258,16 @@ private class FakeViewerRepository : MediaRepository {
     }
     override suspend fun favorites(): List<V2Media> = applyOverrides(catalog).filter { it.isFavorite }
     override suspend fun markReviewed(mediaId: String) {}
-    override suspend fun pendingDeleteIds(): Set<String> = emptySet()
-    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = true
+    override suspend fun pendingDeleteIds(): Set<String> {
+        reads++
+        if (readFailure) error("offline")
+        return readGate?.await() ?: pending
+    }
+    override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean {
+        val confirmed = writeGate?.await() ?: writeSuccess
+        if (confirmed) this.pending = if (pending) this.pending + mediaId else this.pending - mediaId
+        return confirmed
+    }
     override suspend fun unmarkReviewed(mediaId: String) {}
     override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource = V2PlaybackSource(
         mediaId = mediaId,

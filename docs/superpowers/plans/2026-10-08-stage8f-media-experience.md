@@ -35,13 +35,13 @@ Files: viewer/state/ImageViewerState.kt、viewer/V2ImageViewer.kt、viewer/Image
 
 Interfaces: ViewerPendingDeleteState Loading/Ready(ids)/Error；VM进入reload、setPendingDelete确认成功后更新；ImageViewerState仅currentIndex/uiVisible。
 
-- [ ] 先red验证已有pending、加入/撤销成功与失败、读取失败非empty、退出重开repository真值、与Organize双向一致。
-- [ ] VM负责读取/写入、busy防重复、source/session晚到结果保护，取消传播；UI禁用未知/正在写状态且可重试，失败中文Snackbar不乐观更新。
-- [ ] 删除本地fake pending与旧测试，更新实际行为断言；相关JVM+compile，独立审查；主提交 fix(android): persist viewer pending-delete through repository。
+- [x] 先red验证已有pending、加入/撤销成功与失败、读取失败非empty、退出重开repository真值、与Organize双向一致。
+- [x] VM负责读取/写入、busy防重复、source/session晚到结果保护，取消传播；UI禁用未知/正在写状态且可重试，失败中文Snackbar不乐观更新。
+- [x] 删除本地fake pending与旧测试，更新实际行为断言；相关JVM+compile，独立审查；主提交 fix(android): persist viewer pending-delete through repository。
 
 ## Task3：相册错误与Viewer续页
 
-Files: home/AlbumScreen.kt、home/V2HomeViewModel.kt、viewer/V2ImageViewer.kt、V2Root导航调用、viewer/state新增Album分页上下文；相关JVM/UI tests。
+Files: home/AlbumScreen.kt、home/V2HomeViewModel.kt、viewer/V2ImageViewer.kt、V2MainScreen导航调用、viewer/state新增Album分页上下文；相关JVM/UI tests。
 
 Interfaces: 明确openAlbumImage(albumId,loadedImages,total,mediaId,loadedPage,sortSpec)，50/page；状态保留窗口、页码/total/errors；接近末尾3项加载nextPage。
 
