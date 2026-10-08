@@ -580,7 +580,7 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] Task1独立复审通过（Critical 0/Important 0）并按阶段第一笔提交。
 - [x] Viewer待删除映射Repository真值，读取/写入失败状态与重试、Organize双向一致；53JVM+组件UI验证通过。
 - [x] Task2独立审查通过（Critical 0/Important 0）并按阶段第二笔提交。
-- [ ] 相册错误保留与重试、50/page的Viewer连续翻页。
+- [x] 相册错误保留与重试、50/page的Viewer连续翻页；35相关JVM与17独立UI验证通过，Task3独立审查通过（Critical 0/Important 0）。
 - [ ] Alpha9/code16、更新说明、最终四项Android门禁和Release真实smoke。
 - [ ] 最终Git push/clean、九份说明Handoff与已授权QQ邮件（不发APK）。
 

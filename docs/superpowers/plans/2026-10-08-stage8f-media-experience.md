@@ -45,9 +45,9 @@ Files: home/AlbumScreen.kt、home/V2HomeViewModel.kt、viewer/V2ImageViewer.kt�
 
 Interfaces: 明确openAlbumImage(albumId,loadedImages,total,mediaId,loadedPage,sortSpec)，50/page；状态保留窗口、页码/total/errors；接近末尾3项加载nextPage。
 
-- [ ] 先red验证page1错误≠空、total0空、page2失败保留且不增加页码、重试append、封面/书架失败保留旧数据；120照片48→51不中断不跳图且仅50/page。
-- [ ] 移除albumPage empty fallback；第一页/更多错误与重试明确，old shelf不清空；Viewer动态ID页数且stable key/currentId，去重和单在途请求，失败保留窗口允许再次重试，不全量。
-- [ ] 相关JVM+compile/目标instrumentation，独立审查；主提交 fix(android): preserve album errors and add paged viewer continuation。
+- [x] 先red验证page1错误≠空、total0空、page2失败保留且不增加页码、重试append、封面/书架失败保留旧数据；120照片48→51不中断不跳图且仅50/page。
+- [x] 移除albumPage empty fallback；第一页/更多错误与重试明确，old shelf不清空；Viewer动态ID页数且stable key/currentId，去重和单在途请求，失败保留窗口允许再次重试，不全量。
+- [x] 相关JVM+compile/目标instrumentation，独立审查；主提交 fix(android): preserve album errors and add paged viewer continuation。
 
 ## Task4：Alpha9最终回归与交付
 

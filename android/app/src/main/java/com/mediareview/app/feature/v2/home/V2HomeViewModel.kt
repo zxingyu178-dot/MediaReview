@@ -29,6 +29,7 @@ import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteController
+import com.mediareview.app.feature.v2.viewer.state.AlbumPagingController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -287,6 +288,37 @@ class V2HomeViewModel @Inject constructor(
     fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
     fun toggleViewerPendingDelete(session: Long, mediaId: String) = viewerPendingController.toggle(session, mediaId)
 
+    private var albumSourceGeneration = 0L
+    private val albumController = AlbumPagingController(viewModelScope, repository::albumPage)
+    val albumState = albumController.state
+    private val _albumViewerMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val albumViewerMessages: SharedFlow<String> = _albumViewerMessages
+    private val albumViewerController = AlbumPagingController(viewModelScope, repository::albumPage) {
+        _albumViewerMessages.tryEmit(it)
+    }
+    val albumViewerState = albumViewerController.state
+    var albumViewerSession: Long? = null
+        private set
+    fun openAlbum(albumId: String, spec: V2SortSpec): Long = albumController.open(albumId, spec)
+    fun closeAlbum(session: Long) = albumController.close(session)
+    fun albumNearEnd(session: Long, index: Int) = albumController.nearEnd(session, index)
+    fun retryAlbum(session: Long) = albumController.retry(session)
+    fun closeAlbumViewer(session: Long) {
+        albumViewerController.close(session)
+        if (albumViewerSession == session) albumViewerSession = null
+    }
+    fun albumViewerNearEnd(session: Long, index: Int) = albumViewerController.nearEnd(session, index)
+    fun retryAlbumViewer(session: Long) = albumViewerController.retry(session)
+    private fun invalidateAlbumViewer() {
+        albumViewerController.invalidate()
+        albumViewerSession = null
+    }
+    private fun invalidateAlbumSource() {
+        albumSourceGeneration++
+        albumController.invalidate()
+        invalidateAlbumViewer()
+    }
+
     init {
         V2Perf.openHome()
         viewModelScope.launch {
@@ -324,6 +356,7 @@ class V2HomeViewModel @Inject constructor(
         viewModelScope.launch {
             if (mode == repository.mode) return@launch
             viewerPendingController.invalidate()
+            invalidateAlbumSource()
             // 阶段 8A.1.1 §4: 切换数据源必须失效辅助缓存
             repository.invalidateAuxiliaryCache()
             // Stage 8D.2 §25：切换数据源先清掉旧 Server 的版本 / contract / 兼容性元数据
@@ -397,6 +430,7 @@ class V2HomeViewModel @Inject constructor(
             when (val paired = pairingRepository.verifyAndPair(address, _connectState.value.code)) {
                 is PairingRepository.Result.Paired -> {
                     viewerPendingController.invalidate()
+                    invalidateAlbumSource()
                     _connectState.value = _connectState.value.copy(
                         busy = false,
                         message = "配对成功",
@@ -443,6 +477,7 @@ class V2HomeViewModel @Inject constructor(
     fun clearServerConfig() {
         stopSpritePreview()
         viewerPendingController.invalidate()
+        invalidateAlbumSource()
         viewModelScope.launch {
             pairingRepository.clear()
             // 阶段 8A.1.1 §4: 断开连接必须失效辅助缓存,避免下次连别的服务器命中旧数据
@@ -592,6 +627,7 @@ class V2HomeViewModel @Inject constructor(
      */
     fun openMedia(mediaId: String): Boolean {
         stopSpritePreview()
+        invalidateAlbumViewer()
         val list = _currentList.value
         val index = list.indexOfFirst { it.id == mediaId }
         if (index < 0) {
@@ -625,6 +661,7 @@ class V2HomeViewModel @Inject constructor(
      */
     fun openMediaIn(list: List<V2Media>, mediaId: String): Boolean {
         stopSpritePreview()
+        invalidateAlbumViewer()
         val index = list.indexOfFirst { it.id == mediaId }
         if (index < 0) return false
         contextQueue = V2ContextQueue(
@@ -638,6 +675,25 @@ class V2HomeViewModel @Inject constructor(
         return true
     }
 
+    /** 相册 Viewer 独立来源，不读取首页 folder/filter/sort；只保存已加载照片窗口。 */
+    fun openAlbumImage(albumId: String, loadedImages: List<V2Media>, total: Int, mediaId: String, loadedPage: Int, sortSpec: V2SortSpec): Boolean {
+        val images = loadedImages.filter { !it.isVideo }.distinctBy { it.id }
+        val index = images.indexOfFirst { it.id == mediaId }
+        if (index < 0) return false
+        stopSpritePreview()
+        albumViewerSession = albumViewerController.open(albumId, sortSpec, images, total, loadedPage)
+        contextQueue = V2ContextQueue(albumId, sortSpec.field, sortSpec.order, V2TypeFilter.IMAGE, images.map { it.id }, index)
+        return true
+    }
+
+    fun updateAlbumViewerIndex(index: Int) {
+        val window = albumViewerState.value ?: return
+        val queue = contextQueue ?: return
+        if (queue.folderId == window.albumId && window.mediaIds.isNotEmpty()) {
+            contextQueue = queue.copy(mediaIds = window.mediaIds, currentIndex = index.coerceIn(0, window.items.lastIndex))
+        }
+    }
+
     /**
      * 在指定视频队列中打开（批阅页 → 完整播放器：Player 按此队列上下条，
      * 返回时依旧回到批阅原位置）。
@@ -646,6 +702,7 @@ class V2HomeViewModel @Inject constructor(
      */
     fun openMediaInVideoQueue(queue: List<V2Media>, mediaId: String): Boolean {
         stopSpritePreview()
+        invalidateAlbumViewer()
         val videos = queue.filter { it.isVideo }
         val index = videos.indexOfFirst { it.id == mediaId }
         if (index < 0) return false
@@ -691,24 +748,28 @@ class V2HomeViewModel @Inject constructor(
     // ---------- 相册能力 ----------
 
     fun refreshAlbums() {
-        viewModelScope.launch {
-            _albums.value = runCatching { repository.albums() }.getOrDefault(emptyList())
-        }
+        viewModelScope.launch { refreshAlbumsNow() }
     }
 
     /**
      * 相册内照片分页（IMAGE ONLY，阶段 8B §12）：AlbumScreen 滚动加载下一页，
-     * 大相册（>200 张）不再被截断。失败返回空页（不抛异常给 Compose）。
+     * 大相册（>200 张）不再被截断。异常保留，由分页控制器转为可重试 Error。
      */
     suspend fun albumPage(albumId: String, page: Int, spec: V2SortSpec): V2MediaPage =
-        runCatching { repository.albumPage(albumId, page, ALBUM_PAGE_SIZE, spec) }
-            .getOrElse { V2MediaPage(items = emptyList(), page = page, pageSize = ALBUM_PAGE_SIZE, total = 0) }
+        repository.albumPage(albumId, page, ALBUM_PAGE_SIZE, spec)
 
     /** 用户选择相册封面（校验后持久化），随后刷新书架。 */
     fun setAlbumCover(albumId: String, mediaId: String) {
+        val source = albumSourceGeneration
         viewModelScope.launch {
-            repository.setAlbumCover(albumId, mediaId)
-            _albums.value = runCatching { repository.albums() }.getOrDefault(emptyList())
+            try {
+                repository.setAlbumCover(albumId, mediaId)
+                if (source == albumSourceGeneration) refreshAlbumsNow()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                if (source == albumSourceGeneration) emitMessage("相册封面保存失败")
+            }
         }
     }
 
@@ -798,6 +859,7 @@ class V2HomeViewModel @Inject constructor(
      * 保证不继续显示旧库内容（folders / albums / media page / favorites 一并失效）。
      */
     fun refreshAfterLibraryChange() {
+        invalidateAlbumSource()
         repository.invalidateAuxiliaryCache()
         viewModelScope.launch { reloadAll() }
     }
@@ -815,12 +877,17 @@ class V2HomeViewModel @Inject constructor(
     }
 
     private suspend fun refreshAlbumsNow() {
-        val albums = runCatching { repository.albums() }.getOrElse { error ->
-            _albumError.value = error.message ?: "书架加载失败"
-            return
+        val source = albumSourceGeneration
+        try {
+            val albums = repository.albums()
+            if (source != albumSourceGeneration) return
+            _albums.value = albums
+            _albumError.value = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            if (source == albumSourceGeneration) _albumError.value = "书架加载失败"
         }
-        _albums.value = albums
-        _albumError.value = null
     }
 
     /**

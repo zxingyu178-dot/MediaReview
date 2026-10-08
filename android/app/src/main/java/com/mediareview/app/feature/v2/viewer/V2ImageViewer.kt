@@ -74,7 +74,13 @@ fun V2ImageViewer(
             sortOrder = queue?.sortOrder ?: V2SortOrder.DESC,
         )
     }
-    val ids = viewerContext.mediaIds
+    val albumWindow by vm.albumViewerState.collectAsState()
+    // This session is captured once: appending ids must not reopen either paging or pending-delete.
+    val albumSession = remember(vm, initialMediaId) { vm.albumViewerSession }
+    val ids = if (albumSession != null) albumWindow?.mediaIds.orEmpty() else viewerContext.mediaIds
+    DisposableEffect(vm, albumSession) {
+        onDispose { albumSession?.let(vm::closeAlbumViewer) }
+    }
 
     val pagerState = rememberPagerState(initialPage = viewerContext.initialIndex) { ids.size }
     val viewerState = remember { ImageViewerState(viewerContext.initialIndex) }
@@ -88,6 +94,7 @@ fun V2ImageViewer(
         onDispose { vm.closeViewerPendingDelete(session) }
     }
     LaunchedEffect(vm) { vm.viewerPendingDeleteMessages.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(vm, albumSession) { vm.albumViewerMessages.collect { snackbar.showSnackbar(it) } }
 
     // 收藏等状态变化经 currentList 刷新驱动重绘
     val list by vm.currentList.collectAsState()
@@ -97,8 +104,12 @@ fun V2ImageViewer(
     var showInfo by remember { mutableStateOf(false) }
     var currentScale by remember { mutableFloatStateOf(1f) }
 
-    LaunchedEffect(pagerState.currentPage) {
+    LaunchedEffect(pagerState.currentPage, ids.size) {
         viewerState.updateCurrentIndex(pagerState.currentPage)
+        if (albumSession != null) {
+            vm.updateAlbumViewerIndex(pagerState.currentPage)
+            vm.albumViewerNearEnd(albumSession, pagerState.currentPage)
+        }
     }
 
     // Stage 8A.1.1: 每次打开 Viewer 都新建测量会话，preview/full 相对 viewer_open 计时
@@ -128,8 +139,9 @@ fun V2ImageViewer(
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = currentScale <= 1.01f,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().testTag("viewer_pager"),
             beyondViewportPageCount = 2,
+            key = { ids[it] },
         ) { page ->
             val media = ids.getOrNull(page)?.let { vm.mediaById(it) }
             if (media != null) {
@@ -180,6 +192,12 @@ fun V2ImageViewer(
                 TextButton(onClick = { pendingSession?.let { vm.retryViewerPendingDelete(it) } }, modifier = Modifier.testTag("viewer_delete_retry")) {
                     Text("重新加载")
                 }
+            }
+        }
+        if (viewerState.uiVisible && albumWindow?.moreError != null) {
+            TextButton(onClick = { albumSession?.let(vm::retryAlbumViewer) },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 195.dp).testTag("viewer_album_retry")) {
+                Text("加载更多失败 · 重试")
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 145.dp))

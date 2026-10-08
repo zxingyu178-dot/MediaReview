@@ -2398,3 +2398,8 @@ Task2真实Viewer待删除：ImageViewerState移除本地fake集合，只保留�
 
 7项有效RED确认缺失能力，GREEN类型化相关JVM共53项通过，compileDebugKotlin通过。UI初次10项中9通过，Info返回受测试AVD系统覆盖层抢焦点；诊断确认SystemUI ANR及fresh AVD首次ImmersiveModeConfirmation，正常Wait/Got it完成初始化后，原Espresso与信息关闭断言单项1/1通过（33s）。未修改InfoSheet产品代码、未放松断言，失败与恢复证据均保留。当前仅组件/Repository验证，完整真实App fixture由Task4完成。Task2独立审查与提交结论另行追加。
 Task2独立审查：Spec符合、Quality Approved，Critical 0/Important 0，允许提交。两项Minor留给最终分支审查：旧write晚到而新write仍busy的额外竞态测试未专门覆盖（现有代次保护正确）；既有AGP/compileSdk兼容警告保留，未升级环境。
+
+Task3相册错误与Viewer续页：Screen/Viewer复用纯AlbumPagingController而各持独立窗口，首屏Loading/Ready/Empty/Error仅明确成功total0为空；追加失败保留已加载照片、total与页码，显式重试和下一尾部位置可再次尝试，同位置不无限循环。专用openAlbumImage携带albumId/排序/50分页上下文，不继承首页folder；动态Pager稳定ID去重追加，当前图片与pending session不重置。书架刷新/封面刷新错误保留旧Shelf；源/会话代次阻止旧结果覆盖。
+
+控制器RED为6个有效行为AssertionError与1个stub窗口NoSuchElement（不独立算行为RED），35相关JVM与compile通过；初次16/16目标UI通过。额外close RED发现VM旧session残留，最小修正后单项1/1通过；旧close不影响新session、source失效空Pager不崩溃。新fixture初次图片路径无效，改用真实内置映射后两项Viewer2/2补验通过，当前名称/索引断言不等于像素或Coil解码证据。累计17个独立UI通过，未声称单轮17项绿；首个同步追加失败Snackbar有UI证据。所有失败/原始日志保留，最终统一门禁和真实Release由Task4完成。Task3已冻结，独立审查进行中，尚未提交。
+Task3独立审查：Spec compliant/Quality Approved，Critical 0/Important 0/Minor 0；真实媒体缓存联通聚焦核验通过。最终门禁/Release/真实图片像素由Task4补证，允许第三笔提交。

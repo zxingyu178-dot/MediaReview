@@ -236,9 +236,8 @@ fun V2MainScreen(
                     vm = vm,
                     albumId = albumId,
                     onBack = { navController.popBackStack() },
-                    onOpenImage = { m, window ->
-                        // Viewer 队列 = 相册**已加载窗口**（IMAGE ONLY，§12），左右滑只在窗口内翻页
-                        if (vm.openMediaIn(window, m.id)) {
+                    onOpenImage = { m, window, total, loadedPage, spec ->
+                        if (vm.openAlbumImage(albumId, window, total, m.id, loadedPage, spec)) {
                             MediaNavigator.openMedia(navController, m)
                         }
                     },
