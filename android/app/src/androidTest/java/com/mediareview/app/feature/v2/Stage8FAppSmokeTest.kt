@@ -14,6 +14,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mediareview.app.MainActivity
+import com.mediareview.app.BuildConfig
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.V2DataModeStore
@@ -55,8 +56,8 @@ class Stage8FAppSmokeTest {
     private fun verifyActualTarget() {
         val pkg = context.packageManager.getPackageInfo(context.packageName, 0)
         val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        assertEquals(16L, pkg.longVersionCode)
-        assertEquals("2.0.0-alpha9", pkg.versionName)
+        assertEquals(BuildConfig.VERSION_CODE.toLong(), pkg.longVersionCode)
+        assertEquals(BuildConfig.VERSION_NAME, pkg.versionName)
         val requireRelease = InstrumentationRegistry.getArguments().getString("stage8fRequireRelease") == "true"
         if (requireRelease) assertFalse("实际安装目标必须是 Release", debuggable)
         record("target version=${pkg.versionName} code=${pkg.longVersionCode} debuggable=$debuggable requireRelease=$requireRelease")
@@ -69,17 +70,17 @@ class Stage8FAppSmokeTest {
             V2DataModeStore(context).set(V2DataMode.DEMO)
             // Clean Release 保留 null（首次安装）；全量 Debug suite 可能已有历史，模拟相邻升级。
             val notes = ReleaseNotesStore(context)
-            if (notes.lastSeenVersionCode() != null) notes.saveLastSeenVersionCode(15)
+            if (notes.lastSeenVersionCode() != null) notes.saveLastSeenVersionCode(BuildConfig.VERSION_CODE - 1)
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
         waitTag("whats_new_sheet")
         compose.onAllNodesWithTag("whats_new_sheet").assertCountEquals(1)
-        compose.onNodeWithText("2.0.0-alpha9").assertExists()
-        ReleaseNotesCatalog.forVersionCode(16)!!.highlights.forEach { compose.onNodeWithText(it).assertExists() }
+        compose.onNodeWithText(BuildConfig.VERSION_NAME).assertExists()
+        ReleaseNotesCatalog.forVersionCode(BuildConfig.VERSION_CODE)!!.highlights.forEach { compose.onNodeWithText(it).assertExists() }
         compose.onNodeWithText("来自 2.0.0-alpha8").assertDoesNotExist()
         screenshot("01-alpha9-notes")
         click("知道了")
-        compose.waitUntil(10_000) { runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() } == 16 }
+        compose.waitUntil(10_000) { runBlocking { ReleaseNotesStore(context).lastSeenVersionCode() } == BuildConfig.VERSION_CODE }
         scenario!!.recreate()
         waitText("· 切换数据源")
         compose.onNodeWithTag("whats_new_sheet").assertDoesNotExist()
@@ -110,7 +111,7 @@ class Stage8FAppSmokeTest {
         runBlocking {
             ServerProfileStore(context).clear()
             V2DataModeStore(context).set(V2DataMode.DEMO)
-            ReleaseNotesStore(context).saveLastSeenVersionCode(16)
+            ReleaseNotesStore(context).saveLastSeenVersionCode(BuildConfig.VERSION_CODE)
         }
         scenario = ActivityScenario.launch(MainActivity::class.java)
         val http = Stage8FHttpFixture().also { fixture = it }

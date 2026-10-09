@@ -18,14 +18,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /** 模拟 Server：仅存在于 instrumentation 生命周期。真实 HTTP、图片字节与 MP4，非家庭 LAN。 */
-internal class Stage8FHttpFixture(private val legacy: Boolean = false) : AutoCloseable {
-    data class Hit(val path: String, val method: String, val authenticated: Boolean, val page: Int?, val pageSize: Int?)
+internal class Stage8FHttpFixture(private val legacy: Boolean = false, private val largeLibrary: Boolean = false) : AutoCloseable {
+    data class Hit(val path: String, val method: String, val authenticated: Boolean, val page: Int?, val pageSize: Int?, val search: String? = null, val folder: String? = null)
     val hits = CopyOnWriteArrayList<Hit>()
     val pending = ConcurrentHashMap.newKeySet<String>()
     private val favorites = ConcurrentHashMap.newKeySet<String>()
     private val polls = ConcurrentHashMap<String, AtomicInteger>()
     @Volatile var failAlbumPage = 0
     @Volatile var failSprite = false
+    @Volatile var failSearchPage = 0
     private val server = MockWebServer()
     private val videoBytes = ApplicationProvider.getApplicationContext<Context>().let { target ->
         val id = target.resources.getIdentifier("demo_05_longer", "raw", target.packageName)
@@ -39,11 +40,12 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false) : AutoClo
         .filter { it.isUp && !it.isLoopback }.flatMap { it.inetAddresses.toList() }
         .filterIsInstance<Inet4Address>().first { it.isSiteLocalAddress }.hostAddress!!
     val baseUrl: String get() = "http://$host:${server.port}"
-    private val photoCount = if (legacy) 30 else 120
-    private val videoCount = if (legacy) 30 else 12
+    private val photoCount = if (largeLibrary) 500 else if (legacy) 30 else 120
+    private val videoCount = if (largeLibrary) 500 else if (legacy) 30 else 12
     private val ids get() = (1..videoCount).map { "v$it" } + (1..photoCount).map { "p$it" }
 
     init {
+        if (largeLibrary) favorites.addAll(listOf("v301", "v302", "v303", "p301", "p302", "p303"))
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val url = requireNotNull(request.requestUrl)
@@ -52,7 +54,7 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false) : AutoClo
                 val stream = path.startsWith("/stream/")
                 val authenticated = if (stream) request.getHeader("X-Emby-Token") == "mock-device-stream-key"
                     else request.getHeader("Authorization") == "Bearer mock-token"
-                hits += Hit(path, request.method.orEmpty(), authenticated, url.queryParameter("page")?.toIntOrNull(), url.queryParameter("page_size")?.toIntOrNull())
+                hits += Hit(path, request.method.orEmpty(), authenticated, url.queryParameter("page")?.toIntOrNull(), url.queryParameter("page_size")?.toIntOrNull(), url.queryParameter("search"), url.queryParameter("folder_id"))
                 if (!public && !authenticated) return MockResponse().setResponseCode(if (stream) 403 else 401)
                 return when {
                     path.endsWith("/health") -> envelope("""{"status":"ok","version":"1.2.2","api_contract":2,"capabilities":[]}""")
@@ -63,6 +65,7 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false) : AutoClo
                         val page = url.queryParameter("page")?.toIntOrNull() ?: 1
                         val size = url.queryParameter("page_size")?.toIntOrNull() ?: 50
                         val folder = url.queryParameter("folder_id")
+                        if (!url.queryParameter("search").isNullOrBlank() && page == failSearchPage) return MockResponse().setResponseCode(503)
                         if (folder == "f_photos" && page == failAlbumPage) return MockResponse().setResponseCode(503)
                         val selected = ids.filter { id ->
                             (folder == null || folder == if (id.startsWith("p")) "f_photos" else "f_videos") &&
@@ -96,7 +99,7 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false) : AutoClo
                         envelope("""{"media_id":"$id","title":"${name(id)}","stream_url":"$baseUrl/stream/$id.mp4","stream_url_authoritative":true,"stream_url_source":"configured_client_url","direct":$endpoint,"fallback_hls":$endpoint}""")
                     }
                     stream -> video(request)
-                    path == "/api/v1/favorites" -> envelope(favorites.joinToString(",", "[", "]") { """{"media_id":"$it","media":${media(it)}}""" })
+                    path == "/api/v1/favorites" -> envelope(favorites.sorted().joinToString(",", "[", "]") { """{"media_id":"$it","media":${media(it)}}""" })
                     path.startsWith("/api/v1/favorites/") -> {
                         val id = path.substringAfterLast('/'); val add = request.method == "POST"
                         if (add) favorites.add(id) else favorites.remove(id)
@@ -122,7 +125,11 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false) : AutoClo
     }
 
     fun count(path: String, method: String = "GET") = hits.count { it.path == path && it.method == method }
-    fun name(id: String): String = if (id.startsWith("p")) "照片 ${id.drop(1).padStart(3, '0')}" else "服务器视频 ${id.drop(1).padStart(2, '0')}"
+    fun isFavorite(mediaId: String): Boolean = mediaId in favorites
+    fun name(id: String): String {
+        val base = if (id.startsWith("p")) "照片 ${id.drop(1).padStart(3, '0')}" else "服务器视频 ${id.drop(1).padStart(if (largeLibrary) 3 else 2, '0')}"
+        return if (largeLibrary && id.drop(1).toInt() <= 110) "abc $base" else base
+    }
     private fun media(id: String): String {
         val photo = id.startsWith("p")
         return """{"media_id":"$id","name":"${name(id)}","media_type":"${if (photo) "image" else "video"}","library_id":"fixture","duration_ms":18000,"size_bytes":1024,"width":320,"height":180,"folder_id":"${if (photo) "f_photos" else "f_videos"}","folder_name":"${if (photo) "测试相册" else "测试视频"}","cover_url":"/api/v1/media/$id/cover","original_url":"/api/v1/media/$id/original","is_favorite":${id in favorites}}"""

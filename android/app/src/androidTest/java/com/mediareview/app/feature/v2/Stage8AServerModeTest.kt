@@ -252,7 +252,7 @@ class Stage8AServerModeTest {
                 HomeScreen(
                     vm = vm,
                     onOpenMedia = {},
-                    onOpenFolder = {},
+                    onOpenSearchMedia = { _, _ -> },
                     onOpenAlbum = {},
                     onOpenDataSource = {},
                 )
@@ -279,11 +279,13 @@ class Stage8AServerModeTest {
         assertEquals(30, vm.totalCount.value)
         assertTrue(vm.currentList.value.all { !it.isVideo })
 
-        // 搜索：也由服务端执行
+        // 搜索：也由服务端执行，但不覆盖已有首页窗口。
+        val homeWindow = vm.currentList.value
         vm.setSearchMode(true)
         vm.updateSearchQuery("照片 0")
-        awaitOrFail(30_000, "服务端应返回搜索命中的图片") { vm.currentList.value.isNotEmpty() }
-        assertTrue(vm.currentList.value.all { it.name.contains("照片") })
+        awaitOrFail(30_000, "服务端应返回搜索命中的图片") { vm.searchState.value.items.isNotEmpty() }
+        assertTrue(vm.searchState.value.items.all { it.name.contains("照片") })
+        assertEquals(homeWindow, vm.currentList.value)
     }
 
     /** 轮询等待（带诊断信息），避免只看到无信息的超时。 */

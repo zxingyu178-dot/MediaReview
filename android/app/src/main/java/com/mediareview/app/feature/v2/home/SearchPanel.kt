@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -22,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,19 +56,25 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
 @Composable
 fun SearchPanel(
     vm: V2HomeViewModel,
-    onOpenMedia: (V2Media) -> Unit,
+    onOpenMedia: (V2Media, List<V2Media>) -> Unit,
     modifier: Modifier = Modifier,
+    gridState: LazyGridState = rememberLazyGridState(),
 ) {
-    val list by vm.currentList.collectAsState()
+    val state by vm.searchState.collectAsState()
+    val list = state.items
     val query = vm.searchQuery
     val history = vm.recentSearches
     val previewState by vm.spritePreviewState.collectAsState()
-    val gridState = rememberLazyGridState()
     DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
     LaunchedEffect(gridState) {
         snapshotFlow { gridState.isScrollInProgress }.collect { scrolling ->
             if (scrolling) vm.stopSpritePreview()
         }
+    }
+
+    LaunchedEffect(gridState, state.items.size, state.hasMore, state.loadingFirstPage, state.loadingMore, state.error) {
+        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .collect { vm.searchNearEnd(it) }
     }
 
     Column(modifier = modifier.fillMaxSize().padding(horizontal = V2Spacing.Lg)) {
@@ -96,8 +106,8 @@ fun SearchPanel(
                     }
         }
 
-        if (query.isBlank() && history.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (query.isBlank()) {
+            if (history.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         Icons.Default.History,
@@ -113,12 +123,25 @@ fun SearchPanel(
                     )
                 }
             }
+        } else if (list.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    when {
+                        state.loadingFirstPage -> CircularProgressIndicator()
+                        state.error != null -> {
+                            Text("搜索失败", color = MediaTextSecondary)
+                            TextButton(onClick = vm::retrySearch) { Text("重试") }
+                        }
+                        else -> Text("没有找到匹配内容", color = MediaTextSecondary)
+                    }
+                }
+            }
         } else {
-            // 搜索结果（真实过滤 Demo 数据）
+            // 独立的已加载搜索窗口。
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().testTag("search_grid"),
                 contentPadding = PaddingValues(top = V2Spacing.Sm, bottom = V2Spacing.Xl),
                 horizontalArrangement = Arrangement.spacedBy(V2Spacing.Md),
                 verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
@@ -133,7 +156,7 @@ fun SearchPanel(
                         isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
                         onSpritePreviewRequest = { vm.startSpritePreview(media.id) },
                         onSpritePreviewStop = vm::stopSpritePreview,
-                        onClick = { vm.stopSpritePreview(); onOpenMedia(media) },
+                        onClick = { vm.stopSpritePreview(); onOpenMedia(media, list) },
                         previewPreparing = cardPreview is SpritePreviewState.Preparing,
                         previewError = (cardPreview as? SpritePreviewState.Error)?.message,
                         spriteRequestKey = cardPreview,
@@ -141,6 +164,15 @@ fun SearchPanel(
                             (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
                         },
                     )
+                }
+                if (state.loadingMore || state.error != null) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (state.loadingMore) CircularProgressIndicator(Modifier.size(24.dp))
+                            else TextButton(onClick = vm::retrySearch) { Text("加载更多失败 · 重试") }
+                        }
+                    }
                 }
             }
         }

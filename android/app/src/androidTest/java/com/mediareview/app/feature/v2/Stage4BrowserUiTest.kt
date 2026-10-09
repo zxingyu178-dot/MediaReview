@@ -77,7 +77,7 @@ class Stage4BrowserUiTest {
                 HomeScreen(
                     vm = vm,
                     onOpenMedia = {},
-                    onOpenFolder = {},
+                    onOpenSearchMedia = { _, _ -> },
                     onOpenAlbum = {},
                     onOpenDataSource = {},
                 )
@@ -100,7 +100,7 @@ class Stage4BrowserUiTest {
                 HomeScreen(
                     vm = vm,
                     onOpenMedia = {},
-                    onOpenFolder = {},
+                    onOpenSearchMedia = { _, _ -> },
                     onOpenAlbum = {},
                     onOpenDataSource = {},
                 )
@@ -113,9 +113,12 @@ class Stage4BrowserUiTest {
         // 激活后只存在一个可输入文本节点（顶部同一输入框，不再出现第二个）
         val inputs = compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes()
         assertTrue("搜索激活后应只有一个输入框，实际 ${inputs.size} 个", inputs.size == 1)
+        val homeWindow = vm.currentList.value
         compose.onNode(hasSetTextAction()).performTextInput("视频A")
         compose.waitForIdle()
-        assertTrue("搜索应实际过滤", vm.currentList.value.isNotEmpty())
+        compose.waitUntil(5_000) { vm.searchState.value.items.isNotEmpty() }
+        assertTrue("搜索应实际过滤", vm.searchState.value.items.all { it.name.contains("视频A") })
+        org.junit.Assert.assertEquals(homeWindow, vm.currentList.value)
         // 关闭搜索后回到浏览态（搜索激活时模式切换行按设计隐藏，关闭后重新出现）
         compose.onNode(hasContentDescription("关闭搜索")).performClick()
         compose.waitForIdle()
@@ -209,7 +212,11 @@ private class BrowserFakeRepository : MediaRepository {
             V2TypeFilter.VIDEO -> catalog.filter { it.isVideo }
             V2TypeFilter.IMAGE -> catalog.filter { !it.isVideo }
         }
-        return V2MediaPage(items = items, page = 1, pageSize = query.pageSize, total = items.size)
+        val matches = items.filter { query.search.isNullOrBlank() || it.name.contains(query.search.orEmpty(), ignoreCase = true) }
+        return V2MediaPage(
+            items = matches.drop((query.page - 1) * query.pageSize).take(query.pageSize),
+            page = query.page, pageSize = query.pageSize, total = matches.size,
+        )
     }
     override suspend fun media(): List<V2Media> = catalog
     override suspend fun media(spec: V2SortSpec): List<V2Media> = catalog

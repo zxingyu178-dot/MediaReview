@@ -20,6 +20,7 @@ import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import com.mediareview.app.feature.v2.data.server.shouldLoadServerBusinessData
 import com.mediareview.app.feature.v2.model.V2Album
+import com.mediareview.app.feature.v2.model.buildBrowseContext
 import com.mediareview.app.feature.v2.model.V2ContextQueue
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
@@ -210,6 +211,10 @@ class V2HomeViewModel @Inject constructor(
     private val _favorites = MutableStateFlow<List<V2Media>>(emptyList())
     val favorites: StateFlow<List<V2Media>> = _favorites.asStateFlow()
 
+    /** 已确认的收藏变更；Viewer 独立窗口中的媒体也能原位更新。 */
+    private val _confirmedFavoriteStates = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val confirmedFavoriteStates: StateFlow<Map<String, Boolean>> = _confirmedFavoriteStates.asStateFlow()
+
     private val _albums = MutableStateFlow<List<V2Album>>(emptyList())
     val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
 
@@ -247,8 +252,11 @@ class V2HomeViewModel @Inject constructor(
     private var listGeneration = 0
     private var loadedPage = 1
 
-    /** 搜索防抖窗口（输入停顿该时长后才真正查询）。 */
-    private val searchDebounceMs = 300L
+    private val searchController = SearchPagingController(viewModelScope, repository::mediaPage)
+    val searchState = searchController.state
+    fun loadNextSearchPage() = searchController.loadNextPage()
+    fun searchNearEnd(index: Int) = searchController.nearEnd(index)
+    fun retrySearch() = searchController.retry()
 
     /** 当前列表是否为空且仍在加载（首页空态文案用）。 */
     val loadingFirstPage: Boolean
@@ -314,6 +322,8 @@ class V2HomeViewModel @Inject constructor(
         albumViewerSession = null
     }
     private fun invalidateAlbumSource() {
+        setSearchMode(false)
+        _confirmedFavoriteStates.value = emptyMap()
         albumSourceGeneration++
         albumController.invalidate()
         invalidateAlbumViewer()
@@ -536,14 +546,14 @@ class V2HomeViewModel @Inject constructor(
         searchActive = active
         if (!active) {
             searchQuery = ""
-            refreshList()
+            searchController.clear()
         }
     }
 
     fun updateSearchQuery(q: String) {
         searchQuery = q
-        // 输入防抖：停顿 300ms 后才真正查询（Server 模式下避免每个字符都发请求）
-        refreshList(debounceMs = searchDebounceMs)
+        stopSpritePreview()
+        searchController.updateQuery(q)
     }
 
     fun commitSearch() {
@@ -603,8 +613,10 @@ class V2HomeViewModel @Inject constructor(
     }
 
     fun setFavorite(mediaId: String, favorite: Boolean) {
+        val sourceGeneration = albumSourceGeneration
         viewModelScope.launch {
             val confirmed = repository.setFavorite(mediaId, favorite)
+            if (sourceGeneration != albumSourceGeneration) return@launch
             if (confirmed) {
                 applyFavoriteLocally(mediaId, favorite)
             } else {
@@ -612,6 +624,21 @@ class V2HomeViewModel @Inject constructor(
                 emitMessage(if (favorite) "收藏失败：服务器未确认" else "取消收藏失败：服务器未确认")
             }
         }
+    }
+
+    /** 搜索与收藏只在点击时加载的同类型窗口中浏览；收藏变动不重建队列。 */
+    fun openSearchMedia(loadedSearchItems: List<V2Media>, mediaId: String): Boolean =
+        openBrowseWindow(loadedSearchItems, mediaId)
+
+    fun openFavoriteMedia(favorites: List<V2Media>, mediaId: String): Boolean =
+        openBrowseWindow(favorites, mediaId)
+
+    private fun openBrowseWindow(items: List<V2Media>, mediaId: String): Boolean {
+        val queue = buildBrowseContext(items, mediaId) ?: return false
+        stopSpritePreview()
+        invalidateAlbumViewer()
+        contextQueue = queue
+        return true
     }
 
     /**
@@ -914,7 +941,7 @@ class V2HomeViewModel @Inject constructor(
         page = page,
         pageSize = V2MediaQuery.DEFAULT_PAGE_SIZE,
         folderId = _selectedFolderId.value,
-        search = if (searchActive) searchQuery.trim().takeIf { it.isNotEmpty() } else null,
+        search = null,
         spec = _sortSpec.value,
     )
 
@@ -928,6 +955,8 @@ class V2HomeViewModel @Inject constructor(
 
     /** 收藏成功后本地同步（Server 已确认；不做乐观更新，失败即保持原状态）。 */
     private fun applyFavoriteLocally(mediaId: String, favorite: Boolean) {
+        _confirmedFavoriteStates.value = _confirmedFavoriteStates.value + (mediaId to favorite)
+        searchController.updateFavorite(mediaId, favorite)
         _currentList.value = _currentList.value.map { media ->
             if (media.id == mediaId) media.copy(isFavorite = favorite) else media
         }

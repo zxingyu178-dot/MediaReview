@@ -115,6 +115,17 @@ object ReleaseNotesCatalog {
                 "修复网络异常时相册被误显示为空的问题",
             ),
         ),
+        ReleaseNote(
+            versionCode = 17,
+            versionName = "2.0.0-alpha10",
+            title = "MediaReview 2.0 Alpha 10",
+            highlights = listOf(
+                "搜索结果支持连续加载更多内容",
+                "搜索和首页状态现在互不干扰",
+                "优化从收藏进入播放器和图片查看器后的连续浏览",
+                "清理无效页面路径并提升浏览稳定性",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

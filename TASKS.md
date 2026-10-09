@@ -585,3 +585,17 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] 最终交付准备：第四提交/远端核验与九说明打包/QQ owner入口就绪；实际执行结果以Handoff、Git证据和脱敏邮件回执为准，APK不发。
 
 官方ControlHub仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；生产/真实手机迁移未执行，手机当前未连接、家庭LAN未测。最高CODE_READY/READY_FOR_USER_VALIDATION。
+
+## Stage8G：搜索与浏览上下文
+
+- [x] 独立SearchUiState/300ms防抖/50分页/旧结果隔离/去重/失败保留与重试；不写首页列表。
+- [x] 独立首页/搜索GridState，真实关键词改变才回顶；专用搜索/收藏同类型冻结队列。
+- [x] 首页外图片确认收藏可观察更新，旧源晚到隔离；删除Folder死路径。
+- [x] code17/alpha10与四条中文说明、首次当前版/升级聚合/关闭持久化测试。
+- [x] 1000媒体/220匹配fixture，目标有效RED与测试前提修正；最终JVM410、lint0错误，独立源码审查C0/I0。
+- [x] 最终connected82首轮80通过/2失败；两处测试支持修正、独立补审后原失败2/2补验通过，保留首轮日志。
+- [x] 唯一正式Alpha10 APK、code17/签名/SHA256和DEX/冻结输入核验。
+- [x] Git/Handoff交付准备完成；实际final HEAD、远端/clean与ZIP完整性由后置交接证据记录。
+- [ ] 真实手机和家庭LAN产品行为：待用户亲自验收。
+
+官方升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT，最高CODE_READY / READY_FOR_USER_VALIDATION，不自动进入8H。

@@ -35,9 +35,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -141,7 +143,7 @@ private suspend fun prefetchNextCovers(
 fun HomeScreen(
     vm: V2HomeViewModel,
     onOpenMedia: (V2Media) -> Unit,
-    onOpenFolder: (V2Folder) -> Unit,
+    onOpenSearchMedia: (V2Media, List<V2Media>) -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenDataSource: () -> Unit,
     modifier: Modifier = Modifier,
@@ -155,6 +157,15 @@ fun HomeScreen(
     val searchActive = vm.searchActive
     val selectedRecent = vm.selectedRecent
 
+    val homeGridState = rememberLazyGridState()
+    val searchGridState = rememberLazyGridState()
+    var positionedSearchQuery by rememberSaveable { mutableStateOf(vm.searchQuery) }
+    LaunchedEffect(vm.searchQuery) {
+        if (positionedSearchQuery != vm.searchQuery) {
+            searchGridState.scrollToItem(0)
+            positionedSearchQuery = vm.searchQuery
+        }
+    }
     var showMoreSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
 
@@ -239,6 +250,7 @@ fun HomeScreen(
                         list = list,
                         vm = vm,
                         onOpenMedia = onOpenMedia,
+                        gridState = homeGridState,
                     )
                     V2HomeTab.SHELF -> ShelfGrid(
                         albums = albums,
@@ -250,7 +262,8 @@ fun HomeScreen(
         } else {
             SearchPanel(
                 vm = vm,
-                onOpenMedia = onOpenMedia,
+                onOpenMedia = onOpenSearchMedia,
+                gridState = searchGridState,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -462,8 +475,8 @@ fun MediaGrid(
     vm: V2HomeViewModel,
     onOpenMedia: (V2Media) -> Unit,
     modifier: Modifier = Modifier,
+    gridState: LazyGridState = rememberLazyGridState(),
 ) {
-    val gridState = rememberLazyGridState()
     val previewState by vm.spritePreviewState.collectAsState()
     DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
     val loading by vm.listLoading.collectAsState()
@@ -543,7 +556,7 @@ fun MediaGrid(
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(2),
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().testTag("home_grid"),
         contentPadding = PaddingValues(
             start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl,
         ),

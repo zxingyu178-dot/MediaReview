@@ -1,37 +1,32 @@
-# MediaReview Stage 8F 审查摘要
+# MediaReview Stage 8G 审查摘要
 
-阶段：Server Sprite Preview / Real Viewer Delete / Album Continuation。
-基线98a03527c2aea2855de034f7ceb472a2c3c666a5；分支feature/mediareview-v2-stage8f-media-experience。
+阶段：Search / Browse State / Context Closure。基线ba19d01aba692f0ed010c625f801738ba306bae4；分支feature/mediareview-v2-stage8g-search-context。
 
-## 实际结果
+## 实际改动
 
-Server首次长按接通生产Repository ensure→有限task轮询→manifest→全局Coil真实sheet；Preparing/Error有反馈，身份缓存隔离，滚动/离页仅取消客户端等待。位图就绪后6.5秒预算与长按普通点击分离已修复。
+独立SearchUiState和SearchPagingController经repository.mediaPage提供50/page、300ms防抖与代次隔离；首页列表不参与搜索。空词只历史/提示，近尾部16项追加、ID去重，更多失败保留成功窗口并显式重试。首页和搜索独立保存GridState/对应关键词；关闭不重载首页，详情返回不回顶。
 
-Viewer待删除从Repository读取并等待Server确认，不乐观伪造状态；未知/失败可重试、busy防重复、session代次保护。实际Viewer POST→Organize DELETE恢复→重新进入真值一致。
+搜索与收藏点击建立已加载同类型冻结队列，视频上下条与图片滑动使用正确来源窗口，取消收藏保持当前位置与队列。首页以外图片收藏采用服务器确认后的可观察元数据，切源失效与晚到代次门控。删除FolderScreen和无入口路由/参数。没有修改Player/Viewer手势核心、Review Session、Organize、Duplicate、Delete Commit、Server API/数据库或部署桥。
 
-相册明确Loading/Ready/Empty/Error，只有成功total0为空；更多失败保留窗口并可重试。Screen/Viewer独立分页窗口，50/page、稳定ID追加、48→51原图连续浏览且不跳图。书架刷新失败保留旧Shelf。
-
-最终实际App验证发现ZoomableImage等待Success才挂载Image，形成默认SizeResolver等待draw的闭环；最小修复始终挂载预览/原图图层，保留Fit/缩放与只请求当前原图边界。实际黑色Spinner/只有cover HTTP的RED与原图GREEN均保存。
-
-Android code16 / 2.0.0-alpha9，精确Alpha9四条中文说明；首次只Alpha9、升级单Sheet聚合未读。Server Runtime Changes: NONE；Server代码1.2.2/API Contract2不变，server/app零修改。ControlHub BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT不变；无生产升级、服务控制、真实DB或用户媒体写入。
+Android code17/2.0.0-alpha10与四条中文说明；首次仅当前、升级聚合、关闭持久化由现有机制验证。Server1.2.2/Contract2不升版，没有新增服务或长期脚本。ControlHub仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。
 
 ## 已执行验证
 
-- Server现有sprite/task合同20项通过，0失败错误跳过，5.410s；既有Starlette/httpx警告。未重复未改Server的561全量或静态检查。
-- Task1相关45 JVM+compile；慢加载/长按修复5UI+12相关JVM通过。Task2相关53 JVM+compile，初次9/10UI，正常处理系统引导后原Info1/1补验。Task3相关35 JVM+compile，16UI+close1补验，共17独立UI；早期两项名称/索引不能当像素证据。Alpha9 notes18 JVM通过。
-- 最终冻结产品输入的JVM：395项/55 suites，0failure/error/skip，实际XML在resume-final-jvm-20261009。
-- 完整connected75轮：74PASS/1FAIL/0error/skip，314.954s。唯一收藏重试测试的后台线程调用前提已修复，原class4方法4/4补验通过（0.435s），原断言保持；独立审查接受分轮闭合。不能称单轮75全绿。此前74轮8失败、75轮8失败及45项外部中断均保留。
-- 最后增量lintDebug实际SUCCESS，5m31s；0errors/40warnings/8info。AndroidTest分析执行，main/unit及相同报告内容可缓存，报告mtime07:51:49；7Oct历史报告不作本轮证明。既有AGP/compileSdk与API弃用告警保留。
-- 唯一assembleRelease SUCCESS，5m52s；MediaReview_2.0.0-alpha9_stage8f.apk，43,520,046B，SHA256 c424b79ae61e5d49d251cdfef52305e42c9e2900807fd212d3d42936d95fbc6e。签名592c25955929ca7fa968f4450452a45919b9d8da6d91e8ca7274c5dd65973564。
-- clean模拟器实际Release full Main：1/1PASS，65.625s，run1050393；实际code16/alpha9/debuggable=false/requireRelease=true，安装base.apk同SHA。更新说明/首页、sprite准备/真实帧/滚动/缓存/失败、3GSY内核、48黄49青50洋红51白原图及authenticated HTTP、队列双向与故障重试均通过，protected92/allAuthenticated=true。
-- Release首轮1/1失败56.643s：配对Sheet未闭合，背景节点等待不足。只加强测试前提，原功能断言不删；新GREEN证实Sheet不存在/首页可见，但conditional Close sheet分支本轮未动态执行，只有静态审查。产品APK及177个产品输入均未变，未重建/重签产品。
+- 相关搜索9 JVM有效RED/GREEN、Context/版本有效RED/GREEN；相关33通过。独立初审I1/I2及测试T1-T3均修复，最终源码审查C0/I0。
+- 实际MainActivity/生产Repository/HTTP的1000媒体/220搜索fixture；I1 Back后v71不可见、旧源晚到确认回填状态为有效RED；I2认证DELETE后旧图标为有效RED。正常Got it确认后I2完整1/1通过17.117s，未伪造系统确认。失败和环境前提日志均保留。
+- 最终JVM410/57suite，0失败/错误/跳过；lint0错误/40警告/8信息，Debug/AndroidTest同轮BUILD SUCCESSFUL 6m21s。仅既有AGP/SDK/弃用警告，未升级工具环境。
+- connected全82首轮80PASS/2FAIL，0错误/跳过，XML241.92s，Gradle5m19s。搜索返回/图片原位收藏/切源晚到已通过。旧BrowserFake mediaPage忽略搜索词、视频切换标题先于按钮就绪两项测试前提已修；增量lint/AndroidTest构建1m44s成功，报告0错误/40警告/8信息，原失败两项补验2/2通过33.081s（Gradle2m9s）。静态补审通过，不称单轮82全绿。
 
-## 独立审查与边界
+精确300ms/旧query隔离由虚拟时间JVM证明；真实App输入操作可能超过300ms，只验证最终abc。首页非默认folder/sort由ViewModel测试覆盖；App用不同home20/search70锚点与bounds验证独立恢复。semantics按钮调用只证明状态连接，不等同实际触摸命中验证。
 
-Tasks1–4、收尾产品修复、全分支以及最终测试支持补审均无未关闭Critical/Important；最终四测试支持和Release helper补审Spec/Quality Approved，C0/I0/M0。Task2“旧write结束时新write仍busy”无单独额外专测，当前代次保护正确、非阻断；下次修改该并发路径时补覆盖。
+- 唯一assembleRelease成功3m5s；用户APK 43520050B，SHA256 c4afe13228d3ee37d343288649ce88abb7780e174af7e9df515f541f151ec53f，code17/alpha10、不可调试、正式签名验证通过；DEX含新搜索/上下文/确认状态且无FolderScreen，169个冻结产品输入未漂移。没有第二次Release构建或重签产品；Release UI未另跑，交给用户亲自验收。
 
-真实手机当前未连接，NOT TESTED；家庭LAN/Jellyfin真实播放NOT TESTED。旧Alpha4证书与正式Alpha9不同，Debug证书相同；未卸载/迁移或改手机数据。最高CODE_READY / READY_FOR_USER_VALIDATION，不PRODUCTION_READY或REAL_LAN_PASS。
+## 风险与边界
 
-构建时HEAD为0ce5c50096a41c9fc610b88717e2044fb312bbf9及冻结工作树，最终第四提交包含相同产品输入；发布后测试helper变化不进入用户APK。最终Git/远端/clean与九说明Handoff、SHA、QQ邮件回执单独留证。用户APK仅本地，不入交接ZIP或邮件。完成后停止等待审查。
+1. 真实手机与家庭LAN产品行为未验收；已只读核实连接手机为Alpha4/code11 Debug及证书，未安装、卸载或清用户数据。正式签名兼容性须以最终APK实际证书核对。
+2. 收藏全量API与N+1为P1 PERFORMANCE DEBT，无性能退化证据不预先优化；当前连续浏览仅点击时已加载窗口，非全库导航。
+3. APK已完成，Git/交接打包按最终HEAD与远端一致性执行，真实结果见Handoff。确认收藏映射对未来多入口/外部状态更新存在维护边界，本阶段无据此扩大修改。
 
-阶段结论：合格（CODE_READY / READY_FOR_USER_VALIDATION；真实手机与家庭LAN未验，生产升级桥仍阻断）。
+生产服务、用户媒体、手机数据及官方升级桥均未操作；最高CODE_READY / READY_FOR_USER_VALIDATION。Stage8G交接后停止，不自动进入8H。
+
+阶段结论：合格（CODE_READY / READY_FOR_USER_VALIDATION；手机安装审批与真实手机/家庭LAN验收待完成）。

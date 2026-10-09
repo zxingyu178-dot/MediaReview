@@ -96,10 +96,14 @@ fun V2ImageViewer(
     LaunchedEffect(vm) { vm.viewerPendingDeleteMessages.collect { snackbar.showSnackbar(it) } }
     LaunchedEffect(vm, albumSession) { vm.albumViewerMessages.collect { snackbar.showSnackbar(it) } }
 
-    // 收藏等状态变化经 currentList 刷新驱动重绘
+    // 独立搜索/收藏窗口里的图片可能不在首页列表，使用服务器确认的状态驱动当前按钮。
     val list by vm.currentList.collectAsState()
+    val confirmedFavoriteStates by vm.confirmedFavoriteStates.collectAsState()
     val currentId = ids.getOrNull(pagerState.currentPage)
-    val currentMedia = list.firstOrNull { it.id == currentId } ?: currentId?.let { vm.mediaById(it) }
+    val cachedMedia = list.firstOrNull { it.id == currentId } ?: currentId?.let { vm.mediaById(it) }
+    val currentMedia = cachedMedia?.let { media ->
+        confirmedFavoriteStates[media.id]?.let { media.copy(isFavorite = it) } ?: media
+    }
 
     var showInfo by remember { mutableStateOf(false) }
     var currentScale by remember { mutableFloatStateOf(1f) }

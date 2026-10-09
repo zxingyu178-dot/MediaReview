@@ -10,7 +10,6 @@ object MediaNavigator {
     const val ROUTE_REVIEW = "review"
     const val ROUTE_FAVORITES = "favorites"
     const val ROUTE_ORGANIZE = "organize"
-    const val ROUTE_FOLDER = "folder/{folderId}"
     const val ROUTE_ALBUM = "album/{albumId}"
     const val ROUTE_PLAYER = "player/{mediaId}"
     const val ROUTE_VIEWER = "viewer/{mediaId}"
@@ -21,7 +20,6 @@ object MediaNavigator {
     const val ROUTE_ORGANIZE_DUPLICATE_COMPARE = "organize/duplicates/{groupId}"
     const val ROUTE_ORGANIZE_LIBRARIES = "organize/libraries"
 
-    fun folder(folderId: String) = "folder/$folderId"
     fun album(albumId: String) = "album/$albumId"
     fun player(mediaId: String) = "player/$mediaId"
     fun viewer(mediaId: String) = "viewer/$mediaId"
@@ -44,10 +42,6 @@ object MediaNavigator {
         } else {
             nav.navigate(viewer(media.id))
         }
-    }
-
-    fun openFolder(nav: NavHostController, folderId: String) {
-        nav.navigate(folder(folderId))
     }
 
     fun navigateAlbum(nav: NavHostController, albumId: String) {

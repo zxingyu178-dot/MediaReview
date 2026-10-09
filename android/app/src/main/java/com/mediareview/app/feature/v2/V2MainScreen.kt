@@ -41,7 +41,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.material3.Scaffold
 import com.mediareview.app.feature.v2.home.AlbumScreen
-import com.mediareview.app.feature.v2.home.FolderScreen
 import com.mediareview.app.feature.v2.home.HomeScreen
 import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
@@ -138,9 +137,8 @@ fun V2MainScreen(
                         // 阶段 8B §10：建立上下文失败（目标不在当前列表）时不静默打开第 1 项
                         if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
                     },
-                    onOpenFolder = { f ->
-                        vm.stopSpritePreview()
-                        MediaNavigator.openFolder(navController, f.id)
+                    onOpenSearchMedia = { media, window ->
+                        if (vm.openSearchMedia(window, media.id)) MediaNavigator.openMedia(navController, media)
                     },
                     onOpenAlbum = { albumId ->
                         vm.stopSpritePreview()
@@ -172,8 +170,8 @@ fun V2MainScreen(
             composable(MediaNavigator.ROUTE_FAVORITES) {
                 FavoritesPage(
                     vm = vm,
-                    onOpenMedia = { m ->
-                        if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
+                    onOpenMedia = { media, window ->
+                        if (vm.openFavoriteMedia(window, media.id)) MediaNavigator.openMedia(navController, media)
                     },
                 )
             }
@@ -215,19 +213,6 @@ fun V2MainScreen(
                     onBack = { navController.popBackStack() },
                     // §41：保存成功后失效辅助缓存并刷新首页数据
                     onSelectionApplied = { vm.refreshAfterLibraryChange() },
-                )
-            }
-            composable(MediaNavigator.ROUTE_FOLDER) { entry ->
-                val folderId = entry.arguments?.getString("folderId") ?: ""
-                val folderName = vm.folders.value.find { it.id == folderId }?.name ?: ""
-                FolderScreen(
-                    vm = vm,
-                    folderId = folderId,
-                    folderName = folderName,
-                    onBack = { navController.popBackStack() },
-                    onOpenMedia = { m ->
-                        if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
-                    },
                 )
             }
             composable(MediaNavigator.ROUTE_ALBUM) { entry ->
@@ -325,7 +310,7 @@ private fun currentTab(route: String?): V2MainTab = when (route) {
 @Composable
 private fun FavoritesPage(
     vm: V2HomeViewModel,
-    onOpenMedia: (V2Media) -> Unit,
+    onOpenMedia: (V2Media, List<V2Media>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val favorites by vm.favorites.collectAsState()
@@ -406,7 +391,7 @@ private fun FavoritesPage(
                             manifest = vm.spriteManifest(media),
                             isSpritePreviewing = false,
                             onSpritePreviewRequest = {},
-                            onClick = { onOpenMedia(media) },
+                            onClick = { onOpenMedia(media, favorites) },
                         )
                     }
                 }

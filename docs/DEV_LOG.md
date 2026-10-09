@@ -2418,3 +2418,17 @@ Alpha9 code16与四条精确中文说明完成，首次只当前版/升级单She
 Server sprite/task20专项仍有效，未重复561；Server代码1.2.2/Contract2、ControlHub BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT不变，生产/用户媒体未操作。用户已允许实机，但当前没有手机连接；Alpha4与正式Release证书不同，未卸载/迁移。Phone/HomeLAN NOT TESTED，最高CODE_READY/READY_FOR_USER_VALIDATION。
 
 第四提交及远端/clean、九说明交接ZIP与已授权QQ邮件实际结果写入Handoff和脱敏回执；APK仅本地、不发送。完成后停止等待下一轮审查。
+
+## 2026-10-09 Stage8G：搜索、浏览状态与上下文闭合
+
+基线ba19d01aba692f0ed010c625f801738ba306bae4，分支feature/mediareview-v2-stage8g-search-context。搜索采用独立SearchUiState与纯分页控制器：300ms防抖、50/page、代次隔离、尾部16项才追加、稳定ID去重、失败保留与显式重试。空词历史/输入提示互斥，搜索不写首页列表；关闭搜索不重载首页。HomeScreen保存两份GridState及搜索对应关键词，返回详情时不回顶。
+
+搜索与收藏在点击时冻结已加载的同类型队列，取消收藏不改队列/索引。首页外图片新增服务器确认后的可观察收藏元数据；旧源收藏请求晚到经现有source代次拒绝。删除无入口FolderScreen及dead route/helper/callback。Android code17/2.0.0-alpha10，四条中文更新说明；Server1.2.2/Contract2、生产服务和官方升级桥不变。
+
+搜索9项与Context/版本相关有效RED/GREEN记录在review_meta/stage8g。首轮App测试被系统ANR/全屏引导及测试前提阻挡，均保留原日志且不计产品RED。独立审查I1/I2及测试T1-T3已修复；I1视频Back后v71不可见、切源晚到map回填为有效RED，I2认证DELETE后旧图标为有效RED。正常确认Got it后I2完整1/1通过17.117s；涉及semantics按钮调用不等同实际触摸命中测试。App输入工具可能超过300ms，端到端只声明最终abc，精确防抖由JVM证明。首页非默认folder/sort由ViewModel测试验证，App采用不同滚动锚点与bounds验证独立恢复。
+
+最终全JVM410项/57suite，0失败/错误/跳过；lint0错误/40既有警告/8信息，Debug/AndroidTest构建同轮成功6m21s。最终源码独立审查C0/I0。82项connected首轮80通过/2失败、XML241.92s；修正旧Fake分页忽略query与视频标题先于控件Ready的前提后2/2补验33.081s，独立补审通过，增量lint/测试构建1m44s成功。明确ANDROID_SERIAL=emulator-5584；真实手机只读核验Alpha4/code11 Debug及证书，不安装、不卸载、不清数据。
+
+本阶段没有新增服务/长期脚本，不需ControlHub onboarding；仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。收藏全量API与N+1为P1 PERFORMANCE DEBT，无性能退化证据不预先优化。真实手机/家庭LAN产品行为仍未验证。唯一assembleRelease成功3m5s；用户APK 43520050B，SHA256 c4afe13228d3ee37d343288649ce88abb7780e174af7e9df515f541f151ec53f，code17/alpha10、不可调试、正式签名验证通过；DEX含新搜索/上下文/确认状态且无FolderScreen，169个冻结产品输入未漂移。没有第二次Release构建或重签产品；Release UI未另跑，交给用户亲自验收。 Git/远端/clean和Stage8G Handoff的后置真实结果以交付证据记录；完成后停止，不进入8H。
+
+本次AVD已正常停止。含递归清理与Git提交准备的命令被自动审批拒绝（blocked by policy），整条命令未执行；临时数据保留在已忽略的temp/stage8g-emulator，未绕过重试。Git提交/推送改为独立执行，真实结果以最终交接证据记录。
