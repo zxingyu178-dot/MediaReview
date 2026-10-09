@@ -1,7 +1,10 @@
 package com.mediareview.app.feature.v2.loading
 
+import android.os.Looper
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataMode
@@ -67,14 +70,16 @@ class LoadingClosureViewModelTest {
         val vm = testHomeViewModel(repo, StubClosureHistory())
         waitUntil("首屏媒体") { vm.currentList.value.isNotEmpty() }
 
-        vm.ensureFavoritesLoaded()
+        onMain { vm.ensureFavoritesLoaded() }
         waitUntil("收藏报错") { vm.favoritesError.value != null }
         assertEquals(1, repo.favoritesCalls)
 
         // 失败后再次进入收藏页必须重新请求（不再被永久锁死）
-        repo.failFavorites = false
-        repo.favoriteItems = listOf(repo.media)
-        vm.ensureFavoritesLoaded()
+        onMain {
+            repo.failFavorites = false
+            repo.favoriteItems = listOf(repo.media)
+            vm.ensureFavoritesLoaded()
+        }
         waitUntil("收藏重试成功") { vm.favorites.value.isNotEmpty() }
         assertNull(vm.favoritesError.value)
         assertEquals("失败后应允许重试", 2, repo.favoritesCalls)
@@ -87,14 +92,26 @@ class LoadingClosureViewModelTest {
         val vm = testHomeViewModel(repo, StubClosureHistory())
         waitUntil("首屏媒体") { vm.currentList.value.isNotEmpty() }
 
-        vm.ensureFavoritesLoaded()
+        onMain { vm.ensureFavoritesLoaded() }
         waitUntil("收藏成功") { vm.favorites.value.isNotEmpty() }
 
         // 之后临时失败：旧数据必须保留，只给出可重试的错误态
-        repo.failFavorites = true
-        vm.retryFavorites()
+        onMain {
+            repo.failFavorites = true
+            vm.retryFavorites()
+        }
         waitUntil("收藏报错") { vm.favoritesError.value != null }
         assertTrue("临时失败不得清空已有收藏", vm.favorites.value.isNotEmpty())
+    }
+
+    /** 与生产 Compose 入口一致：VM 操作与仓库故障切换在 Main 上串行执行。 */
+    private fun onMain(action: () -> Unit) {
+        val caller = Thread.currentThread().name
+        val callerIsMain = Looper.myLooper() == Looper.getMainLooper()
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            Log.i("Stage8FLoadingUi", "caller=$caller callerIsMain=$callerIsMain actionThread=${Thread.currentThread().name} actionIsMain=${Looper.myLooper() == Looper.getMainLooper()}")
+            action()
+        }
     }
 
     private fun waitUntil(label: String, timeoutMs: Long = 5_000, condition: () -> Boolean) {
@@ -168,6 +185,7 @@ private class ClosureRepository : MediaRepository {
 
     override suspend fun favorites(): List<V2Media> {
         favoritesCalls++
+        Log.i("Stage8FLoadingUi", "favorites call=$favoritesCalls fail=$failFavorites thread=${Thread.currentThread().name}")
         if (failFavorites) throw IOException("favorites 不可用")
         return favoriteItems
     }

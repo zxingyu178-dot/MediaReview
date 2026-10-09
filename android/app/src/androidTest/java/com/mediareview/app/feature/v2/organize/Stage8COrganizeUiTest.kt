@@ -1,6 +1,8 @@
 package com.mediareview.app.feature.v2.organize
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
@@ -8,7 +10,9 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.waitUntilExactlyOneExists
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
@@ -37,6 +41,8 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Stage 8C §55/§64：整理中心 **UI 导航 + 真实 Server 数据**（设备内 MockWebServer）。
@@ -57,6 +63,9 @@ class Stage8COrganizeUiTest {
     private lateinit var context: Context
     private lateinit var server: MockWebServer
     private lateinit var router: OrganizeUiDispatcher
+    private val evidence by lazy {
+        File(context.getExternalFilesDir(null), "stage8f-organize-ui/run-${SystemClock.uptimeMillis()}").apply { mkdirs() }
+    }
 
     @Before
     fun setUp() {
@@ -75,13 +84,25 @@ class Stage8COrganizeUiTest {
             ServerProfileStore(context).saveBaseUrl("http://127.0.0.1:${server.port}")
             entryPoint().dataModeStore().set(V2DataMode.SERVER)
         }
+        // 流程 UI fixture 显式装配模拟兼容 Server；不是实际 LAN 健康验收。
+        // 整理子页使用 Hilt 仓库，手工 Home VM 的局部状态不会初始化 Hilt Guard。
+        entryPoint().serverStatusStore().recordCompatible("1.2.2", 2)
     }
 
     @After
     fun tearDown() {
+        // 先取消手工 Home VM 和 Hilt 子页 VM，再清测试持久化/单例状态，避免迟到请求。
+        compose.runOnUiThread { compose.activity.viewModelStore.clear() }
+        val requests = synchronized(router.paths) { router.paths.toList() }
+        val diagnostic = "Hilt status=${entryPoint().serverStatusStore().status.value} " +
+            "requestCount=${server.requestCount} summaryRequests=${requests.count { it == "/api/v1/delete-queue/summary" }} paths=$requests"
+        Log.i("Stage8FOrganizeUi", diagnostic)
+        File(evidence, "finish-status.txt").writeText(diagnostic)
         runBlocking {
+            runCatching { ServerProfileStore(context).clear() }
             runCatching { entryPoint().dataModeStore().set(V2DataMode.DEMO) }
         }
+        entryPoint().serverStatusStore().reset()
         runCatching { server.shutdown() }
     }
 
@@ -91,6 +112,7 @@ class Stage8COrganizeUiTest {
     private fun setContent() {
         val repository = DemoMediaRepository(context, AlbumCoverStore(context))
         val vm = testHomeViewModel(repository, SearchHistoryStore(context))
+        compose.runOnUiThread { compose.activity.viewModelStore.put("stage8c-organize-home", vm) }
         compose.setContent {
             MediaReviewTheme {
                 V2MainScreen(vm = vm)
@@ -102,7 +124,18 @@ class Stage8COrganizeUiTest {
         compose.onNode(hasContentDescription("整理")).performClick()
         compose.waitUntilExactlyOneExists(hasTestTag("organize_page"), timeoutMillis = 15_000)
         // 卡片在 Loading 状态下不可点击：必须先等到真实数据就绪（确定性的点击时机）
-        compose.waitUntilExactlyOneExists(hasText("2 项 · 预计释放 2.8 GB"), timeoutMillis = 15_000)
+        try {
+            compose.waitUntilExactlyOneExists(hasText("2 项 · 预计释放 2.8 GB"), timeoutMillis = 15_000)
+        } catch (failure: Throwable) {
+            val status = entryPoint().serverStatusStore()
+            val requests = List(server.requestCount) { server.takeRequest(100, TimeUnit.MILLISECONDS)?.path }
+            val diagnostic = "Hilt status=${status.status.value} version=${status.serverVersion.value} " +
+                "contract=${status.serverApiContract.value} requestCount=${server.requestCount} paths=$requests"
+            Log.e("Stage8FOrganizeUi", diagnostic)
+            File(evidence, "failure-status.txt").writeText(diagnostic)
+            File(evidence, "failure-semantics.txt").writeText(compose.onRoot(useUnmergedTree = true).printToString())
+            throw failure
+        }
     }
 
     /** 等到"重复媒体"卡 Ready（避免在 Loading 态点击无效）。 */
@@ -238,6 +271,7 @@ class Stage8COrganizeUiTest {
 
 /** 设备内 Mock Server：真实接口形状的整理中心响应（含状态迁移：restore / commit）。 */
 private class OrganizeUiDispatcher : Dispatcher() {
+    val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
 
     @Volatile
     private var committed = false
@@ -256,6 +290,7 @@ private class OrganizeUiDispatcher : Dispatcher() {
 
     override fun dispatch(request: RecordedRequest): MockResponse {
         val path = request.requestUrl?.encodedPath.orEmpty()
+        paths += path
         val method = request.method.orEmpty()
         val pendingNow = pending()
         val pendingBytes = pendingNow.sumOf { item -> item.size }

@@ -104,6 +104,17 @@ object ReleaseNotesCatalog {
                 "加强安装包版本、签名与升级文件完整性校验",
             ),
         ),
+        ReleaseNote(
+            versionCode = 16,
+            versionName = "2.0.0-alpha9",
+            title = "MediaReview 2.0 Alpha 9",
+            highlights = listOf(
+                "视频封面长按预览正式支持服务器媒体",
+                "图片查看器的待删除操作现已同步到整理中心",
+                "优化大相册连续翻页体验",
+                "修复网络异常时相册被误显示为空的问题",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

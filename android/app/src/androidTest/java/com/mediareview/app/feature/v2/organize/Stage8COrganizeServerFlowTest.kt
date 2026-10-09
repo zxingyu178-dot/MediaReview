@@ -65,7 +65,8 @@ class Stage8COrganizeServerFlowTest {
             apiFactory = ApiFactory(http, http, json),
             mapper = V2MediaMapper(MediaUrlResolver()),
             resources = V2ServerResourceCache(),
-            statusStore = V2ServerStatusStore(),
+            // 流程级 fixture 不含配对 UI；显式提供已通过兼容探测的模拟 Server 前提。
+            statusStore = V2ServerStatusStore().apply { recordCompatible("1.2.2", 2) },
         )
     }
 

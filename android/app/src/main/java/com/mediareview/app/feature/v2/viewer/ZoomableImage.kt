@@ -228,21 +228,23 @@ fun ZoomableImage(
                     V2Perf.viewer()?.markOnce("full_ready", "viewer_full_image_ready")
                 }
             }
+            // Coil 默认尺寸来自 Painter.onDraw；不能等 Success 后才挂载 Image，
+            // 否则 preview/full 都在等待尺寸，永远无法完成加载。
+            // 原图未就绪时为空绘制，保留下面的封面；就绪后以相同 Fit 无感覆盖。
+            Image(
+                painter = previewPainter,
+                contentDescription = if (!fullReady) "图片" else null,
+                contentScale = ContentScale.Fit,
+                modifier = imageLayer,
+            )
+            Image(
+                painter = fullPainter,
+                contentDescription = if (fullReady) "图片" else null,
+                contentScale = ContentScale.Fit,
+                modifier = imageLayer,
+            )
             when {
-                // 原图就绪 → 无感替换(同尺寸 Fit,不产生跳变)
-                fullReady -> Image(
-                    painter = fullPainter,
-                    contentDescription = "图片",
-                    contentScale = ContentScale.Fit,
-                    modifier = imageLayer,
-                )
-                // 第一帧立即显示已缓存的封面,避免黑屏等待(§29)
-                previewReady -> Image(
-                    painter = previewPainter,
-                    contentDescription = "图片",
-                    contentScale = ContentScale.Fit,
-                    modifier = imageLayer,
-                )
+                fullReady || previewReady -> Unit
                 previewFailed && fullFailed -> Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,

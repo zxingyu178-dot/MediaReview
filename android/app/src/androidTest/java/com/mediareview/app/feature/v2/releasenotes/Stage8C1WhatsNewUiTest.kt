@@ -108,6 +108,9 @@ class Stage8C1WhatsNewUiTest {
         compose.onNodeWithText("来自 2.0.0-alpha4").assertExists()
         compose.onNodeWithText("来自 2.0.0-alpha5").assertExists()
         compose.onNodeWithText("来自 2.0.0-alpha6").assertExists()
+        compose.onNodeWithText("来自 2.0.0-alpha7").assertExists()
+        compose.onNodeWithText("来自 2.0.0-alpha8").assertExists()
+        compose.onNodeWithText("来自 2.0.0-alpha9").assertExists()
 
         compose.onNodeWithText("知道了").performClick()
         compose.waitUntilDoesNotExist(hasTestTag("whats_new_sheet"), timeoutMillis = 10_000)

@@ -581,7 +581,7 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] Viewer待删除映射Repository真值，读取/写入失败状态与重试、Organize双向一致；53JVM+组件UI验证通过。
 - [x] Task2独立审查通过（Critical 0/Important 0）并按阶段第二笔提交。
 - [x] 相册错误保留与重试、50/page的Viewer连续翻页；35相关JVM与17独立UI验证通过，Task3独立审查通过（Critical 0/Important 0）。
-- [ ] Alpha9/code16、更新说明、最终四项Android门禁和Release真实smoke。
-- [ ] 最终Git push/clean、九份说明Handoff与已授权QQ邮件（不发APK）。
+- [x] Alpha9/code16与更新说明；395 JVM、75轮74通过+原失败class4/4补验、lint0错误、唯一Release实际smoke1/1通过。
+- [x] 最终交付准备：第四提交/远端核验与九说明打包/QQ owner入口就绪；实际执行结果以Handoff、Git证据和脱敏邮件回执为准，APK不发。
 
-官方ControlHub仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；生产/真实手机迁移未执行，家庭LAN未测。
+官方ControlHub仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；生产/真实手机迁移未执行，手机当前未连接、家庭LAN未测。最高CODE_READY/READY_FOR_USER_VALIDATION。

@@ -2403,3 +2403,18 @@ Task3相册错误与Viewer续页：Screen/Viewer复用纯AlbumPagingController�
 
 控制器RED为6个有效行为AssertionError与1个stub窗口NoSuchElement（不独立算行为RED），35相关JVM与compile通过；初次16/16目标UI通过。额外close RED发现VM旧session残留，最小修正后单项1/1通过；旧close不影响新session、source失效空Pager不崩溃。新fixture初次图片路径无效，改用真实内置映射后两项Viewer2/2补验通过，当前名称/索引断言不等于像素或Coil解码证据。累计17个独立UI通过，未声称单轮17项绿；首个同步追加失败Snackbar有UI证据。所有失败/原始日志保留，最终统一门禁和真实Release由Task4完成。Task3已冻结，独立审查进行中，尚未提交。
 Task3独立审查：Spec compliant/Quality Approved，Critical 0/Important 0/Minor 0；真实媒体缓存联通聚焦核验通过。最终门禁/Release/真实图片像素由Task4补证，允许第三笔提交。
+
+
+## 2026-10-09 Stage8F Alpha9 收尾
+
+Alpha9 code16与四条精确中文说明完成，首次只当前版/升级单Sheet聚合。最终全分支源码独立审查C0/I0；实际Viewer原图尺寸/draw闭环有效RED后最小修复，不改Server或正式升级桥。
+
+最终产品冻结输入JVM395/55suite/0失败错误跳过。完整75界面轮为74通过/1收藏后台线程重试失败，原class在Main前提修复后4/4补验通过0.435s，独立复审认可分轮闭合，不伪称单轮75绿；原8失败及外部中断记录保留。最终增量lint成功5m31s，0错误/40警告/8信息，分析与报告缓存来源明确。
+
+唯一Release构建成功5m52s，用户APK MediaReview_2.0.0-alpha9_stage8f.apk=43520046B，SHA256 c424b79ae61e5d49d251cdfef52305e42c9e2900807fd212d3d42936d95fbc6e。clean实际Release fullMain1/1通过65.625s，code16/alpha9/debuggable=false，与安装base.apk同SHA；3播放器真实内核、sprite真帧、原图48–51像素及HTTP、待删除双向与分页故障重试通过。首轮Release配对Sheet未关导致56.643s失败，仅修测试前提；条件Close sheet分支本轮未实跑，新增前提断言与全部原功能断言通过，独立补审C0/I0/M0。产品177输入未变，没有第二次Release构建或重签产品。
+
+旧AVD未就绪时保留原数据，独立干净实例实际boot1后验收；初始seed复制失败不算初始化成功，后由模拟器默认初始化。一次流式安装连接中断未完成，push安装成功；正常Got it确认系统全屏提示后清本次App数据，无伪造系统确认。只结束核实归属且IDLE的本次构建Gradle进程以释放内存。
+
+Server sprite/task20专项仍有效，未重复561；Server代码1.2.2/Contract2、ControlHub BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT不变，生产/用户媒体未操作。用户已允许实机，但当前没有手机连接；Alpha4与正式Release证书不同，未卸载/迁移。Phone/HomeLAN NOT TESTED，最高CODE_READY/READY_FOR_USER_VALIDATION。
+
+第四提交及远端/clean、九说明交接ZIP与已授权QQ邮件实际结果写入Handoff和脱敏回执；APK仅本地、不发送。完成后停止等待下一轮审查。

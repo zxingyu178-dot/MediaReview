@@ -40,6 +40,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -48,13 +49,7 @@ import org.junit.runner.RunWith
 /**
  * Stage 8A §38：Server 模式端到端（**Mock Server**，非真实 Jellyfin）。
  *
- * 前提：宿主机的 Mock MediaReview Server 已启动（见 04_NETWORK_QA.md）：
- * ```
- * server\.venv\Scripts\python.exe temp\stage8a_mock_server\mock_media_server.py \
- *     --port 8799 --root android\app\src\main\res\raw --audit <log>
- * ```
- * 模拟器通过 10.0.2.2 访问宿主机；配对码固定 123456，token 为 mock-token。
- *
+ * 自包含 MockWebServer 在测试进程内启动、结束即关闭，无宿主机服务前提。
  * 覆盖：真实 HTTP 分页列表 / 文件夹 / 封面（Coil 真加载）/ 原图 / playback direct + headers
  * （缺 header 会被服务端 403，直接证明 headers 真的发出）/ 收藏服务器确认 / 媒体墙 UI 渲染。
  *
@@ -77,10 +72,12 @@ class Stage8AServerModeTest {
     private lateinit var albumCoverStore: AlbumCoverStore
     private lateinit var demoRepository: DemoMediaRepository
 
-    private val baseUrl = "http://10.0.2.2:8799"
+    private lateinit var fixture: Stage8FHttpFixture
+    private val baseUrl get() = fixture.baseUrl
 
     @Before
     fun setUp() {
+        fixture = Stage8FHttpFixture(legacy = true)
         context = ApplicationProvider.getApplicationContext()
         // 手工装配与 Hilt 完全相同的生产依赖（不依赖 Hilt EntryPoint，测试自身可独立运行）
         profileStore = ServerProfileStore(context)
@@ -113,6 +110,8 @@ class Stage8AServerModeTest {
             profileStore.savePairing("mock-token")
             V2ServerSessionBootstrap(profileStore, tokenProvider).restore()
             modeStore.set(V2DataMode.SERVER)
+            // Repo 直调也遵守生产兼容性 Guard：先通过模拟 Server 的真实 health/认证探测。
+            V2ServerHealthMonitor(profileStore, apiFactory, serverStatus).probe()
         }
 
         repository = V2ServerMediaRepository(
@@ -125,6 +124,14 @@ class Stage8AServerModeTest {
             // 阶段 8B：资源缓存由 Hilt 提供单例并与 Review 会话仓库共享；测试里单独构造即可
             resources = V2ServerResourceCache(),
         )
+    }
+
+    @After fun tearDown() {
+        compose.runOnUiThread { compose.activity.viewModelStore.clear() }
+        lastVm = null
+        imageLoader.shutdown()
+        runBlocking { profileStore.clear(); modeStore.set(V2DataMode.DEMO) }
+        fixture.close()
     }
 
     /** 最近一次构造的 ViewModel（等待失败时输出诊断信息）。 */
@@ -143,7 +150,10 @@ class Stage8AServerModeTest {
         healthMonitor = V2ServerHealthMonitor(profileStore, apiFactory, serverStatus),
         statusStore = serverStatus,
         pairingRepository = PairingRepository(profileStore, tokenProvider, apiFactory),
-    ).also { lastVm = it }
+    ).also { vm ->
+        compose.runOnUiThread { compose.activity.viewModelStore.put("stage8a-home", vm) }
+        lastVm = vm
+    }
 
     @Test
     fun serverModeLoadsPagedMediaFoldersAndRealCovers() {

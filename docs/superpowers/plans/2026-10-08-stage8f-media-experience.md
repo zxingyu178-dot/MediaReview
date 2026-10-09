@@ -13,9 +13,9 @@
 - Base HEAD 98a03527c2aea2855de034f7ceb472a2c3c666a5；branch feature/mediareview-v2-stage8f-media-experience。
 - Server继续1.2.2，API Contract继续2；无明确bug不改server/app/**，只跑sprite/task合同targeted tests，不重复561项全量。
 - ControlHub BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持；不改upgrade-aihome-managed.ps1/IPC/lease，不新建8E.3。
-- 最终Android versionCode16/versionName2.0.0-alpha9；只在完成后一次assembleRelease产出MediaReview_2.0.0-alpha9_stage8f.apk，不重签旧APK、不安装真实手机。
+- 最终Android versionCode16/versionName2.0.0-alpha9；只在完成后一次assembleRelease产出MediaReview_2.0.0-alpha9_stage8f.apk，不重签旧APK；用户后续已明确授权实机测试，兼容签名更新可以保留数据验收，签名冲突的卸载/迁移仍需单独确认。
 - 开发相关JVM/compile/目标instrumentation，最后统一四个Android gate。
-- Real Phone/Real Home LAN NOT TESTED且本阶段NOT REQUIRED；只CODE_READY/READY_FOR_USER_VALIDATION，不PRODUCTION_READY。
+- Real Phone/Real Home LAN原为NOT REQUIRED；用户收尾时新增授权实机测试，状态必须按实际结果记录；家庭LAN仍不能以fixture替代。只CODE_READY/READY_FOR_USER_VALIDATION，不PRODUCTION_READY。
 - 用户APK不邮件发送；重要Handoff按既有授权发QQ；完成停止等待审查。
 
 ## Task1：服务器雪碧图正式接通
@@ -53,8 +53,8 @@ Interfaces: 明确openAlbumImage(albumId,loadedImages,total,mediaId,loadedPage,s
 
 Files: android/app/build.gradle.kts、ReleaseNotes数据及测试、Stage8F instrumentation fixture；DEV_LOG/TASKS/REVIEW_SUMMARY/交接九份说明。
 
-- [ ] 添加用户指定Alpha9四条中文说明，首次仅Alpha9、跨版本单Sheet聚合未读；不新增其它模块。
-- [ ] 最终一次testDebugUnitTest/lintDebug/connectedDebugAndroidTest/assembleRelease；targeted Server sprite/task合同；用户APK仅最后生成一次。
-- [ ] Clean模拟器安装最终Release，更新日志/首页/Server sprite真实sheet帧变化及滚动/缓存/认证、Demo与Review视频、Viewer删除与大相册跨页smoke；原始截图/指标仅测试证据。
-- [ ] 核对签名/版本/hash、无Server/ControlHub改动，最终独立全分支审查；主提交 test/release: regression gates and alpha9。
-- [ ] Push/remote/clean，生成九说明与git/logs/source/SHA完整Handoff，重要ZIP发QQ、APK不发；完成后停止。
+- [x] 添加用户指定Alpha9四条中文说明，首次仅Alpha9、跨版本单Sheet聚合未读；不新增其它模块。
+- [x] 最终JVM395通过，75轮74通过+原失败class4/4补验闭合，lint0错误；targeted Server20；唯一assembleRelease完成。失败/中断原始记录保留，不伪称单轮75绿。
+- [x] Clean模拟器安装最终Release，更新日志/首页/Server sprite真实sheet帧变化及滚动/缓存/认证、Demo与Review视频、Viewer删除与大相册跨页smoke；原始截图/指标仅测试证据。
+- [x] 签名/版本/hash与installed base同一性、无Server/ControlHub改动，最终独立审查及测试支持补审通过；第四提交内容准备完成。
+交付步骤：第四提交后Push/remote/clean，生成九说明与git/logs/source/SHA完整Handoff，重要ZIP发QQ、APK不发；实际结果写Handoff与脱敏回执，完成后停止。

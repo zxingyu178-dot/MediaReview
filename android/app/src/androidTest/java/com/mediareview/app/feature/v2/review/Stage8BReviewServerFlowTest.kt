@@ -124,7 +124,8 @@ class Stage8BReviewServerFlowTest {
         val apiFactory = ApiFactory(http, http, json)
         val resources = V2ServerResourceCache()
         val baseUrl = "http://127.0.0.1:${server.port}"
-        val statusStore = V2ServerStatusStore()
+        // 流程级 fixture 不含配对 UI；显式提供已通过兼容探测的模拟 Server 前提。
+        val statusStore = V2ServerStatusStore().apply { recordCompatible("1.2.2", 2) }
         val sessions = V2ServerReviewSessionRepository(
             profilePort = object : com.mediareview.app.feature.v2.data.server.V2ServerProfilePort {
                 override suspend fun baseUrl(): String = baseUrl

@@ -1,6 +1,7 @@
 package com.mediareview.app
 
 import com.mediareview.app.feature.v2.data.V2DataModeStore
+import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -16,4 +17,5 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 interface OrganizeTestEntryPoint {
     fun dataModeStore(): V2DataModeStore
+    fun serverStatusStore(): V2ServerStatusStore
 }
