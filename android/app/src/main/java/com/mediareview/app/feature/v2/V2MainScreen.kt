@@ -133,7 +133,6 @@ fun V2MainScreen(
                 HomeScreen(
                     vm = vm,
                     onOpenMedia = { m ->
-                        vm.stopSpritePreview()
                         // 阶段 8B §10：建立上下文失败（目标不在当前列表）时不静默打开第 1 项
                         if (vm.openMedia(m.id)) MediaNavigator.openMedia(navController, m)
                     },
@@ -141,7 +140,6 @@ fun V2MainScreen(
                         if (vm.openSearchMedia(window, media.id)) MediaNavigator.openMedia(navController, media)
                     },
                     onOpenAlbum = { albumId ->
-                        vm.stopSpritePreview()
                         MediaNavigator.navigateAlbum(navController, albumId)
                     },
                     onOpenDataSource = { dataSourceSheetOpen = true },
@@ -400,10 +398,6 @@ private fun FavoritesPage(
                         com.mediareview.app.feature.v2.home.MediaCard(
                             media = media,
                             coverUri = vm.coverUri(media),
-                            spriteUri = vm.spriteUri(media),
-                            manifest = vm.spriteManifest(media),
-                            isSpritePreviewing = false,
-                            onSpritePreviewRequest = {},
                             onClick = { onOpenMedia(media, favorites) },
                         )
                     }

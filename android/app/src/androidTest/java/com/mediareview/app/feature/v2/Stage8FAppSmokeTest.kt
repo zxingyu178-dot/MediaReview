@@ -97,10 +97,10 @@ class Stage8FAppSmokeTest {
 
         val http = Stage8FHttpFixture().also { fixture = it }
         connect(http)
-        sprite(http)
+        staticCoverLongPress(http)
         albumAndDelete(http)
         val protected = http.hits.filter { !it.path.endsWith("/health") && !it.path.startsWith("/api/v1/pairing/") }
-        assertTrue("业务、图片与 sprite 请求必须真正携带认证", protected.isNotEmpty() && protected.all { it.authenticated })
+        assertTrue("业务与图片请求必须真正携带认证", protected.isNotEmpty() && protected.all { it.authenticated })
         record("http protected=${protected.size} allAuthenticated=true albumPages=${http.hits.filter { it.path == "/api/v1/media" }.map { it.page to it.pageSize }}")
         screenshot("09-final-home")
     }
@@ -131,8 +131,11 @@ class Stage8FAppSmokeTest {
         back()
         // 背景媒体存在不代表配对弹层已关闭；通过 Material3 的真实关闭控件完成测试前提。
         if (compose.onAllNodesWithText("数据源").fetchSemanticsNodes().isNotEmpty()) {
-            File(evidence, "connect-sheet-after-back-semantics.txt").writeText(compose.onRoot(useUnmergedTree = true).printToString())
-            compose.onNodeWithContentDescription("Close sheet", useUnmergedTree = true).performClick()
+            File(evidence, "connect-sheet-after-back-semantics.txt").writeText(compose.onAllNodes(isRoot(), useUnmergedTree = true).onFirst().printToString())
+            val closeSheet = compose.onNodeWithContentDescription("Close sheet", useUnmergedTree = true)
+            File(evidence, "connect-close-sheet-node.txt").writeText(closeSheet.printToString())
+            // Scrim占据整屏，中心触摸可能落入Sheet；执行其真实无障碍关闭动作。
+            closeSheet.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick) { it() }
             record("connect remainingDataSourceSheet closedViaMaterial3CloseSheet=true")
         }
         compose.waitUntilDoesNotExist(hasText("数据源"), 10_000)
@@ -152,42 +155,30 @@ class Stage8FAppSmokeTest {
         return compose.onNode(matcher, useUnmergedTree = true)
     }
 
-    private fun sprite(http: Stage8FHttpFixture) {
+    private fun staticCoverLongPress(http: Stage8FHttpFixture) {
         val cover = compose.onNodeWithContentDescription(http.name("v1"), useUnmergedTree = true)
         compose.waitUntil(10_000) { color(cover) == Color.Green }
         cover.performTouchInput { longClick() }
-        waitText("预览准备中…")
-        screenshot("03-sprite-preparing")
-        compose.waitUntil(10_000) { color(cover).let { it == Color.Red || it == Color.Blue } }
-        val first = color(cover)
-        screenshot("04-sprite-frame-a")
-        compose.waitUntil(2000) { color(cover).let { it != first && (it == Color.Red || it == Color.Blue) } }
-        screenshot("05-sprite-frame-b")
-        assertEquals(1, http.count("/api/v1/cache/sprites/v1", "POST"))
-        assertTrue(http.count("/api/v1/tasks/sprite-v1") >= 4)
-        assertEquals(1, http.count("/api/v1/cache/sprites/v1"))
-        assertEquals(1, http.count("/api/v1/cache/sprites/v1/file"))
-        // 真实滚动停止预览；返回同一张封面应回到绿色静态图片。
-        val grid = compose.onNode(hasScrollToIndexAction() and hasAnyDescendant(hasContentDescription(http.name("v1"))))
-        grid.performTouchInput { swipeUp() }
-        compose.onAllNodes(hasScrollToIndexAction()).onLast().performScrollToIndex(0)
-        compose.waitUntil(5000) { color(cover) == Color.Green }
-        cover.performTouchInput { longClick() }
-        compose.waitUntil(5000) { color(cover).let { it == Color.Red || it == Color.Blue } }
-        assertEquals("缓存重用不得再次 ensure", 1, http.count("/api/v1/cache/sprites/v1", "POST"))
-        assertEquals("缓存重用不得再次 manifest", 1, http.count("/api/v1/cache/sprites/v1"))
-        assertEquals("全局 Coil 应复用 sheet", 1, http.count("/api/v1/cache/sprites/v1/file"))
-        http.failSprite = true
-        compose.onNodeWithContentDescription(http.name("v2"), useUnmergedTree = true).performTouchInput { longClick() }
-        waitText("预览生成失败")
-        screenshot("06-sprite-error")
-        compose.onNodeWithContentDescription(http.name("v2")).performClick()
-        kernel("server-error-card-still-plays")
-        assertTrue(http.hits.any { it.path == "/stream/v2.mp4" && it.authenticated })
-        back()
-        http.failSprite = false
+        compose.waitForIdle()
+        assertEquals(0, http.hits.count { it.path.contains("/cache/sprites/") || it.path.contains("/tasks/sprite-") })
+        compose.onNodeWithText("预览准备中…").assertDoesNotExist()
+        compose.onNodeWithText("预览生成失败").assertDoesNotExist()
+        record("STATIC_HOME_COVER longpress spriteEnsureManifestTaskFileHTTP=0")
+        screenshot("03-static-cover-longpress-no-sprite")
     }
 
+    @Test fun actualHomeStaticCoverLongPressHasZeroSpriteHttp() {
+        verifyActualTarget()
+        runBlocking {
+            ServerProfileStore(context).clear()
+            V2DataModeStore(context).set(V2DataMode.DEMO)
+            ReleaseNotesStore(context).saveLastSeenVersionCode(BuildConfig.VERSION_CODE)
+        }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        val http = Stage8FHttpFixture().also { fixture = it }
+        connect(http)
+        staticCoverLongPress(http)
+    }
     private fun albumAndDelete(http: Stage8FHttpFixture) {
         http.failAlbumPage = 1
         click("书架")

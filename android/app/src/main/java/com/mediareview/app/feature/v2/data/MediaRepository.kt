@@ -7,13 +7,6 @@ import com.mediareview.app.feature.v2.model.V2MediaPage
 import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
-import com.mediareview.app.feature.v2.model.V2SpriteManifest
-
-/** 完整清单通过校验才 Ready；失败保持封面和普通浏览可用。 */
-sealed interface SpritePrepareResult {
-    data class Ready(val uri: String, val manifest: V2SpriteManifest) : SpritePrepareResult
-    data class Failed(val message: String) : SpritePrepareResult
-}
 
 /**
  * V2 统一媒体数据接口。
@@ -140,15 +133,6 @@ interface MediaRepository {
 
     /** 图片原图 URI（Demo 为 asset/res-raw；Server 为原图代理 URL）。 */
     fun imageUri(media: V2Media): String
-
-    /** 取消只取消客户端等待，绝不取消服务端任务。 */
-    suspend fun prepareSprite(mediaId: String): SpritePrepareResult =
-        SpritePrepareResult.Failed("暂无雪碧图预览")
-
-    /** 仅返回已 Ready 的内存缓存，组合期不得发请求或解析文件。 */
-    fun spriteUri(media: V2Media): String?
-
-    fun spriteManifest(media: V2Media): V2SpriteManifest?
 
     // ---------- 相册（书架）能力 ----------
 

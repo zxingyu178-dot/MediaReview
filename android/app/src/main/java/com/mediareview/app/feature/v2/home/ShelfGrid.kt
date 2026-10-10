@@ -28,6 +28,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.model.V2Album
@@ -50,6 +51,7 @@ fun ShelfGrid(
     onOpenAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    WindowCoverPrefetch(albums.map { it.coverUrl ?: coverFor(it.coverImageId.orEmpty()).orEmpty() }, albumCovers = true)
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = modifier.fillMaxSize(),
@@ -62,7 +64,7 @@ fun ShelfGrid(
         items(albums, key = { it.id }) { album ->
             AlbumBookCard(
                 album = album,
-                coverUri = coverFor(album.coverImageId ?: ""),
+                coverUri = album.coverUrl?.takeIf { it.isNotBlank() } ?: coverFor(album.coverImageId ?: ""),
                 onClick = { onOpenAlbum(album.id) },
             )
         }
@@ -108,7 +110,7 @@ private fun AlbumBookCard(
                         model = request,
                         contentDescription = album.name,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().testTag("album_cover_${album.id}"),
                     )
                 }
                 // 右侧书脊渐变

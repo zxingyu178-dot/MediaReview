@@ -89,4 +89,39 @@ class AlbumPagingControllerTest {
         cancelled.open("album", spec); runCurrent()
         assertEquals(AlbumLoadStatus.Loading, cancelled.state.value!!.status); assertTrue(messages.isEmpty())
     }
-}
+    @Test fun `cached reopen publishes old images synchronously during three second refresh`() = runTest {
+        var requests = 0
+        val c = AlbumPagingController(backgroundScope, { _, p, s, _ ->
+            requests++
+            if (requests > 1) delay(3_000)
+            V2MediaPage(photos(if (requests == 1) 1 else 101, if (requests == 1) 50 else 150), p, s, 100)
+        })
+        val first = c.open("album", spec); runCurrent(); c.close(first)
+        c.open("album", spec)
+        assertEquals(AlbumLoadStatus.Ready, c.state.value!!.status)
+        assertEquals("img1", c.state.value!!.items.first().id)
+        runCurrent(); advanceTimeBy(2_999); runCurrent()
+        assertEquals("img1", c.state.value!!.items.first().id)
+        advanceTimeBy(1); runCurrent()
+        assertEquals("img101", c.state.value!!.items.first().id)
+    }
+    @Test fun `cached refresh failure keeps images and announces a light message`() = runTest {
+        var fail = false
+        val messages = mutableListOf<String>()
+        val c = AlbumPagingController(backgroundScope, { _, p, s, _ ->
+            if (fail) error("offline")
+            V2MediaPage(photos(1, 50), p, s, 100)
+        }, messages::add)
+        val first = c.open("album", spec); runCurrent(); c.close(first)
+        fail = true; c.open("album", spec); runCurrent()
+        assertEquals(AlbumLoadStatus.Ready, c.state.value!!.status)
+        assertEquals(50, c.state.value!!.items.size)
+        assertEquals(1, messages.size)
+    }
+    @Test fun `explicit source invalidation discards closed cached album`() = runTest {
+        val c = AlbumPagingController(backgroundScope, { _, p, s, _ -> V2MediaPage(photos(1, 50), p, s, 100) })
+        val first = c.open("album", spec); runCurrent(); c.close(first)
+        c.invalidate(); c.open("album", spec)
+        assertEquals(AlbumLoadStatus.Loading, c.state.value!!.status)
+        assertTrue(c.state.value!!.items.isEmpty())
+    }}

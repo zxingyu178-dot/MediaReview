@@ -11,7 +11,6 @@ import com.mediareview.app.feature.v2.model.V2MediaType
 import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
-import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import com.mediareview.app.feature.v2.review.data.ReviewQueueItemUi
 import com.mediareview.app.feature.v2.review.data.ReviewQueuePageResult
 import com.mediareview.app.feature.v2.review.data.ReviewQueueWindow
@@ -863,9 +862,7 @@ private class FakeMediaRepository(private val mediaCount: Int) : MediaRepository
 
     override fun imageUri(media: V2Media): String = ""
 
-    override fun spriteUri(media: V2Media): String? = null
 
-    override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
 
     override suspend fun albums(): List<V2Album> = emptyList()
 

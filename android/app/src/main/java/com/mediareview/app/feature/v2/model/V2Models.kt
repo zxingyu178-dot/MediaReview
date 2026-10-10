@@ -1,6 +1,6 @@
 package com.mediareview.app.feature.v2.model
 
-import kotlinx.serialization.Serializable
+
 
 /** 媒体类型。 */
 enum class V2MediaType { VIDEO, IMAGE }
@@ -63,19 +63,6 @@ data class V2Album(
     val imageCount: Int,
     val coverImageId: String?, // 只能指向 IMAGE（默认最新照片；用户手动设置后持久化）
     val coverUrl: String? = null,
-)
-
-/** 雪碧图 manifest（对应 assets 内 0X_sprite.json）。 */
-@Serializable
-data class V2SpriteManifest(
-    val source: String,
-    val columns: Int,
-    val rows: Int,
-    val cell_width: Int,
-    val cell_height: Int,
-    val frame_interval_s: Double,
-    val duration_s: Double,
-    val frame_count: Int,
 )
 
 /** 页面上下文队列：进入播放器/查看器时携带所在文件夹、排序与索引。 */

@@ -1,6 +1,5 @@
 package com.mediareview.app.feature.v2.data
 
-import com.mediareview.app.feature.v2.home.spriteFrameIndexAtTick
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
@@ -110,21 +109,4 @@ class Stage5AlbumTest {
         assertTrue("封面只能是图片", media.first { it.id == albums[0].coverImageId }.type == V2MediaType.IMAGE)
     }
 
-    // ---------- 雪碧图自动播放帧索引 ----------
-
-    @Test
-    fun `自动播放帧索引逐帧推进并回绕`() {
-        assertEquals(0, spriteFrameIndexAtTick(0, 12))
-        assertEquals(1, spriteFrameIndexAtTick(1, 12))
-        assertEquals(6, spriteFrameIndexAtTick(6, 12))
-        assertEquals(11, spriteFrameIndexAtTick(11, 12))
-        assertEquals(0, spriteFrameIndexAtTick(12, 12)) // 回绕
-        assertEquals(3, spriteFrameIndexAtTick(15, 12))
-    }
-
-    @Test
-    fun `自动播放单帧曼陀罗安全`() {
-        assertEquals(0, spriteFrameIndexAtTick(0, 1))
-        assertEquals(0, spriteFrameIndexAtTick(999, 1))
-    }
 }

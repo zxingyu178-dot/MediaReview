@@ -30,7 +30,6 @@ import com.mediareview.app.feature.v2.model.V2MediaType
 import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
-import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import org.junit.Rule
 import org.junit.Assert.assertEquals
@@ -278,8 +277,6 @@ private class FakeViewerRepository : MediaRepository {
     override fun thumbUri(media: V2Media): String = ""
     override fun coverUri(media: V2Media): String = ""
     override fun imageUri(media: V2Media): String = "asset:///demo_media/images/${media.id}.jpg"
-    override fun spriteUri(media: V2Media): String? = null
-    override fun spriteManifest(media: V2Media): V2SpriteManifest? = null
 
     override suspend fun albums(): List<com.mediareview.app.feature.v2.model.V2Album> = emptyList()
     override suspend fun albumPage(

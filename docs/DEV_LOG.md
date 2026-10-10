@@ -2451,3 +2451,13 @@ DataStore 默认双列并持久化；同一 LazyVerticalGrid 按 mediaId/offset 
 统一专项 JVM54项全通过（其中Task2模型/目录/布局/偏好11项及Server仓储合同19项）；主代码、AndroidTest编译和两Debug测试APK实际BUILD SUCCESSFUL 10m39s。模拟器HomeLayoutTouchTest三项、FolderBrowserTouchTest一项全部通过27.038s：真实MediaCard切列ID/offset/y、滚动折叠展开仅scroll位移、真实DataStore新实例、目录click/crumb/back与50+25直接媒体分页。证据review_meta/stage8h/task2-full-player-target-green-debug-retry.log、task2-player-target-green-results、task2-home-folder-device.log与task2-home-coordinate-evidence.log。
 
 独立审查C0/I0/M1：完整HomeScreen全部顶部组合与legacy分类提示的设备覆盖仍需在Task3整页封面/Sprite移除测试补齐；当前组件测试不冒称完整首页视觉验收。未执行最终全量JVM/lint/Release，未部署生产服务、修改Jellyfin或用户手机数据；Stage8H整体仍未完成。
+
+## 2026-10-10 Stage8H Task3：封面与浏览窗口缓存
+
+Album/Browse各独立LRU8，缓存已加载items/page/total/sort/anchor/updatedAt和source generation；重新进入同步展示，再静默刷新，失败保留旧窗口。切源/库/确认删除/显式刷新失效，收藏只patch窗口，分页晚到先应用已确认收藏，离开取消分页任务。元数据coverUrl直接交Coil，非法冷自选（VIDEO/异目录/404）显示默认封面，保留用户偏好用于后续有效恢复；关闭crossfade。首屏与下一屏16项/全局最多2并发预热；目录网格预取扣除子目录卡片数量。Android首页Sprite控制器、UI、仓储请求和旧测试删除，Server dormant端点及数据不变。
+
+完整HomeScreen在320dp/字体1.35时展开高度随字体缩放，clipToBounds防紧凑栏越界；正常248dp与折叠56dp及固定列表inset保留。有效RED包括冷自选三项、关闭page2、旧分页收藏覆盖、40子目录预取偏移和大字体提示被裁切；独立复审C0/I0/M0。
+
+最新专项JVM29项全部GREEN（Cold4/Folder5/HomePolicy3/Window6/ProgressIdentity1/Album10）；统一Debug和AndroidTest两APK构建6m43s成功。设备13项12PASS/1测试等待竞态，81.821s；最后一对14/15并发不能用15到达代表整批，测试等待改为两类16请求完成、保留精确16上限断言，AndroidTest增量构建1m46s及补验1/1 PASS12.941s。实际Home Coil绿色像素、元数据直接封面、分页取消/收藏/失效、3秒SWR失败留旧、大字体真实触摸、目录40子卡偏移、实际MainActivity配对后静态封面长按SpriteHTTP零均PASS。12项中另两项是Task4实际内核暂停seek30续播不回退与lock拖动恢复，不计为Task3功能。证据review_meta/stage8h/task3-reviewed-home-player-device.log、home-prefetch-wait-recheck-device.log、home-large-font-green.png、home-album-pixel-green.png。
+
+AVD一次启动停滞（offline/CPU停止/console timeout）按PID及启动参数核验后仅重启本次自有实例，userdata保留；不计产品RED。未操作用户手机或生产服务，未全量最终门禁/Release；Stage8H总体仍未完成。

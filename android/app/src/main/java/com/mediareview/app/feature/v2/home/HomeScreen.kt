@@ -97,45 +97,6 @@ fun shouldLoadNextPage(
     lastVisible >= itemCount - PREFETCH_DISTANCE_ITEMS
 
 /**
- * 下一屏封面预取（§23~§25）。
- *
- * 约束：
- * - 只在**停止滚动**时执行；用户重新滑动会取消在途预取（由调用方 collectLatest 保证）；
- * - 只预取下一屏 6~8 张，**按显示顺序**推进，不做随机并发；
- * - 复用全局单例 [coil.ImageLoader]（不创建第二个），结果进入 Coil memory/disk cache；
- * - 无 UI target 的 ImageRequest，解码尺寸与卡片一致，命中后可直接复用。
- */
-private suspend fun prefetchNextCovers(
-    loader: coil.ImageLoader,
-    context: android.content.Context,
-    gridState: LazyGridState,
-    list: List<V2Media>,
-    coverUriOf: (V2Media) -> String,
-) {
-    val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return
-    val start = lastVisible + 1
-    val end = minOf(start + PREFETCH_COVER_COUNT - 1, list.lastIndex)
-    if (start > end) return
-    for (chunk in (start..end).chunked(PREFETCH_COVER_CONCURRENCY)) {
-        coroutineScope {
-            chunk.map { index ->
-                async {
-                    val uri = coverUriOf(list[index])
-                    if (uri.isBlank()) return@async
-                    loader.execute(
-                        ImageRequest.Builder(context)
-                            .data(uri)
-                            .crossfade(false)
-                            .size(COVER_TARGET_WIDTH, COVER_TARGET_HEIGHT)
-                            .build(),
-                    )
-                }
-            }.awaitAll()
-        }
-    }
-}
-
-/**
  * V2 首页：搜索栏 + 数据源状态 + 媒体/书架双模式 + 文件夹分类 + 排序/筛选 + 双列媒体网格。
  * 底部导航由 V2Root 统一管理。
  */
@@ -155,8 +116,18 @@ fun HomeScreen(
     val sortSpec by vm.sortSpec.collectAsState()
     val displayMode by vm.displayMode.collectAsState()
     val categoryHint by vm.categoryHint.collectAsState()
+    WindowCoverPrefetch(albums.map { it.coverUrl ?: vm.mediaById(it.coverImageId.orEmpty())?.let(vm::coverUri).orEmpty() }, albumCovers = true)
     val searchActive = vm.searchActive
     val homeGridState = rememberLazyGridState()
+    DisposableEffect(vm) {
+        vm.resumeHomeWindow()
+        onDispose { vm.suspendHomeWindow() }
+    }
+    LaunchedEffect(list, homeGridState) {
+        vm.homeAnchor?.let { homeGridState.scrollToItem(it.indexIn(list.map { media -> media.id }), it.offset) }
+        snapshotFlow { homeGridState.firstVisibleItemIndex to homeGridState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) -> list.getOrNull(index)?.let { vm.updateHomeAnchor(HomeGridAnchor(it.id, offset)) } }
+    }
     val searchGridState = rememberLazyGridState()
     var positionedSearchQuery by rememberSaveable { mutableStateOf(vm.searchQuery) }
     LaunchedEffect(vm.searchQuery) {
@@ -166,7 +137,7 @@ fun HomeScreen(
         }
     }
     var showSortSheet by remember { mutableStateOf(false) }
-    fun stopPreview() = vm.stopSpritePreview()
+
     val layoutButton: @Composable (String) -> Unit = { tag ->
         TextButton(onClick = vm::toggleDisplayMode, modifier = Modifier.testTag(tag)) {
             Text(if (displayMode == HomeDisplayMode.TWO_COLUMN) "单列" else "双列", color = MediaTextPrimary)
@@ -186,32 +157,32 @@ fun HomeScreen(
                 DataSourceBar(vm, onOpenDataSource,
                     Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm))
                 SearchBar(false, vm.searchQuery, vm::updateSearchQuery,
-                    { stopPreview(); vm.setSearchMode(true) }, { vm.setSearchMode(false) }, vm::commitSearch,
+                    { vm.setSearchMode(true) }, { vm.setSearchMode(false) }, vm::commitSearch,
                     Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg))
-                ModeTabRow(vm.currentTab, { stopPreview(); vm.setTab(it) },
+                ModeTabRow(vm.currentTab, { vm.setTab(it) },
                     Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Xs))
                 if (vm.currentTab == V2HomeTab.MEDIA) {
                     FolderChipRow(folders, null, vm.selectedRecent,
-                        { stopPreview(); vm.selectAll() }, { stopPreview(); vm.selectRecent() },
-                        { stopPreview(); onOpenFolderBrowser(it) }, { stopPreview(); onOpenFolderBrowser(null) })
+                        { vm.selectAll() }, { vm.selectRecent() },
+                        { onOpenFolderBrowser(it) }, { onOpenFolderBrowser(null) })
                     Row(Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
                         verticalAlignment = Alignment.CenterVertically) {
-                        SortFilterRow(sortSpec, { stopPreview(); showSortSheet = true }, Modifier.weight(1f))
+                        SortFilterRow(sortSpec, { showSortSheet = true }, Modifier.weight(1f))
                         layoutButton("home_layout_toggle")
                     }
                     categoryHint?.let {
                         Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = V2Spacing.Lg).clickable(onClick = vm::retryFolders))
+                            modifier = Modifier.padding(horizontal = V2Spacing.Lg).testTag("home_category_hint").clickable(onClick = vm::retryFolders))
                     }
                 }
             },
             compactHeader = {
                 Row(Modifier.fillMaxSize().padding(horizontal = V2Spacing.Md),
                     verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { stopPreview(); vm.setSearchMode(true) }) {
+                    IconButton(onClick = { vm.setSearchMode(true) }) {
                         Icon(Icons.Default.Search, "搜索", tint = MediaTextPrimary)
                     }
-                    TextButton(onClick = { stopPreview(); onOpenFolderBrowser(null) }, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = { onOpenFolderBrowser(null) }, modifier = Modifier.weight(1f)) {
                         Text(if (vm.selectedRecent) "最近 · 分类" else "全部 · 分类", color = MediaTextPrimary,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
@@ -425,8 +396,6 @@ fun MediaGrid(
     contentPadding: PaddingValues = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg,
         top = V2Spacing.Sm, bottom = V2Spacing.Xl),
 ) {
-    val previewState by vm.spritePreviewState.collectAsState()
-    DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
     val loading by vm.listLoading.collectAsState()
     val hasMore by vm.hasMore.collectAsState()
     val total by vm.totalCount.collectAsState()
@@ -439,29 +408,7 @@ fun MediaGrid(
         }
     }
 
-    // 用户开始滑动页面 → 立即恢复 Poster
-    LaunchedEffect(gridState) {
-        snapshotFlow { gridState.isScrollInProgress }
-            .collect { scrolling ->
-                if (scrolling && vm.activePreviewMediaId != null) vm.stopSpritePreview()
-            }
-    }
-
-    // 停止滚动 → 低并发预取下一屏封面；重新滑动由 collectLatest 立即取消在途预取
-    val prefetchContext = LocalContext.current
-    LaunchedEffect(gridState, list) {
-        snapshotFlow { gridState.isScrollInProgress }
-            .collectLatest { scrolling ->
-                if (scrolling) return@collectLatest
-                prefetchNextCovers(
-                    loader = prefetchContext.imageLoader,
-                    context = prefetchContext,
-                    gridState = gridState,
-                    list = list,
-                    coverUriOf = vm::coverUri,
-                )
-            }
-    }
+    WindowCoverPrefetch(list.map(vm::coverUri), gridState, displayMode)
 
     // 滚动接近底部 → 加载下一页（每页 50 条；绝不在进入页面时拉全量）
     LaunchedEffect(gridState, hasMore, loading) {
@@ -481,13 +428,7 @@ fun MediaGrid(
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (loading) {
-                    CircularProgressIndicator(color = MediaTextPrimary, strokeWidth = 3.dp)
-                    Text(
-                        text = "加载中…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MediaTextSecondary,
-                        modifier = Modifier.padding(top = V2Spacing.Md),
-                    )
+                    SkeletonCards()
                 } else if (error != null) {
                     Text(text = error ?: "加载失败", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = { vm.retryList() }) {
@@ -530,29 +471,12 @@ fun MediaGrid(
             }
         },
     ) { media ->
-            val cardPreview = previewState.takeIf { it.mediaId == media.id }
             MediaCard(
                 media = media,
                 displayMode = displayMode,
                 modifier = Modifier.testTag("media_${media.id}"),
                 coverUri = vm.coverUri(media),
-                spriteUri = vm.spriteUri(media),
-                manifest = vm.spriteManifest(media),
-                isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
-                onSpritePreviewRequest = {
-                    vm.startSpritePreview(media.id)
-                },
-                onSpritePreviewStop = { vm.stopSpritePreview() },
-                onClick = {
-                    vm.stopSpritePreview()
-                    onOpenMedia(media)
-                },
-                previewPreparing = cardPreview is SpritePreviewState.Preparing,
-                previewError = (cardPreview as? SpritePreviewState.Error)?.message,
-                spriteRequestKey = cardPreview,
-                onSpritePreviewError = {
-                    (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
-                },
+                onClick = { onOpenMedia(media) },
             )
     }
 }

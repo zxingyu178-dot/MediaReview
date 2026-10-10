@@ -44,6 +44,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import coil.request.ImageRequest
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
@@ -159,7 +161,7 @@ fun AlbumScreen(
 
         if (window == null || window.status == AlbumLoadStatus.Loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("加载中…", color = MediaTextSecondary)
+                SkeletonCards()
             }
             return@Column
         }
@@ -182,6 +184,12 @@ fun AlbumScreen(
 
         // 双列图片网格（选择封面模式下点击设为封面；普通模式点击进 Viewer）
         val gridState = rememberLazyGridState()
+        WindowCoverPrefetch(images.map(vm::coverUri), gridState, squareCovers = true)
+        LaunchedEffect(gridState, session, images) {
+            window.anchor?.let { gridState.scrollToItem(it.indexIn(images.map { media -> media.id }), it.offset) }
+            snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
+                .collect { (index, offset) -> session?.let { token -> images.getOrNull(index)?.let { vm.updateAlbumAnchor(token, HomeGridAnchor(it.id, offset)) } } }
+        }
         LaunchedEffect(gridState, session, images.size, total, selectingCover) {
             snapshotFlow {
                 gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -246,7 +254,7 @@ private fun AlbumImageCell(
             .clickable(onClick = onClick),
     ) {
         SubcomposeAsyncImage(
-            model = coverUri,
+            model = ImageRequest.Builder(LocalContext.current).data(coverUri).crossfade(false).size(484, 484).build(),
             contentDescription = media.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),

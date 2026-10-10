@@ -46,8 +46,7 @@ class HomeLayoutTouchTest {
             HomeHeaderOverlay(expandedHeader = { toggle("toggle_expanded") }, compactHeader = { toggle("toggle_compact") }) { inset ->
                 AnchoredMediaGrid(ids, { it }, mode, grid, contentPadding = inset) { id ->
                     MediaCard(fixture.copy(id = id, name = id), "file:///android_asset/${fixture.thumbPath}",
-                        spriteUri = null, manifest = null, isSpritePreviewing = false,
-                        onSpritePreviewRequest = {}, onClick = {}, displayMode = mode,
+                        onClick = {}, displayMode = mode,
                         modifier = Modifier.testTag(id))
                 }
             }

@@ -56,11 +56,18 @@ fun FolderBrowserScreen(
     BackHandler(onBack = ::goBack)
     LaunchedEffect(effectiveFolderId, tree) {
         vm.openFolderBrowser(effectiveFolderId)
-        grid.scrollToItem(0)
+        val anchor = vm.folderBrowserState.value.anchor
+        val keys = children.map { "folder_${it.id}" } + vm.folderBrowserState.value.items.map { "media_${it.id}" }
+        grid.scrollToItem(anchor?.indexIn(keys) ?: 0, anchor?.offset ?: 0)
     }
     DisposableEffect(vm) { onDispose { vm.closeFolderBrowser() } }
     val visibleMedia = state.items.takeIf { state.folderId == effectiveFolderId }.orEmpty()
     val entries = children.map(FolderEntry::Folder) + visibleMedia.map(FolderEntry::Media)
+    WindowCoverPrefetch(visibleMedia.map(vm::coverUri), grid, mode, leadingItemCount = children.size)
+    LaunchedEffect(grid, entries) {
+        snapshotFlow { grid.firstVisibleItemIndex to grid.firstVisibleItemScrollOffset }
+            .collect { (index, offset) -> entries.getOrNull(index)?.let { vm.updateFolderAnchor(HomeGridAnchor(it.key, offset)) } }
+    }
     LaunchedEffect(grid, state.loading, state.hasMore, entries.size) {
         snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }.collect { index ->
             if (shouldLoadNextPage(index, entries.size, state.hasMore, state.loading)) vm.nextFolderPage()
@@ -87,7 +94,8 @@ fun FolderBrowserScreen(
             footer = {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                     when {
-                        state.loading -> Text("加载中…", color = MediaTextSecondary)
+                        state.loading && state.items.isEmpty() -> SkeletonCards()
+                        state.loading -> Text("加载更多…", color = MediaTextSecondary)
                         state.error != null -> TextButton(onClick = vm::retryFolderPage) { Text("加载失败，点击重试") }
                         entries.isEmpty() && hint == null -> Text("此目录暂无媒体", color = MediaTextSecondary)
                         state.hasMore -> TextButton(onClick = vm::nextFolderPage) { Text("加载更多") }
@@ -105,8 +113,7 @@ fun FolderBrowserScreen(
                     Text("${entry.node.childCount} 个子目录 · ${entry.node.recursiveMediaCount} 项", color = MediaTextSecondary)
                 }
                 is FolderEntry.Media -> MediaCard(entry.media, vm.coverUri(entry.media),
-                    spriteUri = null, manifest = null, isSpritePreviewing = false,
-                    onSpritePreviewRequest = {}, onClick = { onOpenMedia(entry.media, visibleMedia, effectiveFolderId) },
+                    onClick = { onOpenMedia(entry.media, visibleMedia, effectiveFolderId) },
                     displayMode = mode, modifier = Modifier.testTag(entry.key))
             }
         }

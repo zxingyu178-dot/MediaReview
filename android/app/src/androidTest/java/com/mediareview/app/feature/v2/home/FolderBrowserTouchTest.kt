@@ -80,4 +80,44 @@ class FolderBrowserTouchTest {
         compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
         android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 direct=true; breadcrumb/back preserve parent-child")
     }
+
+    @Test fun folderChildrenDoNotShiftMediaCoverPrefetchWindow() {
+        val paths = CopyOnWriteArrayList<String>()
+        val bitmap = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.GREEN)
+        val bytes = java.io.ByteArrayOutputStream().apply {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, this)
+        }.toByteArray()
+        bitmap.recycle()
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): okhttp3.mockwebserver.MockResponse {
+                paths += request.requestUrl!!.encodedPath
+                return okhttp3.mockwebserver.MockResponse().setHeader("Content-Type", "image/png")
+                    .setBody(okio.Buffer().write(bytes))
+            }
+        }
+        server.start()
+        val base = server.url("/").toString().trimEnd('/')
+        try {
+            val sample = DemoMediaCatalog.buildMedia().first { !it.isVideo }
+            val media = (0 until 50).map { sample.copy(id = "prefetch-$it", folderId = "root") }
+            val tree = listOf(V2FolderNode("root", null, "lib", "媒体库", 40, 50, 50, 50)) +
+                (0 until 40).map { V2FolderNode("child-$it", "root", "lib", "子目录$it", 0, 0, 0, 0) }
+            val demo = DemoMediaRepository(context, AlbumCoverStore(context))
+            val repo = object : MediaRepository by demo {
+                override suspend fun folderTree() = tree
+                override suspend fun mediaPage(query: V2MediaQuery) = V2MediaPage(media, 1, 50, 50)
+                override fun coverUri(media: V2Media) = "$base/cover/${media.id}"
+            }
+            val vm = testHomeViewModel(repo, SearchHistoryStore(context))
+            compose.runOnIdle { ownedViewModels.put("prefetch-fixture", vm) }
+            compose.setContent { FolderBrowserScreen(vm, "root", {}, { _, _, _ -> }) }
+            compose.waitUntil(10_000) { vm.folderTree.value.size == 41 && vm.folderBrowserState.value.items.size == 50 }
+            compose.waitUntil(10_000) { paths.contains("/cover/prefetch-15") }
+            compose.onNodeWithTag("home_grid").performScrollToIndex(60)
+            // 40目录+media20：末端35处于预热窗口且不在当前可见卡片内。
+            compose.waitUntil(10_000) { (20..35).all { paths.contains("/cover/prefetch-$it") } }
+        } finally { server.shutdown() }
+    }
 }

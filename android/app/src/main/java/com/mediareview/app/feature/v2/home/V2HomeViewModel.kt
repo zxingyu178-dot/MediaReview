@@ -9,7 +9,6 @@ import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.core.pairing.normalizeBaseUrl
 import com.mediareview.app.feature.v2.data.MediaRepository
-import com.mediareview.app.feature.v2.data.SpritePrepareResult
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.V2DataModeStore
@@ -43,62 +42,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-sealed interface SpritePreviewState {
-    val mediaId: String?
-    data object Idle : SpritePreviewState { override val mediaId: String? = null }
-    data class Preparing(override val mediaId: String) : SpritePreviewState
-    data class Ready(
-        override val mediaId: String,
-        val uri: String,
-        val manifest: com.mediareview.app.feature.v2.model.V2SpriteManifest,
-        val requestId: Long,
-    ) : SpritePreviewState
-    data class Error(override val mediaId: String, val message: String) : SpritePreviewState
-}
-
-/** ViewModel 的单实例预览请求：代次同时隔离 Repository 与 Coil 晚到回调。 */
-internal class SpritePreviewController(
-    private val scope: CoroutineScope,
-    private val prepare: suspend (String) -> SpritePrepareResult,
-) {
-    private val _state = MutableStateFlow<SpritePreviewState>(SpritePreviewState.Idle)
-    val state: StateFlow<SpritePreviewState> = _state.asStateFlow()
-    private var job: Job? = null
-    private var generation = 0L
-
-    fun start(mediaId: String) {
-        stop()
-        val requestId = generation
-        _state.value = SpritePreviewState.Preparing(mediaId)
-        job = scope.launch {
-            try {
-                val result = prepare(mediaId)
-                if (requestId != generation) return@launch
-                _state.value = when (result) {
-                    is SpritePrepareResult.Ready -> SpritePreviewState.Ready(mediaId, result.uri, result.manifest, requestId)
-                    is SpritePrepareResult.Failed -> SpritePreviewState.Error(mediaId, "预览生成失败")
-                }
-            } catch (cancelled: CancellationException) {
-                if (requestId == generation) _state.value = SpritePreviewState.Idle
-                throw cancelled
-            } catch (_: Throwable) {
-                if (requestId == generation) _state.value = SpritePreviewState.Error(mediaId, "预览生成失败")
-            }
-        }
-    }
-
-    fun stop() {
-        generation++
-        job?.cancel()
-        job = null
-        _state.value = SpritePreviewState.Idle
-    }
-
-    fun fail(request: SpritePreviewState.Ready) {
-        if (_state.value === request) _state.value = SpritePreviewState.Error(request.mediaId, "预览生成失败")
-    }
-}
 
 /** 首页/书架模式切换。 */
 enum class V2HomeTab { MEDIA, SHELF }
@@ -149,10 +92,12 @@ class V2HomeViewModel @Inject constructor(
     val folderTree = _folderTree.asStateFlow()
     private val _categoryHint = MutableStateFlow<String?>(null)
     val categoryHint = _categoryHint.asStateFlow()
-    private val folderBrowserController = FolderPagingController(viewModelScope, repository::mediaPage)
+    private val browseCache = BrowseWindowCache()
+    private val folderBrowserController = FolderPagingController(viewModelScope, browseCache, { albumSourceGeneration }, ::emitMessage, repository::mediaPage)
     val folderBrowserState = folderBrowserController.state
     fun openFolderBrowser(folderId: String?) = folderBrowserController.open(folderId, _sortSpec.value)
     fun closeFolderBrowser() = folderBrowserController.close()
+    fun updateFolderAnchor(anchor: HomeGridAnchor?) = folderBrowserController.updateAnchor(anchor)
     fun nextFolderPage() = folderBrowserController.loadNextPage()
     fun retryFolderPage() = folderBrowserController.retry()
     fun retryFolders() {
@@ -161,7 +106,6 @@ class V2HomeViewModel @Inject constructor(
     }
     fun openFolderMedia(window: List<V2Media>, mediaId: String, folderId: String?): Boolean {
         val context = buildBrowseContext(window, mediaId) ?: return false
-        stopSpritePreview()
         invalidateAlbumViewer()
         contextQueue = context.copy(folderId = folderId, sortField = _sortSpec.value.field, sortOrder = _sortSpec.value.order)
         return true
@@ -282,9 +226,28 @@ class V2HomeViewModel @Inject constructor(
     // 列表刷新 Job 竞态控制：只有最后一次触发的刷新生效（连点文件夹/排序/输入搜索词时，
     // 旧一次的结果不得覆盖新一次）；搜索输入走防抖路径，分页加载用 generation 丢弃过期响应。
     private var listRefreshJob: Job? = null
+    private var paginationJob: Job? = null
     private var listGeneration = 0
     private var loadedPage = 1
 
+    private var homeWindowKey: WindowKey? = null
+    var homeAnchor: HomeGridAnchor? = null
+        private set
+    private var homeLeft = false
+    private fun browseKey() = WindowKey(albumSourceGeneration, _selectedFolderId.value, _sortSpec.value)
+    private fun saveHomeWindow() {
+        val key = homeWindowKey ?: return
+        if (loadedPage > 0 && key.sourceGeneration == albumSourceGeneration && _listError.value == null)
+            browseCache.put(key, CachedWindow(_currentList.value, loadedPage, _totalCount.value, key.sort,
+                homeAnchor, sourceGeneration = key.sourceGeneration))
+    }
+    fun updateHomeAnchor(anchor: HomeGridAnchor?) { homeAnchor = anchor; saveHomeWindow() }
+    fun suspendHomeWindow() {
+        saveHomeWindow(); homeLeft = true; listRefreshJob?.cancel(); paginationJob?.cancel(); listGeneration++; _listLoading.value = false
+    }
+    fun resumeHomeWindow() {
+        if (homeLeft) { homeLeft = false; refreshList() }
+    }
     private val searchController = SearchPagingController(viewModelScope, repository::mediaPage)
     val searchState = searchController.state
     fun loadNextSearchPage() = searchController.loadNextPage()
@@ -294,26 +257,6 @@ class V2HomeViewModel @Inject constructor(
     /** 当前列表是否为空且仍在加载（首页空态文案用）。 */
     val loadingFirstPage: Boolean
         get() = _listLoading.value && _currentList.value.isEmpty()
-
-    // ---------- 雪碧图预览单实例状态 ----------
-
-    /** 当前播放雪碧图预览的媒体 id（null = 无预览）。 */
-    private val previewController = SpritePreviewController(viewModelScope, repository::prepareSprite)
-    val spritePreviewState: StateFlow<SpritePreviewState> = previewController.state
-    val activePreviewMediaId: String? get() = spritePreviewState.value.mediaId
-
-    /** 请求播放某媒体雪碧图（同一时间仅 1 个 Preview）。 */
-    fun startSpritePreview(mediaId: String) {
-        if (repository.mediaById(mediaId)?.isVideo == false) return
-        previewController.start(mediaId)
-    }
-
-    /** 停止当前雪碧图预览（滚动 / 切 Tab / 打开媒体 / 等）。 */
-    fun stopSpritePreview() {
-        previewController.stop()
-    }
-
-    fun onSpriteFileError(request: SpritePreviewState.Ready) = previewController.fail(request)
 
     /** Viewer 全屏覆盖根页面，待删除提示只交给 Viewer 的消息入口。 */
     private val _viewerPendingDeleteMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -330,18 +273,19 @@ class V2HomeViewModel @Inject constructor(
     fun toggleViewerPendingDelete(session: Long, mediaId: String) = viewerPendingController.toggle(session, mediaId)
 
     private var albumSourceGeneration = 0L
-    private val albumController = AlbumPagingController(viewModelScope, repository::albumPage)
+    private val albumController = AlbumPagingController(viewModelScope, repository::albumPage, ::emitMessage, sourceGeneration = { albumSourceGeneration })
     val albumState = albumController.state
     private val _albumViewerMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val albumViewerMessages: SharedFlow<String> = _albumViewerMessages
-    private val albumViewerController = AlbumPagingController(viewModelScope, repository::albumPage) {
+    private val albumViewerController = AlbumPagingController(viewModelScope, repository::albumPage, message = {
         _albumViewerMessages.tryEmit(it)
-    }
+    }, cacheEnabled = false)
     val albumViewerState = albumViewerController.state
     var albumViewerSession: Long? = null
         private set
     fun openAlbum(albumId: String, spec: V2SortSpec): Long = albumController.open(albumId, spec)
     fun closeAlbum(session: Long) = albumController.close(session)
+    fun updateAlbumAnchor(session: Long, anchor: HomeGridAnchor?) = albumController.updateAnchor(session, anchor)
     fun albumNearEnd(session: Long, index: Int) = albumController.nearEnd(session, index)
     fun retryAlbum(session: Long) = albumController.retry(session)
     fun closeAlbumViewer(session: Long) {
@@ -355,7 +299,13 @@ class V2HomeViewModel @Inject constructor(
         albumViewerSession = null
     }
     private fun invalidateAlbumSource() {
-        folderBrowserController.close()
+        folderBrowserController.invalidate()
+        browseCache.clear()
+        homeWindowKey = null
+        homeAnchor = null
+        listRefreshJob?.cancel()
+        resetPager()
+        _currentList.value = emptyList()
         _folderTree.value = emptyList()
         _folders.value = emptyList()
         _categoryHint.value = null
@@ -404,7 +354,6 @@ class V2HomeViewModel @Inject constructor(
 
     /** 切换数据源（设置里的 ● Demo / ○ 我的服务器）。Server 挂了也能随时切回 Demo。 */
     fun setDataMode(mode: V2DataMode) {
-        stopSpritePreview()
         viewModelScope.launch {
             if (mode == repository.mode) return@launch
             viewerPendingController.invalidate()
@@ -446,7 +395,6 @@ class V2HomeViewModel @Inject constructor(
      * 手动输入地址 → 复用 1.1 的 PairingRepository.checkHealthy / verifyAndPair → 配对待 token。
      */
     fun connectServer() {
-        stopSpritePreview()
         val state = _connectState.value
         if (state.busy) return
         val address = runCatching { normalizeBaseUrl(state.address) }.getOrElse { error ->
@@ -527,7 +475,6 @@ class V2HomeViewModel @Inject constructor(
 
     /** 断开服务器配置（保留 Demo 可用）。 */
     fun clearServerConfig() {
-        stopSpritePreview()
         viewerPendingController.invalidate()
         invalidateAlbumSource()
         viewModelScope.launch {
@@ -550,7 +497,6 @@ class V2HomeViewModel @Inject constructor(
     fun folderCount(folderId: String): Int = _folderCounts.value[folderId] ?: 0
 
     fun setTab(tab: V2HomeTab) {
-        stopSpritePreview()
         currentTab = tab
     }
 
@@ -584,7 +530,6 @@ class V2HomeViewModel @Inject constructor(
     }
 
     fun setSearchMode(active: Boolean) {
-        stopSpritePreview()
         searchActive = active
         if (!active) {
             searchQuery = ""
@@ -594,7 +539,6 @@ class V2HomeViewModel @Inject constructor(
 
     fun updateSearchQuery(q: String) {
         searchQuery = q
-        stopSpritePreview()
         searchController.updateQuery(q)
     }
 
@@ -623,19 +567,22 @@ class V2HomeViewModel @Inject constructor(
         if (_listLoading.value || !_hasMore.value) return
         val generation = listGeneration
         val nextPage = loadedPage + 1
-        viewModelScope.launch {
-            _listLoading.value = true
+        _listLoading.value = true
+        paginationJob = viewModelScope.launch {
             // PAGING 会话: page_request → page_response 相对本次请求计时(§1.1)
             val pagingSession = V2Perf.openPaging(nextPage)
             try {
                 val page = repository.mediaPage(query(nextPage))
                 if (generation != listGeneration) return@launch
                 val existing = _currentList.value.map { it.id }.toSet()
-                _currentList.value = _currentList.value + page.items.filter { it.id !in existing }
+                _currentList.value = _currentList.value + page.items.filter { it.id !in existing }.map { media ->
+                    _confirmedFavoriteStates.value[media.id]?.let { media.copy(isFavorite = it) } ?: media
+                }
                 loadedPage = page.page
                 _totalCount.value = page.total
                 _hasMore.value = page.hasMore
                 _listError.value = null
+                saveHomeWindow()
                 pagingSession.mark("page_response", { "page=$nextPage items=${page.items.size}" })
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -651,6 +598,12 @@ class V2HomeViewModel @Inject constructor(
 
     /** 手动重试当前列表（网络失败后）。 */
     fun retryList() {
+        browseCache.clear()
+        homeWindowKey = null
+        albumController.invalidate()
+        folderBrowserController.invalidate()
+        albumSourceGeneration++
+        invalidateAlbumViewer()
         refreshList()
     }
 
@@ -677,7 +630,6 @@ class V2HomeViewModel @Inject constructor(
 
     private fun openBrowseWindow(items: List<V2Media>, mediaId: String): Boolean {
         val queue = buildBrowseContext(items, mediaId) ?: return false
-        stopSpritePreview()
         invalidateAlbumViewer()
         contextQueue = queue
         return true
@@ -695,7 +647,6 @@ class V2HomeViewModel @Inject constructor(
      * @return true = 已建立上下文；false = 该 media 连数据源都查不到（不建立上下文，调用方应提示）
      */
     fun openMedia(mediaId: String): Boolean {
-        stopSpritePreview()
         invalidateAlbumViewer()
         val list = _currentList.value
         val index = list.indexOfFirst { it.id == mediaId }
@@ -729,7 +680,6 @@ class V2HomeViewModel @Inject constructor(
      * 阶段 8B §10：找不到 mediaId 时不建立上下文、不静默指向第 1 项。
      */
     fun openMediaIn(list: List<V2Media>, mediaId: String): Boolean {
-        stopSpritePreview()
         invalidateAlbumViewer()
         val index = list.indexOfFirst { it.id == mediaId }
         if (index < 0) return false
@@ -749,7 +699,6 @@ class V2HomeViewModel @Inject constructor(
         val images = loadedImages.filter { !it.isVideo }.distinctBy { it.id }
         val index = images.indexOfFirst { it.id == mediaId }
         if (index < 0) return false
-        stopSpritePreview()
         albumViewerSession = albumViewerController.open(albumId, sortSpec, images, total, loadedPage)
         contextQueue = V2ContextQueue(albumId, sortSpec.field, sortSpec.order, V2TypeFilter.IMAGE, images.map { it.id }, index)
         return true
@@ -770,7 +719,6 @@ class V2HomeViewModel @Inject constructor(
      * 阶段 8B §10：找不到 mediaId 时不建立上下文、不静默指向第 1 项。
      */
     fun openMediaInVideoQueue(queue: List<V2Media>, mediaId: String): Boolean {
-        stopSpritePreview()
         invalidateAlbumViewer()
         val videos = queue.filter { it.isVideo }
         val index = videos.indexOfFirst { it.id == mediaId }
@@ -807,10 +755,6 @@ class V2HomeViewModel @Inject constructor(
     /** 图片原图 URI（薄委托，加载逻辑在数据层；Server 模式为原图代理 URL）。 */
     fun imageUri(media: V2Media): String = repository.imageUri(media)
 
-    fun spriteUri(media: V2Media): String? = repository.spriteUri(media)
-
-    fun spriteManifest(media: V2Media): com.mediareview.app.feature.v2.model.V2SpriteManifest? =
-        repository.spriteManifest(media)
 
     fun mediaById(id: String): V2Media? = repository.mediaById(id)
 
@@ -920,6 +864,7 @@ class V2HomeViewModel @Inject constructor(
      * 只刷新数据，不改变用户当前页面（待删除中心仍停留）。
      */
     fun refreshAfterFinalDelete(removedMediaIds: List<String> = emptyList()) {
+        invalidateAlbumSource()
         if (removedMediaIds.isNotEmpty()) repository.dropCachedMedia(removedMediaIds)
         repository.invalidateAuxiliaryCache()
         viewModelScope.launch { reloadAll() }
@@ -1001,7 +946,8 @@ class V2HomeViewModel @Inject constructor(
     )
 
     private fun resetPager() {
-        stopSpritePreview()
+        paginationJob?.cancel()
+        paginationJob = null
         listGeneration++
         loadedPage = 1
         _hasMore.value = false
@@ -1013,6 +959,9 @@ class V2HomeViewModel @Inject constructor(
         _confirmedFavoriteStates.value = _confirmedFavoriteStates.value + (mediaId to favorite)
         searchController.updateFavorite(mediaId, favorite)
         folderBrowserController.updateFavorite(mediaId, favorite)
+        albumController.updateFavorite(mediaId, favorite)
+        albumViewerController.updateFavorite(mediaId, favorite)
+        browseCache.patchFavorite(mediaId, favorite)
         _currentList.value = _currentList.value.map { media ->
             if (media.id == mediaId) media.copy(isFavorite = favorite) else media
         }
@@ -1034,40 +983,55 @@ class V2HomeViewModel @Inject constructor(
      * [debounceMs] > 0 时先等待该时长（用于搜索输入节流）。
      */
     private fun refreshList(debounceMs: Long = 0L) {
+        saveHomeWindow()
         listRefreshJob?.cancel()
         resetPager()
         val generation = listGeneration
+        val key = browseKey()
+        homeWindowKey = key
+        val cached = browseCache.get(key)
+        _currentList.value = cached?.items.orEmpty()
+        loadedPage = cached?.page ?: 0
+        _totalCount.value = cached?.total ?: 0
+        _hasMore.value = cached?.hasMore ?: false
+        homeAnchor = cached?.anchor
+        _listError.value = null
+        _listLoading.value = true
         listRefreshJob = viewModelScope.launch {
             if (debounceMs > 0) delay(debounceMs)
-            _listLoading.value = true
             val session = V2Perf.home()
             session?.markOnce("first_media_request", "first_media_request")
             try {
-                val page = repository.mediaPage(query(page = 1))
-                if (generation != listGeneration) return@launch
-                _currentList.value = page.items
+                val items = mutableListOf<V2Media>()
+                var result: V2MediaPage? = null
+                for (pageNumber in 1..(cached?.page ?: 1)) {
+                    result = repository.mediaPage(V2MediaQuery(pageNumber, 50, key.folderId, spec = key.sort))
+                    if (generation != listGeneration || key.sourceGeneration != albumSourceGeneration) return@launch
+                    check(result.page == pageNumber && result.pageSize == 50 && result.total >= 0)
+                    items += result.items
+                    if (!result.hasMore) break
+                }
+                val page = requireNotNull(result)
+                _currentList.value = items.distinctBy { it.id }.map { media ->
+                    _confirmedFavoriteStates.value[media.id]?.let { media.copy(isFavorite = it) } ?: media
+                }
                 loadedPage = page.page
                 _totalCount.value = page.total
                 _hasMore.value = page.hasMore
                 _listError.value = null
-                session?.markOnce(
-                    "first_media_response",
-                    "first_media_response",
-                    { "items=${page.items.size} total=${page.total}" },
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                if (generation == listGeneration) {
-                    _currentList.value = emptyList()
-                    _listError.value = error.message ?: "加载失败"
+                saveHomeWindow()
+                session?.markOnce("first_media_response", "first_media_response", { "items=${items.size} total=${page.total}" })
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Throwable) {
+                if (generation == listGeneration && key.sourceGeneration == albumSourceGeneration) {
+                    if (cached == null) _listError.value = error.message ?: "加载失败"
+                    else emitMessage("刷新失败，已保留上次内容")
                 }
             } finally {
                 if (generation == listGeneration) _listLoading.value = false
             }
         }
     }
-
     companion object {
         /** 相册每页条数（阶段 8B §12：第一页 50，接近底部继续加载下一页）。 */
         const val ALBUM_PAGE_SIZE = 50

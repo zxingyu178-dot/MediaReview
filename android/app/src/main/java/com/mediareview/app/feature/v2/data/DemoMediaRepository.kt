@@ -12,14 +12,10 @@ import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortField
 import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.feature.v2.model.V2SortSpec
-import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Demo 数据仓库：全部数据来自 APK 内置 assets / res-raw，离线可用。
@@ -49,11 +45,6 @@ class DemoMediaRepository @Inject constructor(
     private val favoriteState = mutableMapOf<String, Boolean>()
     private val reviewedState = mutableMapOf<String, Boolean>()
     private val pendingDeleteState = mutableSetOf<String>()
-
-    // Stage6：雪碧图 manifest 解析缓存。
-    // 禁止在 Compose 组合路径重复做 assets IO / JSON 解析——每个 manifest 只解析一次，
-    // 之后全部命中内存缓存（key = manifest asset 路径）。
-    private val spriteReadyCache = ConcurrentHashMap<String, SpritePrepareResult.Ready>()
 
     override val mode: V2DataMode = V2DataMode.DEMO
 
@@ -154,23 +145,6 @@ class DemoMediaRepository @Inject constructor(
     override fun coverUri(media: V2Media): String = DemoAssets.coverUri(media)
 
     override fun imageUri(media: V2Media): String = DemoAssets.imageUri(media)
-
-    override suspend fun prepareSprite(mediaId: String): SpritePrepareResult {
-        spriteReadyCache[mediaId]?.let { return it }
-        val media = mediaById[mediaId]?.takeIf { it.isVideo }
-            ?: return SpritePrepareResult.Failed("暂无雪碧图预览")
-        val uri = DemoAssets.spriteUri(media) ?: return SpritePrepareResult.Failed("暂无雪碧图预览")
-        val path = media.spriteManifestPath ?: return SpritePrepareResult.Failed("暂无雪碧图预览")
-        val manifest = withContext(Dispatchers.IO) { DemoAssets.readSpriteManifest(context, path) }
-            ?: return SpritePrepareResult.Failed("雪碧图清单不可用")
-        return SpritePrepareResult.Ready(uri, manifest).also { spriteReadyCache[mediaId] = it }
-    }
-
-    override fun spriteUri(media: V2Media): String? = spriteReadyCache[media.id]?.uri
-
-    override fun spriteManifest(media: V2Media): V2SpriteManifest? {
-        return spriteReadyCache[media.id]?.manifest
-    }
 
     // ---------- 相册（书架） ----------
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.*
 import androidx.compose.ui.platform.LocalDensity
@@ -28,6 +29,7 @@ fun HomeHeaderOverlay(
     val policy = remember { HomeHeaderScrollPolicy() }
     var collapsed by remember { mutableStateOf(false) }
     val density = LocalDensity.current
+    val expandedHeight = HOME_EXPANDED_HEADER_HEIGHT * density.fontScale.coerceAtLeast(1f)
     val scroll = remember(density, enabled) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -38,11 +40,11 @@ fun HomeHeaderOverlay(
             }
         }
     }
-    Box(modifier.fillMaxSize().nestedScroll(scroll)) {
-        content(PaddingValues(top = HOME_EXPANDED_HEADER_HEIGHT))
+    Box(modifier.fillMaxSize().clipToBounds().nestedScroll(scroll)) {
+        content(PaddingValues(top = expandedHeight))
         Column(
-            Modifier.fillMaxWidth().height(HOME_EXPANDED_HEADER_HEIGHT)
-                .graphicsLayer { translationY = if (collapsed && enabled) -HOME_EXPANDED_HEADER_HEIGHT.toPx() else 0f }
+            Modifier.fillMaxWidth().height(expandedHeight)
+                .graphicsLayer { translationY = if (collapsed && enabled) -expandedHeight.toPx() else 0f }
                 .background(MediaBackground).testTag("home_header_expanded"),
         ) { expandedHeader() }
         Box(

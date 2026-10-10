@@ -64,14 +64,6 @@ fun SearchPanel(
     val list = state.items
     val query = vm.searchQuery
     val history = vm.recentSearches
-    val previewState by vm.spritePreviewState.collectAsState()
-    DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
-    LaunchedEffect(gridState) {
-        snapshotFlow { gridState.isScrollInProgress }.collect { scrolling ->
-            if (scrolling) vm.stopSpritePreview()
-        }
-    }
-
     LaunchedEffect(gridState, state.items.size, state.hasMore, state.loadingFirstPage, state.loadingMore, state.error) {
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
             .collect { vm.searchNearEnd(it) }
@@ -147,22 +139,10 @@ fun SearchPanel(
                 verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
             ) {
                 items(list, key = { it.id }) { media ->
-                    val cardPreview = previewState.takeIf { it.mediaId == media.id }
                     MediaCard(
                         media = media,
                         coverUri = vm.coverUri(media),
-                        spriteUri = vm.spriteUri(media),
-                        manifest = vm.spriteManifest(media),
-                        isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
-                        onSpritePreviewRequest = { vm.startSpritePreview(media.id) },
-                        onSpritePreviewStop = vm::stopSpritePreview,
-                        onClick = { vm.stopSpritePreview(); onOpenMedia(media, list) },
-                        previewPreparing = cardPreview is SpritePreviewState.Preparing,
-                        previewError = (cardPreview as? SpritePreviewState.Error)?.message,
-                        spriteRequestKey = cardPreview,
-                        onSpritePreviewError = {
-                            (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
-                        },
+                        onClick = { onOpenMedia(media, list) },
                     )
                 }
                 if (state.loadingMore || state.error != null) {

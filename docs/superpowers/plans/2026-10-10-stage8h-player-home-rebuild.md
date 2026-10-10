@@ -42,10 +42,10 @@
 
 **Files:** AlbumPagingController、home/AlbumScreen/ShelfGrid/V2HomeViewModel/MediaGrid；model V2Album、mapper；新增WindowCache；删除SpritePreviewController/State/Composable与调用及相关测试。
 **Interfaces:** 两个LRU各8项；Album保存items/page/total/sort/anchor/updatedAt；Browse key(sourceGeneration,folderId,sort,type)。close保存窗口取消晚到；再进同步返回cache再SWR。
-- [ ] RED缓存再进即时items、3秒delay无全屏loading、失败留旧、LRU淘汰、generation切源/selection/delete失效、favorite只patch。
-- [ ] coverUrl从Server直接映射交Coil，不依赖media cache；关闭crossfade；首屏与下一屏低优先级bounded prefetch。
-- [ ] 无cache skeleton；cached success静默更新/失败轻提示。删除Android sprite全部UI/请求，Server保留。
-- [ ] 目标JVM/compile/封面真实显示及长按无spriteHTTP UI验收，审查与commit `perf(android): cache albums and browsing windows`。
+- [x] RED缓存再进即时items、3秒delay无全屏loading、失败留旧、LRU淘汰、generation切源/selection/delete失效、favorite只patch。
+- [x] coverUrl从Server直接映射交Coil，不依赖media cache；关闭crossfade；首屏与下一屏低优先级bounded prefetch。
+- [x] 无cache skeleton；cached success静默更新/失败轻提示。删除Android sprite全部UI/请求，Server保留。
+- [x] 目标JVM/compile/封面真实显示及长按无spriteHTTP UI验收，审查与commit `perf(android): cache albums and browsing windows`。
 
 ## Task 4 Full Player共享引擎（3–28,73–76,77–79）
 

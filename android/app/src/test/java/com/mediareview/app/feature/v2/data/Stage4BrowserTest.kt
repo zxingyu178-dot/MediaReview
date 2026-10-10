@@ -1,6 +1,5 @@
 package com.mediareview.app.feature.v2.data
 
-import com.mediareview.app.feature.v2.home.spriteFrameIndexForProgress
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2MediaType
 import org.junit.Assert.assertEquals
@@ -83,19 +82,4 @@ class Stage4BrowserTest {
         assertEquals(current, SearchHistoryStore.nextItems("", current))
     }
 
-    @Test
-    fun `雪碧图帧索引 0-0_5-1 映射正确且 clamp`() {
-        // 12 帧：progress 0 → 0、0.5 → 6、接近 1 → 11
-        assertEquals(0, spriteFrameIndexForProgress(0f, 12, 5, 3))
-        assertEquals(6, spriteFrameIndexForProgress(0.5f, 12, 5, 3))
-        assertEquals(11, spriteFrameIndexForProgress(1f, 12, 5, 3))
-        assertEquals(11, spriteFrameIndexForProgress(99f, 12, 5, 3))
-        assertEquals(0, spriteFrameIndexForProgress(-5f, 12, 5, 3))
-    }
-
-    @Test
-    fun `雪碧图帧索引 单帧曼陀罗安全`() {
-        assertEquals(0, spriteFrameIndexForProgress(0.5f, 1, 1, 1))
-        assertEquals(0, spriteFrameIndexForProgress(1f, 1, 1, 1))
-    }
 }

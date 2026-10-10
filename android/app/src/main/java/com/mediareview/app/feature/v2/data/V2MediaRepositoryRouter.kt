@@ -11,7 +11,6 @@ import com.mediareview.app.feature.v2.model.V2MediaPage
 import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2SortSpec
-import com.mediareview.app.feature.v2.model.V2SpriteManifest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -110,16 +109,6 @@ class V2MediaRepositoryRouter @Inject constructor(
     override fun coverUri(media: V2Media): String = active().coverUri(media)
 
     override fun imageUri(media: V2Media): String = active().imageUri(media)
-
-    override suspend fun prepareSprite(mediaId: String): SpritePrepareResult {
-        val selected = dataActive()
-        val result = selected.prepareSprite(mediaId)
-        return if (mode == selected.mode) result else SpritePrepareResult.Failed("数据源已切换")
-    }
-
-    override fun spriteUri(media: V2Media): String? = active().spriteUri(media)
-
-    override fun spriteManifest(media: V2Media): V2SpriteManifest? = active().spriteManifest(media)
 
     override suspend fun albums(): List<V2Album> = dataActive().albums()
 
