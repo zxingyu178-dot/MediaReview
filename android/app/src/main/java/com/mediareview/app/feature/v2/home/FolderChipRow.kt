@@ -61,7 +61,7 @@ fun FolderChipRow(
         Chip(text = "全部", selected = !selectedRecent && selectedFolderId == null, onClick = onSelectAll)
         Spacer(modifier = Modifier.size(V2Spacing.Sm))
         Chip(text = "最近", selected = selectedRecent, onClick = onSelectRecent)
-        folders.forEach { folder ->
+        folders.take(4).forEach { folder ->
             Spacer(modifier = Modifier.size(V2Spacing.Sm))
             Chip(
                 text = folder.name,
@@ -70,7 +70,7 @@ fun FolderChipRow(
             )
         }
         Spacer(modifier = Modifier.size(V2Spacing.Sm))
-        Chip(text = "更多", selected = false, onClick = onMore)
+        Chip(text = "全部分类", selected = false, onClick = onMore)
         Spacer(modifier = Modifier.size(V2Spacing.Md))
     }
 }

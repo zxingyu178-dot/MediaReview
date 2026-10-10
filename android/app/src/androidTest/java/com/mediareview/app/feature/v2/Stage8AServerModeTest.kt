@@ -150,6 +150,7 @@ class Stage8AServerModeTest {
         healthMonitor = V2ServerHealthMonitor(profileStore, apiFactory, serverStatus),
         statusStore = serverStatus,
         pairingRepository = PairingRepository(profileStore, tokenProvider, apiFactory),
+        homeDisplayModeStore = com.mediareview.app.feature.v2.data.HomeDisplayModeStore(context),
     ).also { vm ->
         compose.runOnUiThread { compose.activity.viewModelStore.put("stage8a-home", vm) }
         lastVm = vm

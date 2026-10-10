@@ -51,19 +51,25 @@ class V2ServerStatusStore @Inject constructor() {
     /** Server 返回的 api_contract（旧 Server 缺失时为 1）。 */
     val serverApiContract: StateFlow<Int> = _serverApiContract.asStateFlow()
 
+    private val _capabilities = MutableStateFlow<List<String>>(emptyList())
+    val capabilities: StateFlow<List<String>> = _capabilities.asStateFlow()
+    val supportsFolderTree: Boolean get() = "folder_tree_v1" in _capabilities.value
+
     fun update(status: V2ServerStatus) {
         _status.value = status
     }
 
     /** 探测到兼容：记录版本 + contract 并标记在线（**唯一**进入 Online 的入口）。 */
-    fun recordCompatible(version: String, contract: Int) {
+    fun recordCompatible(version: String, contract: Int, capabilities: List<String> = emptyList()) {
         _serverVersion.value = version
         _serverApiContract.value = contract
+        _capabilities.value = capabilities.toList()
         _status.value = V2ServerStatus.Online
     }
 
     /** 探测到旧 Server：记录版本 + contract 并标记"版本过旧"（不是离线 / 认证失败）。 */
     fun recordIncompatible(version: String, contract: Int) {
+        _capabilities.value = emptyList()
         _serverVersion.value = version
         _serverApiContract.value = contract
         _status.value = V2ServerStatus.Incompatible
@@ -96,6 +102,7 @@ class V2ServerStatusStore @Inject constructor() {
      * 清空旧 Server 的版本 / contract / 兼容性元数据，避免残留。
      */
     fun reset() {
+        _capabilities.value = emptyList()
         _serverVersion.value = ""
         _serverApiContract.value = 0
         _status.value = V2ServerStatus.Unconfigured
@@ -137,18 +144,18 @@ class V2ServerHealthMonitor @Inject constructor(
             }
             if (profile.token.isBlank()) {
                 // 服务器可达且兼容但尚未配对：在线（数据源 Sheet 会提示去配对）
-                statusStore.recordCompatible(data.version, data.api_contract)
+                statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
                 return
             }
             try {
                 // 1 条媒体即可确认 token 仍然有效（401 = 认证失效）
                 api.media(page = 1, pageSize = 1)
-                statusStore.recordCompatible(data.version, data.api_contract)
+                statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
             } catch (error: HttpException) {
                 if (error.code() == 401) {
                     statusStore.update(V2ServerStatus.AuthRejected)
                 } else {
-                    statusStore.recordCompatible(data.version, data.api_contract)
+                    statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
                 }
             }
         } catch (cancelled: CancellationException) {

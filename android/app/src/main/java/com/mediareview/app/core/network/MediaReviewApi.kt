@@ -82,6 +82,7 @@ interface MediaReviewApi {
         @Query("search") search: String? = null,
         @Query("exclude_favorites") excludeFavorites: Boolean = false,
         @Query("folder_id") folderId: String? = null,
+        @Query("include_descendants") includeDescendants: Boolean = true,
     ): Envelope<MediaPage>
 
     @GET("/api/v1/media/folders")
@@ -91,6 +92,9 @@ interface MediaReviewApi {
         @Query("search") search: String? = null,
         @Query("exclude_favorites") excludeFavorites: Boolean = false,
     ): Envelope<List<MediaFolderItem>>
+
+    @GET("/api/v1/media/folder-tree")
+    suspend fun folderTree(): Envelope<List<com.mediareview.app.core.model.FolderTreeNodeDto>>
 
     @GET("/api/v1/media/{media_id}")
     suspend fun mediaDetail(@Path("media_id") mediaId: String): Envelope<MediaSummary>

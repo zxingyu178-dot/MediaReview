@@ -9,6 +9,7 @@ package com.mediareview.app.feature.v2.player.native.state
 data class PlaybackQueueItem(
     val mediaId: String,
     val title: String,
+    val posterUrl: String? = null,
 )
 
 /**

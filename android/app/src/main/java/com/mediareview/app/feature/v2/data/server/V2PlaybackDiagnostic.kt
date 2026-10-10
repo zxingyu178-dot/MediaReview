@@ -163,7 +163,7 @@ class V2PlaybackDiagnostic internal constructor(
                 return report.copy(phone = V2StreamProbeResult(V2DiagnosticCode.INCOMPATIBLE))
             }
             if (!restored.paired) return report.copy(phone = V2StreamProbeResult(V2DiagnosticCode.UNPAIRED))
-            statusStore.recordCompatible(health.version, health.api_contract)
+            statusStore.recordCompatible(health.version, health.api_contract, health.capabilities)
             V2ServerAccessGuard(statusStore).requireBusinessAccess()
             stage = V2DiagnosticStage.READINESS
             val readiness = unwrap(api.playbackReadiness())

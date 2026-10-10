@@ -59,13 +59,23 @@ class DemoMediaRepository @Inject constructor(
 
     override suspend fun folders(): List<V2Folder> = foldersWithCounts
 
+    override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode> =
+        listOf(com.mediareview.app.feature.v2.model.V2FolderNode(
+            "demo_library", null, "demo", "演示媒体", foldersWithCounts.size, 0, allMedia.size, 0,
+        )) + foldersWithCounts.map {
+            com.mediareview.app.feature.v2.model.V2FolderNode(
+                it.id, "demo_library", "demo", it.name, 0, it.count, it.count, it.imageCount,
+            )
+        }
+
     override suspend fun media(): List<V2Media> = allMedia.applyOverridesState()
 
     /** Demo 分页：内存排序/过滤后切片（Server 模式由服务端执行同样的查询语义）。 */
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
         val q = query.search?.trim().orEmpty()
         val filtered = allMedia.applyOverridesState()
-            .filter { query.folderId == null || it.folderId == query.folderId }
+            .filter { query.folderId == null || it.folderId == query.folderId ||
+                (query.folderId == "demo_library" && query.includeDescendants) }
             .filter { q.isEmpty() || it.matches(q) }
             .sorted(query.spec)
         val from = ((query.page - 1).coerceAtLeast(0)) * query.pageSize

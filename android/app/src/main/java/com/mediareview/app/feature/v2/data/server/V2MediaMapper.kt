@@ -68,14 +68,27 @@ class V2MediaMapper @Inject constructor(
     }
 
     /** 文件夹映射：folder_id 视为不透明 ID；count / image_count / 代表封面全部来自 Server 聚合。 */
-    fun mapFolder(item: MediaFolderItem): V2Folder = V2Folder(
+    fun mapFolder(item: MediaFolderItem, baseUrl: String? = null): V2Folder = V2Folder(
         id = item.folder_id,
         name = item.name,
         description = "",
         coverMediaIds = listOfNotNull(item.cover_media_id?.takeIf { it.isNotBlank() }),
         count = item.count,
         imageCount = item.image_count,
+        coverUrl = item.cover_url?.let { raw ->
+            baseUrl?.let { resolveOrNull(raw, it, CONTROLLED_SERVER_ONLY_HOSTS) }
+        },
     )
+
+    fun mapFolderNode(item: com.mediareview.app.core.model.FolderTreeNodeDto, baseUrl: String) =
+        com.mediareview.app.feature.v2.model.V2FolderNode(
+            id = item.folder_id, parentId = item.parent_id, libraryId = item.library_id,
+            name = item.name, childCount = item.child_count,
+            directMediaCount = item.direct_media_count, recursiveMediaCount = item.recursive_media_count,
+            directImageCount = item.direct_image_count,
+            coverUrl = item.cover_url?.let { resolveOrNull(it, baseUrl, CONTROLLED_SERVER_ONLY_HOSTS) },
+            directCoverUrl = item.direct_cover_url?.let { resolveOrNull(it, baseUrl, CONTROLLED_SERVER_ONLY_HOSTS) },
+        )
 
     private fun resolveOrNull(raw: String, baseUrl: String, serverOnlyHosts: Set<String>): String? =
         runCatching {

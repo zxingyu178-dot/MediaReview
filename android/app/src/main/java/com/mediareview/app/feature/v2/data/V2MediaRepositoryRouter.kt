@@ -66,6 +66,9 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override suspend fun folders(): List<V2Folder> = dataActive().folders()
 
+    override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode>? =
+        dataActive().folderTree()
+
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = dataActive().mediaPage(query)
 
     override suspend fun media(): List<V2Media> = dataActive().media()

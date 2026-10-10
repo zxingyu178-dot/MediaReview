@@ -186,6 +186,7 @@ class V2ServerMediaRepository internal constructor(
             search = query.search?.takeIf { it.isNotBlank() },
             excludeFavorites = false,
             folderId = query.folderId,
+            includeDescendants = query.includeDescendants,
         )
         val page = unwrap(envelope)
         V2MediaPage(
@@ -209,12 +210,17 @@ class V2ServerMediaRepository internal constructor(
             ) {
                 return cached.data
             }
-            val loaded = call { api, _ -> unwrap(api.mediaFolders()).map(mapper::mapFolder) }
+            val loaded = call { api, base -> unwrap(api.mediaFolders()).map { mapper.mapFolder(it, base) } }
             foldersCacheEntry = FoldersCacheEntry(baseUrl, nowMs(), loaded)
             return loaded
         } finally {
             foldersMutex.unlock()
         }
+    }
+
+    override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode>? {
+        if (!statusStore.supportsFolderTree) return null
+        return call { api, base -> unwrap(api.folderTree()).map { mapper.mapFolderNode(it, base) } }
     }
 
     /**
@@ -482,6 +488,7 @@ class V2ServerMediaRepository internal constructor(
                 name = folder.name,
                 imageCount = folder.imageCount,
                 coverImageId = userCover ?: serverCover,
+                coverUrl = folder.coverUrl.takeIf { userCover == null || userCover == serverCover },
             )
         }
     }

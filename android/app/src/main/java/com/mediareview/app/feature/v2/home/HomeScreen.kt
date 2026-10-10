@@ -146,17 +146,16 @@ fun HomeScreen(
     onOpenSearchMedia: (V2Media, List<V2Media>) -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenDataSource: () -> Unit,
+    onOpenFolderBrowser: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val folders by vm.folders.collectAsState()
     val albums by vm.albums.collectAsState()
     val list by vm.currentList.collectAsState()
     val sortSpec by vm.sortSpec.collectAsState()
-    val selectedFolderId by vm.selectedFolderId.collectAsState()
-    val folderCounts by vm.folderCounts.collectAsState()
+    val displayMode by vm.displayMode.collectAsState()
+    val categoryHint by vm.categoryHint.collectAsState()
     val searchActive = vm.searchActive
-    val selectedRecent = vm.selectedRecent
-
     val homeGridState = rememberLazyGridState()
     val searchGridState = rememberLazyGridState()
     var positionedSearchQuery by rememberSaveable { mutableStateOf(vm.searchQuery) }
@@ -166,128 +165,74 @@ fun HomeScreen(
             positionedSearchQuery = vm.searchQuery
         }
     }
-    var showMoreSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
-
-    // 切换 Tab / 进入搜索时立即停止雪碧图预览，避免残留动画
-    fun clearPreviewIfNeeded() {
-        if (vm.activePreviewMediaId != null) vm.stopSpritePreview()
-    }
-
-    Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
-        DataSourceBar(
-            vm = vm,
-            onClick = onOpenDataSource,
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm),
-        )
-        SearchBar(
-            active = searchActive,
-            query = vm.searchQuery,
-            onQueryChange = vm::updateSearchQuery,
-            onActivate = {
-                clearPreviewIfNeeded()
-                vm.setSearchMode(true)
-            },
-            onClose = {
-                vm.setSearchMode(false)
-            },
-            onSearch = vm::commitSearch,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm),
-        )
-
-        if (!searchActive) {
-            ModeTabRow(
-                current = vm.currentTab,
-                onSelect = {
-                    clearPreviewIfNeeded()
-                    vm.setTab(it)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm),
-            )
-
-            if (vm.currentTab == V2HomeTab.MEDIA) {
-                FolderChipRow(
-                    folders = folders,
-                    selectedFolderId = selectedFolderId,
-                    selectedRecent = selectedRecent,
-                    onSelectAll = {
-                        clearPreviewIfNeeded()
-                        vm.selectAll()
-                    },
-                    onSelectRecent = {
-                        clearPreviewIfNeeded()
-                        vm.selectRecent()
-                    },
-                    onSelectFolder = {
-                        clearPreviewIfNeeded()
-                        vm.selectFolder(it)
-                    },
-                    onMore = { showMoreSheet = true },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                SortFilterRow(
-                    spec = sortSpec,
-                    onClick = {
-                        clearPreviewIfNeeded()
-                        showSortSheet = true
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Xs),
-                )
-            }
-
-            Box(modifier = Modifier.weight(1f)) {
-                when (vm.currentTab) {
-                    V2HomeTab.MEDIA -> MediaGrid(
-                        list = list,
-                        vm = vm,
-                        onOpenMedia = onOpenMedia,
-                        gridState = homeGridState,
-                    )
-                    V2HomeTab.SHELF -> ShelfGrid(
-                        albums = albums,
-                        coverFor = { albumId -> vm.mediaById(albumId)?.let { vm.coverUri(it) } },
-                        onOpenAlbum = onOpenAlbum,
-                    )
-                }
-            }
-        } else {
-            SearchPanel(
-                vm = vm,
-                onOpenMedia = onOpenSearchMedia,
-                gridState = searchGridState,
-                modifier = Modifier.weight(1f),
-            )
+    fun stopPreview() = vm.stopSpritePreview()
+    val layoutButton: @Composable (String) -> Unit = { tag ->
+        TextButton(onClick = vm::toggleDisplayMode, modifier = Modifier.testTag(tag)) {
+            Text(if (displayMode == HomeDisplayMode.TWO_COLUMN) "单列" else "双列", color = MediaTextPrimary)
         }
     }
-
-    if (showMoreSheet) {
-        MoreFoldersSheet(
-            folders = folders,
-            counts = folderCounts,
-            selectedFolderId = selectedFolderId,
-            onSelect = {
-                vm.selectFolder(it)
-                showMoreSheet = false
+    if (searchActive) {
+        Column(modifier.fillMaxSize().background(MediaBackground).statusBarsPadding()) {
+            SearchBar(true, vm.searchQuery, vm::updateSearchQuery, {}, { vm.setSearchMode(false) }, vm::commitSearch,
+                Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm))
+            SearchPanel(vm, onOpenSearchMedia, modifier = Modifier.weight(1f), gridState = searchGridState)
+        }
+    } else {
+        HomeHeaderOverlay(
+            modifier = modifier.background(MediaBackground).statusBarsPadding(),
+            enabled = vm.currentTab == V2HomeTab.MEDIA,
+            expandedHeader = {
+                DataSourceBar(vm, onOpenDataSource,
+                    Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm))
+                SearchBar(false, vm.searchQuery, vm::updateSearchQuery,
+                    { stopPreview(); vm.setSearchMode(true) }, { vm.setSearchMode(false) }, vm::commitSearch,
+                    Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg))
+                ModeTabRow(vm.currentTab, { stopPreview(); vm.setTab(it) },
+                    Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Xs))
+                if (vm.currentTab == V2HomeTab.MEDIA) {
+                    FolderChipRow(folders, null, vm.selectedRecent,
+                        { stopPreview(); vm.selectAll() }, { stopPreview(); vm.selectRecent() },
+                        { stopPreview(); onOpenFolderBrowser(it) }, { stopPreview(); onOpenFolderBrowser(null) })
+                    Row(Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        SortFilterRow(sortSpec, { stopPreview(); showSortSheet = true }, Modifier.weight(1f))
+                        layoutButton("home_layout_toggle")
+                    }
+                    categoryHint?.let {
+                        Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = V2Spacing.Lg).clickable(onClick = vm::retryFolders))
+                    }
+                }
             },
-            onDismiss = { showMoreSheet = false },
-        )
+            compactHeader = {
+                Row(Modifier.fillMaxSize().padding(horizontal = V2Spacing.Md),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { stopPreview(); vm.setSearchMode(true) }) {
+                        Icon(Icons.Default.Search, "搜索", tint = MediaTextPrimary)
+                    }
+                    TextButton(onClick = { stopPreview(); onOpenFolderBrowser(null) }, modifier = Modifier.weight(1f)) {
+                        Text(if (vm.selectedRecent) "最近 · 分类" else "全部 · 分类", color = MediaTextPrimary,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    layoutButton("home_layout_toggle_compact")
+                }
+            },
+        ) { inset ->
+            when (vm.currentTab) {
+                V2HomeTab.MEDIA -> MediaGrid(list, vm, onOpenMedia, gridState = homeGridState,
+                    displayMode = displayMode,
+                    contentPadding = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg,
+                        top = inset.calculateTopPadding(), bottom = V2Spacing.Xl))
+                V2HomeTab.SHELF -> ShelfGrid(albums,
+                    coverFor = { id -> vm.mediaById(id)?.let(vm::coverUri) },
+                    onOpenAlbum = onOpenAlbum,
+                    modifier = Modifier.padding(top = inset.calculateTopPadding()))
+            }
+        }
     }
-
     if (showSortSheet) {
-        SortFilterSheet(
-            spec = sortSpec,
-            onChange = vm::setSortSpec,
-            onDismiss = { showSortSheet = false },
-        )
+        SortFilterSheet(sortSpec, vm::setSortSpec, { showSortSheet = false })
     }
 }
 
@@ -476,6 +421,9 @@ fun MediaGrid(
     onOpenMedia: (V2Media) -> Unit,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
+    displayMode: HomeDisplayMode = HomeDisplayMode.TWO_COLUMN,
+    contentPadding: PaddingValues = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg,
+        top = V2Spacing.Sm, bottom = V2Spacing.Xl),
 ) {
     val previewState by vm.spritePreviewState.collectAsState()
     DisposableEffect(vm) { onDispose { vm.stopSpritePreview() } }
@@ -553,41 +501,14 @@ fun MediaGrid(
         return
     }
 
-    LazyVerticalGrid(
-        state = gridState,
-        columns = GridCells.Fixed(2),
-        modifier = modifier.fillMaxSize().testTag("home_grid"),
-        contentPadding = PaddingValues(
-            start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl,
-        ),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(V2Spacing.Md),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(V2Spacing.Md),
-    ) {
-        items(list, key = { it.id }) { media ->
-            val cardPreview = previewState.takeIf { it.mediaId == media.id }
-            MediaCard(
-                media = media,
-                coverUri = vm.coverUri(media),
-                spriteUri = vm.spriteUri(media),
-                manifest = vm.spriteManifest(media),
-                isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
-                onSpritePreviewRequest = {
-                    vm.startSpritePreview(media.id)
-                },
-                onSpritePreviewStop = { vm.stopSpritePreview() },
-                onClick = {
-                    vm.stopSpritePreview()
-                    onOpenMedia(media)
-                },
-                previewPreparing = cardPreview is SpritePreviewState.Preparing,
-                previewError = (cardPreview as? SpritePreviewState.Error)?.message,
-                spriteRequestKey = cardPreview,
-                onSpritePreviewError = {
-                    (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
-                },
-            )
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
+    AnchoredMediaGrid(
+        list = list,
+        keyOf = { it.id },
+        displayMode = displayMode,
+        gridState = gridState,
+        modifier = modifier,
+        contentPadding = contentPadding,
+        footer = {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -607,6 +528,31 @@ fun MediaGrid(
                     )
                 }
             }
-        }
+        },
+    ) { media ->
+            val cardPreview = previewState.takeIf { it.mediaId == media.id }
+            MediaCard(
+                media = media,
+                displayMode = displayMode,
+                modifier = Modifier.testTag("media_${media.id}"),
+                coverUri = vm.coverUri(media),
+                spriteUri = vm.spriteUri(media),
+                manifest = vm.spriteManifest(media),
+                isSpritePreviewing = cardPreview is SpritePreviewState.Ready && media.isVideo,
+                onSpritePreviewRequest = {
+                    vm.startSpritePreview(media.id)
+                },
+                onSpritePreviewStop = { vm.stopSpritePreview() },
+                onClick = {
+                    vm.stopSpritePreview()
+                    onOpenMedia(media)
+                },
+                previewPreparing = cardPreview is SpritePreviewState.Preparing,
+                previewError = (cardPreview as? SpritePreviewState.Error)?.message,
+                spriteRequestKey = cardPreview,
+                onSpritePreviewError = {
+                    (cardPreview as? SpritePreviewState.Ready)?.let(vm::onSpriteFileError)
+                },
+            )
     }
 }

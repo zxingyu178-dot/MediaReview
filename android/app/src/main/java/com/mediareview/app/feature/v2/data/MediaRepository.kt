@@ -44,6 +44,9 @@ interface MediaRepository {
 
     suspend fun folders(): List<V2Folder>
 
+    /** null 表示数据源缺少层级分类能力，不能退回平铺目录。 */
+    suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode>? = null
+
     /**
      * 统一分页查询（Stage 8A 正式列表路径）：
      * Server 模式下 search / sort / media_type / folder_id / page 全部由服务端执行，

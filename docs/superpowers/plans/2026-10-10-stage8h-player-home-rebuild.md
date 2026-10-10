@@ -33,10 +33,10 @@
 
 **Files:** V2MediaMapper、server DTO/MediaApi/Repository、model V2Album与FolderNode、home/FolderBrowserScreen.kt（新增）、HomeScreen/MediaGrid/MediaCard、V2HomeViewModel、偏好DataStore、V2MainScreen导航。
 **Interfaces:** folderTree capability独立检测，1.2.2仅分类提示不影响播放；单Library直接一级、多Library先root；最多若干一级chip+全部分类；HomeDisplayMode ONE_COLUMN/TWO_COLUMN。
-- [ ] RED验证folder parent-child映射、legacy能力降级、显示模式持久化、anchor保持与header阈值。
-- [ ] 真FolderBrowser面包屑+分页媒体；首页不再flat展开。单/双列同LazyVerticalGrid且保存mediaId/offset；单列16:9封面/标题/文件夹/时长类型。
-- [ ] NestedScroll累计24dp方向阈值，固定overlay translation header，折叠56dp；保留grid布局与anchor/y。
-- [ ] 目标JVM/compile及instrumentation，记录真pointer切布局/滚动坐标；审查与commit `feat(android): rebuild home categories and browsing layout`。
+- [x] RED验证folder parent-child映射、legacy能力降级、显示模式持久化、anchor保持与header阈值。
+- [x] 真FolderBrowser面包屑+分页媒体；首页不再flat展开。单/双列同LazyVerticalGrid且保存mediaId/offset；单列16:9封面/标题/文件夹/时长类型。
+- [x] NestedScroll累计24dp方向阈值，固定overlay translation header，折叠56dp；保留grid布局与anchor/y。
+- [x] 目标JVM/compile及instrumentation，记录真pointer切布局/滚动坐标；审查与commit `feat(android): rebuild home categories and browsing layout`。
 
 ## Task 3 缓存、封面及移除Sprite（47–54,67–72,83–84,87–90）
 

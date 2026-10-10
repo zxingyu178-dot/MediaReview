@@ -2442,3 +2442,12 @@ Server sprite/task20专项仍有效，未重复561；Server代码1.2.2/Contract2
 有效RED原8项因新端点未实现而失败。目标回归pytest（FolderTree、media_api、media_index_11、media_sync_api_11、system_api）76 passed / 1既有StarletteDeprecationWarning / 74.45s；最终FolderTree15 passed / 1.88s（含1000媒体100叶目录四层、直接/递归范围、同名跨磁盘隔离、封面变化、选库/同步/删除、双连接与提交时序/外部Engine）。目标ruff check通过，三文件format --check通过，git diff --check通过。原失败与修正证据在已忽略review_meta/stage8h/task1-*；尚未执行全套Server、Release构建、生产启动/部署、Android或真机/家庭LAN验证；未commit/push，交root统一审查。
 
 Task1独立审查C0/I0/M1后的补验：新增一个组合测试，证明库A树ID在显式library_id=B或仅选择B时返回404/MEDIA_NOT_FOUND，叠加media_type=image/search/exclude_favorites后total=5且page2两项为正确SQL排序窗口。仅新增单测1 passed / 1既有warning / 0.28s与该测试文件ruff通过；未重复76项、未修改实现、未运行Gradle。证据review_meta/stage8h/task1-minor-test.txt与task1-minor-ruff.txt。
+# 2026-10-10 — Stage8H Task2 首页层级分类与布局
+
+新增 folder_tree_v1 Android DTO/能力检测和独立 FolderBrowser：单库一级目录、多库 Library roots、最多四个首页分类 chip，目录面包屑与直接媒体每页50项，不污染首页或搜索查询。旧 Server1.2.2 仅分类提示升级，其他 Contract2 功能继续可用。封面 URL 与播放队列 poster 元数据完整保留，消费与缓存由后续 Task3/4 完成。
+
+DataStore 默认双列并持久化；同一 LazyVerticalGrid 按 mediaId/offset 保持单/双列锚点，单列16:9及简洁辅助信息。固定顶部 Overlay、24dp NestedScroll 阈值和56dp紧凑栏只修改translation，不修改列表边距。启动偏好迟到读取覆盖用户新选择已有效运行RED后修复（selectionRevision，IO在锁外）。
+
+统一专项 JVM54项全通过（其中Task2模型/目录/布局/偏好11项及Server仓储合同19项）；主代码、AndroidTest编译和两Debug测试APK实际BUILD SUCCESSFUL 10m39s。模拟器HomeLayoutTouchTest三项、FolderBrowserTouchTest一项全部通过27.038s：真实MediaCard切列ID/offset/y、滚动折叠展开仅scroll位移、真实DataStore新实例、目录click/crumb/back与50+25直接媒体分页。证据review_meta/stage8h/task2-full-player-target-green-debug-retry.log、task2-player-target-green-results、task2-home-folder-device.log与task2-home-coordinate-evidence.log。
+
+独立审查C0/I0/M1：完整HomeScreen全部顶部组合与legacy分类提示的设备覆盖仍需在Task3整页封面/Sprite移除测试补齐；当前组件测试不冒称完整首页视觉验收。未执行最终全量JVM/lint/Release，未部署生产服务、修改Jellyfin或用户手机数据；Stage8H整体仍未完成。

@@ -145,6 +145,19 @@ fun V2MainScreen(
                         MediaNavigator.navigateAlbum(navController, albumId)
                     },
                     onOpenDataSource = { dataSourceSheetOpen = true },
+                    onOpenFolderBrowser = { folderId ->
+                        navController.navigate(MediaNavigator.folderBrowser(folderId))
+                    },
+                )
+            }
+            composable(MediaNavigator.ROUTE_FOLDER_BROWSER) { entry ->
+                com.mediareview.app.feature.v2.home.FolderBrowserScreen(
+                    vm = vm,
+                    initialFolderId = entry.arguments?.getString("folderId")?.takeUnless { it == "_root" },
+                    onBack = { navController.popBackStack() },
+                    onOpenMedia = { media, window, folderId ->
+                        if (vm.openFolderMedia(window, media.id, folderId)) MediaNavigator.openMedia(navController, media)
+                    },
                 )
             }
             composable(MediaNavigator.ROUTE_REVIEW) {
@@ -244,7 +257,7 @@ fun V2MainScreen(
                     }
                     val playbackContext = remember(videos, mediaId) {
                         PlaybackContext(
-                            queue = videos.map { PlaybackQueueItem(mediaId = it.id, title = it.name) },
+                            queue = videos.map { PlaybackQueueItem(mediaId = it.id, title = it.name, posterUrl = vm.coverUri(it)) },
                             currentIndex = videos.indexOfFirst { it.id == mediaId }.coerceAtLeast(0),
                             source = if (vm.isServerMode) "server" else "demo",
                         )

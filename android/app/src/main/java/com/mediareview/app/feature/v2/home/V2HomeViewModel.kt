@@ -132,7 +132,40 @@ class V2HomeViewModel @Inject constructor(
     private val healthMonitor: V2ServerHealthMonitor,
     private val statusStore: V2ServerStatusStore,
     private val pairingRepository: PairingRepository,
+    private val homeDisplayModeStore: com.mediareview.app.feature.v2.data.HomeDisplayModeStore,
 ) : ViewModel() {
+
+    val displayMode = homeDisplayModeStore.mode
+    fun toggleDisplayMode() {
+        val next = if (displayMode.value == HomeDisplayMode.TWO_COLUMN) HomeDisplayMode.ONE_COLUMN else HomeDisplayMode.TWO_COLUMN
+        viewModelScope.launch {
+            try { homeDisplayModeStore.set(next) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Throwable) { _messages.emit("布局偏好保存失败") }
+        }
+    }
+
+    private val _folderTree = MutableStateFlow<List<com.mediareview.app.feature.v2.model.V2FolderNode>>(emptyList())
+    val folderTree = _folderTree.asStateFlow()
+    private val _categoryHint = MutableStateFlow<String?>(null)
+    val categoryHint = _categoryHint.asStateFlow()
+    private val folderBrowserController = FolderPagingController(viewModelScope, repository::mediaPage)
+    val folderBrowserState = folderBrowserController.state
+    fun openFolderBrowser(folderId: String?) = folderBrowserController.open(folderId, _sortSpec.value)
+    fun closeFolderBrowser() = folderBrowserController.close()
+    fun nextFolderPage() = folderBrowserController.loadNextPage()
+    fun retryFolderPage() = folderBrowserController.retry()
+    fun retryFolders() {
+        folderJob?.cancel()
+        folderJob = viewModelScope.launch { loadFolders() }
+    }
+    fun openFolderMedia(window: List<V2Media>, mediaId: String, folderId: String?): Boolean {
+        val context = buildBrowseContext(window, mediaId) ?: return false
+        stopSpritePreview()
+        invalidateAlbumViewer()
+        contextQueue = context.copy(folderId = folderId, sortField = _sortSpec.value.field, sortOrder = _sortSpec.value.order)
+        return true
+    }
 
     // ---------- 数据源 / Server 状态 ----------
 
@@ -322,6 +355,10 @@ class V2HomeViewModel @Inject constructor(
         albumViewerSession = null
     }
     private fun invalidateAlbumSource() {
+        folderBrowserController.close()
+        _folderTree.value = emptyList()
+        _folders.value = emptyList()
+        _categoryHint.value = null
         setSearchMode(false)
         _confirmedFavoriteStates.value = emptyMap()
         albumSourceGeneration++
@@ -331,6 +368,11 @@ class V2HomeViewModel @Inject constructor(
 
     init {
         V2Perf.openHome()
+        viewModelScope.launch {
+            try { homeDisplayModeStore.bootstrap() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Throwable) { _messages.emit("布局偏好读取失败") }
+        }
         viewModelScope.launch {
             // 只读本地持久化模式：不联网、不等待 Server，首页立即可用
             val mode = modeStore.bootstrap()
@@ -816,6 +858,8 @@ class V2HomeViewModel @Inject constructor(
             folderJob?.cancel()
             favoritesLoaded = false
             _folders.value = emptyList()
+            _folderTree.value = emptyList()
+            _categoryHint.value = null
             _folderCounts.value = emptyMap()
             _albums.value = emptyList()
             _favorites.value = emptyList()
@@ -892,15 +936,26 @@ class V2HomeViewModel @Inject constructor(
     }
 
     private suspend fun loadFolders() {
-        val folders = runCatching { repository.folders() }.getOrElse { error ->
-            // P1 失败只写自己的错误态：绝不污染 P0 媒体列表的 listError
-            _folderError.value = error.message ?: "文件夹加载失败"
-            return
+        val source = albumSourceGeneration
+        try {
+            val tree = repository.folderTree()
+            if (source != albumSourceGeneration) return
+            _folderTree.value = tree.orEmpty()
+            _categoryHint.value = if (tree == null) "电脑端版本较旧，升级后可使用层级分类" else null
+            val roots = com.mediareview.app.feature.v2.model.homeFolderRoots(tree.orEmpty())
+            _folders.value = roots.map {
+                V2Folder(it.id, it.name, "", emptyList(), it.recursiveMediaCount, it.directImageCount, it.coverUrl)
+            }
+            _folderCounts.value = roots.associate { it.id to it.recursiveMediaCount }
+            _folderError.value = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            if (source == albumSourceGeneration) {
+                _folderError.value = "分类加载失败"
+                _categoryHint.value = "分类加载失败，点击重试"
+            }
         }
-        _folders.value = folders
-        // 文件夹计数来自数据源聚合（Server 由服务端 count 下发，App 不做 N+1）
-        _folderCounts.value = folders.associate { it.id to it.count }
-        _folderError.value = null
     }
 
     private suspend fun refreshAlbumsNow() {
@@ -957,6 +1012,7 @@ class V2HomeViewModel @Inject constructor(
     private fun applyFavoriteLocally(mediaId: String, favorite: Boolean) {
         _confirmedFavoriteStates.value = _confirmedFavoriteStates.value + (mediaId to favorite)
         searchController.updateFavorite(mediaId, favorite)
+        folderBrowserController.updateFavorite(mediaId, favorite)
         _currentList.value = _currentList.value.map { media ->
             if (media.id == mediaId) media.copy(isFavorite = favorite) else media
         }

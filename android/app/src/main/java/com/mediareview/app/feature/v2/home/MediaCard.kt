@@ -79,6 +79,7 @@ fun MediaCard(
     previewError: String? = null,
     spriteRequestKey: Any? = null,
     onSpritePreviewError: () -> Unit = {},
+    displayMode: HomeDisplayMode = HomeDisplayMode.TWO_COLUMN,
 ) {
     val haptic = LocalHapticFeedback.current
     val hasSprite = spriteUri != null && manifest != null
@@ -87,11 +88,12 @@ fun MediaCard(
     // Stage6 轻量封面：目标解码尺寸 = 双列卡片约 176dp * 2.75x ≈ 484×272px，
     // 明确要求小于原始 1920×1080 的缩小解码，同时关闭 crossfade 淡入，降低组合路径开销；
     // 统一走 data-ui 双路径（占位/错误仍保留灰底图标，不出现黑块）。
-    val coverRequest = remember(coverUri) {
+    val coverRequest = remember(coverUri, displayMode) {
         ImageRequest.Builder(context)
             .data(coverUri)
             .crossfade(false)
-            .size(COVER_TARGET_WIDTH, COVER_TARGET_HEIGHT)
+            .size(if (displayMode == HomeDisplayMode.ONE_COLUMN) COVER_TARGET_WIDTH * 2 else COVER_TARGET_WIDTH,
+                if (displayMode == HomeDisplayMode.ONE_COLUMN) COVER_TARGET_HEIGHT * 2 else COVER_TARGET_HEIGHT)
             .build()
     }
 
@@ -228,7 +230,9 @@ fun MediaCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = listOf(media.code, media.folderName)
+                    text = (if (displayMode == HomeDisplayMode.ONE_COLUMN)
+                        listOf(media.folderName, if (media.isVideo) formatDuration(media.durationMs) else "图片")
+                        else listOf(media.code, media.folderName))
                         .filter { it.isNotBlank() }
                         .joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,

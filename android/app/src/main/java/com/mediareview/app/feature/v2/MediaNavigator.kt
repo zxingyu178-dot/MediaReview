@@ -11,6 +11,7 @@ object MediaNavigator {
     const val ROUTE_FAVORITES = "favorites"
     const val ROUTE_ORGANIZE = "organize"
     const val ROUTE_ALBUM = "album/{albumId}"
+    const val ROUTE_FOLDER_BROWSER = "folders/{folderId}"
     const val ROUTE_PLAYER = "player/{mediaId}"
     const val ROUTE_VIEWER = "viewer/{mediaId}"
 
@@ -21,6 +22,7 @@ object MediaNavigator {
     const val ROUTE_ORGANIZE_LIBRARIES = "organize/libraries"
 
     fun album(albumId: String) = "album/$albumId"
+    fun folderBrowser(folderId: String? = null) = "folders/${folderId ?: "_root"}"
     fun player(mediaId: String) = "player/$mediaId"
     fun viewer(mediaId: String) = "viewer/$mediaId"
 

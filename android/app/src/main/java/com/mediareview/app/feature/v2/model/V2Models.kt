@@ -52,6 +52,7 @@ data class V2Folder(
     val count: Int = 0,
     /** 该文件夹内图片数量（书架相册用；Server 来自 `image_count`，无图片文件夹为 0）。 */
     val imageCount: Int = 0,
+    val coverUrl: String? = null,
 )
 
 /** 照片相册：书架只按此模型展示，仅统计 / 封面 / 内容均只允许 IMAGE。 */
@@ -61,6 +62,7 @@ data class V2Album(
     val name: String,        // 第一版直接使用 folderName
     val imageCount: Int,
     val coverImageId: String?, // 只能指向 IMAGE（默认最新照片；用户手动设置后持久化）
+    val coverUrl: String? = null,
 )
 
 /** 雪碧图 manifest（对应 assets 内 0X_sprite.json）。 */
@@ -115,6 +117,7 @@ data class V2MediaQuery(
     val folderId: String? = null,
     val search: String? = null,
     val spec: V2SortSpec = V2SortSpec(),
+    val includeDescendants: Boolean = true,
 ) {
     companion object {
         /** 默认每页条数：真实库可能上万条，必须分页滚动加载。 */

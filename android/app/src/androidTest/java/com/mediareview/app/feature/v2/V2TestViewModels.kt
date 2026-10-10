@@ -41,5 +41,6 @@ internal fun testHomeViewModel(
         healthMonitor = V2ServerHealthMonitor(profileStore, apiFactory, statusStore),
         statusStore = statusStore,
         pairingRepository = PairingRepository(profileStore, tokenProvider, apiFactory),
+        homeDisplayModeStore = com.mediareview.app.feature.v2.data.HomeDisplayModeStore(context),
     )
 }

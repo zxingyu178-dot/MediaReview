@@ -2,6 +2,21 @@ package com.mediareview.app.core.model
 
 import kotlinx.serialization.Serializable
 
+/** 层级分类只携带不透明身份和显示名，不接触媒体的真实路径。 */
+@Serializable
+data class FolderTreeNodeDto(
+    val folder_id: String = "",
+    val parent_id: String? = null,
+    val library_id: String = "",
+    val name: String = "",
+    val child_count: Int = 0,
+    val direct_media_count: Int = 0,
+    val recursive_media_count: Int = 0,
+    val direct_image_count: Int = 0,
+    val cover_url: String? = null,
+    val direct_cover_url: String? = null,
+)
+
 /** 媒体库勾选项(GET/PUT /libraries)。 */
 @Serializable
 data class LibraryItem(
