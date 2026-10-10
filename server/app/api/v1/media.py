@@ -28,7 +28,7 @@ from app.core.perf import log_perf, perf_now
 from app.core.responses import Envelope, ok
 from app.db.models import utc_now
 from app.db.session import get_db
-from app.services import media_index
+from app.services import folder_tree, media_index
 from app.services import tasks as task_service
 from app.services.thumbnail_cache import (
     VARIANT_GRID,
@@ -163,6 +163,21 @@ def _require_user_id(request: Request) -> str:
     return user_id
 
 
+@router.get("/folder-tree", response_model=Envelope[list[folder_tree.FolderNode]])
+async def list_folder_tree(
+    request: Request,
+    library_id: str | None = Query(default=None, min_length=1),
+    _auth=Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> Envelope[list[folder_tree.FolderNode]]:
+    _require_user_id(request)
+    selected = media_index.selected_library_ids(db)
+    targets = [library_id] if library_id else selected
+    if not targets:
+        raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
+    return ok(list(folder_tree.get_tree(db, targets).nodes))
+
+
 @router.get("/folders", response_model=Envelope[list[FolderSummary]])
 async def list_media_folders(
     request: Request,
@@ -222,6 +237,9 @@ async def list_media(
     exclude_favorites: bool = Query(default=False, description="排除已点赞媒体(未点赞筛选)"),
     random_seed: str | None = Query(default=None, max_length=128),
     folder_id: str | None = Query(default=None, max_length=32, description="文件夹辅助视图 ID"),
+    include_descendants: bool = Query(
+        default=True, description="树节点包含子目录；旧平面 ID 不受影响"
+    ),
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[MediaPage]:
@@ -239,16 +257,24 @@ async def list_media(
             raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
 
     folder_dirname: str | None = None
+    folder_condition = None
     if folder_id:
-        folder_dirname = media_index.resolve_folder_dirname(
-            db,
-            library_ids=targets,
-            media_type=media_type,
-            search=search,
-            exclude_favorites=exclude_favorites,
-            folder_id=folder_id,
-        )
-        if folder_dirname is None:
+        if folder_id.startswith("ft_"):
+            folder_condition = folder_tree.scope_condition(
+                db, targets, folder_id, include_descendants=include_descendants
+            )
+            if folder_condition is None:
+                raise MediaNotFoundError()
+        else:
+            folder_dirname = media_index.resolve_folder_dirname(
+                db,
+                library_ids=targets,
+                media_type=media_type,
+                search=search,
+                exclude_favorites=exclude_favorites,
+                folder_id=folder_id,
+            )
+        if folder_dirname is None and folder_condition is None:
             raise MediaNotFoundError()
 
     available_count = media_index.available_media_count(db, targets)
@@ -266,6 +292,7 @@ async def list_media(
         page_size=page_size,
         random_seed=random_seed,
         folder_dirname=folder_dirname,
+        folder_condition=folder_condition,
     )
     sync = media_index.media_sync_view(db, targets, available_count=available_count)
     # 收藏状态一次 SQL 批量取回(禁止逐条查询)

@@ -2432,3 +2432,13 @@ Server sprite/task20专项仍有效，未重复561；Server代码1.2.2/Contract2
 本阶段没有新增服务/长期脚本，不需ControlHub onboarding；仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。收藏全量API与N+1为P1 PERFORMANCE DEBT，无性能退化证据不预先优化。真实手机/家庭LAN产品行为仍未验证。唯一assembleRelease成功3m5s；用户APK 43520050B，SHA256 c4afe13228d3ee37d343288649ce88abb7780e174af7e9df515f541f151ec53f，code17/alpha10、不可调试、正式签名验证通过；DEX含新搜索/上下文/确认状态且无FolderScreen，169个冻结产品输入未漂移。没有第二次Release构建或重签产品；Release UI未另跑，交给用户亲自验收。 Git/远端/clean和Stage8G Handoff的后置真实结果以交付证据记录；完成后停止，不进入8H。
 
 本次AVD已正常停止。含递归清理与Git提交准备的命令被自动审批拒绝（blocked by policy），整条命令未执行；临时数据保留在已忽略的temp/stage8g-emulator，未绕过重试。Git提交/推送改为独立执行，真实结果以最终交接证据记录。
+
+## 2026-10-10 Stage8H Task1：Server 文件夹树
+
+仅实施Server Task1：新增认证GET /api/v1/media/folder-tree元数据DTO，每个Library虚拟根，保留共同前缀末端可见目录、隐藏Windows驱动器及UNC存储锚点，建立祖先与直接/递归统计、最新图片封面及source_version URL。树ID为ft_+24hex且按Library与内部祖先身份派生；旧/folders与媒体项旧flat folder_id保持兼容。媒体分页支持树节点默认含后代，include_descendants=false只取直接媒体，继续SQL筛选/排序/分页。
+
+轻量LRU按Database Engine、目标库和媒体generation隔离；媒体/选库ORM及Core/text写入、事务完成失效，writer未提交构建不共享。Session after_commit关闭Engine commit通知早于真实提交的竞态；每次读取仅PRAGMA data_version同connection比较，新connection不复用旧cache，覆盖独立Core与外部Engine提交，无每请求路径重扫。版本Server1.3.0 / Contract2 / folder_tree_v1；没有数据库迁移或新服务/长期脚本。
+
+有效RED原8项因新端点未实现而失败。目标回归pytest（FolderTree、media_api、media_index_11、media_sync_api_11、system_api）76 passed / 1既有StarletteDeprecationWarning / 74.45s；最终FolderTree15 passed / 1.88s（含1000媒体100叶目录四层、直接/递归范围、同名跨磁盘隔离、封面变化、选库/同步/删除、双连接与提交时序/外部Engine）。目标ruff check通过，三文件format --check通过，git diff --check通过。原失败与修正证据在已忽略review_meta/stage8h/task1-*；尚未执行全套Server、Release构建、生产启动/部署、Android或真机/家庭LAN验证；未commit/push，交root统一审查。
+
+Task1独立审查C0/I0/M1后的补验：新增一个组合测试，证明库A树ID在显式library_id=B或仅选择B时返回404/MEDIA_NOT_FOUND，叠加media_type=image/search/exclude_favorites后total=5且page2两项为正确SQL排序窗口。仅新增单测1 passed / 1既有warning / 0.28s与该测试文件ruff通过；未重复76项、未修改实现、未运行Gradle。证据review_meta/stage8h/task1-minor-test.txt与task1-minor-ruff.txt。

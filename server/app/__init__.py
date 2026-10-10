@@ -1,6 +1,6 @@
 """MediaReview 中间层服务。"""
 
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 
 # API Contract:给 App 判断兼容性的正式字段(与人类可读的 __version__ 分开管理)。
 # - Server 版本给"给人看 / 部署 / 回滚"用;
@@ -12,6 +12,7 @@ SERVER_API_CONTRACT = 2
 # 本 Contract 下 Server 明确提供的正式能力(供 App 未来做渐进功能判断;
 # 当前兼容 Gate 仍以 SERVER_API_CONTRACT 为主,不实现复杂 Feature Flag)。
 SERVER_CAPABILITIES: tuple[str, ...] = (
+    "folder_tree_v1",
     "review_session",
     "review_nearest",
     "organize",

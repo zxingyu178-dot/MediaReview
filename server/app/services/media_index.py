@@ -506,6 +506,7 @@ def list_cached_media(
     page_size: int = 50,
     random_seed: str | None = None,
     folder_dirname: str | None = None,
+    folder_condition=None,
 ) -> tuple[list[MediaCacheIndex], int]:
     """在 SQLite 中完成 count、筛选、排序与分页，不把全表载入 Python。"""
     targets = sorted(set(library_ids))
@@ -519,6 +520,8 @@ def list_cached_media(
     )
     if folder_dirname:
         conditions.append(_folder_dirname_expression() == folder_dirname)
+    if folder_condition is not None:
+        conditions.append(folder_condition)
 
     total = int(
         session.scalar(sa.select(sa.func.count()).select_from(MediaCacheIndex).where(*conditions))
