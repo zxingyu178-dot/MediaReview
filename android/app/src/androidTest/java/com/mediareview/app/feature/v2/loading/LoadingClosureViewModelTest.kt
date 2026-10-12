@@ -30,7 +30,7 @@ import org.junit.runner.RunWith
  * 阶段 8A.1.1 收口：P0/P1 状态解耦与收藏可重试（§2 / §3）。
  *
  * 用可注入故障的仓库验证：
- * - folders / albums 失败只写自己的错误态，**不污染** listError；
+ * - folderTree / albums 失败只写自己的错误态，**不污染** listError；
  *   `GET /media?page=1` 成功后媒体墙仍必须正常显示；
  * - 收藏首次失败后**可以重试**（不再永久锁死），成功才置 loaded；
  * - 已有成功数据时临时失败**不清空**旧数据。
@@ -168,6 +168,11 @@ private class ClosureRepository : MediaRepository {
     )
 
     override val mode: V2DataMode = V2DataMode.DEMO
+
+    override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode> {
+        if (failFolders) throw IOException("folderTree 不可用")
+        return listOf(com.mediareview.app.feature.v2.model.V2FolderNode("f1", null, "lib", "文件夹", 0, 1, 1, 1))
+    }
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage =
         V2MediaPage(items = listOf(media), page = 1, pageSize = query.pageSize, total = 1)

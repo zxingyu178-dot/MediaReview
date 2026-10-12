@@ -87,6 +87,12 @@ fun V2MainScreen(
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
+    // 全局提示可能跨路由排队；详情页也必须为真实底部操作区留出净空。
+    val snackbarBottomClearance = when (currentRoute) {
+        MediaNavigator.ROUTE_PLAYER -> 160.dp
+        MediaNavigator.ROUTE_VIEWER -> 145.dp
+        else -> 0.dp
+    }
     val dataMode by vm.dataMode.collectAsState()
     // 新版本首次启动的更新日志（Stage 8C.1 §38~§44）：Overlay，不阻塞首页加载
     val whatsNewViewModel: WhatsNewViewModel = hiltViewModel()
@@ -106,7 +112,7 @@ fun V2MainScreen(
         // 页面顶部各自的 statusBarsPadding、BottomNav 内部 navigationBarsPadding 已处理 inset；
         // Scaffold 只负责下发 bottomBar 高度，避免双重 padding 或底部大块空白。
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = snackbarBottomClearance)) },
         bottomBar = {
             if (showBottomBar) {
                 V2BottomNavBar(

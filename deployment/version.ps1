@@ -9,5 +9,5 @@
   - $RequiredApiContract:   App 兼容性判断所需的 API Contract 下限。
   两者必须与 server/app/__init__.py 保持一致。
 #>
-$ExpectedServerVersion = "1.2.2"
+$ExpectedServerVersion = "1.3.0"
 $RequiredApiContract = 2

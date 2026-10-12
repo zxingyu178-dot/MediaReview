@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
  * Stage 8A.1 §4/§6/§8 —— 首页启动优先级。
  *
  * 用可记录调用顺序的仓库验证：
- * - **P0** 首屏媒体（`mediaPage`）必须先于文件夹（`folders`）发生；
+ * - **P0** 首屏媒体（`mediaPage`）必须先于分类树（`folderTree`）发生；
  * - 收藏（`favorites`）**不参与启动**，只有用户进入收藏页才加载；
  * - 文件夹补齐与首屏媒体在同一启动流程内发生（P1 后台并行）。
  *
@@ -39,10 +39,10 @@ class HomeStartupPriorityTest {
         val repo = RecordingRepository()
         val vm = testHomeViewModel(repo, StubHistory())
         waitUntil("首屏媒体请求") { repo.events.contains("mediaPage") }
-        waitUntil("文件夹补齐") { repo.events.contains("folders") }
+        waitUntil("文件夹补齐") { repo.events.contains("folderTree") }
 
         val mediaIndex = repo.events.indexOf("mediaPage")
-        val foldersIndex = repo.events.indexOf("folders")
+        val foldersIndex = repo.events.indexOf("folderTree")
         assertTrue(
             "首屏媒体必须先于文件夹，实际顺序=${repo.events}",
             mediaIndex >= 0 && foldersIndex >= 0 && mediaIndex < foldersIndex,
@@ -117,6 +117,11 @@ private class RecordingRepository : MediaRepository {
     )
 
     override val mode: V2DataMode = V2DataMode.DEMO
+
+    override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode> {
+        events += "folderTree"
+        return listOf(com.mediareview.app.feature.v2.model.V2FolderNode("f1", null, "lib", "文件夹", 0, 1, 1, 1))
+    }
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
         events += "mediaPage"

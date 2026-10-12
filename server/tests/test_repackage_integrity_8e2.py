@@ -2,12 +2,12 @@ import json
 import zipfile
 
 import pytest
-from test_release_package_integrity_8e import builder, prepared_builder  # noqa: F401, F811
+from test_release_package_integrity_8e import builder, configure_prepared_builder  # noqa: F401
 
 
 @pytest.fixture
-def old_rc(prepared_builder, monkeypatch):  # noqa: F811
-    b = prepared_builder
+def old_rc(builder, tmp_path, monkeypatch):  # noqa: F811
+    b = configure_prepared_builder(builder, tmp_path, monkeypatch, historical=True)
     evidence = json.loads(b.EVIDENCE.read_text())
     evidence["build_git_head"] = "d" * 40
     b.EVIDENCE.write_text(json.dumps(evidence))
@@ -41,7 +41,11 @@ def test_repackage_same_binaries_and_exact_zip(old_rc):
             "MediaReviewServer/_internal/runtime.dll",
         ]:
             assert z.read(output.stem + "/" + p) == (old / p).read_bytes()
-    assert len(list(b.OUT.glob("*stage8e.apk"))) == 1
+    assert len(list(b.OUT.glob(b.current_apk_name()))) == 1
+    assert m["server_version"] == b.VERIFIED_RC_SERVER_VERSION == "1.2.2"
+    assert m["android_version_name"] == b.VERIFIED_RC_ANDROID_VERSION == "2.0.0-alpha8"
+    assert m["android_version_code"] == b.VERIFIED_RC_ANDROID_CODE == 15
+    assert "Alpha8_Server-1.2.2" in output.name
 
 
 @pytest.mark.parametrize("change", ["manifest", "apk", "exe", "extra", "missing"])

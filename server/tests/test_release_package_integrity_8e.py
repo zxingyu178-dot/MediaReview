@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import zipfile
@@ -25,8 +26,7 @@ def builder():
     return module
 
 
-@pytest.fixture
-def prepared_builder(builder, tmp_path, monkeypatch):
+def configure_prepared_builder(builder, tmp_path, monkeypatch, *, historical=False):
     """只替代昂贵构建/二进制探针，保留真实 receipt、文件复制与 ZIP 门禁。"""
     for name, path in {
         "ROOT": tmp_path,
@@ -35,7 +35,7 @@ def prepared_builder(builder, tmp_path, monkeypatch):
         "DEPLOY": tmp_path / "deployment",
         "OUT": tmp_path / "deploy_handoff",
         "APK_DIR": tmp_path / "android/app/build/outputs/apk",
-        "EVIDENCE": tmp_path / "deploy_handoff/stage8e-build-evidence.json",
+        "EVIDENCE": tmp_path / "deploy_handoff/stage8h-build-evidence.json",
     }.items():
         monkeypatch.setattr(builder, name, path)
     source_paths = (
@@ -60,6 +60,54 @@ def prepared_builder(builder, tmp_path, monkeypatch):
         target.parent.mkdir(parents=True, exist_ok=True)
         original = ROOT / relative
         target.write_bytes(original.read_bytes() if original.is_file() else b"fixture")
+    if historical:
+        profile = {
+            "VERSION": builder.VERIFIED_RC_SERVER_VERSION,
+            "ANDROID_CODE": builder.VERIFIED_RC_ANDROID_CODE,
+            "ANDROID_VERSION": builder.VERIFIED_RC_ANDROID_VERSION,
+        }
+        for key, value in profile.items():
+            monkeypatch.setattr(builder, key, value)
+        monkeypatch.setattr(
+            builder,
+            "REQUIRED_CAPABILITIES",
+            tuple(cap for cap in builder.REQUIRED_CAPABILITIES if cap != "folder_tree_v1"),
+        )
+        declarations = {
+            "server/app/__init__.py": (
+                r'^__version__ = "[^"\n]+"',
+                f'__version__ = "{builder.VERSION}"',
+            ),
+            "server/pyproject.toml": (r'^version = "[^"\n]+"', f'version = "{builder.VERSION}"'),
+            "deployment/version.ps1": (
+                r'^\$ExpectedServerVersion = "[^"\n]+"',
+                f'$ExpectedServerVersion = "{builder.VERSION}"',
+            ),
+            "android/app/build.gradle.kts": (
+                r"versionCode = \d+",
+                f"versionCode = {builder.ANDROID_CODE}",
+            ),
+        }
+        for relative, (pattern, replacement) in declarations.items():
+            path = tmp_path / relative
+            original = path.read_text(encoding="utf-8")
+            changed, count = re.subn(
+                pattern,
+                lambda match, replacement=replacement: replacement,
+                original,
+                flags=re.MULTILINE,
+            )
+            assert count == 1
+            path.write_text(changed, encoding="utf-8")
+        gradle = tmp_path / "android/app/build.gradle.kts"
+        original = gradle.read_text(encoding="utf-8")
+        changed, count = re.subn(
+            r'versionName = "[^"\n]+"',
+            lambda match: f'versionName = "{builder.ANDROID_VERSION}"',
+            original,
+        )
+        assert count == 1
+        gradle.write_text(changed, encoding="utf-8")
     exe = builder.DIST / "MediaReviewServer.exe"
     exe.parent.mkdir(parents=True)
     exe.write_bytes(b"fresh-exe")
@@ -84,8 +132,8 @@ def prepared_builder(builder, tmp_path, monkeypatch):
         "verify_server_binary",
         lambda path: {
             "status": "ok",
-            "version": "1.2.2",
-            "api_contract": 2,
+            "version": builder.VERSION,
+            "api_contract": builder.API_CONTRACT,
             "capabilities": list(builder.REQUIRED_CAPABILITIES),
         },
     )
@@ -93,14 +141,19 @@ def prepared_builder(builder, tmp_path, monkeypatch):
         builder,
         "verify_apk",
         lambda path: {
-            "package": "com.mediareview.app",
-            "version_code": 15,
-            "version_name": "2.0.0-alpha8",
+            "package": builder.ANDROID_PACKAGE,
+            "version_code": builder.ANDROID_CODE,
+            "version_name": builder.ANDROID_VERSION,
             "signature": "PASS",
         },
     )
     builder.prepare()
     return builder
+
+
+@pytest.fixture
+def prepared_builder(builder, tmp_path, monkeypatch):
+    return configure_prepared_builder(builder, tmp_path, monkeypatch)
 
 
 class TestReleasePackageInputs8E1:
@@ -161,7 +214,7 @@ class TestReleasePackageInputs8E1:
 
         def tamper(source, target):
             result = copy(source, target)
-            if target.name == f"MediaReview_{builder.ANDROID_VERSION}_stage8e.apk":
+            if target.name == builder.current_apk_name():
                 exported.append(source)
                 target.write_bytes(b"REPLACED-EXPORTED-APK")
             return result
@@ -199,7 +252,7 @@ class TestReleasePackageInputs8E1:
 
         def tamper(source, target):
             result = copy(source, target)
-            if target.name == f"MediaReview_{builder.ANDROID_VERSION}_stage8e.apk":
+            if target.name == builder.current_apk_name():
                 archive_path = next(builder.OUT.glob("*.zip"))
                 prefix = archive_path.stem + "/"
                 with zipfile.ZipFile(archive_path) as archive:
@@ -249,7 +302,7 @@ class TestReleasePackageInputs8E1:
         with pytest.raises(ValueError, match="证据|输入"):
             builder.package_verified()
         assert not list(builder.OUT.glob("*.zip"))
-        assert not list(builder.OUT.glob("MediaReview_RC_*"))
+        assert not list(builder.OUT.glob(builder.current_package_name()))
 
     @pytest.mark.parametrize("mutation", ["legacy", "expired", "future"])
     def test_old_receipt_is_rejected(self, prepared_builder, mutation):
@@ -339,6 +392,8 @@ class TestReleasePackageInputs8E1:
         builder = prepared_builder
         receipt = json.loads(builder.EVIDENCE.read_text(encoding="utf-8"))
         archive_path = builder.package_verified()
+        assert archive_path.name == "MediaReview_Server_1.3.0_stage8h.zip"
+        assert builder.current_apk_name() == "MediaReview_2.0.0-alpha11_stage8h.apk"
         with zipfile.ZipFile(archive_path) as archive:
             prefix = archive_path.stem + "/"
             manifest = json.loads(archive.read(prefix + "RELEASE_MANIFEST.json"))
@@ -355,7 +410,7 @@ class TestReleasePackageInputs8E1:
             assert set(archive.namelist()) == copied | {
                 prefix + name for name in ("HANDOVER.md", "RELEASE_MANIFEST.json", "SHA256SUMS.txt")
             }
-            exported = builder.OUT / f"MediaReview_{builder.ANDROID_VERSION}_stage8e.apk"
+            exported = builder.OUT / builder.current_apk_name()
             assert builder.sha256(exported) == receipt["apk_sha256"]
             assert exported.read_bytes() == archive.read(prefix + "app-release.apk")
 
@@ -363,18 +418,37 @@ class TestReleasePackageInputs8E1:
         builder.verify_version_ssot()
 
     @pytest.mark.parametrize(
-        "relative,old,new",
+        "relative",
         [
-            ("server/app/__init__.py", '__version__ = "1.2.2"', '__version__ = "1.2.3"'),
-            ("deployment/version.ps1", "$RequiredApiContract = 2", "$RequiredApiContract = 1"),
-            ("server/pyproject.toml", 'version = "1.2.2"', 'version = "1.2.3"'),
-            ("android/app/build.gradle.kts", "versionCode = 15", "versionCode = 14"),
+            "server/app/__init__.py",
+            "deployment/version.ps1",
+            "server/pyproject.toml",
+            "android/app/build.gradle.kts",
         ],
     )
-    def test_version_ssot_drift_blocks_prepare(self, prepared_builder, relative, old, new):
+    def test_version_ssot_drift_blocks_prepare(self, prepared_builder, relative):
         builder = prepared_builder
+        old, new = {
+            "server/app/__init__.py": (
+                f'__version__ = "{builder.VERSION}"',
+                '__version__ = "0.0.0-drift"',
+            ),
+            "deployment/version.ps1": (
+                f"$RequiredApiContract = {builder.API_CONTRACT}",
+                "$RequiredApiContract = 0",
+            ),
+            "server/pyproject.toml": (f'version = "{builder.VERSION}"', 'version = "0.0.0-drift"'),
+            "android/app/build.gradle.kts": (
+                f"versionCode = {builder.ANDROID_CODE}",
+                "versionCode = 0",
+            ),
+        }[relative]
         path = builder.ROOT / relative
-        path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+        original = path.read_text(encoding="utf-8")
+        assert old in original
+        changed = original.replace(old, new)
+        assert changed != original
+        path.write_text(changed, encoding="utf-8")
         with pytest.raises(ValueError, match="版本|SSOT"):
             builder.prepare()
 
@@ -428,7 +502,9 @@ class TestReleasePackageIntegrity:
 
         def failed(command, **kwargs):
             assert not apk.exists()
-            assert "clean" in command and ":app:assembleRelease" in command
+            assert "clean" in command and command.count(":app:assembleRelease") == 1
+            assert "--offline" in command and "--max-workers=1" in command
+            assert "-Pkotlin.compiler.execution.strategy=in-process" in command
             raise subprocess.CalledProcessError(1, command)
 
         monkeypatch.setattr(builder.subprocess, "run", failed)
@@ -443,26 +519,29 @@ class TestReleasePackageIntegrity:
     def test_wrong_binary_health_blocks_packaging(self, builder, field, value):
         health = {
             "status": "ok",
-            "version": "1.2.2",
-            "api_contract": 2,
+            "version": builder.VERSION,
+            "api_contract": builder.API_CONTRACT,
             "capabilities": list(builder.REQUIRED_CAPABILITIES),
         }
         health[field] = value
         with pytest.raises(ValueError):
             builder.validate_binary_health(health)
 
-    @pytest.mark.parametrize(
-        "package,code,name",
-        [
-            ("com.mediareview.app", 14, "2.0.0-alpha7"),
-            ("com.other.app", 15, "2.0.0-alpha8"),
-            ("com.mediareview.app", 15, "1.2.2"),
-        ],
-    )
-    def test_wrong_apk_manifest_blocks_packaging(self, builder, package, code, name):
+    @pytest.mark.parametrize("field", ["package", "code", "name"])
+    def test_wrong_apk_manifest_blocks_packaging(self, builder, field):
+        values = {
+            "package": builder.ANDROID_PACKAGE,
+            "code": builder.ANDROID_CODE,
+            "name": builder.ANDROID_VERSION,
+        }
+        values[field] = {
+            "package": "com.other.app",
+            "code": builder.ANDROID_CODE - 1,
+            "name": "0.0.0-drift",
+        }[field]
         with pytest.raises(ValueError):
             builder.parse_apk_badging(
-                f"package: name='{package}' versionCode='{code}' versionName='{name}'"
+                f"package: name='{values['package']}' versionCode='{values['code']}' versionName='{values['name']}'"
             )
 
     def test_manifest_and_handover_use_verified_separate_versions(self, builder, tmp_path):
@@ -471,34 +550,34 @@ class TestReleasePackageIntegrity:
         apk.write_bytes(b"fresh-apk")
         evidence = {
             "server": {
-                "version": "1.2.2",
-                "api_contract": 2,
+                "version": builder.VERSION,
+                "api_contract": builder.API_CONTRACT,
                 "capabilities": list(builder.REQUIRED_CAPABILITIES),
             },
             "android": {
-                "package": "com.mediareview.app",
-                "version_code": 15,
-                "version_name": "2.0.0-alpha8",
+                "package": builder.ANDROID_PACKAGE,
+                "version_code": builder.ANDROID_CODE,
+                "version_name": builder.ANDROID_VERSION,
                 "signature": "PASS",
             },
         }
         manifest = builder.release_manifest(evidence, "a" * 40, exe, apk)
-        assert manifest["server_version"] == "1.2.2"
-        assert manifest["android_version_name"] == "2.0.0-alpha8"
-        assert manifest["android_version_code"] == 15
+        assert manifest["server_version"] == builder.VERSION
+        assert manifest["android_version_name"] == builder.ANDROID_VERSION
+        assert manifest["android_version_code"] == builder.ANDROID_CODE
         assert manifest["apk_sha256"] == builder.sha256(apk)
         handover = builder.render_handover(manifest)
-        assert "Android: 2.0.0-alpha8" in handover
-        assert "Android versionCode: 15" in handover
-        assert "Android: 1.2.2" not in handover
+        assert f"Android: {builder.ANDROID_VERSION}" in handover
+        assert f"Android versionCode: {builder.ANDROID_CODE}" in handover
+        assert f"Android: {builder.VERSION}" not in handover
 
     def test_unsigned_apk_fails_verification(self, builder, tmp_path, monkeypatch):
         def run(command, **kwargs):
             if "dump" in command:
                 return SimpleNamespace(
                     stdout=(
-                        "package: name='com.mediareview.app' versionCode='15' "
-                        "versionName='2.0.0-alpha8'"
+                        f"package: name='{builder.ANDROID_PACKAGE}' versionCode='{builder.ANDROID_CODE}' "
+                        f"versionName='{builder.ANDROID_VERSION}'"
                     )
                 )
             raise subprocess.CalledProcessError(1, command)

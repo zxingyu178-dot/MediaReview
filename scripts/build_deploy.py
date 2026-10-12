@@ -30,10 +30,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.2.2"
+VERSION = "1.3.0"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha8"
-ANDROID_CODE = 15
+ANDROID_VERSION = "2.0.0-alpha11"
+ANDROID_CODE = 18
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
@@ -42,6 +42,7 @@ REQUIRED_CAPABILITIES = (
     "delete_nonce",
     "duplicates_paged",
     "library_selection",
+    "folder_tree_v1",
 )
 ALL_SCRIPTS = (
     "install.ps1",
@@ -54,7 +55,15 @@ ALL_SCRIPTS = (
     "uninstall.ps1",
     "upgrade-aihome-managed.ps1",
 )
-EVIDENCE = OUT / "stage8e-build-evidence.json"
+EVIDENCE = OUT / "stage8h-build-evidence.json"
+
+
+def current_package_name() -> str:
+    return f"MediaReview_Server_{VERSION}_stage8h"
+
+
+def current_apk_name() -> str:
+    return f"MediaReview_{ANDROID_VERSION}_stage8h.apk"
 
 
 def sha256(path: Path) -> str:
@@ -102,6 +111,8 @@ def build_release_apk() -> Path:
             str(ROOT / "android/gradlew.bat"),
             "--no-daemon",
             "--offline",
+            "--max-workers=1",
+            "-Pkotlin.compiler.execution.strategy=in-process",
             "clean",
             ":app:assembleRelease",
         ],
@@ -175,7 +186,7 @@ def validate_binary_health(data: dict) -> dict:
 
 
 def verify_server_binary(exe: Path) -> dict:
-    scratch = ROOT / ".e2e_tmp/stage8e-binary"
+    scratch = ROOT / "temp/stage8h-player/binary"
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="probe-", dir=scratch) as temporary:
         data_root = Path(temporary)
@@ -230,7 +241,7 @@ def verify_server_binary(exe: Path) -> dict:
                 raise ValueError("Server EXE health 超时，PACKAGING BLOCKED")
             except Exception:
                 output.flush()
-                failure = ROOT / "review_meta/stage8e/binary-failure.txt"
+                failure = ROOT / "review_meta/stage8h/binary-failure.txt"
                 failure.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(data_root / "binary-output.txt", failure)
                 raise
@@ -520,10 +531,10 @@ def package_verified() -> Path:
     manifest["source_input_sha256"] = evidence["build_inputs"]
     manifest["build_input_sha256"] = evidence["build_inputs"]
     manifest["package_input_sha256"] = evidence["package_inputs"]
-    name = f"MediaReview_RC_{ANDROID_VERSION}_Server-{VERSION}_{dt.date.today():%Y%m%d}_{head[:7]}"
+    name = current_package_name()
     package = OUT / name
     zip_path = OUT / f"{name}.zip"
-    user_apk = OUT / f"MediaReview_{ANDROID_VERSION}_stage8e.apk"
+    user_apk = OUT / current_apk_name()
     checksum_path = OUT / f"{name}_SHA256.txt"
     outputs = (package, zip_path, user_apk, checksum_path)
     if any(path.exists() for path in outputs):
@@ -616,6 +627,10 @@ def package_verified() -> Path:
     return zip_path
 
 
+VERIFIED_RC_SERVER_VERSION = "1.2.2"
+VERIFIED_RC_ANDROID_VERSION = "2.0.0-alpha8"
+VERIFIED_RC_ANDROID_CODE = 15
+
 # 原 Stage8E 正式 RC inventory 是完整 dist 的信任锚，不能接受现场重算的自声明清单。
 VERIFIED_RC_INVENTORY_SHA256 = "a1e784495ce1756761cc202949e7fbcf6630edb8ad3d59ec4ace2942045eef3d"
 VERIFIED_RUNTIME_HEAD = "a080422b0d03ca64f48b77856b54776ca265a15b"
@@ -665,10 +680,10 @@ def verified_rc(source_rc: Path, manifest_path: Path) -> tuple[dict, dict[str, s
         raise ValueError("原 RC 完整文件集合或 SHA256 不匹配")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     required = {
-        "server_version": VERSION,
+        "server_version": VERIFIED_RC_SERVER_VERSION,
         "api_contract": API_CONTRACT,
-        "android_version_name": ANDROID_VERSION,
-        "android_version_code": ANDROID_CODE,
+        "android_version_name": VERIFIED_RC_ANDROID_VERSION,
+        "android_version_code": VERIFIED_RC_ANDROID_CODE,
         "android_package": ANDROID_PACKAGE,
         "apk_signature": "PASS",
         "git_head": VERIFIED_RUNTIME_HEAD,
@@ -780,7 +795,7 @@ def repackage_verified(source_rc: Path, manifest_path: Path, receipt: Path) -> P
         original_release_manifest_sha256=snapshot["source_files"]["RELEASE_MANIFEST.json"],
         repackaged_at=evidence["verified_at"],
     )
-    name = f"MediaReview_RC_Alpha8_Server-{VERSION}_{head[:7]}"
+    name = f"MediaReview_RC_Alpha8_Server-{VERIFIED_RC_SERVER_VERSION}_{head[:7]}"
     package, zip_path = OUT / name, OUT / f"{name}.zip"
     if package.exists() or zip_path.exists():
         raise ValueError("发布产物已存在，拒绝覆盖历史产物")

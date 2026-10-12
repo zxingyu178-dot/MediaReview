@@ -1,6 +1,7 @@
 package com.mediareview.app.feature.v2.player.native
 
 import android.app.Activity
+import com.mediareview.app.feature.v2.player.gsy.detachRetiredKernelErrorListener
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -409,6 +410,7 @@ fun GsyNativePlayerScreen(
             }
             if (ownsCurrent) {
                 // Retained host survives controller.detachHost; guard forbids releasing a successor's kernel.
+                detachRetiredKernelErrorListener(host, loadedEndpointUrl)
                 host!!.onVideoPause()
                 host.release()
                 if (manager!!.listener() === host) manager.setListener(null)
@@ -597,6 +599,7 @@ fun GsyNativePlayerScreen(
                         V2Perf.player()?.markOnce("first_frame", "first_frame")
                     }
                 }
+            detachRetiredKernelErrorListener(ownedHost, loadedEndpointUrl)
             pauseOwned()
             sourceStarted = false
             controller.setUp(option, false)

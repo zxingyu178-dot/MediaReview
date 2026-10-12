@@ -1,4 +1,19 @@
-# V1 任务清单
+# MediaReview 任务清单
+
+## Stage8H：播放器与首页重构（当前阶段）
+
+- [x] Task1：Server文件夹树、认证、路径隐藏及统计，已提交。
+- [x] Task2：首页单双列、顶部收起、分类目录与面包屑，已提交。
+- [x] Task3：有界相册/浏览缓存、Coil封面及Android Sprite移除，已提交。
+- [x] Task4：Full控制与共享手势/音轨/源归属，0bb8772。
+- [x] Task5：Review共享进度/倍速与生命周期，763800b。
+- [x] 最终Server577/Ruff115、JVM444/69 suites、设备141及lint0错误，独立审查C0/I0/M0。
+- [ ] Task6提交与唯一正式Alpha11 APK、Server1.3.0隔离核验及ZIP。
+- [ ] 最终Git push/clean、十文档Handoff与完整SHA校验。
+- [ ] 真实手机与家庭LAN：用户按docs/STAGE8H_USER_VALIDATION.md的15步路线后续验收。
+
+完整设备141项0failure/error/skipped；JVM444项0failure/error/skipped；lint0错误/42警告/15信息。两次中断和所有失败修复证据保留。正式产物尚未核验，尚未声明CODE_READY；生产升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT，本阶段不部署生产或清手机数据。
+以下保留历史阶段记录。
 
 ## MediaReview(1.1.0-rc1 Task G: 全量验收与正式发布)
 

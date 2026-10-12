@@ -165,6 +165,12 @@ class Stage8FAppSmokeTest {
         compose.onNodeWithText("预览生成失败").assertDoesNotExist()
         record("STATIC_HOME_COVER longpress spriteEnsureManifestTaskFileHTTP=0")
         screenshot("03-static-cover-longpress-no-sprite")
+        // 静态卡片只注册普通点击：长按松手可进入播放器，后续首页操作先真实返回。
+        if (compose.onAllNodesWithTag("player_gesture_surface").fetchSemanticsNodes().isNotEmpty()) {
+            back()
+            waitTag("home_grid")
+        }
+        compose.onNodeWithTag("home_grid").assertIsDisplayed()
     }
 
     @Test fun actualHomeStaticCoverLongPressHasZeroSpriteHttp() {
@@ -209,9 +215,15 @@ class Stage8FAppSmokeTest {
         screenshot("08-album-51-pixels")
         // 外层连接成功 Snackbar 会覆盖底部按钮；等真实提示消失后再注入触摸。
         compose.waitUntilDoesNotExist(hasText("已连接服务器"), 15_000)
+        // 文本语义消失不能单独证明 Snackbar 的退出动画/触摸遮挡已结束。
+        compose.mainClock.advanceTimeBy(500)
+        compose.waitForIdle()
+        screenshot("08-delete-touch-precondition")
+        File(evidence, "08-delete-touch-precondition-semantics.txt").writeText(compose.onRoot(useUnmergedTree = true).printToString())
         record("before delete queueHits=${http.hits.filter { it.path.startsWith("/api/v1/delete-queue") }}")
-        compose.onNodeWithTag("viewer_delete").assertIsEnabled()
+        compose.onNodeWithTag("viewer_delete").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag("viewer_delete").performClick()
+        compose.waitUntil(5000) { http.hits.any { it.path == "/api/v1/delete-queue/p51" && it.method == "POST" && it.authenticated } }
         waitText("撤销待删除")
         compose.waitUntil(5000) { "p51" in http.pending }
         back(); back()

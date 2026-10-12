@@ -129,11 +129,22 @@ class Stage8GAppSmokeTest {
         compose.onNodeWithTag("search_grid").performScrollToIndex(70)
         val searchTop = compose.onNodeWithText(http.name("v71")).fetchSemanticsNode().boundsInRoot.top
         val searchCount = searches(http).size
+        assertEquals(homeCount, homeRequests(http)) // 搜索窗口独立，打开播放器前不刷新首页。
         compose.onNodeWithText(http.name("v71")).performClick()
         compose.waitUntilExactlyOneExists(hasTestTag("player_btn_next"), 15_000)
         compose.onNodeWithTag("player_btn_next").assertIsEnabled()
         screenshot("02-search-player")
         back()
+        val revalidatedHomeCount = homeCount + 2
+        compose.waitUntil(15_000) {
+            var idle = false
+            scenario!!.onActivity { idle = !ViewModelProvider(it)[V2HomeViewModel::class.java].listLoading.value }
+            idle && homeRequests(http) >= revalidatedHomeCount
+        }
+        assertEquals(revalidatedHomeCount, homeRequests(http))
+        assertEquals(listOf(1, 2), http.hits.filter {
+            it.path == "/api/v1/media" && it.search.isNullOrBlank() && it.pageSize == 50
+        }.drop(homeCount).map { it.page })
         compose.onNodeWithTag("search_grid").assertExists()
         compose.onNodeWithText(http.name("v71")).assertIsDisplayed()
         assertEquals(searchTop, compose.onNodeWithText(http.name("v71")).fetchSemanticsNode().boundsInRoot.top, 1f)
@@ -142,13 +153,13 @@ class Stage8GAppSmokeTest {
         compose.onNodeWithContentDescription("关闭搜索").performClick()
         compose.onNodeWithText(http.name("v21")).assertIsDisplayed()
         assertEquals(homeTop, compose.onNodeWithText(http.name("v21")).fetchSemanticsNode().boundsInRoot.top, 1f)
-        assertEquals(homeCount, homeRequests(http))
+        assertEquals(revalidatedHomeCount, homeRequests(http))
         screenshot("03-home-restored")
         click("搜索媒体…")
         compose.onNodeWithText("最近搜索").assertIsDisplayed()
         compose.onNodeWithTag("search_grid").assertDoesNotExist()
         compose.onNodeWithTag("home_grid").assertDoesNotExist()
-        assertEquals(homeCount, homeRequests(http))
+        assertEquals(revalidatedHomeCount, homeRequests(http))
         screenshot("04-only-history")
     }
 
@@ -158,13 +169,14 @@ class Stage8GAppSmokeTest {
         waitText(http.name("v302"))
         compose.onNodeWithText(http.name("v302")).performClick()
         compose.waitUntilExactlyOneExists(hasTestTag("player_btn_previous"), 15_000)
-        compose.onNodeWithTag("player_btn_previous").assertIsEnabled().performClick()
+        clickPlayerControl("player_btn_previous")
         waitText(http.name("v301"))
+        assertTrue(http.hits.any { it.path == "/api/v1/media/v301/playback" && it.authenticated })
         compose.waitUntilExactlyOneExists(hasTestTag("player_btn_next"), 15_000)
         compose.onNodeWithTag("player_btn_previous").assertIsNotEnabled()
-        compose.onNodeWithTag("player_btn_next").assertIsEnabled().performClick(); waitText(http.name("v302"))
+        clickPlayerControl("player_btn_next"); waitText(http.name("v302"))
         compose.waitUntilExactlyOneExists(hasTestTag("player_btn_next"), 15_000)
-        compose.onNodeWithTag("player_btn_next").assertIsEnabled().performClick(); waitText(http.name("v303"))
+        clickPlayerControl("player_btn_next"); waitText(http.name("v303"))
         compose.waitUntilExactlyOneExists(hasTestTag("player_btn_next"), 15_000)
         compose.onNodeWithTag("player_btn_next").assertIsNotEnabled()
         screenshot("05-favorite-video-C")
@@ -225,6 +237,16 @@ class Stage8GAppSmokeTest {
         waitText(http.name("p302"))
         back()
         compose.onNodeWithText(http.name("p302")).assertDoesNotExist()
+    }
+    /** 自动隐藏是正式行为：先以真实画面单击唤回控制层，再触摸可见按钮。 */
+    private fun clickPlayerControl(tag: String) {
+        if (compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isEmpty()) {
+            compose.onNodeWithTag("player_gesture_surface").performTouchInput { click(center) }
+        }
+        compose.waitUntilExactlyOneExists(hasTestTag(tag), 15_000)
+        screenshot("$tag-touch-precondition")
+        File(evidence, "$tag-touch-precondition-semantics.txt").writeText(compose.onRoot(useUnmergedTree = true).printToString())
+        compose.onNodeWithTag(tag).assertIsDisplayed().assertIsEnabled().performTouchInput { click(center) }
     }
     private fun click(text: String) { waitText(text); compose.onNodeWithText(text).performClick() }
     private fun waitText(text: String) = compose.waitUntilAtLeastOneExists(hasText(text), 15_000)

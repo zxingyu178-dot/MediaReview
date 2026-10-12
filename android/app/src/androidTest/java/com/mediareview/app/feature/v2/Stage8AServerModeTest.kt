@@ -188,8 +188,11 @@ class Stage8AServerModeTest {
         assertTrue(vm.hasMore.value)
 
         // 文件夹来自服务端聚合（含图片数），App 不做 N+1
-        assertEquals(30, vm.folderCount("f_photos"))
-        assertEquals(30, vm.folderCount("f_videos"))
+        awaitOrFail(30_000, "分类树应加载完成") { vm.folderTree.value.isNotEmpty() }
+        compose.runOnUiThread {
+            assertEquals(30, vm.folderCount("f_photos"))
+            assertEquals(30, vm.folderCount("f_videos"))
+        }
 
         vm.loadNextPage()
         awaitOrFail(30_000, "第二页应加载完成") { vm.currentList.value.size == 60 }

@@ -1,46 +1,28 @@
-# Alpha8 安装与电脑端升级
+# Alpha11 离线交付与安装边界
 
-候选版本：Android code15 / 2.0.0-alpha8；Server 1.2.2 / Contract2。
-状态 READY_FOR_USER_VALIDATION，不代表用户手机或生产环境已经验收。
+当前发布目标：Android code18 / `2.0.0-alpha11`；Server `1.3.0` / API Contract `2`。
 
-## 安装前
+本次只交付离线产物，不部署生产服务器、不安装用户手机、不清手机数据，不操作 SCM 或 ControlHub 生命周期。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`。保留当前运行环境，等待官方入口具备条件后再安排安装与升级。
 
-检查 RELEASE_MANIFEST.json、APK签名验证记录与 SHA256SUMS.txt。备份旧APK/版本信息，
-使用单独的 MediaReview_2.0.0-alpha8_stage8e.apk 原位安装；保留App数据。
-首次安装显示Alpha8；从旧版本升级只显示一个Sheet，合并所有未读版本的更新说明。
+## 收到产物后
 
-电脑端必须显式设置 jellyfin.client_url，不能依赖请求主机回退。
-jellyfin.url 用于电脑访问Jellyfin；client_url用于手机直连，保留代理base path。
-不要填写127.0.0.1、WSL/VPN地址或凭据，不向公网开放8766/8096。
-本机只读网络证据：WLAN是唯一在线物理接口且有默认网关；候选地址
-http://192.168.31.107:8096。该地址可能随DHCP变化，用户手机尚未验证，安装时重新核对。
-只读检查显示现有client_url已经是该地址，本阶段没有修改生产配置。
+- Android：`MediaReview_2.0.0-alpha11_stage8h.apk`。
+- Server：`MediaReview_Server_1.3.0_stage8h.zip`。
+- 对照 `RELEASE_MANIFEST.json`、签名验证记录及 SHA256 清单核对文件；交接中有证据才认定产物已生成。
+- 全部自动化、签名、实际二进制隔离核验及产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`。这些状态不表示已安装、生产已升级或真实家庭 LAN 已通过。
 
-## 当前电脑：既有 ControlHub Windows 服务
+目标 Server 的 health 必须为 `status=ok`、`version=1.3.0`、`api_contract=2`，并包含七项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`。
 
-当前服务身份为 AIHome.MediaReview，不要运行会建立平行任务的安装流程。
-RC安装脚本发现该服务时会在写文件前停止。升级只沿用已有服务身份：
+后续获准安装时保留 App 数据。首次安装只显示 Alpha11；17→18 只显示 Alpha11；16→18 在一个 Sheet 聚合 Alpha10/11。关闭保存18，重启不再自动弹出，设置页「本次更新」只显示当前版本。
 
-1. 读取 PRE_DEPLOYMENT_REPORT，确认实际安装目录、数据根、旧版本与Jellyfin可达性。
-2. 通过ControlHub停止此服务，确认其所属进程退出、8766释放；不按端口批量杀进程。
-3. 备份完整 config/、database/（停止后含WAL/SHM）、旧Server目录、WinSW XML/EXE与服务定义。
-   备份保留在用户本机安全位置；生成backup_manifest.json，记录时间、旧版本、文件SHA256。
-   配置含凭据，备份不得进Git、交接ZIP或邮件。
-4. 将RC的MediaReviewServer目录复制到同盘staging；保留旧目录作为回滚，不覆盖旧备份。
-   校验SHA256后替换已有服务指向的同一Server目录；不新建任务或服务。
-5. 在现有安全配置中设置确认过的client_url；保留原api_key、user_id与其他设置。
-6. 通过ControlHub启动原服务。health必须是status=ok、1.2.2、Contract2、六项capabilities完整。
-7. 配对后readiness必须Jellyfin可达、设备Key有效、Direct Range可读、client_url权威。
-   不满足即升级失败，按UPGRADE_ROLLBACK.md恢复旧二进制及数据。
+## 后续升级前提
 
-以上操作需要本机服务管理权限。本次未执行生产覆盖或备份；启动Jellyfin既有服务的尝试失败，
-不能把候选地址或电脑端验证写成手机可达。
+沿用既有 `AIHome.MediaReview` 身份，不创建平行服务或计划任务，不直接调用 SCM/Helper。官方升级桥开放且获得相应授权后，先确认完整安全备份、来源完整性与官方事务控制；回滚边界见 `UPGRADE_ROLLBACK.md`。
 
-## 其他电脑：全新安装或既有计划任务
+`jellyfin.url` 用于电脑端访问；`jellyfin.client_url` 用于手机直连，必须在后续部署时确认实际家庭网络地址，保留代理路径前缀。不要复用历史电脑 IP，不记录凭据；电脑健康不能证明手机可播。本次不修改配置或防火墙。
 
-先确认不存在同名运行对象。管理员运行包内scripts/install.ps1，保持其唯一生命周期目标。
-既有计划任务安装按原事务式备份/升级/回滚流程执行，不触及用户媒体。
-在AIHome纳管时须按当前ControlHub官方接入流程登记，未审批不能声称已接入。
-编辑配置后再验证health、readiness及手机直连。不要在Jellyfin未启动或地址未确认时宣称升级完成。
+用户体验验收仅使用 [15步路线](USER_LAN_VALIDATION.md)，前提是官方升级入口和后续安装条件已具备。该文件随服务器包一起交付，与项目 Stage8H 验收路线一致。
 
-回家后按 USER_LAN_VALIDATION.md 验收；先做安全播放测试，禁止永久删除真实媒体。
+## 历史记录
+
+Stage8E Alpha8：Android code15 / `2.0.0-alpha8`，Server `1.2.2` / Contract2 / 六项能力。其旧安装与服务操作说明属于历史，不构成本次部署授权。Stage8E.1/8E.2验证了隔离升级事务与可信来源门禁；正式生产桥仍因外部 ControlHub 合同阻塞。

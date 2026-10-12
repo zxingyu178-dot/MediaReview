@@ -126,6 +126,20 @@ object ReleaseNotesCatalog {
                 "清理无效页面路径并提升浏览稳定性",
             ),
         ),
+        ReleaseNote(
+            versionCode = 18,
+            versionName = "2.0.0-alpha11",
+            title = "MediaReview 2.0 Alpha 11",
+            highlights = listOf(
+                "首页支持按媒体库与文件夹逐级浏览",
+                "首页支持单列、双列切换并保留浏览位置",
+                "相册和分类再次打开时优先显示缓存内容",
+                "封面按需加载，首页不再长按生成雪碧图预览",
+                "全屏播放器支持拖动进度与双击快进快退",
+                "长按临时二倍速，上滑可锁定并恢复原倍速",
+                "批阅播放器统一进度与倍速手势，区分横向操作和纵向翻页",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

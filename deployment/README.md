@@ -1,86 +1,29 @@
-# MediaReview Server 部署包
+# MediaReview Server 1.3.0 离线发布
 
-本目录由 `scripts/build_deploy.py` 生成 `deploy_handoff/MediaReviewServer-<version>_deploy_*.zip`。
+当前目标：Android code18 / `2.0.0-alpha11`；Server `1.3.0` / API Contract `2`。
 
-## 包内结构
+本阶段仅准备与核验官方离线产物：`MediaReview_2.0.0-alpha11_stage8h.apk`、`MediaReview_Server_1.3.0_stage8h.zip`。不得执行生产部署、用户手机安装、SCM操作或ControlHub生命周期操作；不得修改真实Jellyfin或用户媒体。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`，该阻塞不禁止获授权的离线构建。
 
-```
-MediaReviewServer-<version>/
-├── server/
-│   └── MediaReviewServer/     # PyInstaller 打包的 Server(Mediaserver.exe + _internal)
-├── ffmpeg/                    # FFmpeg(可选,由 third_party/ffmpeg 提供)
-├── scripts/
-│   ├── install.ps1            # 一键安装(管理员)
-│   ├── repair.ps1             # 修复/重建服务(不删数据)
-│   ├── uninstall.ps1          # 卸载(默认保留数据,-DeleteData 才删)
-│   └── diagnose.ps1           # 导出诊断 ZIP
-├── config.example.json        # 配置模板
-├── HANDOVER.md                # 交接说明
-└── README.md                  # 本文档
-```
+## 既有发布入口
 
-## 使用
+沿用 `scripts/build_deploy.py` 的 `--prepare-only` / `--package-verified` 两步入口。按Stage8H规格统一安排最终构建，APK只生成一次，不为文档更新重复构建。构建前后源/产物哈希、Git状态、实际Server二进制隔离health、APK版本与签名、完整文件集合及证据有效期均须通过原门禁；源码或产物变化需重新核验，禁止旧产物或Debug回退。
 
-1. 解压到目标电脑(局域网内,装有 Jellyfin 的机器)。
-2. 管理员运行 `scripts/install.ps1`。
-3. 若需要修改端口/数据目录:`.\scripts\install.ps1 -Port 9000 -DataRoot D:\MediaReviewData`。
-4. 手机安装 APK,自动发现并配对。
+Server实际health应为 `status=ok`、`version=1.3.0`、`api_contract=2`，包含七项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`。`folder_tree_v1`为本阶段新增。
 
-## 手机播放地址与局域网检查
+完整自动化、签名、隔离二进制与产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`；不等于 `REAL_LAN_PASS` / `PRODUCTION_READY`。
 
-- `jellyfin.url` 是电脑端 Server 访问 Jellyfin 的地址，例如 `http://127.0.0.1:8096`。
-- `jellyfin.client_url` 是手机直连 Jellyfin 的地址，例如 `http://192.168.1.20:8096`；部署时替换为实际 LAN 地址，保留反向代理的路径前缀。
-- `client_url` 留空时，Server 使用本次手机请求的 host，搭配 `url` 的协议、端口与路径推导地址（`request_host_fallback`，非权威地址）。经过代理时建议显式配置 `client_url`。
-- `client_host_allowlist` 默认为空，仅为已确认手机可访问的内部主机名提供明确例外；不要用它允许 localhost。
-- 手机设置 → 数据源 → 我的服务器 → **检查手机播放链路** 可查看最终 Jellyfin host/port、地址来源、电脑端与手机端 Range 结果。诊断不展示 Token。
+## 升级边界
 
-部署前分别检查 MediaReview TCP 8766 与 `client_url` 对应 Jellyfin 端口。电脑监听正常不能证明手机可访问；必须从手机所在 Wi-Fi 做检测。HTTP 401/403 表示认证拒绝，404 表示播放资源不存在，5xx 表示 Jellyfin 错误；无法连接需检查 LAN 地址、Wi-Fi 隔离与防火墙规则。本阶段不自动修改防火墙或 Jellyfin 配置，也不覆盖生产部署。
+`scripts/upgrade-aihome-managed.ps1` 的正式执行仍封锁。现有 `AIHome.MediaReview` 身份不得改为平行计划任务；不能以底层Helper/SCM代替官方协调器的同实例IPC、事务lease、批准绑定与关联审计。隔离fixture通过仅证明对应事务测试，不证明真实生产升级或数据库恢复。
 
-例如（非真实设备配置）：
+后续网络配置应使用当时确认的地址：`jellyfin.url`给电脑端，`jellyfin.client_url`给手机直连，保留代理路径。手机视频直连Jellyfin，Server不中转完整视频流。本次不更改配置或防火墙。
 
-```json
-{"jellyfin":{"url":"http://127.0.0.1:8096","client_url":"http://192.168.1.20:8096","client_host_allowlist":[],"api_key":"__SET_DURING_SETUP__"}}
-```
+安装边界、回滚记录和唯一15步路线分别见 `USER_INSTALL_GUIDE.md`、`UPGRADE_ROLLBACK.md`、`USER_LAN_VALIDATION.md`。这三份文件均位于交付包根目录；在源码仓库中位于本目录的上一级。
 
-手机视频始终直接访问 Jellyfin，MediaReview Server 不中转视频。
+## 历史记录
 
-## 构建命令
+- Stage8E：Alpha8 code15 / Server1.2.2 / Contract2六项能力；保留旧RC历史，不当作当前产物。
+- Stage8E.1：隔离假二进制/数据库验证备份、切换与失败恢复，生产执行拒绝。
+- Stage8E.2：来源manifest、完整checksum与实际EXE门禁，以及历史可信RC的两步重打包。历史repackage复用旧APK/Server字节，不是Alpha11/1.3.0新构建入口；当前生产桥仍外部合同阻塞。
 
-Stage 8E RC：构建器无条件清理指定的可再生目录、PyInstaller --clean、Gradle clean assembleRelease。
-实际EXE隔离health和APK版本/签名验证后才记录本轮证据。默认不允许旧EXE、旧APK或Debug回退。
-可先用 `--prepare-only` 构建验证，提交最终文档后用 `--package-verified` 重验同一轮源码/产物哈希与签名。
-该入口要求Git clean，构建证据超过6小时或源码/产物发生变化即拒绝打包。
-RC目录采用MediaReviewServer/，安装器兼容历史server/MediaReviewServer/目录。
-发现既有AIHome.MediaReview服务时禁止创建平行任务，按USER_INSTALL_GUIDE.md执行受控升级。
-
-开发机执行:
-
-```bash
-python scripts/build_deploy.py
-```
-
-- 自动调用 PyInstaller 构建 Server EXE。
-- 若存在 `third_party/ffmpeg/ffmpeg.exe`(与 ffprobe.exe)会一并打包;
-  否则部署时由 `install.ps1` 检测系统 PATH 中的 ffmpeg,缺失会告警(雪碧图不可用)。
-# Stage 8E.1：既有纳管服务升级边界
-
-`scripts/upgrade-aihome-managed.ps1` 默认只读，可使用 `-WhatIf` 查看当前版本、目录、服务状态及拟议备份/回滚路径。它不创建第二个服务或计划任务，固定沿用既有 `AIHome.MediaReview` 身份。
-
-本阶段只验证隔离 fixture 中的备份、切换及失败恢复事务；**生产 `-Execute` 当前会拒绝执行**。ControlHub 现有底层 helper 不能代替官方 coordinator 的共享互斥、批准绑定和审计。正式生产适配器等待官方入口支持，当前不得将此脚本用于实际升级，也不得把 fixture 通过当成生产升级完成。
-
-隔离回归入口：`deployment/tests/test_managed_upgrade.ps1`。既有 Alpha8 APK/Server 1.2.2 RC 继续保留，本阶段不重新构建用户产物。
-
-## Stage 8E.2：可信来源与重打包
-
-升级预览及执行首先校验来源 RC 的 manifest、完整 SHA256 文件集合、实际 EXE、版本和 Contract。缺失、篡改、额外文件、大小写不一致和 reparse 路径会在生命周期操作前拒绝。预览中的计划摘要仅为本地身份，不能作为官方批准。
-
-正式桥接当前为 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；官方同实例 IPC、升级全过程事务 lease、UpgradePlan 执行绑定和计划审计关联尚未取得。生产 Execute 继续封锁，本阶段未实际生成新 RC。
-
-待官方桥接闭合后，可在最终提交且 Git clean 时使用既有发布工具的两步重打包入口（SOURCE_RC 为占位）：
-
-```text
-python scripts/build_deploy.py --prepare-repackage --source-rc SOURCE_RC --source-manifest SOURCE_RC/RELEASE_MANIFEST.json --repackage-receipt deploy_handoff/stage8e2_receipt.json
-python scripts/build_deploy.py --repackage-verified --source-rc SOURCE_RC --source-manifest SOURCE_RC/RELEASE_MANIFEST.json --repackage-receipt deploy_handoff/stage8e2_receipt.json
-```
-
-receipt 只能是部署输出根内新的平面 JSON 文件，独占创建，已有文件、嵌套路径、来源内路径及链接均拒绝；不能覆盖原 manifest 或 APK。有效期6小时，来源、工具输入或最终 HEAD 变化均须重新验证。只复用固定可信原 RC 的 APK 和整个 Server dist，不 clean build、不重签、不输出新独立 APK。manifest 分别保留真实 runtime build/release 与 package Git HEAD。
+历史部署包中的install/repair/uninstall脚本说明不构成本次运行授权。本阶段不创建基础设施。

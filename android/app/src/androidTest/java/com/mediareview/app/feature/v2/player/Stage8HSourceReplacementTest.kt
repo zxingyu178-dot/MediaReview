@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toPixelMap
+import android.util.Log
+import androidx.media3.common.PlaybackException
 import androidx.compose.ui.test.*
 import org.junit.rules.TestName
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -19,6 +21,7 @@ import com.mediareview.app.feature.v2.player.native.tracks.*
 import tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer
 import org.junit.*
 import org.junit.runner.RunWith
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** 同ID/已attach宿主切换真实HTTP地址或MP4→HLS后，直接读取内核持续前进。 */
 @RunWith(AndroidJUnit4::class)
@@ -27,7 +30,7 @@ class Stage8HSourceReplacementTest {
     @get:Rule val compose = createAndroidComposeRule<HiltTestActivity>()
     private lateinit var fixture: Stage8HTrackSourceFixture
     private var state by mutableStateOf(V2PlayerState())
-    private val errors = mutableListOf<String>()
+    private val errors = CopyOnWriteArrayList<String>()
 
     @Before fun setup() {
         val posterIdentityCase = testName.methodName == "sameMediaSameStageNewUrlRestoresActualPosterUntilNewPlaybackAdvances"
@@ -37,13 +40,17 @@ class Stage8HSourceReplacementTest {
             V2PlaybackUiState.Ready(source, V2PlaybackStage.DIRECT, source.direct))
         compose.setContent {
             MediaReviewTheme {
-                GsyNativePlayerScreen(state, {}, { errors += it }, {}, { _, _ -> }, {})
+                GsyNativePlayerScreen(state, {}, {
+                    errors += it
+                    Log.d("MRSourceTest", "failure mediaId=$it kernelType=${GSYVideoManager.instance().player?.mediaPlayer?.javaClass?.simpleName}")
+                }, {}, { _, _ -> }, {})
             }
         }
         if (!posterIdentityCase) moving()
     }
 
     @After fun cleanup() {
+        Log.d("MRSourceTest", "cleanup begin test=${testName.methodName} errors=${errors.size}")
         compose.runOnUiThread { GSYVideoManager.releaseAllVideos() }
         fixture.close()
     }
@@ -123,6 +130,7 @@ class Stage8HSourceReplacementTest {
         compose.onNodeWithContentDescription("视频封面").assertIsDisplayed()
         Assert.assertTrue("新源阻塞准备时必须恢复真实绿色封面: $posterPixelDiagnostic", greenPosterVisible())
         compose.runOnUiThread {
+            Log.d("MRSourceTest", "replacementBeforeAssert kernelType=${GSYVideoManager.instance().player?.mediaPlayer?.javaClass?.simpleName} oldPlaying=${oldKernel.isPlaying} oldSourceReleased=${oldKernel.dataSource == null} errors=${errors.size}")
             val newKernel = GSYVideoManager.instance().player!!.mediaPlayer as IjkExo2MediaPlayer
             Assert.assertNotSame(oldKernel, newKernel)
             Assert.assertFalse("旧源必须已停止", oldKernel.isPlaying)
@@ -151,6 +159,38 @@ class Stage8HSourceReplacementTest {
         compose.waitUntil(20_000) { fixture.hits.any { it.path == "/replacement.mp4" && it.authenticated } }
         moving()
         assertOldTrackSelectionRejected(previous)
+        Assert.assertTrue(fixture.hits.all { it.authenticated })
+    }
+
+    /** 重放实际观测的释放超时回调；前后仍使用认证HTTP和真实Exo内核。 */
+    @Test fun retiredKernelErrorCannotStopReplacementButCurrentErrorStillReachesApp() {
+        lateinit var retired: IjkExo2MediaPlayer
+        compose.runOnUiThread { retired = GSYVideoManager.instance().player!!.mediaPlayer as IjkExo2MediaPlayer }
+        compose.runOnIdle {
+            val ready = state.ui as V2PlaybackUiState.Ready
+            val source = ready.source.copy(direct = fixture.replacementEndpoint)
+            state = state.copy(ui = V2PlaybackUiState.Ready(source, V2PlaybackStage.DIRECT, source.direct))
+        }
+        moving()
+        lateinit var current: IjkExo2MediaPlayer
+        compose.runOnUiThread {
+            current = GSYVideoManager.instance().player!!.mediaPlayer as IjkExo2MediaPlayer
+            Assert.assertNotSame(retired, current)
+            Assert.assertNull(retired.dataSource)
+            retired.onPlayerError(PlaybackException("合成旧内核释放超时", null, PlaybackException.ERROR_CODE_TIMEOUT))
+        }
+        val before = position()
+        compose.waitUntil(5_000) { position() > before + 500 || errors.isNotEmpty() }
+        compose.runOnUiThread {
+            Assert.assertTrue("旧内核错误不能投递到新源: $errors", errors.isEmpty())
+            Assert.assertSame(current, GSYVideoManager.instance().player?.mediaPlayer)
+            Assert.assertTrue(current.isPlaying)
+            Assert.assertEquals(fixture.replacementEndpoint.url, current.dataSource)
+            current.onPlayerError(PlaybackException("合成当前内核播放错误", null, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED))
+        }
+        compose.waitUntil(5_000) { errors.isNotEmpty() }
+        Assert.assertEquals(listOf("same"), errors)
+        Assert.assertTrue(fixture.hits.any { it.path == "/replacement.mp4" && it.authenticated })
         Assert.assertTrue(fixture.hits.all { it.authenticated })
     }
 

@@ -51,27 +51,27 @@
 
 **Files:** player/native/state新增SpeedGestureState、DoubleTapSeekState、GestureDirectionLock、SeekEngine；ui/PlayerSeekBar（Canvas，32dp hit/4dp轨道）；GsyNativePlayerScreen/BottomBar/CenterControls/Sheets/Indicators；player VM endpoint预解析。
 **Interfaces:** speed Normal/Temp2x(previous)/Locked2x(previous)，350ms长按、48dp上滑锁、Release/Unlock/FormalSpeedChanged；同pointer锁速度排斥seek/brightness/volume。seek down捕获播放状态/暂停，move仅preview、up只一次seek并恢复。
-- [ ] RED速度1.0/1.5恢复、锁/解除/haptic一次、seek映射0/25/50/100clamp、方向比例1.2与长按独占。
-- [ ] 控制顶部返回/标题/更多、底时间+seek、prev/speed/scale/lock/next/fullscreen；播放无中央按钮/暂停单play，完成replay/next不自动。Full tap显隐、3秒播放隐藏/暂停与sheet及gesture例外。
-- [ ] body双击左右10s累计500–800ms边缘提示、横滑seek提示进度附近、上下亮度音量边缘提示。手动横屏/回竖屏、lock仅unlock、resume15秒/暂停/退出上报、退出无声音。
-- [ ] 仅rememberGSYPlayerController(url=null,autoPlay=false)由MediaReview统一headers+setUp播放源；poster保留到首帧，300ms后轻loading；稳定后仅endpoint预解析下一条，不启动第二Player。
-- [ ] 目标真实>=30秒Demo/HTTP视频播放position前进、pointer drag20→70读真实currentPosition、double±10、longpress恢复/锁/解除。审查轨道公共API，支持才实现，否则删所有占位用户入口，Known Issues记录。
-- [ ] 审查与commit `refactor(android): rebuild full player controls and gestures`。
+- [x] RED速度1.0/1.5恢复、锁/解除/haptic一次、seek映射0/25/50/100clamp、方向比例1.2与长按独占。
+- [x] 控制顶部返回/标题/更多、底时间+seek、prev/speed/scale/lock/next/fullscreen；播放无中央按钮/暂停单play，完成replay/next不自动。Full tap显隐、3秒播放隐藏/暂停与sheet及gesture例外。
+- [x] body双击左右10s累计500–800ms边缘提示、横滑seek提示进度附近、上下亮度音量边缘提示。手动横屏/回竖屏、lock仅unlock、resume15秒/暂停/退出上报、退出无声音。
+- [x] 仅rememberGSYPlayerController(url=null,autoPlay=false)由MediaReview统一headers+setUp播放源；poster保留到首帧，300ms后轻loading；稳定后仅endpoint预解析下一条，不启动第二Player。
+- [x] 目标真实>=30秒Demo/HTTP视频播放position前进、pointer drag20→70读真实currentPosition、double±10、longpress恢复/锁/解除。审查轨道公共API，支持才实现，否则删所有占位用户入口，Known Issues记录。
+- [x] 审查与commit `refactor(android): rebuild full player controls and gestures`。
 
 ## Task 5 Review共享手势（29–36,75,80）
 
 **Files:** review真实播放surface/VerticalPager与更多、共享PlayerSeekBar/状态机/gesture engines，目标Review instrumentation。
-- [ ] RED方向锁水平>1.2倍垂直及垂直>1.2倍水平，确定后整个sequence不改变；LongPress专属。
-- [ ] Review tap播放暂停，播放中心无按钮/暂停play；常驻细进度2–3dp/32dp hit共享seek。更多正式倍速；全套double/longhold/upLock/unlock与Full同一引擎。
-- [ ] 旧视频停止/旧source拒绝/Poster到首帧/当前优先稳定播放，长按上滑不翻页；真实水平seek不翻页与垂直翻页不seek。
-- [ ] 目标instrumentation及审查，commit `feat(android): unify review seek and speed gestures`。
+- [x] RED方向锁水平>1.2倍垂直及垂直>1.2倍水平，确定后整个sequence不改变；LongPress专属。
+- [x] Review tap播放暂停，播放中心无按钮/暂停play；常驻细进度2–3dp/32dp hit共享seek。更多正式倍速；全套double/longhold/upLock/unlock与Full同一引擎。
+- [x] 旧视频停止/旧source拒绝/Poster到首帧/当前优先稳定播放，长按上滑不翻页；真实水平seek不翻页与垂直翻页不seek。
+- [x] 目标instrumentation及审查，commit `feat(android): unify review seek and speed gestures`。
 
 ## Task 6 最终门禁、产物与交接（91–103）
 
 **Files:** android build.gradle.kts、ReleaseNotesCatalog/相关测试、Server版本/发布工具、docs/DEV_LOG/TASKS/REVIEW_SUMMARY/Stage8H验收路线与Known Issues。
-- [ ] 版本18alpha11/Server1.3.0/Contract2/folder_tree_v1，七条真实中文notes与首次/未读聚合/关闭测试。
-- [ ] 1000媒体100文件夹四层100相册fixture；确认不全量下载媒体，Favorites无证据不优化。
-- [ ] 完整pytest与ruff，最终JVM/lint/connected统一执行，保留全部失败修复证据；全分支独立审查C0/I0。
+- [x] 版本18alpha11/Server1.3.0/Contract2/folder_tree_v1，七条真实中文notes与首次/未读聚合/关闭测试。
+- [x] 1000媒体100文件夹四层100相册fixture；确认不全量下载媒体，Favorites无证据不优化。
+- [x] 完整pytest与ruff，最终JVM/lint/connected统一执行，保留全部失败修复证据；全分支独立审查C0/I0。
 - [ ] 唯一assembleRelease并校验签名/版本/hash，MediaReview_2.0.0-alpha11_stage8h.apk；构建并隔离核验Server1.3.0后MediaReview_Server_1.3.0_stage8h.zip，不部署生产。
 - [ ] 最终commit `test(release): regression gates and alpha11` 并push，remote/clean/构建输入冻结hash一致。
 - [ ] 最终HEAD后生成MediaReview_Stage8H_Handoff_<date>_<sha>.zip：00_HANDOFF/01_ACCEPTANCE/02_TEST_REPORT/03_PLAYER_V2/04_REVIEW_GESTURES/05_FOLDER_TREE/06_HOME_GALLERY_LOADING/07_KNOWN_ISSUES/08_USER_VALIDATION/09_RELEASE_NOTES + logs/git/source/SHA256SUMS；无APK/私密/真实media，zip完整hash。用户仅一条10–15分钟15点路线。

@@ -1,5 +1,7 @@
 package com.mediareview.app.feature.v2.review
 
+import com.mediareview.app.feature.v2.player.gsy.detachRetiredKernelErrorListener
+
 
 import android.os.SystemClock
 import androidx.compose.animation.core.animateFloatAsState
@@ -501,6 +503,7 @@ private fun ReviewPagerContent(
             val host = ownedHost
             val manager = host?.getGSYVideoManager()
             if (host != null && manager?.listener() === host) {
+                detachRetiredKernelErrorListener(host, loadedUrl)
                 host.onVideoPause()
                 host.release()
                 if (manager!!.listener() === host) manager.setListener(null)
@@ -559,6 +562,7 @@ private fun ReviewPagerContent(
                 latestReadyAfterWait.endpoint.url != ready.endpoint.url ||
                 latestReadyAfterWait.stage != ready.stage) return@LaunchedEffect
             controller.withHost { ownedHost = it }
+            detachRetiredKernelErrorListener(ownedHost, loadedUrl)
             controller.setUp(option, false)
             currentLoadedMediaId = item.mediaId
             loadedUrl = ready.endpoint.url

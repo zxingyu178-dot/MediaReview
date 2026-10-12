@@ -2535,3 +2535,73 @@ Task4实际提交0bb8772：Full控制/手势/音轨/严格源归属与生命周�
 Task5的Review共享gesture/seek与明确暂停按钮、源替换及前后台恢复仍保持实际SHA4C303E98；原37批次的两个Review RED已在5case补验真实关闭，其余shared/full专项历史结果保留，不改写37全绿。独立完整审查+增量补审C0/I0，拟提交批阅改动与对应源替换/后台/手势测试；最终139回归和正式发布门禁仍未完成。
 
 旧测试前提AndroidTest/lint增量94369实际成功10m21s，63tasks9executed54up-to-date。其后仅六文件EOF格式修正，已证明正文完全相同；不把前述构建冒称清理后的编译。下一轮统一编译最终Debug/AndroidTest与lint，再执行旧失败目标及全connected。不重复无逻辑变化的JVM444和Server577。
+
+### 2026-10-12 根Snackbar遮挡的确认与最小设计
+
+84333真实目标16项终态13 PASS/3 FAIL172.312s。分类四项旧RED、搜索返回及static longpress回首页前提已通过。F两项仍在认证POST p51等待失败，G首v301导航仍未发playback。root实看run349607点击前PNG及semantics：全局‘加载更多失败，请重试’提示bounds2210..2400覆盖viewer_delete2211..2316。Viewer自己的局部host已bottom145dp；覆盖者是AlbumPagingController→V2HomeViewModel.emitMessage→V2MainScreen根Scaffold队列，等连接文本和500ms动画不能清掉后续queued提示，旧候选已被真实RED否定。
+
+沿既有布局设计选择：给根host按路由留控制区净空，Viewer145dp、Full160dp，普通Tab保持原位置。替代方案‘等待所有提示结束才准点击’只改善测试前提，保留产品遮挡；‘丢弃跨路由消息’会改变错误反馈业务，故不选。复用原SnackbarHost/Flow，不新增消息系统、不改变播放或删除控制器。当前用户完整规格103已授权普通实现选择自行完成，不重复请求设计批准。
+
+TDD使用已经实际失败且图/语义证实遮挡的F点击→真实认证POST用例，保留一次物理点击及全部原图像素/HTTP/恢复断言；不增等待、不以语义动作绕过。G共同根层是否导致失效尚未证实，只新增点击前PNG/semantics/坐标诊断，新的根offset不预计G通过。修后先跑这三个真实RED，只有新终态证明才关闭，再更新最终门禁/源码审查。
+
+### 2026-10-12 提交状态与根提示修正编译
+
+Task4 0bb8772 / Task5 763800b 已实际提交；计划两节对应状态同步为完成，Task6 保持进行中。EOF清理后最终 JVM 95848 实际444 tests/69 suites/0 failure/error/skip；Debug/Test/lint 4182 实际成功，lint 0 error/42 warning/15 info。上述门禁是根提示修正前的输入，不能代替新改动的最终门禁。
+
+根Snackbar按详情路由145/160dp避开操作区的独立静态补审C0/I0/M0；新输入Debug/Test构建57387实际成功4m39。仅自有AVD emulator-5584 boot_completed=1 后依次安装两份APK成功，focused三项实际RED补验12752正在运行。图片Viewer首项已终态通过，另外两项与整批结果未终态，不预填全绿；未安装用户手机、未部署生产服务。
+
+### 2026-10-12 根提示真实回归闭合
+
+12752 focused三项终态OK (3 tests)，142.499s：actualAppViewerDecodedPixelsAndDelete、actualAppAlpha9MediaExperience、favoriteVideoAndImageWindowsStayIndependent全部PASS。严格保持真实物理点击、认证HTTP、真实图片像素/原图读取、待删除恢复与冻结收藏上下文断言。F遮挡RED已关闭；G本批通过，但仅据此不宣称其旧失败机制与F相同。新点击前PNG/semantics和终态logcat保留root-snackbar-clearance-evidence及focused-device.log。
+
+随即以进程级ANDROID_SERIAL=emulator-5584运行完整connectedDebugAndroidTest，使用同一已安装最终Debug/Test输入。整批尚未终态；旧83/139中断证据继续保留，不能由3项通过替代139项门禁。
+
+### 2026-10-12 完整回归第二次中断与三项新增失败
+
+2010完整connected最后输出132/139、3失败，没有完整XML或Gradle终态。13:49继续时会话句柄已丢失，实际查询Java/自有模拟器进程为0、ADB无设备，确认运行停止后才准备后续目标补验。原因保持UNKNOWN_ENVIRONMENT_INTERRUPTION；140输出文件/9149011字节另存root-clearance-interrupted-connected-output-results，不能声称139通过。
+
+三项已实际FAIL：FullLifecycle横屏后第二showControls等待5秒；periodic位置>=14秒；同ID同Stage换URL后阻塞准备检查新kernel为null。首项此前landscape与同Activity/host/kernel断言已越过，不能称旋转失败。第二项间隔>=14.5秒已越过但未打印真实位置。第三项日志明确旧Exo release timeout触发kernelError；字节码证明旧onPlayerError可通过GSY manager当前listener传播，缺原kernel归属。新Exo随后的Release可能是JUnit cleanup，尚不把时序冒称确定因果。
+
+先在两份AndroidTest添加控制层时钟/节点、真实上报位置/内核位置、切源错误与检查前kernel诊断，未放松原断言；84389仅AndroidTest增量构建实际成功3m11，6executed/48up-to-date。生产输入D33 Debug未改。待实际三目标复现后确定修正，最终门禁和Release仍未完成。
+
+### 2026-10-12 间歇失败补验与确定性回归设计
+
+82929原三项诊断补验终态3/3 PASS45.389s；这说明失败间歇存在，不能据单次通过声明根因全部关闭。MRLifecycleTest打印本次periodic.position14753/kernel14774/实际间隔15471ms；横屏第二showControls count1，时钟欠帧217ms。本次source检查旧内核已停止/URL清除、新Ijk存在且errors0，原像素/认证/继续前进断言全保留。
+
+为避免盲目重跑增加两项确定性测试：真实播放下积累3300ms未结算测试帧后再次showControls，检测先读旧节点后才结算timer的竞态；认证HTTP真实换源后在已释放旧Ijk公开onPlayerError重放观测到的释放错误，要求新内核同身份继续前进，随后当前Ijk错误必须反馈App。回放是明确内核边界注入，不声称真实网络错误；不伪造播放位置/状态。22871仅AndroidTest构建运行中，尚无RED终态。
+
+最小设计候选：测试helper先结算真实时间对应的Compose帧再决定是否物理tap；换源和退出前仅在manager.listener为ownedHost且真实kernel URL为loaded URL时，清旧Ijk错误监听。新内核初始化由GSY照常安装自己的监听，保持真实当前错误链。比扩大超时/吞全部错误更准确，不增加Player或替换库。现有两个故障已有实际RED，新增确定性RED确认后实施；periodic原14秒断言暂不改，等待更强失败数值证据。
+
+### 2026-10-12 确定性RED与最小修正
+
+43138两个新增回归终态2run/2FAIL32.575s：控制时钟欠帧产生同样5秒showControls等待失败；已释放旧Ijk错误回放真实送达当前App errors=[same]，因此新源污染不是仅凭时序猜测。原两项失败详细日志与新RED分别保存，不互相替代。
+
+已实施共享detachRetiredKernelErrorListener：仅loaded URL非空、manager当前listener为owned host且真实Ijk.dataSource等于loaded URL时清旧OnErrorListener；Full/Review只在确认切源的setUp前及owned退出release前调用。Review放在可取消host等待/最新源二次核验之后，避免Loading或等待取消时提前解除仍会恢复的旧源监听。新内核初始化仍安装自己的listener，当前错误链由新增真实Exo边界回归必须证明。
+
+showControls先按原waitWallClock补真实帧再读节点；没有扩大5秒、没有直接操作控制状态，仍真实tap。测试errors改CopyOnWriteArrayList关闭审查跨线程M1。3098新Debug/Test构建进行中，尚不声明GREEN；两个独立补审已派发，原periodic14秒和全部身份/像素/认证/位置断言保持。
+
+### 2026-10-12 旧错误与控制时钟GREEN、暂停验收锚点纠正
+
+18345实际5run/4PASS/1FAIL77.719s：新增旧内核错误隔离（旧错误后同新内核真实前进，当前错误仍到App）、控制欠帧恢复、原横屏同宿主/内核/位置和真实Poster切URL全部PASS。periodic初段本批已过：snapshot14464/kernel14853/真实间隔15912ms；后续暂停回调32539/kernel32539准确一致，但测试仍距先前seek30s要求<2500而超39ms。日志证明Sheet等待期间真实播放继续，不能称产品回调零或滞后。
+
+经独立复核，仅修正AndroidTest基准：Pause实际click前即时beforePause=kernel.position；仍要求回调>25000、距点击前位置<2500、原seek30±2500、native差<=1500、真实认证POST/暂停/恢复/退出全保留。真实播放约15秒的>=14000门槛改读periodic.kernelPosition，和原允许snapshot1500ms轮询延迟一致；保留真实间隔>=14500/回调非零/准确HTTP。此调整未扩大数值或超时；原139批没打印native，不追认该旧失败原因已证明。
+
+共享生产guard独立审查C0/I0/M0；本批两个确定性RED已真实GREEN，但本批仍4/5，最终整套和发布门禁未闭合。下一轮仅最终测试基准增量编译，目标补验后跑新141整套。
+
+### 2026-10-12 暂停真实点击锚点补验与最终141启动
+
+98151单项实际终态OK (1 test)，37.571s；保持15秒实际间隔/真实内核约15秒、回调与真实内核偏差原1500ms、真实认证POST、seek30秒、Pause点击前即时锚点<2500ms且回调>25000ms、暂停静音/恢复/退出释放全断言。此单项不代替最终整套。
+
+启动一次性隐藏最终Gradle runner，仍只执行登记的connectedDebugAndroidTest，ANDROID_SERIAL固定emulator-5584，无过滤。TEMP脚本冻结两APK SHA、记录本次PID/结束退出码与输入未变化；报告JSON不代替真实JUnit XML/Gradle终态。当前预计141项（新增两个确定性用例），实际总数以runner输出/XML核对；尚不声明全通过。生产源码/测试冻结，新JVM/lint/正式Release与ServerZIP尚未完成。
+
+### 2026-10-12 最终141设备门禁终态
+
+冻结输入B750 Debug /8B979 Test，最终connected无过滤执行141项，实际Finished141、BUILD SUCCESSFUL12m15、75 tasks1executed74up-to-date；runner结束退出码0、APK输入未变化。root随后实读完整JUnit XML，141 testcase/0failure或error/0skipped，不以进度或exit receipt替代结果。归档final-retired-guard-connected-results及final-connected-junit.xml，原两次中断和所有RED/补验历史保留。
+
+最终批覆盖新旧source/error、控制时钟、严格真实seek/双击、Full/Review生命周期、目录/缓存/Home与实际App上下文；前述三个间歇失败及新增确定性回归在整套中全部通过。终态logcat保存后仅正常关闭自有emulator-5584释放构建内存；未操作用户手机或生产服务。当前尚待新输入JVM/lint、唯一正式Release/ServerArtifact与Git/Handoff，不提前声明CODE_READY。
+
+### 2026-10-12 最终JVM/lint与发布输入冻结
+
+10984最终生产输入JVM/lint实际终态BUILD SUCCESSFUL9m42，41tasks13executed28up-to-date；root实读69套XML合计444tests/0failure/error/skipped，以及新lint XML0error/42warning/15information。结果已归档final-retired-guard-jvm-results、final-retired-guard-lint-results及verification.json，在Release clean前保留。Server产品输入未变，复用577完整pytest/Ruff115及发布契约114真实结果，不重跑无变更门禁。
+
+REVIEW_SUMMARY/TASKS/计划统一为最终自动化已过、正式产物及交接待核验。远端只读探测成功，Stage8H分支尚未发布；Task6提交后使用既有build_deploy --prepare-only执行唯一正式assembleRelease和新Server隔离核验，不部署生产、不改变长期服务/手机。

@@ -57,10 +57,11 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false, private v
                 hits += Hit(path, request.method.orEmpty(), authenticated, url.queryParameter("page")?.toIntOrNull(), url.queryParameter("page_size")?.toIntOrNull(), url.queryParameter("search"), url.queryParameter("folder_id"))
                 if (!public && !authenticated) return MockResponse().setResponseCode(if (stream) 403 else 401)
                 return when {
-                    path.endsWith("/health") -> envelope("""{"status":"ok","version":"1.2.2","api_contract":2,"capabilities":[]}""")
+                    path.endsWith("/health") -> envelope("""{"status":"ok","version":"1.3.0","api_contract":2,"capabilities":["folder_tree_v1","review_session","review_nearest","organize","delete_nonce","duplicates_paged","library_selection"]}""")
                     path.endsWith("/pairing/status") -> envelope("""{"pairing_required":true,"device_count":0}""")
                     path.endsWith("/pairing/verify") -> envelope("""{"paired":true,"token":"mock-token"}""")
                     path == "/api/v1/media/folders" -> envelope("""[{"folder_id":"f_photos","name":"测试相册","count":$photoCount,"image_count":$photoCount,"cover_media_id":"p1","cover_url":"/api/v1/media/p1/cover"},{"folder_id":"f_videos","name":"测试视频","count":$videoCount,"image_count":0}]""")
+                    path == "/api/v1/media/folder-tree" -> envelope("""[{"folder_id":"fixture-root","parent_id":null,"library_id":"fixture","name":"测试媒体库","child_count":2,"direct_media_count":0,"recursive_media_count":${photoCount + videoCount},"direct_image_count":0,"cover_url":"/api/v1/media/p1/cover"},{"folder_id":"f_photos","parent_id":"fixture-root","library_id":"fixture","name":"测试相册","child_count":0,"direct_media_count":$photoCount,"recursive_media_count":$photoCount,"direct_image_count":$photoCount,"cover_url":"/api/v1/media/p1/cover","direct_cover_url":"/api/v1/media/p1/cover"},{"folder_id":"f_videos","parent_id":"fixture-root","library_id":"fixture","name":"测试视频","child_count":0,"direct_media_count":$videoCount,"recursive_media_count":$videoCount,"direct_image_count":0}]""")
                     path == "/api/v1/media" -> {
                         val page = url.queryParameter("page")?.toIntOrNull() ?: 1
                         val size = url.queryParameter("page_size")?.toIntOrNull() ?: 50

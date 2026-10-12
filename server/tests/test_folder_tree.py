@@ -177,6 +177,12 @@ def test_large_metadata_tree_and_bounded_media_page(tree_api):
     root = next(n for n in result if n["parent_id"] is None)
     assert root["recursive_media_count"] == 1000
     assert all("items" not in n and "media_path" not in n for n in result)
+    # Android albums()由直接含图片的旧folders元数据映射，相同fixture须提供100本相册。
+    folders = client.get("/api/v1/media/folders")
+    assert folders.status_code == 200
+    albums = [folder for folder in folders.json()["data"] if folder["image_count"] > 0]
+    assert len(albums) == 100
+    assert all(album["image_count"] == 10 for album in albums)
     response = client.get(
         "/api/v1/media", params={"folder_id": root["folder_id"], "page_size": 13, "page": 2}
     )

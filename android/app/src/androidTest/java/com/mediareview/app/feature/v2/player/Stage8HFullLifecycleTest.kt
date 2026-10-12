@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.player
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.SystemClock
+import android.util.Log
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ class Stage8HFullLifecycleTest {
     private val reports = CopyOnWriteArrayList<Progress>()
     private var wallEpoch = 0L
     private var composeEpoch = 0L
+    private var controlProbe = 0
 
     /** 只把真实流逝时间补给Compose；禁止waitUntil默认每10ms推进16ms虚拟delay。 */
     private fun waitWallClock(timeoutMillis: Long, condition: () -> Boolean) {
@@ -44,7 +46,7 @@ class Stage8HFullLifecycleTest {
             val remaining = due - compose.mainClock.currentTime
             if (remaining > 0L) compose.mainClock.advanceTimeBy(remaining, ignoreFrameDuration = true)
             if (condition()) return
-            Assert.assertTrue("真实时间等待超时: ${timeoutMillis}ms", now - started <= timeoutMillis)
+            Assert.assertTrue("真实时间等待超时: ${timeoutMillis}ms; clock=${compose.mainClock.currentTime}; reports=${reports.takeLast(3)}", now - started <= timeoutMillis)
             SystemClock.sleep(10)
         }
     }
@@ -75,10 +77,17 @@ class Stage8HFullLifecycleTest {
     private fun position() = kernel { it.currentPosition }
     private fun body() = compose.onNodeWithTag("player_gesture_surface")
     private fun showControls() {
-        if (compose.onAllNodesWithTag("player_seek_bar").fetchSemanticsNodes().isEmpty()) {
+        // 先结算真实流逝对应的帧，避免用补帧前的可见节点决定是否需要点击。
+        waitWallClock(5_000) { true }
+        val probe = ++controlProbe
+        val count = compose.onAllNodesWithTag("player_seek_bar").fetchSemanticsNodes().size
+        Log.d("MRLifecycleTest", "controls#$probe before count=$count clock=${compose.mainClock.currentTime} due=${composeEpoch + SystemClock.elapsedRealtime() - wallEpoch} orientation=${compose.activity.resources.configuration.orientation}")
+        if (count == 0) {
             body().performTouchInput { click(center) }
+            Log.d("MRLifecycleTest", "controls#$probe physicalTap completed clock=${compose.mainClock.currentTime}")
         }
         waitWallClock(5_000) { compose.onAllNodesWithTag("player_seek_bar").fetchSemanticsNodes().isNotEmpty() }
+        Log.d("MRLifecycleTest", "controls#$probe displayed clock=${compose.mainClock.currentTime}")
     }
     private fun button(description: String) = compose.onNodeWithContentDescription(description)
         .performTouchInput { click(center) }
@@ -114,6 +123,7 @@ class Stage8HFullLifecycleTest {
                     onPlaybackStable = vm::onPlaybackStable,
                     onReportLoadedProgress = { id, ms, paused ->
                         reports += Progress(id, ms, paused, GSYVideoManager.instance().currentPosition, SystemClock.elapsedRealtime())
+                        Log.d("MRLifecycleTest", "progress=${reports.last()} kernelPlaying=${GSYVideoManager.instance().isPlaying} clock=${compose.mainClock.currentTime}")
                         vm.reportLoadedProgress(id, ms, paused)
                     },
                 )
@@ -176,7 +186,7 @@ class Stage8HFullLifecycleTest {
         waitWallClock(30_000) { reports.any { !it.paused && it.position > 0L } }
         val periodic = reports.first { !it.paused && it.position > 0L }
         Assert.assertTrue("15s周期不能立即上报", periodic.elapsed - initial.elapsed >= 14_500)
-        Assert.assertTrue("真实播放应走过约15秒", periodic.position >= 14_000)
+        Assert.assertTrue("真实内核应走过约15秒: initial=$initial periodic=$periodic", periodic.kernelPosition >= 14_000)
         assertRealProgress(periodic)
         assertProgressPosted(periodic)
         showControls()
@@ -189,12 +199,14 @@ class Stage8HFullLifecycleTest {
             compose.onAllNodesWithText("暂停播放").fetchSemanticsNodes().size == 1
         }
         val pauseStart = reports.size
+        val beforePause = position()
         compose.onNodeWithText("暂停播放").performTouchInput { click(center) }
         waitWallClock(5_000) { !kernel { it.isPlaying } && reports.drop(pauseStart).any { it.paused } }
         val paused = reports.drop(pauseStart).first { it.paused }
         assertRealProgress(paused)
         assertProgressPosted(paused)
-        Assert.assertTrue("暂停回调不能用零位置", abs(paused.position - 30_000) < 2_500)
+        Assert.assertTrue("暂停回调须保留真实点击位置: before=$beforePause callback=$paused",
+            paused.position > 25_000 && abs(paused.position - beforePause) < 2_500)
         waitWallClock(5_000) { compose.onAllNodesWithContentDescription("播放").fetchSemanticsNodes().size == 1 }
         button("播放")
         waitWallClock(5_000) { kernel { it.isPlaying } }
@@ -230,6 +242,17 @@ class Stage8HFullLifecycleTest {
             SystemClock.sleep(100)
         }
         Assert.assertTrue("每个回调都属于实际装载媒体", reports.all { it.id == "first" })
+    }
+
+    @Test fun controlsCanBeShownWithPendingRealTimeHideAfterClockSynchronization() {
+        launch()
+        showControls()
+        // 暂停测试时钟推进但不暂停真实视频，重现系统旋转阻塞期间累计的真实时间。
+        SystemClock.sleep(3_300)
+        showControls()
+        compose.onNodeWithTag("player_seek_bar").assertIsDisplayed()
+        Assert.assertTrue(kernel { it.isPlaying })
+        Assert.assertEquals(0, exits)
     }
 
     private fun assertRealProgress(event: Progress) {
