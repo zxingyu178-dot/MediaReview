@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.os.SystemClock
+import android.media.AudioManager
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -24,14 +26,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -43,11 +54,14 @@ import com.mediareview.app.feature.v2.player.V2PlayerState
 import com.mediareview.app.feature.v2.player.native.state.BackNavigationLogic
 import com.mediareview.app.feature.v2.player.native.state.ControlsVisibilityState
 import com.mediareview.app.feature.v2.player.native.state.PlaybackUiMapper
-import com.mediareview.app.feature.v2.player.native.state.SeekGesturePreview
-import com.mediareview.app.feature.v2.player.native.state.SeekScrubState
-import com.mediareview.app.feature.v2.player.native.state.SpeedState
-import com.mediareview.app.feature.v2.player.native.state.TapActionState
+import com.mediareview.app.feature.v2.player.native.state.SeekDragEngine
 import com.mediareview.app.feature.v2.player.native.state.VideoScaleState
+import com.mediareview.app.feature.v2.player.native.state.SpeedGestureState
+import com.mediareview.app.feature.v2.player.native.state.SpeedGestureMode
+import com.mediareview.app.feature.v2.player.native.state.SpeedGestureChange
+import com.mediareview.app.feature.v2.player.native.state.DoubleTapSeekState
+import com.mediareview.app.feature.v2.player.native.ui.PlayerBodyGestureCallbacks
+import com.mediareview.app.feature.v2.player.native.ui.rememberPlayerBodyGestures
 import com.mediareview.app.feature.v2.player.native.state.awaitPlayerHostReady
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeBottomBar
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeCenterControls
@@ -56,7 +70,6 @@ import com.mediareview.app.feature.v2.player.native.ui.GsyNativeMoreSheet
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeScaleSheet
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeSeekHint
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeSpeedSheet
-import com.mediareview.app.feature.v2.player.native.ui.GsyNativeStatusSheet
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeTopBar
 import com.mediareview.app.feature.v2.player.native.ui.GsyNativeVideoInfoSheet
 import com.mediareview.app.feature.v2.player.native.ui.PlayerLayoutDebug
@@ -64,13 +77,12 @@ import com.mediareview.app.feature.v2.player.native.ui.formatSpeedLabel
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.shuyu.gsyvideoplayer.builder.GSYVideoOptionBuilder
-import com.shuyu.gsyvideoplayer.compose.native_.GSYGestureType
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayState
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerEvent
 import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerSurface
-import com.shuyu.gsyvideoplayer.compose.native_.gsyGestureControl
 import com.shuyu.gsyvideoplayer.compose.native_.rememberGSYPlayerController
 import com.shuyu.gsyvideoplayer.utils.GSYVideoType
+import com.shuyu.gsyvideoplayer.video.base.GSYVideoView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -78,7 +90,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** 底部面板类型。 */
-private enum class PlayerSheet { MORE, SPEED, SCALE, ROTATION, SUBTITLE, AUDIO, INFO }
+private enum class PlayerSheet { MORE, SPEED, SCALE, INFO, AUDIO }
 
 /** 播放进度上报间隔（Stage 8A §27：10~15 秒，禁止高频上报）。 */
 private const val PROGRESS_REPORT_INTERVAL_MS = 15_000L
@@ -110,23 +122,39 @@ fun GsyNativePlayerScreen(
     onReportProgress: (Long, Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlaybackStable: (String) -> Unit = {},
+    onReportLoadedProgress: (String, Long, Boolean) -> Unit = { _, position, paused -> onReportProgress(position, paused) },
 ) {
     val appContext = LocalContext.current
     val activity = remember { appContext.findActivity() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var foreground by remember(lifecycleOwner) { mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    var userWantsPlayback by remember { mutableStateOf(true) }
+    var sourceStarted by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val audio = remember { appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    var gestureActive by remember { mutableStateOf(false) }
+    var speedMode by remember { mutableStateOf(SpeedGestureMode.Normal) }
+    var speedFeedback by remember { mutableStateOf<String?>(null) }
+    var speedHintJob by remember { mutableStateOf<Job?>(null) }
+    var verticalStartBrightness by remember { mutableStateOf(.5f) }
+    var verticalStartVolume by remember { mutableStateOf(0) }
 
     val ready = state.ui as? V2PlaybackUiState.Ready
     val failure = state.ui as? V2PlaybackUiState.Failed
+    var playbackAdvanced by remember(state.currentMediaId, ready?.stage, ready?.endpoint?.url) { mutableStateOf(false) }
+    val posterAlpha by animateFloatAsState(if (playbackAdvanced) 0f else 1f, tween(180), label = "playerPoster")
 
     // autoPlay=false：库内部在 AndroidView factory 中 attachHost 后立即 post startPlayLogic，
     // 冷启动 / JIT 繁忙时宿主可能尚未完成首次布局。下方 LaunchedEffect 等 host attach 且
     // 完成首次布局（width/height>0）后再自管播放，保证启动时渲染容器尺寸确定。
     val controller = rememberGSYPlayerController(
-        url = ready?.endpoint?.url,
+        url = null,
         cacheWithPlay = false,
         title = ready?.source?.title ?: state.current?.title ?: "",
         autoPlay = false,
-        autoPauseResume = true,
+        autoPauseResume = false,
     )
 
     // ---------- MediaReview 交互状态 ----------
@@ -141,10 +169,13 @@ fun GsyNativePlayerScreen(
     var savedOrientation by remember { mutableStateOf(-1) }
 
     // 已应用到播放器的媒体 / 阶段（source 一致性事实源：同一条目同一阶段不重复 setUp）
-    var loadedMediaId by remember { mutableStateOf(ready?.source?.mediaId.orEmpty()) }
+    var loadedMediaId by remember { mutableStateOf("") }
+    var loadedEndpointUrl by remember { mutableStateOf("") }
     var loadedStage by remember { mutableStateOf(ready?.stage ?: V2PlaybackStage.DIRECT) }
     // 待恢复的续播位置（服务端 resume_position_ms；Prepared 后 seek）
     var pendingResumeMs by remember { mutableStateOf(0L) }
+    // AndroidView can detach the controller before its DisposableEffect releases it.
+    var ownedHost by remember { mutableStateOf<com.shuyu.gsyvideoplayer.video.StandardGSYVideoPlayer?>(null) }
 
     // 锁定真值不存放于此：唯一来源是 controller.snapshot.isLocked
     val controls = remember {
@@ -153,19 +184,126 @@ fun GsyNativePlayerScreen(
             onVisibilityChange = { visible -> controlsVisible = visible },
         )
     }
-    val scrub = remember { SeekScrubState() }
-    val seekPreview = remember { SeekGesturePreview() }
+    val scrub = remember { SeekDragEngine() }
+    var scrubPreviewMs by remember { mutableStateOf(0L) }
+    val bodySeek = remember { SeekDragEngine() }
+    var bodySeekPreviewMs by remember { mutableStateOf(0L) }
+    var bodySeekStartMs by remember { mutableStateOf(0L) }
+    var bodySeekDurationMs by remember { mutableStateOf(0L) }
     // 拖动（进度条 / 横向手势）开始前是否在播放：拖动期暂停以冻结画面与声音，
     // 松手 seek 后据此恢复播放（成熟播放器标准手感）。
     var resumeAfterScrub by remember { mutableStateOf(false) }
     var resumeAfterSeekGesture by remember { mutableStateOf(false) }
-    val speed = remember { SpeedState() }
+    val speed = remember { SpeedGestureState() }
     val scale = remember { VideoScaleState() }
-    val tap = remember { TapActionState() }
+    val tap = remember { DoubleTapSeekState() }
 
     // snapshot 为唯一播放状态来源
     val snapshot = controller.snapshot.value
     val locked = snapshot.isLocked
+    val sourceIsCurrent = ready != null && ready.source.mediaId == state.currentMediaId &&
+        ready.source.mediaId == loadedMediaId && ready.stage == loadedStage && ready.endpoint.url == loadedEndpointUrl
+
+    val audioTracks = remember(controller) {
+        com.mediareview.app.feature.v2.player.native.tracks.GsyAudioTrackAdapter {
+            var player: tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer? = null
+            controller.withHost { host ->
+                player = (host.getGSYVideoManager().player?.mediaPlayer as? tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer)
+                    ?.takeIf { it.dataSource == loadedEndpointUrl }
+            }
+            player
+        }
+    }
+    var audioTrackSnapshot by remember { mutableStateOf<com.mediareview.app.feature.v2.player.native.tracks.AudioTrackSnapshot?>(null) }
+    val audioSourceKey = "$loadedMediaId|$loadedStage|$loadedEndpointUrl"
+    val latestAudioSource by rememberUpdatedState(sourceIsCurrent to audioSourceKey)
+    val latestPlaybackState by rememberUpdatedState(state)
+    fun sourceMatchesLoaded(): Boolean {
+        val current = latestPlaybackState.ui as? V2PlaybackUiState.Ready ?: return false
+        return current.source.mediaId == latestPlaybackState.currentMediaId && current.source.mediaId == loadedMediaId &&
+            current.stage == loadedStage && current.endpoint.url == loadedEndpointUrl
+    }
+    fun currentOwnedSourceHost(): com.shuyu.gsyvideoplayer.video.StandardGSYVideoPlayer? {
+        if (!sourceMatchesLoaded()) return null
+        val host = ownedHost ?: return null
+        var attachedOwner = false
+        controller.withHost { attachedOwner = it === host }
+        if (!attachedOwner) return null
+        val manager = host.getGSYVideoManager()
+        val kernel = manager.player?.mediaPlayer as? tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer
+        return host.takeIf { manager.listener() === host && kernel?.dataSource == loadedEndpointUrl }
+    }
+    fun pauseOwned() {
+        val host = ownedHost ?: return
+        if (host.getGSYVideoManager().listener() === host) host.onVideoPause()
+    }
+    fun resumeOwned(explicitReplay: Boolean = false) {
+        if (!foreground || !userWantsPlayback || !sourceMatchesLoaded() || scrub.active || bodySeek.active) return
+        val host = ownedHost ?: return
+        if (sourceStarted && host.getGSYVideoManager().listener() !== host) return
+        if (!sourceStarted || explicitReplay || host.currentState == GSYVideoView.CURRENT_STATE_ERROR) {
+            controller.withHost { attached ->
+                if (attached === host) { sourceStarted = true; controller.play() }
+            }
+            return
+        }
+        if (currentOwnedSourceHost() !== host || host.currentState == GSYVideoView.CURRENT_STATE_AUTO_COMPLETE) return
+        if (pendingResumeMs > 0L && host.currentState != GSYVideoView.CURRENT_STATE_PREPAREING) {
+            controller.seekTo(pendingResumeMs)
+            pendingResumeMs = 0L
+        }
+        val resumeState = host.currentState
+        host.onVideoResume(false)
+        // A late buffering-end callback can restore PLAYING after our pause, while
+        // the same kernel remains paused. GSY's resume only handles its PAUSE state.
+        if ((resumeState == GSYVideoView.CURRENT_STATE_PLAYING ||
+                resumeState == GSYVideoView.CURRENT_STATE_PLAYING_BUFFERING_START) &&
+            currentOwnedSourceHost() === host && !host.getGSYVideoManager().isPlaying) {
+            host.getGSYVideoManager().start()
+        }
+    }
+    DisposableEffect(lifecycleOwner, controller) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    if (sourceMatchesLoaded() && ownedHost?.currentState == GSYVideoView.CURRENT_STATE_AUTO_COMPLETE) userWantsPlayback = false
+                    foreground = false
+                    pauseOwned()
+                    scrub.cancel(); bodySeek.cancel()
+                    resumeAfterScrub = false; resumeAfterSeekGesture = false
+                    gestureActive = false
+                    tap.reset()
+                    val formalSpeed = speed.cancel().speed
+                    if (currentOwnedSourceHost() != null) controller.setSpeed(formalSpeed)
+                    speedMode = speed.mode
+                    speedFeedback = null
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    foreground = true
+                    resumeOwned()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(snapshot.state) {
+        if (snapshot.state == GSYPlayState.Completed && sourceMatchesLoaded() && ownedHost?.currentState == GSYVideoView.CURRENT_STATE_AUTO_COMPLETE) {
+            userWantsPlayback = false
+        }
+    }
+    LaunchedEffect(audioTracks, sourceIsCurrent, audioSourceKey) {
+        if (!sourceIsCurrent) {
+            audioTrackSnapshot = null
+            if (sheet == PlayerSheet.AUDIO) sheet = null
+        } else {
+            while (true) {
+                audioTrackSnapshot = audioTracks.read(audioSourceKey)
+                delay(500)
+            }
+        }
+    }
 
     // ---------- 事件订阅 ----------
     LaunchedEffect(controller) {
@@ -174,13 +312,20 @@ fun GsyNativePlayerScreen(
                 // 全屏由 MediaReview 自管（enterFullscreen/exitFullscreen），不依赖 GSY 经典
                 // View 迁移事件，故此处不再用 EnterFull/QuitFull 驱动 isFullscreen。
                 is GSYPlayerEvent.Prepared -> {
-                    // 每次 Prepared（含切源后内核重置倍速）恢复用户期望倍速
-                    controller.setSpeed(speed.expectedSpeed)
+                    // Ignore queued events after source replacement or owner handoff before any kernel write.
+                    val host = currentOwnedSourceHost() ?: return@collect
+                    if (!foreground) {
+                        host.onVideoPause()
+                        return@collect
+                    }
+                    if (!userWantsPlayback) host.onVideoPause()
+                    controller.setSpeed(speed.effectiveSpeed)
                     // 服务端续播：resume_position_ms > 0 时从该位置开始（Demo 恒为 0）
-                    if (pendingResumeMs > 0L) {
+                    if (foreground && pendingResumeMs > 0L) {
                         controller.seekTo(pendingResumeMs)
                         pendingResumeMs = 0L
                     }
+                    if (foreground && userWantsPlayback) resumeOwned()
                 }
                 else -> Unit
             }
@@ -207,25 +352,26 @@ fun GsyNativePlayerScreen(
         val mediaId = loadedMediaId
         if (mediaId.isEmpty()) return@LaunchedEffect
         if (!snapshot.isPlaying) {
-            onReportProgress(controller.snapshot.value.currentPosition, true)
+            onReportLoadedProgress(mediaId, controller.snapshot.value.currentPosition, true)
             return@LaunchedEffect
         }
         while (true) {
             delay(PROGRESS_REPORT_INTERVAL_MS)
             val s = controller.snapshot.value
             if (!s.isPlaying) break
-            onReportProgress(s.currentPosition, false)
+            onReportLoadedProgress(mediaId, s.currentPosition, false)
         }
     }
 
-    // 播放状态驱动控制层自动隐藏
-    LaunchedEffect(snapshot.isPlaying) {
-        controls.updatePlayback(snapshot.isPlaying)
-    }
-
-    // 锁定态唯一来源 controller.snapshot.isLocked，同步给显隐逻辑
+    // Sheet/拖动/手势期间暂停自动隐藏计时，控制锁始终拥有最高优先级。
     LaunchedEffect(locked) {
         controls.onLockChanged(locked)
+    }
+    LaunchedEffect(sheet, gestureActive, resumeAfterScrub, resumeAfterSeekGesture) {
+        controls.updateInteractionHeld(sheet != null || gestureActive || resumeAfterScrub || resumeAfterSeekGesture)
+    }
+    LaunchedEffect(snapshot.isPlaying, userWantsPlayback) {
+        controls.updatePlayback(userWantsPlayback && snapshot.isPlaying)
     }
 
     // 全屏方向由 MediaReview 自管（见 enterFullscreen/exitFullscreen）。关闭 GSY 自动旋转全屏，
@@ -251,15 +397,29 @@ fun GsyNativePlayerScreen(
             w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         onDispose {
-            // 退出播放器：上报一次进度（暂停态），形成续播闭环
+            val host = ownedHost
+            val manager = host?.getGSYVideoManager()
+            val actualKernel = manager?.player?.mediaPlayer as? tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer
+            val ownsCurrent = host != null && manager?.listener() === host
+            // Capture/report before releasing; a detached controller only has its final cached snapshot.
+            val finalPosition = if (ownsCurrent && actualKernel?.dataSource == loadedEndpointUrl) manager!!.currentPosition
+                else controller.snapshot.value.currentPosition
             if (loadedMediaId.isNotEmpty()) {
-                onReportProgress(controller.snapshot.value.currentPosition, true)
+                onReportLoadedProgress(loadedMediaId, finalPosition, true)
             }
+            if (ownsCurrent) {
+                // Retained host survives controller.detachHost; guard forbids releasing a successor's kernel.
+                host!!.onVideoPause()
+                host.release()
+                if (manager!!.listener() === host) manager.setListener(null)
+                if (manager.lastListener() === host) manager.setLastListener(null)
+            }
+            ownedHost = null
             window?.let { w ->
                 w.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 WindowCompat.setDecorFitsSystemWindows(w, true)
                 WindowInsetsControllerCompat(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
-                if (savedBrightness >= 0f && w.attributes.screenBrightness != savedBrightness) {
+                if (w.attributes.screenBrightness != savedBrightness) {
                     w.attributes = w.attributes.apply { screenBrightness = savedBrightness }
                 }
             }
@@ -282,7 +442,7 @@ fun GsyNativePlayerScreen(
 
     fun exitFullscreen() {
         val a = activity ?: return
-        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         isFullscreen = false
         controls.onUserInteraction()
     }
@@ -325,60 +485,61 @@ fun GsyNativePlayerScreen(
     }
 
     fun togglePlayPause() {
-        if (locked) return
-        controller.togglePlayPause()
+        if (!foreground || locked || !sourceMatchesLoaded()) return
+        val completed = ownedHost?.currentState == GSYVideoView.CURRENT_STATE_AUTO_COMPLETE
+        if (userWantsPlayback && !completed) {
+            userWantsPlayback = false
+            pauseOwned()
+        } else {
+            userWantsPlayback = true
+            resumeOwned(explicitReplay = completed)
+        }
         controls.onUserInteraction()
+    }
+    // 快照用于绘制；手势开始必须捕获当下内核状态，不能使用轮询中的旧播放态。
+    fun kernelIsPlaying(): Boolean {
+        return currentOwnedSourceHost()?.getGSYVideoManager()?.isPlaying == true
     }
 
     fun seekRelative(deltaMs: Long) {
-        if (locked) return
+        if (!foreground || locked || currentOwnedSourceHost() == null) return
         controller.seekRelative(deltaMs)
         showHint(deltaMs, controller.snapshot.value.currentPosition)
         controls.onUserInteraction()
     }
 
     fun handleDoubleTap(xFraction: Float) {
-        if (locked) return
-        val currentPos = controller.snapshot.value.currentPosition
-        val action = tap.onDoubleTap(xFraction, SystemClock.uptimeMillis(), currentPos)
-        when (action) {
-            TapActionState.DoubleTapAction.SEEK_BACK -> {
-                // 目标 = 连续序列起始位置 + 累计增量；clamp 到 [0, duration]
-                val target = tap.targetPositionMs().coerceAtLeast(0L)
-                controller.seekTo(target)
-                showHint(tap.accumulatedDeltaMs, target)
-            }
-            TapActionState.DoubleTapAction.SEEK_FORWARD -> {
-                val maxTarget = controller.snapshot.value.duration
-                val target = tap.targetPositionMs().coerceAtMost(maxTarget.coerceAtLeast(0L))
-                controller.seekTo(target)
-                showHint(tap.accumulatedDeltaMs, target)
-            }
-            TapActionState.DoubleTapAction.TOGGLE_PLAY_PAUSE -> {
-                tap.reset()
-                controller.togglePlayPause()
-            }
-        }
+        if (!foreground || locked) return
+        val host = currentOwnedSourceHost() ?: return
+        val manager = host.getGSYVideoManager()
+        // 刚完成拖动时绘制快照可能仍是旧进度；双击以当前所属内核为准。
+        val result = tap.tap(xFraction, SystemClock.uptimeMillis(), manager.currentPosition, manager.duration)
+        controller.seekTo(result.targetMs)
+        showHint(result.accumulatedDeltaMs, result.targetMs)
         controls.onUserInteraction()
     }
 
-    fun startTempSpeed() {
-        if (locked) return
-        speed.startTemp(snapshot.speed, snapshot.isPlaying)
-        if (speed.tempActive) controller.setSpeed(SpeedState.TEMP_SPEED)
-    }
-
-    fun endTempSpeed() {
-        if (speed.tempActive) {
-            controller.setSpeed(speed.endTemp())
+    fun applySpeed(change: SpeedGestureChange) {
+        if (currentOwnedSourceHost() != null) controller.setSpeed(change.speed)
+        speedMode = speed.mode
+        if (change.haptic) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        change.feedback?.let { message ->
+            speedFeedback = message
+            speedHintJob?.cancel()
+            speedHintJob = scope.launch { delay(800L); speedFeedback = null }
         }
     }
+
+    fun endTempSpeed() { applySpeed(speed.cancel()) }
 
     fun toggleLock() {
         val next = !locked
         if (next) {
-            seekPreview.onCancel()
-            scrub.cancel()
+            val resumeBody = bodySeek.cancel()
+            val resumeScrub = scrub.cancel()
+            resumeAfterSeekGesture = false
+            resumeAfterScrub = false
+            if ((resumeBody || resumeScrub) && foreground && sourceMatchesLoaded()) resumeOwned()
             seekHint = null
             brightnessPct = null
             volumePct = null
@@ -398,18 +559,25 @@ fun GsyNativePlayerScreen(
 
     // ---------- 播放源应用（Ready 变化时；URL 与 headers 必须成对切换） ----------
     // 放在交互函数声明之后：本 effect 会清理手势 / 临时倍速状态（Kotlin 局部函数须先声明后使用）。
-    LaunchedEffect(ready?.source?.mediaId, ready?.stage, ready?.endpoint?.url) {
+    LaunchedEffect(ready?.source?.mediaId, ready?.stage, ready?.endpoint?.url, foreground) {
+        if (!foreground) return@LaunchedEffect
         val current = ready ?: return@LaunchedEffect
         // 等 host attach + 完成首次布局：可取消（换源/退出即取消），无悬挂 postDelayed
         if (!awaitPlayerHostReady(controller)) return@LaunchedEffect
+        if (!foreground) return@LaunchedEffect
+        val latest = latestPlaybackState.ui as? V2PlaybackUiState.Ready ?: return@LaunchedEffect
+        if (latest.source.mediaId != latestPlaybackState.currentMediaId || latest.source.mediaId != current.source.mediaId ||
+            latest.stage != current.stage || latest.endpoint.url != current.endpoint.url) return@LaunchedEffect
+        controller.withHost { ownedHost = it }
         val sameSource =
-            current.source.mediaId == loadedMediaId && current.stage == loadedStage
+            current.source.mediaId == loadedMediaId && current.stage == loadedStage && current.endpoint.url == loadedEndpointUrl
         if (!sameSource) {
+            if (current.source.mediaId != loadedMediaId) userWantsPlayback = true
             tap.reset()
             seekHint = null
             brightnessPct = null
             volumePct = null
-            seekPreview.onCancel()
+            bodySeek.cancel()
             scrub.cancel()
             endTempSpeed()
             controller.setLocked(false)
@@ -429,16 +597,19 @@ fun GsyNativePlayerScreen(
                         V2Perf.player()?.markOnce("first_frame", "first_frame")
                     }
                 }
+            pauseOwned()
+            sourceStarted = false
             controller.setUp(option, false)
             loadedMediaId = current.source.mediaId
+            loadedEndpointUrl = current.endpoint.url
             loadedStage = current.stage
             pendingResumeMs = if (current.stage == V2PlaybackStage.DIRECT) {
                 current.source.resumePositionMs
             } else {
                 0L
             }
-            onReportProgress(0L, false)
-            controller.play()
+            if (foreground && userWantsPlayback) onReportLoadedProgress(loadedMediaId, 0L, false)
+            resumeOwned()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "MRPlayer",
@@ -447,12 +618,76 @@ fun GsyNativePlayerScreen(
                 )
             }
         } else {
-            controller.play()
+            resumeOwned()
         }
-        controller.setSpeed(speed.expectedSpeed)
+        if (currentOwnedSourceHost() != null) controller.setSpeed(speed.effectiveSpeed)
         controls.onUserInteraction()
     }
 
+    // 旧视频在新条目解析阶段即停声，Poster保留到新内核持续前进。
+    LaunchedEffect(sourceIsCurrent, state.currentMediaId) {
+        // setUp可能先更新loaded字段；执行时核对最新状态，不能用旧composition的false暂停新内核。
+        val expected = latestPlaybackState.ui as? V2PlaybackUiState.Ready
+        val loadedMatches = expected != null && expected.source.mediaId == latestPlaybackState.currentMediaId &&
+            expected.source.mediaId == loadedMediaId && expected.stage == loadedStage && expected.endpoint.url == loadedEndpointUrl
+        if (loadedMediaId.isNotEmpty() && !loadedMatches) {
+            // 选择已变化或正在解析：取消旧手势，禁止旧up/cancel重新播放旧源。
+            bodySeek.cancel()
+            scrub.cancel()
+            resumeAfterSeekGesture = false
+            resumeAfterScrub = false
+            seekHint = null
+            tap.reset()
+            endTempSpeed()
+            pauseOwned()
+        }
+    }
+    LaunchedEffect(loadedMediaId, loadedStage, loadedEndpointUrl, ready?.stage, ready?.endpoint?.url, foreground) {
+        val observedMediaId = loadedMediaId
+        val observedStage = loadedStage
+        val observedUrl = loadedEndpointUrl
+        var firstPositive: Long? = null
+        var stableSent = false
+        var observedPlayer: tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer? = null
+        snapshotFlow { controller.snapshot.value }
+            .collect {
+                val expected = latestPlaybackState.ui as? V2PlaybackUiState.Ready
+                val identityMatches = foreground && expected != null && observedMediaId.isNotEmpty() &&
+                    expected.source.mediaId == latestPlaybackState.currentMediaId &&
+                    expected.source.mediaId == observedMediaId && expected.stage == observedStage &&
+                    expected.endpoint.url == observedUrl && loadedMediaId == observedMediaId &&
+                    loadedStage == observedStage && loadedEndpointUrl == observedUrl
+                var player: tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer? = null
+                var playing = false
+                var position = 0L
+                if (identityMatches) controller.withHost { host ->
+                    if (currentOwnedSourceHost() !== host) return@withHost
+                    val manager = host.getGSYVideoManager()
+                    player = (manager.player?.mediaPlayer as? tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer)
+                        ?.takeIf { it.dataSource == observedUrl }
+                    if (player != null) {
+                        playing = manager.isPlaying
+                        position = manager.currentPosition
+                    }
+                }
+                if (player !== observedPlayer) {
+                    observedPlayer = player
+                    firstPositive = null
+                    stableSent = false
+                }
+                if (identityMatches && player != null && playing && position > 0L) {
+                    val baseline = firstPositive
+                    if (baseline == null || position < baseline) firstPositive = position
+                    else {
+                        if (position > baseline + 100L) playbackAdvanced = true
+                        if (!stableSent && position >= baseline + 500L) {
+                            stableSent = true
+                            onPlaybackStable(observedMediaId)
+                        }
+                    }
+                } else firstPositive = null
+            }
+    }
     // 中央覆盖层：加载中 / 解析失败由 ViewModel 状态决定，其余沿用内核状态
     val centerOverlay = when {
         failure != null -> PlaybackUiMapper.CenterOverlay.ERROR
@@ -468,105 +703,78 @@ fun GsyNativePlayerScreen(
     }
 
     val displayPosition = when {
-        scrub.isScrubbing -> scrub.previewMs
-        seekPreview.isActive -> seekPreview.targetMs
+        scrub.active -> scrubPreviewMs
+        bodySeek.active -> bodySeekPreviewMs
         else -> resolvedPosition
     }
 
-    // 拖动期内核虽暂停，中央按钮仍维持拖动前的播放/暂停图标，避免图标抖动。
-    val centerIsPlaying = PlaybackUiMapper.isPlaying(snapshot.state) || resumeAfterScrub || resumeAfterSeekGesture
+    // 临时手势暂停不改变用户意图；迟到快照也不能隐藏用户明确暂停后的播放入口。
+    val centerIsPlaying = userWantsPlayback
 
-    // ---------- 手势层（GSY 纵向 + MediaReview 横向/点击） ----------
-    val gestureModifier = Modifier
-        .gsyGestureControl(
-            controller = controller,
-            enableSeek = false,
-            enableVolume = true,
-            enableBrightness = true,
-            onGestureUpdate = { update ->
-                // 任何手势开始都结束临时 2x（长按后直接拖动的情况）
-                if (update.type != GSYGestureType.None) endTempSpeed()
-                when (update.type) {
-                    GSYGestureType.Brightness -> {
-                        brightnessPct = (update.progress * 100).roundToInt().coerceIn(0, 100)
-                        volumePct = null
-                        restartHintDismiss()
-                    }
-                    GSYGestureType.Volume -> {
-                        volumePct = (update.progress * 100).roundToInt().coerceIn(0, 100)
-                        brightnessPct = null
-                        restartHintDismiss()
-                    }
-                    else -> Unit
+    // 一次pointer sequence只由一类手势接管，Full/Review共用该方向及速度实现。
+    val gestureModifier = rememberPlayerBodyGestures(
+        enabled = foreground && !locked && sheet == null && sourceIsCurrent,
+        speed = speed,
+        callbacks = PlayerBodyGestureCallbacks(
+            isPlaying = ::kernelIsPlaying,
+            onTap = { controls.toggleVisibility() },
+            onDoubleTap = { handleDoubleTap(it) },
+            onSpeedChange = { applySpeed(it) },
+            onSeekStart = {
+                currentOwnedSourceHost()?.let { host ->
+                    val manager = host.getGSYVideoManager()
+                    bodySeekStartMs = manager.currentPosition
+                    bodySeekDurationMs = manager.duration
+                    resumeAfterSeekGesture = bodySeek.begin(bodySeekStartMs, bodySeekDurationMs, manager.isPlaying)
+                    bodySeekPreviewMs = bodySeek.previewMs
+                    if (resumeAfterSeekGesture) pauseOwned()
                 }
             },
-            onGestureCommit = { },
-        )
-        .pointerInput(controller) {
-            var accX = 0f
-            detectHorizontalDragGestures(
-                onDragStart = { offset ->
-                    if (!controller.snapshot.value.isLocked && controller.snapshot.value.duration > 0L) {
-                        endTempSpeed()
-                        seekPreview.onStart(controller.snapshot.value.currentPosition, offset.x, size.width.toFloat())
-                        accX = 0f
-                        resumeAfterSeekGesture = controller.snapshot.value.isPlaying
-                        if (resumeAfterSeekGesture) controller.pause()
-                    }
-                },
-                onDragEnd = {
-                    if (seekPreview.isActive) {
-                        val seekTarget = seekPreview.onEnd()
-                        if (seekTarget != null) controller.seekTo(seekTarget)
-                        showHint(seekPreview.deltaMs, seekPreview.targetMs)
-                        if (resumeAfterSeekGesture) controller.play()
-                        resumeAfterSeekGesture = false
-                        controls.onUserInteraction()
-                    }
-                },
-                onDragCancel = {
-                    if (seekPreview.isActive) {
-                        seekPreview.onCancel()
-                        seekHint = null
-                        if (resumeAfterSeekGesture) controller.play()
-                        resumeAfterSeekGesture = false
-                    }
-                },
-                onHorizontalDrag = { change, dragAmount ->
-                    if (seekPreview.isActive) {
-                        change.consume()
-                        accX += dragAmount
-                        seekPreview.onDrag(seekPreview.startX + accX, controller.snapshot.value.duration)
-                        if (seekPreview.deltaMs != 0L) {
-                            seekHint = GsyNativeSeekHint(seekPreview.deltaMs, seekPreview.targetMs)
-                        }
-                    }
-                },
-            )
-        }
-        .pointerInput(controller) {
-            detectTapGestures(
-                onPress = { _ ->
-                    tryAwaitRelease()
-                    endTempSpeed()
-                },
-                onTap = {
-                    if (!controller.snapshot.value.isLocked) {
-                        controls.toggleVisibility()
-                    }
-                },
-                onDoubleTap = { offset ->
-                    if (!controller.snapshot.value.isLocked) {
-                        handleDoubleTap(offset.x / size.width.coerceAtLeast(1).toFloat())
-                    }
-                },
-                onLongPress = {
-                    if (!controller.snapshot.value.isLocked) {
-                        startTempSpeed()
-                    }
-                },
-            )
-        }
+            onSeekMove = { delta ->
+                val target = bodySeekStartMs + (delta * bodySeekDurationMs).toLong()
+                bodySeek.preview(target)
+                bodySeekPreviewMs = bodySeek.previewMs
+                seekHint = GsyNativeSeekHint(bodySeekPreviewMs - bodySeekStartMs, bodySeekPreviewMs, bodyGesture = true)
+            },
+            onSeekEnd = {
+                (if (foreground && currentOwnedSourceHost() != null) bodySeek.commit() else { bodySeek.cancel(); null })?.let { result ->
+                    controller.seekTo(result.targetMs)
+                    // 默认resume会seek回pause缓存的旧位置，覆盖刚提交的seek。
+                    if (result.resumePlaying) resumeOwned()
+                }
+                resumeAfterSeekGesture = false
+                seekHint = null
+            },
+            onSeekCancel = {
+                if (bodySeek.cancel() && foreground && sourceMatchesLoaded()) resumeOwned()
+                resumeAfterSeekGesture = false
+                seekHint = null
+            },
+            onVerticalStart = {
+                val windowBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+                verticalStartBrightness = if (windowBrightness >= 0f) windowBrightness else
+                    Settings.System.getInt(appContext.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f
+                verticalStartVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+            },
+            onVerticalMove = { _, total, side ->
+                if (side < .5f) {
+                    val value = (verticalStartBrightness - total).coerceIn(.01f, 1f)
+                    activity?.window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = value } }
+                    brightnessPct = (value * 100).roundToInt()
+                    volumePct = null
+                } else {
+                    val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    val value = (verticalStartVolume - total * max).roundToInt().coerceIn(0, max)
+                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0)
+                    volumePct = if (max > 0) value * 100 / max else 0
+                    brightnessPct = null
+                }
+            },
+            onVerticalEnd = { restartHintDismiss() },
+            onVerticalCancel = { brightnessPct = null; volumePct = null },
+            onActive = { gestureActive = it },
+        ),
+    )
 
     // Debug-only：三层边界可视化，默认关闭；release 构建恒不生效
     fun Modifier.debugBounds(layer: PlayerLayoutDebug.Layer): Modifier =
@@ -588,8 +796,17 @@ fun GsyNativePlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
+        if (posterAlpha > 0f && state.current?.posterUrl != null) {
+            AsyncImage(
+                model = state.current?.posterUrl,
+                contentDescription = "视频封面",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = posterAlpha },
+            )
+        }
+
         // 手势层
-        Box(modifier = Modifier.fillMaxSize().then(gestureModifier))
+        Box(modifier = Modifier.fillMaxSize().then(gestureModifier).testTag("player_gesture_surface"))
 
         // 控制层（播放 3s 无操作自动隐藏 / 暂停保持 / 锁定隐藏）
         if (controlsVisible && !locked) {
@@ -604,18 +821,12 @@ fun GsyNativePlayerScreen(
                     .debugBounds(PlayerLayoutDebug.Layer.TOP),
             )
 
-            // CENTER：上一条 / 快退 / 播放暂停 / 快进 / 下一条（独立居中，不受 BottomBar 尺寸影响）
+            // CENTER：暂停时单一播放入口，正常播放不遮挡画面
             // 缓冲 / 完成 / 错误时中央交给 GsyNativeIndicators 独占，避免重叠
             if (centerOverlay == PlaybackUiMapper.CenterOverlay.NONE) {
                 GsyNativeCenterControls(
                     isPlaying = centerIsPlaying,
-                    hasPrevious = state.hasPrevious,
-                    hasNext = state.hasNext,
-                    onPrevious = { goPrevious() },
-                    onRewind = { seekRelative(-10_000L) },
                     onPlayPause = { togglePlayPause() },
-                    onForward = { seekRelative(10_000L) },
-                    onNext = { goNext() },
                     modifier = Modifier
                         .align(Alignment.Center)
                         .debugBounds(PlayerLayoutDebug.Layer.CENTER),
@@ -632,19 +843,32 @@ fun GsyNativePlayerScreen(
                 scaleLabel = scale.mode.label,
                 locked = false,
                 isFullscreen = isFullscreen,
+                hasPrevious = state.hasPrevious,
+                hasNext = state.hasNext,
+                seekEnabled = foreground && sourceIsCurrent,
+                onPrevious = { goPrevious() },
+                onNext = { goNext() },
+                onScrubStart = {
+                    val current = controller.snapshot.value
+                    resumeAfterScrub = scrub.begin(current.currentPosition, current.duration, kernelIsPlaying())
+                    scrubPreviewMs = scrub.previewMs
+                    if (resumeAfterScrub) pauseOwned()
+                    controls.onUserInteraction()
+                },
                 onScrub = { value ->
-                    if (!scrub.isScrubbing) {
-                        scrub.begin(snapshot.currentPosition)
-                        resumeAfterScrub = snapshot.isPlaying
-                        if (resumeAfterScrub) controller.pause()
-                        controls.onUserInteraction()
-                    }
-                    scrub.update(value.toLong())
+                    scrub.preview(value)
+                    scrubPreviewMs = scrub.previewMs
                 },
                 onScrubEnd = {
-                    val scrubTarget = scrub.commit()
-                    if (scrubTarget != null) controller.seekTo(scrubTarget)
-                    if (resumeAfterScrub) controller.play()
+                    (if (foreground && currentOwnedSourceHost() != null) scrub.commit() else { scrub.cancel(); null })?.let { result ->
+                        controller.seekTo(result.targetMs)
+                        if (result.resumePlaying) resumeOwned()
+                    }
+                    resumeAfterScrub = false
+                    controls.onUserInteraction()
+                },
+                onScrubCancel = {
+                    if (scrub.cancel() && foreground && sourceMatchesLoaded()) resumeOwned()
                     resumeAfterScrub = false
                     controls.onUserInteraction()
                 },
@@ -680,16 +904,22 @@ fun GsyNativePlayerScreen(
         }
 
         // 指示器（Loading / Seek 提示 / 音量亮度 / 临时 2x / Completed / Error）
-        GsyNativeIndicators(
+        if (!locked) GsyNativeIndicators(
             overlay = centerOverlay,
             seekHint = seekHint,
             seekDurationMs = snapshot.duration,
             brightnessPct = brightnessPct,
             volumePct = volumePct,
-            tempSpeedActive = speed.tempActive,
+            tempSpeedActive = speedMode == SpeedGestureMode.Temp2x,
+            speedFeedback = speedFeedback,
             hasNext = state.hasNext,
             errorMessage = failure?.message,
-            onRestart = { controller.retry() },
+            onRestart = {
+                if (foreground && currentOwnedSourceHost() != null) {
+                    userWantsPlayback = true
+                    resumeOwned(explicitReplay = true)
+                }
+            },
             onNext = { goNext() },
             onRetry = { onRetry() },
             onBack = { handlePlayerBack() },
@@ -700,23 +930,24 @@ fun GsyNativePlayerScreen(
     // ---------- 底部面板 ----------
     when (sheet) {
         PlayerSheet.MORE -> GsyNativeMoreSheet(
+            isPlaying = userWantsPlayback && ownedHost?.currentState != GSYVideoView.CURRENT_STATE_AUTO_COMPLETE,
+            onPlayPause = { togglePlayPause(); sheet = null },
             hasPrevious = state.hasPrevious,
             hasNext = state.hasNext,
             onPrevious = { goPrevious(); sheet = null },
             onNext = { goNext(); sheet = null },
             onSpeed = { sheet = PlayerSheet.SPEED },
             onScale = { sheet = PlayerSheet.SCALE },
-            onRotation = { sheet = PlayerSheet.ROTATION },
-            onSubtitle = { sheet = PlayerSheet.SUBTITLE },
-            onAudio = { sheet = PlayerSheet.AUDIO },
             onInfo = { sheet = PlayerSheet.INFO },
+            onAudio = if (sourceIsCurrent && audioTrackSnapshot?.menu?.canSelect == true) {
+                { sheet = PlayerSheet.AUDIO }
+            } else null,
             onDismiss = { sheet = null },
         )
         PlayerSheet.SPEED -> GsyNativeSpeedSheet(
-            current = snapshot.speed,
+            current = speed.formalSpeed,
             onSelect = { s ->
-                speed.setExpected(s)
-                controller.setSpeed(s)
+                applySpeed(speed.formalSpeedChanged(s))
                 sheet = null
                 controls.onUserInteraction()
             },
@@ -735,21 +966,20 @@ fun GsyNativePlayerScreen(
             },
             onDismiss = { sheet = null },
         )
-        PlayerSheet.ROTATION -> GsyNativeStatusSheet(
-            title = "旋转画面",
-            statusLine = "0°/90°/180°/270°：GSY 13.2.1 未提供公开视频旋转 API，本轮 BACKEND DEFERRED",
-            onDismiss = { sheet = null },
-        )
-        PlayerSheet.SUBTITLE -> GsyNativeStatusSheet(
-            title = "字幕",
-            statusLine = "暂无可用字幕（外挂 SRT 能力架构已预留，BACKEND DEFERRED）",
-            onDismiss = { sheet = null },
-        )
-        PlayerSheet.AUDIO -> GsyNativeStatusSheet(
-            title = "音轨",
-            statusLine = "默认（本地 Demo 仅一个音轨，多音轨后端预留）",
-            onDismiss = { sheet = null },
-        )
+        PlayerSheet.AUDIO -> audioTrackSnapshot?.takeIf { sourceIsCurrent && it.menu.canSelect }?.let { tracks ->
+            com.mediareview.app.feature.v2.player.native.ui.GsyAudioTrackSheet(
+                menu = tracks.menu,
+                onSelect = { choice ->
+                    val current = latestAudioSource
+                    if (current.first && audioTracks.select(tracks, choice, current.second)) {
+                        // 参数异步生效；勾选只来自内核回读，不乐观标记。
+                        audioTrackSnapshot = audioTracks.read(current.second)
+                        controls.onUserInteraction()
+                    }
+                },
+                onDismiss = { sheet = null },
+            )
+        }
         PlayerSheet.INFO -> GsyNativeVideoInfoSheet(
             title = state.current?.title ?: "",
             durationMs = snapshot.duration,

@@ -14,9 +14,7 @@ class VideoScaleState {
         /** 裁剪（GSY SCREEN_TYPE_FULL：填满并裁剪溢出） */
         CROP("裁剪", GSYVideoType.SCREEN_TYPE_FULL),
         /** 填充（GSY SCREEN_MATCH_FULL：拉伸铺满） */
-        FILL("填充", GSYVideoType.SCREEN_MATCH_FULL),
-        R16_9("16:9", GSYVideoType.SCREEN_TYPE_16_9),
-        R4_3("4:3", GSYVideoType.SCREEN_TYPE_4_3),
+        FILL("填满", GSYVideoType.SCREEN_MATCH_FULL),
     }
 
     var mode = ScaleMode.FIT

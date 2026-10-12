@@ -5,16 +5,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.waitUntilExactlyOneExists
 
-import androidx.test.espresso.Espresso
+import android.view.KeyEvent
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.mediareview.app.HiltTestActivity
 import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import com.mediareview.app.feature.v2.model.V2PlaybackStage
@@ -35,7 +40,7 @@ import org.junit.runner.RunWith
  * 直接挂载真实 GSY Native 播放器，验证 TOP / CENTER / BOTTOM 三层控件存在、
  * 三层边界不交叠，更多 / 倍速 / 比例三个 Sheet 可以正常打开。
  *
- * Stage6 增补：中央成熟播放器标准 5 键（上一条 / 快退 / 播放 / 快进 / 下一条）存在，
+ * Stage8H：暂停中央单播放，导航到底栏且快进按钮不存在，
  * 且首集"上一条"、末集"下一条"按列表边界置灰禁用。
  */
 @OptIn(ExperimentalTestApi::class)
@@ -43,7 +48,7 @@ import org.junit.runner.RunWith
 class GsyNativePlayerLayoutTest {
 
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<HiltTestActivity>()
 
     private fun demoItem(index: Int, title: String) = PlaybackQueueItem(
         mediaId = "demo-$index",
@@ -93,20 +98,18 @@ class GsyNativePlayerLayoutTest {
     /** 进入播放器后立即暂停，保证控制层常驻，便于断言。 */
     private fun launchAndPause(startIndex: Int = 0) {
         launchPlayer(startIndex)
-        // swiftshader 软解 + GSY 起播时序较慢：中央主按钮渲染出来即可
-        // （播放中 contentDescription 为「暂停」，尚未起播 / 已暂停为「播放」），
-        // 不把软解环境的起播延迟误判为布局失败。
-        // Stage 8D：全量套件在同一台软件渲染模拟器上顺序运行时 CPU 争用明显，
-        // 播放器首帧可能 >30s 才就绪；这里把等待预算提高到 60s，
-        // 只放宽"等待时间"，不放宽任何布局/可用性断言（避免把环境慢误判为产品缺陷）。
+        // Full正常播放时中央无按钮；通过实际更多菜单暂停，检查真实产品控制布局。
         compose.waitUntil(60_000) {
-            compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("暂停")).fetchSemanticsNodes().isNotEmpty() ||
-                compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("播放")).fetchSemanticsNodes().isNotEmpty()
+            var playing = false
+            compose.runOnUiThread { playing = com.shuyu.gsyvideoplayer.GSYVideoManager.instance().isPlaying }
+            playing
         }
-        // 若已在播放则点中央按钮暂停，使控制层常驻，便于布局断言
-        if (compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("暂停")).fetchSemanticsNodes().isNotEmpty()) {
-            compose.onNodeWithContentDescription("暂停").performClick()
+        if (compose.onAllNodesWithTag("player_top_bar").fetchSemanticsNodes().isEmpty()) {
+            compose.onNodeWithTag("player_gesture_surface").performTouchInput { click(center) }
         }
+        compose.waitUntilExactlyOneExists(androidx.compose.ui.test.hasContentDescription("更多"), 5_000)
+        compose.onNodeWithContentDescription("更多").performClick()
+        compose.onNodeWithText("暂停播放").performClick()
         compose.waitUntilExactlyOneExists(
             matcher = androidx.compose.ui.test.hasContentDescription("播放"),
             timeoutMillis = 20_000,
@@ -122,15 +125,15 @@ class GsyNativePlayerLayoutTest {
         compose.onNodeWithContentDescription("返回").assertExists()
         compose.onNodeWithContentDescription("更多").assertExists()
         // CENTER（Stage6：5 键 = 上一条 / 快退 / 播放 / 快进 / 下一条）
-        compose.onNodeWithTag("player_center_controls").assertExists()
+        compose.onNodeWithTag("player_btn_play_pause").assertExists()
         compose.onNodeWithContentDescription("上一条").assertExists()
-        compose.onNodeWithContentDescription("快退10秒").assertExists()
+        compose.onNodeWithContentDescription("快退10秒").assertDoesNotExist()
         compose.onNodeWithContentDescription("播放").assertExists()
-        compose.onNodeWithContentDescription("快进10秒").assertExists()
+        compose.onNodeWithContentDescription("快进10秒").assertDoesNotExist()
         compose.onNodeWithContentDescription("下一条").assertExists()
         // BOTTOM
         compose.onNodeWithTag("player_bottom_bar").assertExists()
-        compose.onNodeWithText("1x").assertExists()
+        compose.onNodeWithText("1×").assertExists()
         compose.onNodeWithText("适应").assertExists()
         compose.onNodeWithContentDescription("锁定").assertExists()
         compose.onNodeWithContentDescription("全屏").assertExists()
@@ -155,7 +158,7 @@ class GsyNativePlayerLayoutTest {
         launchAndPause()
 
         val top = compose.onNodeWithTag("player_top_bar").fetchSemanticsNode().boundsInRoot
-        val center = compose.onNodeWithTag("player_center_controls").fetchSemanticsNode().boundsInRoot
+        val center = compose.onNodeWithTag("player_btn_play_pause").fetchSemanticsNode().boundsInRoot
         val bottom = compose.onNodeWithTag("player_bottom_bar").fetchSemanticsNode().boundsInRoot
 
         assertTrue("TOP 底边不得侵入 CENTER：top.bottom=${top.bottom} center.top=${center.top}",
@@ -175,15 +178,15 @@ class GsyNativePlayerLayoutTest {
         compose.onNodeWithText("上一条").assertExists()
         compose.onNodeWithText("下一条").assertExists()
         compose.onNodeWithText("画面比例").assertExists()
-        compose.onNodeWithText("字幕").assertExists()
-        compose.onNodeWithText("音轨").assertExists()
+        compose.onNodeWithText("字幕").assertDoesNotExist()
+        compose.onNodeWithText("音轨").assertDoesNotExist()
         compose.onNodeWithText("视频信息").assertExists()
     }
 
     @Test
     fun 倍速Sheet可以打开并展示速度选项() {
         launchAndPause()
-        compose.onNodeWithText("1x").performClick()
+        compose.onNodeWithText("1×").performClick()
         // SpeedSheet 独有选项
         compose.waitUntilExactlyOneExists(
             matcher = androidx.compose.ui.test.hasText("1.5x"),
@@ -202,20 +205,81 @@ class GsyNativePlayerLayoutTest {
             matcher = androidx.compose.ui.test.hasText("裁剪"),
             timeoutMillis = 5_000,
         )
-        compose.onNodeWithText("填充").assertExists()
-        compose.onNodeWithText("16:9").assertExists()
-        compose.onNodeWithText("4:3").assertExists()
+        compose.onNodeWithText("填满").assertExists()
+        compose.onNodeWithText("16:9").assertDoesNotExist()
+        compose.onNodeWithText("4:3").assertDoesNotExist()
+    }
+
+
+    /** 仅正常确认真实可读的系统沉浸引导，不绕过焦点、不写Settings。 */
+    @Suppress("DEPRECATION")
+    private fun confirmVisibleSystemImmersiveGuideAndWaitForAppFocus() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val systemPackages = setOf("android", "com.android.systemui")
+        var clickedGuide = false
+        var observedPackage = "unavailable"
+        compose.waitUntil(5_000) {
+            val root = automation.rootInActiveWindow
+            if (root != null) {
+                try {
+                    observedPackage = root.packageName?.toString() ?: "unavailable"
+                    if (!clickedGuide && observedPackage in systemPackages) {
+                        // 文案只有实际树存在时才参与点击；绝不点击App里的同名按钮。
+                        val nodes = root.findAccessibilityNodeInfosByText("Got it")
+                        try {
+                            val button = nodes.singleOrNull {
+                                it.packageName?.toString() in systemPackages &&
+                                    it.text?.toString() == "Got it" &&
+                                    it.className?.toString() == "android.widget.Button" &&
+                                    it.isVisibleToUser && it.isEnabled && it.isClickable &&
+                                    it.actionList.any { action -> action.id == android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK }
+                            }
+                            if (button != null) {
+                                assertTrue("真实系统引导按钮ACTION_CLICK应成功",
+                                    button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                                clickedGuide = true
+                            }
+                        } finally {
+                            nodes.forEach { it.recycle() }
+                        }
+                    }
+                } finally {
+                    root.recycle()
+                }
+            }
+            var appWindowFocused = false
+            compose.runOnUiThread {
+                appWindowFocused = android.view.inspector.WindowInspector.getGlobalWindowViews().any { it.hasWindowFocus() }
+            }
+            if (!appWindowFocused) {
+                android.util.Log.d("MRLayoutTest", "awaitAppFocus rootPackage=$observedPackage guideClicked=$clickedGuide")
+            }
+            appWindowFocused
+        }
     }
 
     @Test
     fun back优先关闭Sheet而不是退出播放器() {
         launchAndPause()
+        confirmVisibleSystemImmersiveGuideAndWaitForAppFocus()
         compose.onNodeWithContentDescription("更多").performClick()
         compose.waitUntilExactlyOneExists(
             matcher = androidx.compose.ui.test.hasText("视频信息"),
             timeoutMillis = 5_000,
         )
-        Espresso.pressBack()
+        // Title semantics arrive during the entry animation, before the dialog owns key focus.
+        compose.waitForIdle()
+        compose.waitUntil(5_000) {
+            var dialogFocused = false
+            compose.runOnUiThread {
+                dialogFocused = android.view.inspector.WindowInspector.getGlobalWindowViews().any {
+                    it !== compose.activity.window.decorView && it.hasWindowFocus()
+                }
+            }
+            dialogFocused
+        }
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("视频信息").fetchSemanticsNodes().isEmpty() }
         // Sheet 关闭后，BottomBar 仍在（未退出播放器）
         compose.onNodeWithTag("player_bottom_bar").assertExists()
     }

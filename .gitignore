@@ -57,6 +57,7 @@ runtime/
 # Stage 8E.1 isolated upgrade fixtures (including approval-blocked cleanup evidence)
 temp/managed-upgrade-fixtures/
 temp/stage8g-emulator/
+temp/stage8h-player/
 
 # OS/editor noise
 Thumbs.db

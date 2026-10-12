@@ -17,21 +17,19 @@ class VideoScaleStateTest {
         assertEquals(GSYVideoType.SCREEN_TYPE_DEFAULT, VideoScaleState.ScaleMode.FIT.gsyShowType)
         assertEquals(GSYVideoType.SCREEN_TYPE_FULL, VideoScaleState.ScaleMode.CROP.gsyShowType)
         assertEquals(GSYVideoType.SCREEN_MATCH_FULL, VideoScaleState.ScaleMode.FILL.gsyShowType)
-        assertEquals(GSYVideoType.SCREEN_TYPE_16_9, VideoScaleState.ScaleMode.R16_9.gsyShowType)
-        assertEquals(GSYVideoType.SCREEN_TYPE_4_3, VideoScaleState.ScaleMode.R4_3.gsyShowType)
     }
 
     @Test
     fun `set 切换比例`() {
         val state = VideoScaleState()
-        state.set(VideoScaleState.ScaleMode.R16_9)
-        assertEquals(VideoScaleState.ScaleMode.R16_9, state.mode)
+        state.set(VideoScaleState.ScaleMode.CROP)
+        assertEquals(VideoScaleState.ScaleMode.CROP, state.mode)
     }
 
     @Test
     fun `标签中文`() {
         assertEquals("适应", VideoScaleState.ScaleMode.FIT.label)
         assertEquals("裁剪", VideoScaleState.ScaleMode.CROP.label)
-        assertEquals("填充", VideoScaleState.ScaleMode.FILL.label)
+        assertEquals("填满", VideoScaleState.ScaleMode.FILL.label)
     }
 }

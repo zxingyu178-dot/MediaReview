@@ -8,6 +8,7 @@
     <application>
         <activity
             android:name="com.mediareview.app.HiltTestActivity"
-            android:exported="true" />
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
     </application>
 </manifest>

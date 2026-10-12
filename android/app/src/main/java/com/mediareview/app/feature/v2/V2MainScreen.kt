@@ -270,6 +270,8 @@ fun V2MainScreen(
                             playerViewModel.onPlaybackFailed(failingMediaId)
                         },
                         onRetry = { playerViewModel.retry() },
+                        onPlaybackStable = playerViewModel::onPlaybackStable,
+                        onReportLoadedProgress = playerViewModel::reportLoadedProgress,
                         onReportProgress = { positionMs, isPaused ->
                             playerViewModel.reportProgress(positionMs, isPaused)
                         },

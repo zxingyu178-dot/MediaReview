@@ -34,28 +34,27 @@ fun formatSpeedLabel(speed: Float): String =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GsyNativeMoreSheet(
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
     hasPrevious: Boolean,
     hasNext: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSpeed: () -> Unit,
     onScale: () -> Unit,
-    onRotation: () -> Unit,
-    onSubtitle: () -> Unit,
-    onAudio: () -> Unit,
     onInfo: () -> Unit,
     onDismiss: () -> Unit,
+    onAudio: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetTitle("更多")
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            MoreRow(if (isPlaying) "暂停播放" else "继续播放", onClick = onPlayPause)
             MoreRow("上一条", enabled = hasPrevious, onClick = onPrevious)
             MoreRow("下一条", enabled = hasNext, onClick = onNext)
             MoreRow("播放速度", onClick = onSpeed)
             MoreRow("画面比例", onClick = onScale)
-            MoreRow("旋转画面", onClick = onRotation)
-            MoreRow("字幕", onClick = onSubtitle)
-            MoreRow("音轨", onClick = onAudio)
+            if (onAudio != null) MoreRow("音轨", onClick = onAudio)
             MoreRow("视频信息", onClick = onInfo)
         }
     }
@@ -86,7 +85,7 @@ fun GsyNativeSpeedSheet(
     onSelect: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+    val speeds = com.mediareview.app.feature.v2.player.native.state.SpeedGestureState.FORMAL_SPEEDS
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetTitle("播放速度")
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
@@ -137,27 +136,6 @@ fun GsyNativeVideoInfoSheet(
             InfoRow("当前倍速", "${speedLabel}x")
             InfoRow("文件名", fileName)
             InfoRow("媒体 ID", mediaId)
-        }
-    }
-}
-
-/** 字幕 / 音轨 占位面板：UI READY / BACKEND DEFERRED（本阶段不伪造不存在的轨道）。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun GsyNativeStatusSheet(
-    title: String,
-    statusLine: String,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        SheetTitle(title)
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-            Text(
-                text = statusLine,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MediaTextSecondary,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
         }
     }
 }

@@ -49,6 +49,7 @@ import kotlin.math.abs
 data class GsyNativeSeekHint(
     val deltaMs: Long,
     val positionMs: Long,
+    val bodyGesture: Boolean = false,
 )
 
 /**
@@ -73,6 +74,7 @@ fun GsyNativeIndicators(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     errorMessage: String? = null,
+    speedFeedback: String? = null,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         if (overlay == CenterOverlay.LOADING) {
@@ -80,19 +82,31 @@ fun GsyNativeIndicators(
         }
 
         seekHint?.let { hint ->
-            SeekHintOverlay(
-                deltaMs = hint.deltaMs,
-                positionMs = hint.positionMs,
-                durationMs = seekDurationMs,
-                modifier = Modifier.align(Alignment.Center),
-            )
+            if (hint.bodyGesture) {
+                Text(
+                    "${formatDuration(hint.positionMs)} / ${formatDuration(seekDurationMs)}",
+                    color = MediaTextPrimary,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 112.dp)
+                        .background(MediaControlScrimSoft, RoundedCornerShape(6.dp)).padding(8.dp),
+                )
+            } else {
+                Text(
+                    "${if (hint.deltaMs >= 0L) "+" else "−"}${abs(hint.deltaMs) / 1000}s",
+                    color = MediaTextPrimary,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.align(if (hint.deltaMs >= 0L) Alignment.CenterEnd else Alignment.CenterStart)
+                        .padding(horizontal = 24.dp).background(MediaControlScrimSoft, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
         }
 
         volumePct?.let { pct ->
             HintBadge(
                 icon = Icons.Default.VolumeUp,
                 text = "$pct%",
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
             )
         }
 
@@ -100,11 +114,11 @@ fun GsyNativeIndicators(
             HintBadge(
                 icon = Icons.Default.BrightnessMedium,
                 text = "$pct%",
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
             )
         }
 
-        if (tempSpeedActive) {
+        if (tempSpeedActive || speedFeedback != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -112,7 +126,7 @@ fun GsyNativeIndicators(
                     .background(MediaControlScrimSoft, RoundedCornerShape(8.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Text("2.0x >>", style = MaterialTheme.typography.titleMedium, color = V2Colors.Accent)
+                Text(speedFeedback ?: "临时 2.0×", style = MaterialTheme.typography.labelLarge, color = V2Colors.Accent)
             }
         }
 
@@ -139,38 +153,11 @@ fun GsyNativeIndicators(
 private fun BufferingIndicator(modifier: Modifier = Modifier) {
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        delay(200L)
+        delay(300L)
         show = true
     }
     if (show) {
-        CircularProgressIndicator(color = MediaTextPrimary, strokeWidth = 3.dp, modifier = modifier.size(44.dp))
-    }
-}
-
-@Composable
-private fun SeekHintOverlay(
-    deltaMs: Long,
-    positionMs: Long,
-    durationMs: Long,
-    modifier: Modifier = Modifier,
-) {
-    val prefix = if (deltaMs >= 0) "+" else "-"
-    Column(
-        modifier = modifier
-            .background(MediaControlSurface, RoundedCornerShape(12.dp))
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = "$prefix${formatDuration(abs(deltaMs))}",
-            style = MaterialTheme.typography.titleLarge,
-            color = if (deltaMs >= 0) V2Colors.Accent else MediaTextPrimary,
-        )
-        Text(
-            text = "${formatDuration(positionMs)} / ${formatDuration(durationMs)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MediaTextPrimary.copy(alpha = 0.7f),
-        )
+        CircularProgressIndicator(color = MediaTextPrimary, strokeWidth = 3.dp, modifier = modifier.size(24.dp))
     }
 }
 

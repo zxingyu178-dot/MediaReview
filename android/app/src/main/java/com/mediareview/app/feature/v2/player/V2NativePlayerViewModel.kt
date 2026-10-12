@@ -68,6 +68,7 @@ class V2NativePlayerViewModel @Inject constructor(
 
     private var resolveJob: Job? = null
     private var prefetchJob: Job? = null
+    private var prefetchedToken: Int? = null
 
     /**
      * 打开播放器（队列 + 起始索引）。
@@ -114,7 +115,7 @@ class V2NativePlayerViewModel @Inject constructor(
      */
     fun retry() {
         _state.value = _state.value.copy(ui = V2PlaybackUiState.Loading)
-        load(_state.value.context.currentIndex, allowPrefetch = false)
+        load(_state.value.context.currentIndex)
     }
 
     /** 播放进度上报（Demo 无该能力时由 Repository 侧忽略；Server 为 POST /media/{id}/progress）。 */
@@ -127,7 +128,22 @@ class V2NativePlayerViewModel @Inject constructor(
 
     // ---------- 内部 ----------
 
-    private fun load(index: Int, allowPrefetch: Boolean = true) {
+    /** 内核停旧源时UI可能已选择下一条；进度归属必须来自实际装载的源。 */
+    fun reportLoadedProgress(mediaId: String, positionMs: Long, isPaused: Boolean) {
+        if (mediaId.isBlank() || _state.value.context.queue.none { it.mediaId == mediaId }) return
+        viewModelScope.launch { repository.reportProgress(mediaId, positionMs, isPaused) }
+    }
+
+    /** 仅实际内核持续播放后预解析下一条；地址就绪不代表正在播放。 */
+    fun onPlaybackStable(mediaId: String) {
+        val ready = _state.value.ui as? V2PlaybackUiState.Ready ?: return
+        if (mediaId != _state.value.currentMediaId || ready.source.mediaId != mediaId) return
+        if (prefetchedToken == sources.token) return
+        prefetchedToken = sources.token
+        prefetchNext()
+    }
+
+    private fun load(index: Int) {
         val item = _state.value.context.queue.getOrNull(index) ?: return
         resolveJob?.cancel()
         prefetchJob?.cancel()
@@ -144,7 +160,6 @@ class V2NativePlayerViewModel @Inject constructor(
                     return@launch
                 }
             apply(sources.onResolved(eventToken, resolved))
-            if (allowPrefetch) prefetchNext()
         }
     }
 
@@ -172,10 +187,16 @@ class V2NativePlayerViewModel @Inject constructor(
     private fun prefetchNext() {
         val context = _state.value.context
         val next = context.queue.getOrNull(context.currentIndex + 1) ?: return
+        val eventToken = sources.token
         prefetchJob = viewModelScope.launch {
-            val resolved = runCatching { repository.resolvePlayback(next.mediaId) }.getOrNull()
-                ?: return@launch
-            sources.prefetch(next.mediaId, resolved)
+            val resolved = try {
+                repository.resolvePlayback(next.mediaId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@launch
+            }
+            if (sources.token == eventToken) sources.prefetch(next.mediaId, resolved)
         }
     }
 

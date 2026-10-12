@@ -2461,3 +2461,69 @@ Album/Browse各独立LRU8，缓存已加载items/page/total/sort/anchor/updatedA
 最新专项JVM29项全部GREEN（Cold4/Folder5/HomePolicy3/Window6/ProgressIdentity1/Album10）；统一Debug和AndroidTest两APK构建6m43s成功。设备13项12PASS/1测试等待竞态，81.821s；最后一对14/15并发不能用15到达代表整批，测试等待改为两类16请求完成、保留精确16上限断言，AndroidTest增量构建1m46s及补验1/1 PASS12.941s。实际Home Coil绿色像素、元数据直接封面、分页取消/收藏/失效、3秒SWR失败留旧、大字体真实触摸、目录40子卡偏移、实际MainActivity配对后静态封面长按SpriteHTTP零均PASS。12项中另两项是Task4实际内核暂停seek30续播不回退与lock拖动恢复，不计为Task3功能。证据review_meta/stage8h/task3-reviewed-home-player-device.log、home-prefetch-wait-recheck-device.log、home-large-font-green.png、home-album-pixel-green.png。
 
 AVD一次启动停滞（offline/CPU停止/console timeout）按PID及启动参数核验后仅重启本次自有实例，userdata保留；不计产品RED。未操作用户手机或生产服务，未全量最终门禁/Release；Stage8H总体仍未完成。
+
+## 2026-10-11 Stage8H Tasks4/5 播放生命周期与真实指针收敛（验证中）
+
+Full/Review 共用速度状态机、方向锁、Canvas seek；新增真实认证 HTTP MP4 的实际内核断言，覆盖后台、拖动、双击、长按/上滑锁速、音轨、换源、首帧、完成/重播/显式下一条、退出停止与进度提交。Full/Review 禁用库自动生命周期恢复，使用当前逻辑媒体/URL/stage、attached host、manager listener 与 Exo dataSource 的严格所有权门禁。
+
+GSY 在暂停后可能收到迟到 buffering-end，将 UI state 从 Paused 改回 Playing，但实际内核仍停止；仅在用户播放意图、前台、当前源及当前所属 host 均成立且库状态 Playing/Buffering、内核未播放时补充 manager.start，不重装源或回退 seek。真实37项批次 owned-kernel-stale-state-resume-device.log：34 PASS / 3 FAIL，276.482s。Full后台三种状态、Review播放中/Preparing后台恢复、Review点击暂停恢复、真实首触seek与仍显示Snackbar时More、完成重播/下一条、换URL首帧、退出停止均通过。
+
+三项未关闭 RED：Review显式暂停后播放按钮缺失（135行；此前内核静音/同实例/位置断言通过）；Review正式1.5倍设置后正文中心长按2x（169行）；Full刚seek30秒后右侧双击+10（117行）。审阅暂停按钮已改用明确userPaused意图，避免迟到快照遗漏按钮或临时Sheet暂停误覆盖正文；Full双击基准改读当前所属内核position/duration，保留800ms同侧固定anchor累计。日志直接证实seek30、双击进入正文并触发Exo SEEK；旧快照的具体错误目标未直接打印，根因仍待新输入实测验证。
+
+审阅提示移至顶部操作栏下64dp，关闭遮挡底部进度条/More的问题；保留原提示/撤销/完成业务。四文件临时 MRFullOwned/MRReviewHit/Owner/Effect/Seek/MRBodyPointer/MRSeekPointer 诊断移除；独立清理与按钮增量审查、Full双击内核基准审查均C0/I0/M0。报告分别 final-trace-clean-center-intent-independent-review.md、full-doubletap-kernel-anchor-independent-review.md；静态审查不代替运行GREEN。
+
+Server未变更输入完整pytest577 PASS，ruff115文件PASS；旧Android JVM444 PASS不能代替当前输入。当前 center-intent-kernel-doubletap-build.log 正在执行 Debug/AndroidTest/JVM/lint，新输入设备验证、唯一Release、Server1.3.0部署ZIP、104项最终审计、最终commit/push与交接均未完成。未部署生产、安装/清空手机、修改Jellyfin/真实媒体或操作SCM/ControlHub生命周期。
+
+### 2026-10-11 23:00 新输入门禁与 Full 暂停意图增量
+
+82580本轮 Debug/AndroidTest/JVM/lint 终态BUILD SUCCESSFUL（17m20s，91 tasks：23 executed/68 up-to-date）；JVM69 suites/444 tests/0 failures/errors/skips，lint0 errors/42 warnings。XML及lint报告已分别保存在 center-intent-kernel-doubletap-jvm-results、center-intent-kernel-doubletap-lint-results。此结果属于Full0416B413/Review6F37B458输入；随后修改不能称同输入最终门禁完成。
+
+独立审查新增Full静态I1：显式暂停意图false时，迟到snapshot Playing可能隐藏中心播放按钮，并仍安排3秒自动隐藏。Full改centerIsPlaying=userWantsPlayback，controls播放计时同时要求userWantsPlayback和snapshot.isPlaying，effect key加入意图；保持overlay/锁定/Sheet/手势持有及源/owner门禁。实际Full SHA FEF91AE8B1DB861E21AD20EA36EAA13FF33109F9A58129DC062F77578906D65D。当前TEMP复核C0/I0/M0，Full该状态冲突尚未设备直接复现，不把Review已测根因写成Full直接测量事实。
+
+Full左右双击的目标等待收紧到2秒，±2500ms不变，排除自然播放10秒的假GREEN；其余seek等待仍10秒。Full主动暂停背景用例维持静音/同host/player/source/位置/PAUSE/Play断言，将回前台观察扩至3.5秒，确认超过3秒控件隐藏期仍可恢复。Review与HTTP fixture仅清除文件尾部多余空行；git diff --check通过。新输入 full-center-strict-doubletap-build.log 正在构建并运行JVM；设备回归/最终lint尚未执行。连续800ms三组双击累计仍只有逻辑JVM证据，未经真实三组指针量测，不提升为设备PASS。
+
+### 2026-10-11 23:16 原三项RED关闭与新横滑RED
+
+85989 Debug/AndroidTest/JVM构建终态PASS8m3s；JVM69 suites/444 tests/0 failure/error。随后仅新增真实paused bar30→立即正文横滑.2到.3（预期36秒）用例，AndroidTest增量81067 PASS1m56s。设备5项集中验证终态4 PASS / 1 FAIL /58.029s：严格2秒内Full双击±10、Full后台暂停并持续>3秒按钮、Review后台暂停按钮、Review正式1.5/长按2x/恢复/上滑锁定/解除均PASS；上一轮37项中的三个RED全部关闭，但不将新5项称整批GREEN。
+
+唯一新RED：pausedBarSeekThenImmediateBodyDragUsesActualKernelAnchor178行，真实bar30已通过170行，随后的横滑未在2秒达到anchor+6000；原±2500与实际kernel/静音/身份断言不放松。Main APK SHA B4B88021F244DE22698D8BB4967DE441E1C9665901D4705B8E32648832E8647F；Test APK SHA1745742D13D1836AA9D3C92F494DE4A3FD8DC2CE89E34DE2E53EB4D40D8ABBC5。证据full-center-strict-doubletap-paused-body-device.log与logcat-terminal.log。
+
+Full原横滑开始仍读绘制快照；改为在currentOwnedSourceHost门禁内捕获同一个manager的currentPosition/duration/isPlaying，move沿用本手势捕获duration。长按许可也改用kernelIsPlaying，避免库snapshot的isPlaying仅由Playing/Buffering UI state推导而误准许实际暂停内核加速；这一长按状态冲突未单独设备复现，作为明确静态条件修正记录。共有状态机、绘制、commit/cancel/resume/Poster/P1不动；源失配不begin，换源/后台/锁定仍cancel。实际Full新SHA395228C355D858AE90D9AC212014D1AD8ECFE9D6DC7EEB57699A53F5FE171D97。新输入尚待构建和原横滑RED补验，不宣称GREEN。
+
+只停止本次自有emulator-5584；手机与生产服务未操作。启动轮询早期空ADB输出发生null.Trim诊断错误，后续转换string后确认sys.boot_completed=1才安装测试包，不把启动诊断误报为App失败。
+
+### 2026-10-11 Stage8H 发布说明与任务状态对齐
+
+更新根 USER_INSTALL_GUIDE.md、USER_LAN_VALIDATION.md、UPGRADE_ROLLBACK.md 及 deployment/README.md：当前目标Alpha11/code18、Server1.3.0/Contract2七项能力，保留历史摘要并移除旧电脑地址。包内用户路线使用实际会打包的根 USER_LAN_VALIDATION.md，与 docs/STAGE8H_USER_VALIDATION.md 同字节；不留下指向包内缺失docs的链接。未增加第二条用户路线或新服务控制入口。
+
+TASKS.md / REVIEW_SUMMARY.md切到当前Stage8H状态，明确横滑新增RED、最终门禁、正式打包与Git交付待闭合，未宣称CODE_READY。更多菜单标签的一行意图修正已准备，实际源码在运行中构建期间保持冻结。git diff --check通过（仅既有LF/CRLF提示）；不影响Server代码、生产配置、手机数据或生命周期。
+
+### 2026-10-11 横滑输入构建终态与菜单标签补审
+
+58005全门禁构建实际成功14m55s（91 tasks：23 executed / 68 up-to-date），Full395228C3 / Review4C303E98输入。JVM69 suites/444 tests、0失败/错误/跳过；lint0错误/42警告/15信息，XML与报告归档到full-gesture-kernel-input-jvm-results、full-gesture-kernel-input-lint-results。横滑新增RED的设备补验仍未执行。
+
+独立冻结增量审查C0/I0/M1，唯一M1是More暂停/继续标签仍读snapshot，而动作读userWantsPlayback。等构建终态后将标签改为userWantsPlayback且owned host非AUTO_COMPLETE，与toggle条件相同，不改动作或owner/foreground门禁。实际Full SHA EB4D23B1C3DD6777777CE260A612DF70561EB5C59EA0BB98567950AFEA66FE71与审阅TEMP相同。独立补审该行及发布说明范围C0/I0/M0；报告final-more-label-release-docs-independent-review.md注明审时actual未应用，实际应用由root核验，不篡改报告。
+
+根发布文档更新后的114项部署/发布/重打包契约测试终态PASS，只有既有Starlette弃用警告。Server代码未变，复用完整577和Ruff115结果。启动最终Full EB4D23B1的Debug/AndroidTest/JVM/lint整批，日志final-more-intent-android-gates.log，仍运行中，不宣称最终输入整批通过。正式Release、EXE、connected、Git提交推送与交付尚未执行。
+
+### 2026-10-11 最终输入Android全门禁成功
+
+53073终态BUILD SUCCESSFUL6m24s，91tasks18executed73up-to-date。实际Full EB4D23B1 / Review4C303E98，Debug与AndroidTest完成；JVM69 suites444项，0失败/错误/跳过；lint0错误/42警告/15信息。归档final-more-intent-gate-results。Debug Main APK SHA32506D20E1E14D477C9C4A35B25F59C726683A57E1F352617AC14C735D8ABD6E，Test SHA1745742D13D1836AA9D3C92F494DE4A3FD8DC2CE89E34DE2E53EB4D40D8ABBC5。这不是正式Release。
+
+自有模拟器153460启动于23:42，5584/5585 listener属其qemu子进程169012，原端口空闲。启动轮询早期空native输出仍触发Trim诊断，已改String.Join数组归一化空输出；BOOT_PENDING不是App失败，必须实际boot1后才做最终connected。保留AVD数据、不安装手机。最终设备回归和横滑RED补验尚待执行。
+
+### 2026-10-12 connected中断与旧分类测试前提
+
+前一轮51233最终connected计划139项，日志止于83/139、8 failed，无终态和最终XML。晨间实查工具句柄Unknown、无Java/qemu/emulator进程、ADB无设备，Gradle daemon154156日志同样止于83；原因UNKNOWN_ENVIRONMENT_INTERRUPTION，不伪称通过或主动重启一个仍存活任务。原日志保留，独立记录final-connected-interruption.json（进程不存在/设备空为空的事实针对启动下一实例前）。
+
+已确认旧分类模拟数据不符合Stage8H接口：生产loadFolders读取folderTree，旧Stage8FHttpFixture health六能力都未声明且只有folders；旧Startup/Loading fake也仅覆盖folders，默认folderTree=null。仅在AndroidTest补health1.3七capabilities与认证folder-tree三个节点、旧count30同等metadata；Stage8A先等待分类树非空再保留30/30断言。Startup与Loading fake切到folderTree，保留媒体先开始/收藏惰性及故障不污染媒体原断言。原错误接口未退回产品，不改生产播放/Home/Server。两个App smoke组仍核查真实证据，尚未补验。
+
+### 2026-10-12 新横滑RED实际GREEN及旧App测试前提补正
+
+自有AVD再次实际boot1，安装保留code18/alpha11，读取installed base.apk SHA32506D20与最终Debug包一致。76379真实指针 pausedBarSeekThenImmediateBodyDragUsesActualKernelAnchor 终态1/1 PASS27.922s，2秒near(anchor+6000)、未恢复声音、same player与first认证原断言均保留。原5case该RED已关闭；不把单项当139项全套通过。日志final-paused-body-anchor-focused-device.log，原rawlogcat仅本地归档。
+
+拉取保留AVD的合成测试证据：Stage8F当前code18 run210696和244854，不混入code17历史run。Full smoke长按后画面/语义/HTTP均证明已进入播放器，旧测试直接找书架前提不成立；新增实际Back回home并assertDisplayed，不调用VM。Viewer本次点击前图显示连接提示遮挡按钮、最终metrics无POST；文本消失后退出动画是否影响命中仍是候选。测试等待真实提示消失后推进500ms Compose动画/idle、保存点击前语义/PNG，保持真实click，并加强实际认证POST断言，原48–51像素/原图HTTP/分页/排队恢复完整保留。
+
+Stage8G搜索真实HTTP显示播放器返回后重验已加载首页页1/2，符合规格68后台Refresh；更新精确两页请求与总数、保持搜索期间零首页新增、搜索/首页原1px锚点及查询分页原断言。收藏首个v301未发playback且控件已隐藏；只增强可见控制层前置与真实物理点击，加认证v301请求断言，原冻结图片context/首末导航不放松。这一点击原因仍需deviceGREEN。
+
+实际生产Full EB4D23B1、Review4C303E98和Server源码未变。仅AndroidTest修正，独立补审分类范围C0/I0/M0；App候选独立审查及真实目标补验待完成。启动94369 AndroidTest/lint增量构建，未重复不变JVM444/Server577。自有AVD正常emu kill释放内存，未操作手机/生产。

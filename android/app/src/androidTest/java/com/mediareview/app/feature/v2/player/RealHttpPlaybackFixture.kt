@@ -8,6 +8,7 @@ import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.data.server.*
 import com.mediareview.app.feature.v2.review.data.V2ServerReviewSessionRepository
 import kotlinx.serialization.json.Json
+import com.mediareview.app.core.model.ProgressRequest
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.*
@@ -17,9 +18,25 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** 设备内真实 HTTP MP4；只保存认证是否匹配，不保存或输出请求头值。 */
-internal class RealHttpPlaybackFixture : AutoCloseable {
+internal class RealHttpPlaybackFixture(
+    private val longVideo: Boolean = false,
+    private val blockSecondPlayback: Boolean = false,
+    private val blockFirstVideo: Boolean = false,
+    private val resumeMs: Long = 0L,
+) : AutoCloseable {
+    val firstVideoRequested = CountDownLatch(1)
+    private val firstVideoRelease = CountDownLatch(1)
+    fun releaseFirstVideo() { firstVideoRelease.countDown() }
+    val secondPlaybackRequested = CountDownLatch(1)
+    private val secondPlaybackRelease = CountDownLatch(1)
+    fun releaseSecondPlayback() { secondPlaybackRelease.countDown() }
+    @Volatile private var secondPlaybackFails = false
+    /** Release a real HTTP 503 before the client read timeout; the Server remains reachable. */
+    fun failSecondPlayback() { secondPlaybackFails = true; secondPlaybackRelease.countDown() }
     /**
      * 播放内核真实发出的视频请求。[url] 是内核实际请求的完整地址——
      * GSY 的 Compose host player 不提供已装载 URL 的公开读取接口（GSYPlayerSnapshot 无 URL 字段），
@@ -32,13 +49,17 @@ internal class RealHttpPlaybackFixture : AutoCloseable {
         val ranged: Boolean,
     )
     val videos = CopyOnWriteArrayList<VideoRequest>()
+    /** 仅结构化业务数据，不保存任何认证头或原始请求体。 */
+    data class ProgressPost(val mediaId: String, val position: Long, val paused: Boolean, val method: String)
+    val progresses = CopyOnWriteArrayList<ProgressPost>()
     private val credential = UUID.randomUUID().toString()
     private val server = MockWebServer()
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val bytes = context.resources.openRawResource(R.raw.demo_05_longer).use { it.readBytes() }
+    private val bytes = if (longVideo) androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.assets
+        .open("gesture_60s.mp4").use { it.readBytes() } else context.resources.openRawResource(R.raw.demo_05_longer).use { it.readBytes() }
     private fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
     private fun envelope(body: String) = json("""{"success":true,"data":$body}""")
-    private fun media(id: String) = """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"video","library_id":"test","duration_ms":18000,"width":640,"height":360,"folder_id":"test","folder_name":"测试","is_favorite":false}"""
+    private fun media(id: String) = """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"video","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"test","folder_name":"测试","is_favorite":false}"""
     private fun session(index: Int = 0) = """{"session_id":"http-review","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":{"media_type":"video"},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
 
     init {
@@ -49,18 +70,43 @@ internal class RealHttpPlaybackFixture : AutoCloseable {
                     path.startsWith("/video/") -> video(request, path.substringAfterLast('/').removeSuffix(".mp4"))
                     path.endsWith("/playback") -> {
                         val id = path.removePrefix("/api/v1/media/").removeSuffix("/playback")
+                        if (id == "second") {
+                            secondPlaybackRequested.countDown()
+                            if (blockSecondPlayback && !secondPlaybackRelease.await(20, TimeUnit.SECONDS)) {
+                                return MockResponse().setResponseCode(503)
+                            }
+                            if (secondPlaybackFails) return MockResponse().setResponseCode(503)
+                        }
                         // 用设备非回环地址下发播放 URL：生产 MediaUrlResolver 拒绝回环目的地
                         // （防"假地址 PASS"）；这里必须是真实可读地址而非 127.0.0.1。
                         val url = playbackBase.newBuilder().addPathSegments("video/$id.mp4").build()
-                        envelope("""{"media_id":"$id","title":"HTTP 视频","stream_url":"$url","stream_url_authoritative":true,"stream_url_source":"configured_client_url","direct":{"url":"$url","headers":{"X-Emby-Token":"$credential"}},"fallback_hls":null}""")
+                        envelope("""{"media_id":"$id","title":"HTTP 视频","stream_url":"$url","stream_url_authoritative":true,"stream_url_source":"configured_client_url","direct":{"url":"$url","headers":{"X-Emby-Token":"$credential"}},"fallback_hls":null,"resume_position_ms":${if (id == "first") resumeMs else 0L}}""")
                     }
                     path.endsWith("/nearest") -> envelope("""{"index":0}""")
                     path.endsWith("/queue") -> envelope("""{"items":[{"index":0,"seen":false,"media":${media("first")}}, {"index":1,"seen":false,"media":${media("second")}}],"total":2,"page":1,"page_size":50}""")
                     path.endsWith("/seen") -> envelope("""{"media_id":"first","seen":true,"seen_count":1,"total_count":2,"remaining_count":1,"unavailable_count":0,"completed_count":1}""")
                     path.contains("/review/sessions") -> envelope(session())
+                    path == "/api/v1/delete-queue" -> {
+                        android.util.Log.d("MRFixtureRoute",
+                            "known-delete-queue method=" + request.method + " path=" + path +
+                                " status=" + (if (request.method == "GET") 200 else 405))
+                        if (request.method != "GET") MockResponse().setResponseCode(405)
+                        else envelope("[]")
+                    }
                     path == "/api/v1/media" -> envelope("""{"items":[${media("first")},${media("second")}],"total":2,"page":1,"page_size":50}""")
-                    path.endsWith("/progress") -> envelope("{}")
-                    else -> MockResponse().setResponseCode(404)
+                    path.endsWith("/progress") -> {
+                        if (request.method != "POST") return MockResponse().setResponseCode(405)
+                        val id = path.removePrefix("/api/v1/media/").removeSuffix("/progress")
+                        val body = Json.decodeFromString(ProgressRequest.serializer(), request.body.readUtf8())
+                        progresses += ProgressPost(id, body.position_ms,
+                            body.is_paused, request.method.orEmpty())
+                        envelope("""{"media_id":"$id","reported":true}""")
+                    }
+                    else -> {
+                        android.util.Log.d("MRFixtureRoute",
+                            "unknown method=" + request.method + " path=" + path + " status=404")
+                        MockResponse().setResponseCode(404)
+                    }
                 }
             }
         }
@@ -73,6 +119,10 @@ internal class RealHttpPlaybackFixture : AutoCloseable {
         val range = request.getHeader("Range")
         videos += VideoRequest(id, request.requestUrl.toString(), valid, range != null)
         if (!valid) return MockResponse().setResponseCode(401)
+        if (blockFirstVideo && id == "first") {
+            firstVideoRequested.countDown()
+            if (!firstVideoRelease.await(20, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+        }
         val response = MockResponse().setHeader("Content-Type", "video/mp4").setHeader("Accept-Ranges", "bytes")
         if (range == null) return response.setBody(Buffer().write(bytes))
         val match = Regex("bytes=(\\d*)-(\\d*)").matchEntire(range)
@@ -115,7 +165,5 @@ internal class RealHttpPlaybackFixture : AutoCloseable {
             override suspend fun setCover(folderId: String, mediaId: String?) = Unit
         }, status, resources)
     val sessions = V2ServerReviewSessionRepository(profile, api, mapper, resources, status)
-    override fun close() { server.shutdown(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown() }
+    override fun close() { releaseFirstVideo(); releaseSecondPlayback(); server.shutdown(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown() }
 }
-
-
