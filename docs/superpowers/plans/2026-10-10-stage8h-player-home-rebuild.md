@@ -72,9 +72,9 @@
 - [x] 版本18alpha11/Server1.3.0/Contract2/folder_tree_v1，七条真实中文notes与首次/未读聚合/关闭测试。
 - [x] 1000媒体100文件夹四层100相册fixture；确认不全量下载媒体，Favorites无证据不优化。
 - [x] 完整pytest与ruff，最终JVM/lint/connected统一执行，保留全部失败修复证据；全分支独立审查C0/I0。
-- [ ] 唯一assembleRelease并校验签名/版本/hash，MediaReview_2.0.0-alpha11_stage8h.apk；构建并隔离核验Server1.3.0后MediaReview_Server_1.3.0_stage8h.zip，不部署生产。
-- [ ] 最终commit `test(release): regression gates and alpha11` 并push，remote/clean/构建输入冻结hash一致。
-- [ ] 最终HEAD后生成MediaReview_Stage8H_Handoff_<date>_<sha>.zip：00_HANDOFF/01_ACCEPTANCE/02_TEST_REPORT/03_PLAYER_V2/04_REVIEW_GESTURES/05_FOLDER_TREE/06_HOME_GALLERY_LOADING/07_KNOWN_ISSUES/08_USER_VALIDATION/09_RELEASE_NOTES + logs/git/source/SHA256SUMS；无APK/私密/真实media，zip完整hash。用户仅一条10–15分钟15点路线。
+- [x] 唯一assembleRelease及签名/版本/hash通过；MediaReview_2.0.0-alpha11_stage8h.apk与MediaReview_Server_1.3.0_stage8h.zip生成，Server隔离health及ZIP169项SHA通过，不部署生产。
+- [x] 主实现commit `test(release): regression gates and alpha11` 为ec5ccc6，官方构建与打包基于该提交。
+- 最终文档HEAD后执行push并验证remote/clean/冻结输入一致；生成MediaReview_Stage8H_Handoff_<date>_<sha>.zip，十文档 + logs/git/source/SHA256SUMS；无APK/私密/真实media且小于15MB。实际完成结果写入独立交付回执，避免将包自身hash或后续HEAD写回生成该包的提交。用户仅一条10–15分钟15点路线。
 
 ## 验收审计
 

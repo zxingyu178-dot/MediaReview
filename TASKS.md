@@ -8,11 +8,11 @@
 - [x] Task4：Full控制与共享手势/音轨/源归属，0bb8772。
 - [x] Task5：Review共享进度/倍速与生命周期，763800b。
 - [x] 最终Server577/Ruff115、JVM444/69 suites、设备141及lint0错误，独立审查C0/I0/M0。
-- [ ] Task6提交与唯一正式Alpha11 APK、Server1.3.0隔离核验及ZIP。
-- [ ] 最终Git push/clean、十文档Handoff与完整SHA校验。
+- [x] Task6提交ec5ccc6；唯一正式Alpha11 APK、Server1.3.0隔离核验及ZIP，169项SHA校验通过。
+- 最终文档提交后执行Git push/clean、十文档Handoff与完整SHA校验；以最终交付回执记录实际结果。
 - [ ] 真实手机与家庭LAN：用户按docs/STAGE8H_USER_VALIDATION.md的15步路线后续验收。
 
-完整设备141项0failure/error/skipped；JVM444项0failure/error/skipped；lint0错误/42警告/15信息。两次中断和所有失败修复证据保留。正式产物尚未核验，尚未声明CODE_READY；生产升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT，本阶段不部署生产或清手机数据。
+完整设备141项0failure/error/skipped；JVM444项0failure/error/skipped；lint0错误/42警告/15信息。两次中断和所有失败修复证据保留。正式APK签名/版本、Server1.3.0 health与ZIP校验通过，状态CODE_READY / READY_FOR_USER_VALIDATION；生产升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT，本阶段不部署生产或清手机数据。
 以下保留历史阶段记录。
 
 ## MediaReview(1.1.0-rc1 Task G: 全量验收与正式发布)

@@ -18,7 +18,7 @@ Android code18 / 2.0.0-alpha11；Server1.3.0 / Contract2 / 七能力。保留Med
 - 失败与修复追溯保留：原37项34/3、严格补验5项4/1、两次139中断、分类/App16项13/3、根提示3/3、旧错误/控制时钟确定性2项RED及后续GREEN。最终整套覆盖其修正，不改写历史失败。
 - 完整审查链及本轮生产错误监听/测试锚点增量补审C0/I0/M0。所有实际通过与截图/HTTP/真实位置证据均按输入区分，不以语义节点存在替代物理操作。
 
-正式唯一assembleRelease、隔离Server EXE health与正式ZIP、最终push/clean及十文档Handoff仍待完成。代码门禁通过不代替发布产物核验。
+正式唯一assembleRelease通过，APK code18 / Alpha11签名核验通过，与Alpha10证书一致。Server EXE隔离health确认1.3.0 / Contract2 / 七能力；正式ZIP共169项SHA256回验通过。构建与打包提交为ec5ccc656d112654b2a31757fb5b3d656eebb807，后续交付文档提交不改变冻结构建及打包输入。最终push/clean与十文档Handoff在文档提交后执行，其实际结果以交付回执为准。
 
 ## 边界与风险
 
@@ -30,4 +30,4 @@ PiP与外挂SRT/ASS按规格Deferred。内嵌字幕公开cue链无法稳定渲�
 
 风险最高三点：真实手机/家庭网络尚未验证；窄屏视觉/提示/触感及跨重启缓存需体验确认；生产升级依赖外部正式合同。
 
-阶段结论：发布收尾进行中（最终自动化已通过，正式产物和交接待核验；尚未声明CODE_READY / REAL_LAN_PASS / PRODUCTION_READY）。
+阶段结论：CODE_READY / READY_FOR_USER_VALIDATION。自动化和正式离线产物已核验；最终提交后的源码推送与Handoff交付由独立回执记录。尚未声明REAL_LAN_PASS或PRODUCTION_READY。

@@ -2605,3 +2605,11 @@ showControls先按原waitWallClock补真实帧再读节点；没有扩大5秒、
 10984最终生产输入JVM/lint实际终态BUILD SUCCESSFUL9m42，41tasks13executed28up-to-date；root实读69套XML合计444tests/0failure/error/skipped，以及新lint XML0error/42warning/15information。结果已归档final-retired-guard-jvm-results、final-retired-guard-lint-results及verification.json，在Release clean前保留。Server产品输入未变，复用577完整pytest/Ruff115及发布契约114真实结果，不重跑无变更门禁。
 
 REVIEW_SUMMARY/TASKS/计划统一为最终自动化已过、正式产物及交接待核验。远端只读探测成功，Stage8H分支尚未发布；Task6提交后使用既有build_deploy --prepare-only执行唯一正式assembleRelease和新Server隔离核验，不部署生产、不改变长期服务/手机。
+
+## 2026-10-12 Stage8H 正式离线发布产物
+
+Task6提交ec5ccc656d112654b2a31757fb5b3d656eebb807。唯一正式Release构建成功4m52；APK code18 / 2.0.0-alpha11、签名PASS，与Alpha10证书一致。APK 43557458 bytes，SHA256 7b3d97355013073fae33340b3e7f980ea1f52ba229db3104c6e5edb8d7017393。
+
+Server fresh EXE隔离health确认1.3.0 / Contract2 / 七能力；EXE SHA256 abe8eb048768a172cab2cb45c361d14501af9b27ba966555cafa6b890c7a9088。正式ZIP126871995 bytes，SHA256 44b9609c1a5dd290ccf015ed7eb0f458c9743e61f3e17b3e6e8eb02f5d7356a8；169项SHA和ZIP完整性回验PASS。receipt在deploy_handoff/stage8h-build-evidence.json；日志与签名连续性回执在review_meta/stage8h。
+
+最终有效自动化：Server577、JVM444、connected141全部通过；lint0错误/42警告/15信息，Ruff115文件通过。状态CODE_READY / READY_FOR_USER_VALIDATION。后续仅文档提交，正式产物保持ec5ccc6 provenance；最终HEAD、冻结输入一致性、push与十文档Handoff结果通过独立交付回执记录，不反向修改官方产物。未执行手机安装、真实LAN验收、生产部署或ControlHub生命周期；生产升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。
