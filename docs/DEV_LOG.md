@@ -2527,3 +2527,11 @@ TASKS.md / REVIEW_SUMMARY.md切到当前Stage8H状态，明确横滑新增RED、
 Stage8G搜索真实HTTP显示播放器返回后重验已加载首页页1/2，符合规格68后台Refresh；更新精确两页请求与总数、保持搜索期间零首页新增、搜索/首页原1px锚点及查询分页原断言。收藏首个v301未发playback且控件已隐藏；只增强可见控制层前置与真实物理点击，加认证v301请求断言，原冻结图片context/首末导航不放松。这一点击原因仍需deviceGREEN。
 
 实际生产Full EB4D23B1、Review4C303E98和Server源码未变。仅AndroidTest修正，独立补审分类范围C0/I0/M0；App候选独立审查及真实目标补验待完成。启动94369 AndroidTest/lint增量构建，未重复不变JVM444/Server577。自有AVD正常emu kill释放内存，未操作手机/生产。
+
+### 2026-10-12 Task4提交与Task5共享批阅收尾
+
+Task4实际提交0bb8772：Full控制/手势/音轨/严格源归属与生命周期、共享状态机和对应真实HTTP素材测试。提交前新增文件diff检查发现四处末尾多余空行；连同两处Review测试EOF统一清理，final-eof-format-evidence.json记录六文件前后SHA及去除尾部换行后的正文完全相等。功能逻辑未改。
+
+Task5的Review共享gesture/seek与明确暂停按钮、源替换及前后台恢复仍保持实际SHA4C303E98；原37批次的两个Review RED已在5case补验真实关闭，其余shared/full专项历史结果保留，不改写37全绿。独立完整审查+增量补审C0/I0，拟提交批阅改动与对应源替换/后台/手势测试；最终139回归和正式发布门禁仍未完成。
+
+旧测试前提AndroidTest/lint增量94369实际成功10m21s，63tasks9executed54up-to-date。其后仅六文件EOF格式修正，已证明正文完全相同；不把前述构建冒称清理后的编译。下一轮统一编译最终Debug/AndroidTest与lint，再执行旧失败目标及全connected。不重复无逻辑变化的JVM444和Server577。

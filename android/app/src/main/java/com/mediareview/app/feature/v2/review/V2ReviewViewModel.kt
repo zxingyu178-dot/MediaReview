@@ -183,7 +183,7 @@ class V2ReviewViewModel @Inject constructor(
             unavailableCount = opened.session.unavailableCount.coerceAtLeast(0),
             completedCount = opened.session.completedCount.coerceAtLeast(0),
         )
-        resolveCurrent(resolveNext = true)
+        resolveCurrent()
         maybeCompleteIfQueueFinished()
     }
 
@@ -201,7 +201,7 @@ class V2ReviewViewModel @Inject constructor(
             ready.absoluteCurrentIndex
         }
         _state.value = ready.copy(absoluteCurrentIndex = restored)
-        resolveCurrent(resolveNext = true)
+        resolveCurrent()
     }
 
     // ---------- UI 事件 ----------
@@ -221,7 +221,7 @@ class V2ReviewViewModel @Inject constructor(
         submitPosition(absolute)
         // §20/§22：接近边界时预加载相邻页（绝不一次拉全量）
         maybeLoadAdjacent(ready, localIndex)
-        resolveCurrent(resolveNext = true)
+        resolveCurrent()
     }
 
     /**
@@ -381,7 +381,7 @@ class V2ReviewViewModel @Inject constructor(
 
     /** 重试当前项：必须真正回到 Direct 重新开始（与完整播放器同一套语义）。 */
     fun retryPlayback() {
-        resolveCurrent(resolveNext = false)
+        resolveCurrent()
     }
 
     /** 播放内核报错：带上"播放器里实际装载的 mediaId"，旧媒体的迟到错误会被忽略。 */
@@ -390,7 +390,7 @@ class V2ReviewViewModel @Inject constructor(
         applyDecision(sources.onPlaybackFailed(sources.token, failingMediaId))
     }
 
-    private fun resolveCurrent(resolveNext: Boolean) {
+    private fun resolveCurrent() {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         val item = ready.items.getOrNull(ready.localCurrentIndex) ?: return
         // 同一条媒体已经解析完成（同一 settled 页重复 settle / 前置分页导致的重组）：
@@ -400,7 +400,6 @@ class V2ReviewViewModel @Inject constructor(
             current.source.mediaId == item.mediaId &&
             sources.activeMediaId == item.mediaId
         ) {
-            if (resolveNext) prefetchNext()
             return
         }
         resolveJob?.cancel()
@@ -419,7 +418,6 @@ class V2ReviewViewModel @Inject constructor(
                     return@launch
                 }
             applyDecision(sources.onResolved(eventToken, resolved))
-            if (resolveNext) prefetchNext()
         }
     }
 
@@ -437,8 +435,18 @@ class V2ReviewViewModel @Inject constructor(
         }
     }
 
+    /** Only the current loaded source advancing may release P1 endpoint work. Never warm a second player. */
+    fun onPlaybackStable(mediaId: String) {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val item = ready.items.getOrNull(ready.localCurrentIndex) ?: return
+        val current = _playback.value as? V2PlaybackUiState.Ready ?: return
+        if (mediaId != item.mediaId || current.source.mediaId != mediaId || sources.activeMediaId != mediaId) return
+        prefetchNext()
+    }
+
     /** P1：只预取"下一条"一个播放源（§33；快速滑动时旧预取自然作废）。 */
     private fun prefetchNext() {
+        if (prefetchJob?.isActive == true) return
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         val currentItem = ready.items.getOrNull(ready.localCurrentIndex) ?: return
         val next = ready.items.getOrNull(ready.localCurrentIndex + 1) ?: return

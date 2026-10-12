@@ -249,7 +249,7 @@ class V2ReviewViewModelTest {
     // ---------- §5/§33 播放解析上限 ----------
 
     @Test
-    fun `进入后只解析当前项与下一条`() = runTest {
+    fun `进入仅解析当前项且稳定后才解析下一条`() = runTest {
         val repo = FakeMediaRepository(mediaCount = 10)
         val sessions = FakeSessions().apply {
             entryResult = readyOpen(total = 10, window = window(count = 10, total = 10))
@@ -258,6 +258,8 @@ class V2ReviewViewModelTest {
 
         vm.enterReview()
         waitUntil("当前项解析完成") { (vm.playback.value as? com.mediareview.app.feature.v2.player.V2PlaybackUiState.Ready) != null }
+        assertEquals(listOf("v1"), repo.resolvedMediaIds)
+        vm.onPlaybackStable("v1")
         waitUntil("下一条预取完成") { repo.resolvedMediaIds.size >= 2 }
 
         assertTrue(
@@ -292,12 +294,17 @@ class V2ReviewViewModelTest {
         val vm = V2ReviewViewModel(repo, sessions)
 
         vm.enterReview()
+        waitUntil("首条 P0 就绪") { playbackMediaId(vm) == "v1" }
+        vm.onPlaybackStable("v1")
         waitUntil("首页 P1(v2) 请求已发出") { repo.resolvedMediaIds.contains("v2") }
 
         // 切到第 2 条：旧 P1 作废，新 P0 等同一个慢请求
         vm.onPageSettled(1)
         gate.complete(Unit)
         waitUntil("P0 v2 就绪") { playbackMediaId(vm) == "v2" }
+        vm.onPlaybackStable("v1") // 迟到旧回调不得释放新 P1
+        assertFalse(repo.resolvedMediaIds.contains("v3"))
+        vm.onPlaybackStable("v2")
         waitUntil("新 P1(v3) 预取完成") { repo.resolvedMediaIds.contains("v3") }
 
         // 切到第 3 条：必须命中 v3 预取（stale P1 不得把槽位覆盖回 v2，导致重复解析）
