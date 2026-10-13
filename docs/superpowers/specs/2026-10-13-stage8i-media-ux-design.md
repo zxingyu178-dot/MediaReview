@@ -1,0 +1,9 @@
+# Stage8I 设计记录
+
+用户完整需求为docs/STAGE8I_MEDIA_UX_SPEC.md（35节），本文件不缩减其范围。选择在既有FastAPI、SQLite、GSY、Compose、Coil及Session架构上修复。替代方案全量原图/新播放器/新目录库会增加内存或迁移风险且不符合本阶段，故沿用现有组件。
+
+缩略图profile三个固定档位，cache完整variant；Viewer先低清当前优先解码，邻接仅有界source预取，快翻取消。PendingDelete泛化供Viewer和Full共享server-confirmed事务；横seek2%时长限制30–180秒。目录运行诊断明确缺capability并允许基础媒体继续使用。ReviewScope复用FolderTree，创建时固定并对active显式确认；Review内核loop、EOFseek恢复、原生单步Pager和稳定后邻endpoint/poster预取。删除size在sync回填，receipt只计真实删除后不存在的文件及实际bytes。
+
+服务端新增三能力，版本1.4.0，Android19alpha12；旧服务端按capability fail closed。测试使用隔离DB/cache/合成媒体/真实tempfile与真实HTTP、真实内核及pointer，禁止真实媒体删除或家庭生产部署。最终一次Release和离线Server包/十二文档交接，最高CODE_READY。
+
+用户已明确目标模式和普通技术选择直接实施，按需求自主完成设计与执行，不重复申请一般实现审批。
