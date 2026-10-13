@@ -2683,3 +2683,5 @@ DeleteReceipt 保持旧 dict/outcome 合同，API 加 deleted_count/deleted_byte
 未commit；根独立审查后提交。仅隔离temp/syntheticDB/Mock数据，未使用家庭媒体、真实Jellyfin设置、生产服务或手机；Gradle/ADB/部署未执行，无新长期对象/脚本。delete_receipt_v1 health能力宣告与正式1.4版本保留Task9；整体Stage8I未完成，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。
 
 Task4独立审查specCompliance/codeQuality PASS、C0/I0/M0，定向开发门禁通过并由根提交；较宽36700仍待真实终态，交原执行者只读继续观察。后续Android开发不修改此轮稳定server输入；不以定向通过声称全量回归完成。
+
+Task4较宽回归最终补记：原执行者36700真实工具EXIT0/pytestEXIT0，日志与exit于21:58更新；根实读71条PASSED、0FAILED。包括collection时旧16项Task4和55项既有nonce/mapper/收藏删除/Organize/媒体syncAPI回归；新test在collection后修选库并加父链接，故不将该轮描述为最终18项。80836最终18项独立PASS，二者范围分别保留。五项production在36700期未改，6项postrun当前hash均一致。无全server/手机/生产部署结论。
