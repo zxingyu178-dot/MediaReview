@@ -56,6 +56,7 @@ import com.mediareview.app.feature.v2.player.native.state.BackNavigationLogic
 import com.mediareview.app.feature.v2.player.native.state.ControlsVisibilityState
 import com.mediareview.app.feature.v2.player.native.state.PlaybackUiMapper
 import com.mediareview.app.feature.v2.player.native.state.SeekDragEngine
+import com.mediareview.app.feature.v2.player.native.state.PlayerSeekMapping
 import com.mediareview.app.feature.v2.player.native.state.VideoScaleState
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureState
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureMode
@@ -125,6 +126,11 @@ fun GsyNativePlayerScreen(
     modifier: Modifier = Modifier,
     onPlaybackStable: (String) -> Unit = {},
     onReportLoadedProgress: (String, Long, Boolean) -> Unit = { _, position, paused -> onReportProgress(position, paused) },
+    pendingDeleteEnabled: Boolean = false,
+    isPendingDelete: Boolean = false,
+    pendingDeleteLabel: String? = null,
+    onTogglePendingDelete: () -> Unit = {},
+    onRetryPendingDelete: (() -> Unit)? = null,
 ) {
     val appContext = LocalContext.current
     val activity = remember { appContext.findActivity() }
@@ -734,7 +740,7 @@ fun GsyNativePlayerScreen(
                 }
             },
             onSeekMove = { delta ->
-                val target = bodySeekStartMs + (delta * bodySeekDurationMs).toLong()
+                val target = PlayerSeekMapping.horizontalTarget(bodySeekStartMs, delta, bodySeekDurationMs)
                 bodySeek.preview(target)
                 bodySeekPreviewMs = bodySeek.previewMs
                 seekHint = GsyNativeSeekHint(bodySeekPreviewMs - bodySeekStartMs, bodySeekPreviewMs, bodyGesture = true)
@@ -819,6 +825,11 @@ fun GsyNativePlayerScreen(
                 subtitle = "",
                 onBack = { handlePlayerBack() },
                 onMore = { sheet = PlayerSheet.MORE },
+                pendingDeleteEnabled = pendingDeleteEnabled,
+                isPendingDelete = isPendingDelete,
+                pendingDeleteLabel = pendingDeleteLabel,
+                onTogglePendingDelete = { controls.onUserInteraction(); onTogglePendingDelete() },
+                onRetryPendingDelete = onRetryPendingDelete,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .debugBounds(PlayerLayoutDebug.Layer.TOP),

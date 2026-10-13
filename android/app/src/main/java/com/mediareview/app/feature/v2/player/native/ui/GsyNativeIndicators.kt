@@ -84,7 +84,8 @@ fun GsyNativeIndicators(
         seekHint?.let { hint ->
             if (hint.bodyGesture) {
                 Text(
-                    "${formatDuration(hint.positionMs)} / ${formatDuration(seekDurationMs)}",
+                    "${if (hint.deltaMs >= 0L) "+" else "−"}${formatDuration(abs(hint.deltaMs))}\n" +
+                        "${formatDuration((hint.positionMs - hint.deltaMs).coerceAtLeast(0L))} → ${formatDuration(hint.positionMs)}",
                     color = MediaTextPrimary,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 112.dp)

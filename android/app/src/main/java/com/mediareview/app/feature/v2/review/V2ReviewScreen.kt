@@ -294,6 +294,7 @@ private fun ReviewPagerContent(
     val haptic = LocalHapticFeedback.current
     var seekPreview by remember { mutableStateOf<Long?>(null) }
     var bodyStartMs by remember { mutableStateOf(0L) }
+    var bodyDurationMs by remember { mutableStateOf(0L) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var verticalActive by remember { mutableStateOf(false) }
     var verticalSettling by remember { mutableStateOf(false) }
@@ -428,12 +429,13 @@ private fun ReviewPagerContent(
             onSeekStart = {
                 if (foreground && sourceIsCurrent() && !verticalActive && !verticalSettling) {
                     bodyStartMs = kernelPosition()
-                    if (bodySeek.begin(bodyStartMs, kernelDuration(), kernelPlaying())) pauseOwnedHost()
+                    bodyDurationMs = kernelDuration()
+                    if (bodySeek.begin(bodyStartMs, bodyDurationMs, kernelPlaying())) pauseOwnedHost()
                     seekPreview = bodySeek.previewMs
                 }
             },
             onSeekMove = { fraction ->
-                bodySeek.preview(bodyStartMs + (fraction * kernelDuration()).roundToLong())
+                bodySeek.preview(com.mediareview.app.feature.v2.player.native.state.PlayerSeekMapping.horizontalTarget(bodyStartMs, fraction, bodyDurationMs))
                 seekPreview = bodySeek.previewMs
             },
             onSeekEnd = { commitSeek(bodySeek) },
@@ -965,7 +967,13 @@ private fun ReviewPagerContent(
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(20.dp)
                     .padding(bottom = 4.dp).testTag("review_source_loading"), color = Color.White, strokeWidth = 2.dp)
             }
-            (feedback ?: seekPreview?.let { "${it / 1000}s / ${kernelDuration() / 1000}s" })?.let {
+            (feedback ?: seekPreview?.let {
+                if (bodySeek.active) {
+                    val delta = it - bodyStartMs
+                    "${if (delta >= 0L) "+" else "−"}${com.mediareview.app.feature.v2.home.formatDuration(kotlin.math.abs(delta))}\n" +
+                        "${com.mediareview.app.feature.v2.home.formatDuration(bodyStartMs)} → ${com.mediareview.app.feature.v2.home.formatDuration(it)}"
+                } else "${it / 1000}s / ${kernelDuration() / 1000}s"
+            })?.let {
                 Text(it, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 4.dp), color = Color.White)
             }
             PlayerSeekBar(

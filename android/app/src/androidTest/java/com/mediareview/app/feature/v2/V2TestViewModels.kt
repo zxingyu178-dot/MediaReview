@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.TokenProvider
+import com.mediareview.app.core.network.AuthInterceptor
 import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.feature.v2.data.MediaRepository
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
@@ -18,18 +19,23 @@ import okhttp3.OkHttpClient
 
 /**
  * androidTest 共用的 V2HomeViewModel 构造：
- * 数据源默认 DEMO（DataStore 未写入），Server 相关依赖只做本地装配，测试期间不会发起任何网络请求。
+ * 数据源模式从真实 DataStore bootstrap；测试须自行保存/恢复持久化状态。
+ * authenticatedApi=true 时使用正式 AuthInterceptor，凭据由正式 bootstrap 恢复。
  */
 internal fun testHomeViewModel(
     repository: MediaRepository,
     searchHistory: SearchHistoryStore,
     statusStore: V2ServerStatusStore = V2ServerStatusStore(),
+    authenticatedApi: Boolean = false,
 ): V2HomeViewModel {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val profileStore = ServerProfileStore(context)
     val tokenProvider = TokenProvider()
+    val authenticatedHttp = if (authenticatedApi) {
+        OkHttpClient.Builder().addInterceptor(AuthInterceptor(tokenProvider)).build()
+    } else OkHttpClient()
     val apiFactory = ApiFactory(
-        OkHttpClient(),
+        authenticatedHttp,
         OkHttpClient(),
         Json { ignoreUnknownKeys = true },
     )

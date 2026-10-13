@@ -3,6 +3,32 @@ package com.mediareview.app.feature.v2.player.native.state
 import kotlin.math.roundToLong
 
 object PlayerSeekMapping {
+    /** 横滑整屏仅移动时长的 2%，限制在 30 秒至 3 分钟。 */
+    fun horizontalRange(durationMs: Long): Long =
+        (durationMs.coerceAtLeast(0L).toDouble() * .02).coerceIn(30_000.0, 180_000.0).toLong()
+
+    fun horizontalDelta(dx: Float, width: Float, durationMs: Long): Long {
+        if (!dx.isFinite() || !width.isFinite() || width <= 0f || durationMs <= 0L) return 0L
+        return horizontalFractionDelta(dx.toDouble() / width, durationMs)
+    }
+
+    /** PlayerBodyGestures 已把累计 dx / width 作为 fraction 传入。 */
+    fun horizontalFractionDelta(fraction: Float, durationMs: Long): Long =
+        horizontalFractionDelta(fraction.toDouble(), durationMs)
+
+    private fun horizontalFractionDelta(fraction: Double, durationMs: Long): Long {
+        if (!fraction.isFinite() || durationMs <= 0L) return 0L
+        return (fraction * horizontalRange(durationMs)).toLong()
+    }
+
+    fun horizontalTarget(startMs: Long, fraction: Float, durationMs: Long): Long {
+        if (durationMs <= 0L) return 0L
+        val start = startMs.coerceIn(0L, durationMs)
+        val delta = horizontalFractionDelta(fraction, durationMs)
+        return if (delta >= 0L) start + delta.coerceAtMost(durationMs - start)
+        else start + delta.coerceAtLeast(-start)
+    }
+
     fun position(fraction: Float, durationMs: Long): Long {
         if (!fraction.isFinite() || durationMs <= 0L) return 0L
         return (fraction.coerceIn(0f, 1f).toDouble() * durationMs).roundToLong().coerceIn(0L, durationMs)

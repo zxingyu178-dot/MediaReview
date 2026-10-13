@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +38,11 @@ fun GsyNativeTopBar(
     onBack: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
+    pendingDeleteEnabled: Boolean = false,
+    isPendingDelete: Boolean = false,
+    pendingDeleteLabel: String? = null,
+    onTogglePendingDelete: () -> Unit = {},
+    onRetryPendingDelete: (() -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -77,6 +85,13 @@ fun GsyNativeTopBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            TextButton(onClick = onRetryPendingDelete ?: onTogglePendingDelete,
+                enabled = pendingDeleteEnabled || onRetryPendingDelete != null,
+                modifier = Modifier.testTag("player_pending_delete")) {
+                Icon(if (isPendingDelete) Icons.Default.Undo else Icons.Default.DeleteOutline,
+                    contentDescription = null)
+                Text(pendingDeleteLabel ?: if (isPendingDelete) "撤销待删除" else "待删除")
             }
             IconButton(onClick = onMore) {
                 Icon(Icons.Default.MoreVert, "更多", tint = MediaTextPrimary)

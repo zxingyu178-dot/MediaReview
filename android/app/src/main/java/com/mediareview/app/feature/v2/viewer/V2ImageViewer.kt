@@ -97,7 +97,15 @@ fun V2ImageViewer(
         pendingSession = session
         onDispose { vm.closeViewerPendingDelete(session) }
     }
-    LaunchedEffect(vm) { vm.viewerPendingDeleteMessages.collect { snackbar.showSnackbar(it) } }
+    LaunchedEffect(vm, pendingSession) {
+        vm.pendingDeleteMessages.collect { event ->
+            if (event.session != pendingSession) return@collect
+            val result = snackbar.showSnackbar(event.text, actionLabel = event.undoMediaId?.let { "撤销" })
+            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                event.undoMediaId?.let { vm.undoPendingDelete(event.session, it) }
+            }
+        }
+    }
     LaunchedEffect(vm, albumSession) { vm.albumViewerMessages.collect { snackbar.showSnackbar(it) } }
 
     // 独立搜索/收藏窗口里的图片可能不在首页列表，使用服务器确认的状态驱动当前按钮。

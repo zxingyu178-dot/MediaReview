@@ -60,6 +60,29 @@ class Stage8HReviewGestureTest {
         compose.waitForIdle()
     }
 
+    @Test fun adaptiveHorizontalPreviewCommitsExactlyOnceWithoutFlippingPage() {
+        launch()
+        bar().performTouchInput { click(Offset(width * .2f, centerY)) }; near(12_000)
+        tapBody(); compose.waitUntil(5_000) { !kernel { it.isPlaying } }
+        val anchor = position()
+        val recorder = kernel { com.mediareview.app.feature.v2.player.KernelSeekRecorder(it.player.mediaPlayer as IjkExo2MediaPlayer) }
+        try {
+            body().performTouchInput {
+                down(Offset(width * .2f, height * .4f))
+                moveTo(Offset(width * .35f, height * .4f))
+                moveTo(Offset(width * .7f, height * .4f))
+            }
+            Assert.assertEquals(0, recorder.count)
+            Assert.assertTrue(abs(position() - anchor) < 1000)
+            body().performTouchInput { up() }
+            near(anchor + 15_000)
+            compose.waitUntil(5_000) { recorder.count == 1 }
+            Assert.assertEquals(0, page())
+            Assert.assertFalse(kernel { it.isPlaying })
+            compose.waitForIdle(); Assert.assertEquals(1, recorder.count)
+        } finally { compose.runOnUiThread { recorder.close() } }
+    }
+
     /** 提示仍可见时第一下真实触摸必须到达32dp进度条；不得等待提示消失或语义setProgress。 */
     @Test fun visibleReviewReminderAllowsFirstPhysicalSeekWithoutHidingMessage() {
         launch()
@@ -127,7 +150,7 @@ class Stage8HReviewGestureTest {
             moveTo(Offset(width * .7f, height * .2f))
             up()
         }
-        near(baseline + 30_000)
+        near(baseline + 15_000)
         Assert.assertEquals("水平 owner 不得转为翻页", 0, page())
         Assert.assertFalse(fixture!!.videos.any { it.mediaId == "second" })
     }

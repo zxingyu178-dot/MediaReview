@@ -2643,3 +2643,31 @@ MediaCard、相册双列、书架和WindowCoverPrefetch使用同一固定profile
 最终聚焦5tests四业务PASS、原AppViewer因模拟器SystemUI ANR占窗失败；XML/dumpsys核实后在ownedAVD点击Wait、确认MainActivityfocus，单项AppViewer真实pixel/zoom/pending-delete/context重跑PASS1/35.505秒。失败日志保留，不把首轮合并伪造5/5。累计各候选测试复用范围明确；没有宣称最新APK12个新测试全跑，Task9全量门禁仍待执行。
 Alpha11同fixture100逐张绿像素/原图0：缩略图body6785700B；profile候选1329400B，热回访0B。记录均是合成emulator，不是手机/家庭LAN，非SLA。旧precision候选实际Painter也PASS，不能称该項证明RED。最终正式Alpha12/Server1.4/Handoff均未生成。Task2可进入针对性代码验收，整体Stage8I仍未完成。
 证据：review_meta/stage8i/task-2-device-round1-receipt.json、task-2-device-round3-receipt.json、task-2-window-build-receipt.json；temp/stage8i-ux相应原始日志、MR_IMAGE_HTTP时序；静态独立审查C0/I0，终态证据刷新请求因模型capacity失败，根已核对实际终态，不虚构独立运行审查。
+
+## 2026-10-13 Stage8I Task3 共享待删除与自适应横向 Seek 候选
+
+将原 ViewerPendingDeleteController 泛化为 PendingDeleteController，保留旧类型别名和 Viewer 入口兼容。Viewer 与正式 Full 入口 GsyNativePlayerWithPendingDelete 共用 Home VM 中唯一队列控制器，读取 / 加入 / 撤销沿用真实 MediaRepository；只有服务端确认才修改 Ready.ids，未知状态禁用并允许失败重试。Full 顶部明确显示“待删除 / 撤销待删除”，成功 Snackbar 的“撤销”绑定原 mediaId 与 session，成功和失败消息都按代次过滤；离页、换媒体、换数据源取消旧任务并隔离迟到响应。播放器只调用待删除队列协议，没有永久删除入口。
+
+Full 与 Review 的实际 PlayerBodyGestures 回调共同使用 PlayerSeekMapping：整屏时长 2%，限制 30,000–180,000ms；5m / 30m / 2h / 6h 对应 30s / 36s / 144s / 180s。非 finite 几何输入、负时长和 Long 边界安全处理。移动仅预览，SeekDragEngine 结束只输出一次提交；原进度条绝对定位、真实 DoubleTapSeekState ±10s、播放 owner / 用户主动暂停 / 临时暂停恢复保护未改。横滑提示在进度附近显示增量与开始→目标时间，旧 SeekGesturePreview 也转用共享映射。
+
+真实验证：39366 helper 范围 RED 1test/1fail（旧5m=90s，需求30s）；89938 controller 成功反馈 RED 8tests/1fail（expected 已加入待删除，actual 空消息；其 controller 生产实现未改，但该轮 Seek 源在构建期间修改，因此不声称整轮输入冻结）。99307 因 --tests 错误绑定 assembleDebugAndroidTest 配置失败；98825 两处 nullable currentMediaId 编译错误，修正后 87357 EXIT0/BUILD SUCCESSFUL4m10、33个目标 JVM 通过。最后收紧失败消息代次、补真实 DoubleTapSeekState 断言及真实 PNG fixture后，95134 EXIT0/BUILD SUCCESSFUL1m40、35tests/0failure/0error、Debug Main 与 AndroidTest APK 编译打包通过。20项 Android 冻结输入构建后回验无变化，git diff --check PASS。日志、冻结清单与 receipt 在 temp/stage8i-ux/task-3-*。
+
+已准备但 writer 未执行设备测试：Stage8IPendingDeleteHttpTest 的正式 Full / Viewer → VM → 生产 Repository → synthetic HTTP 初始加载、加入确认、Snackbar DELETE 撤销、失败重试/写失败、换媒体迟到隔离；现有 Stage8HFullGestureTest 与 Stage8HReviewGestureTest 新增真实60s MP4 / Exo discontinuity 计数，验证 move=0 seek、up=1 seek、内核真实目标位置和暂停保持。60s设备测试不会冒充5m/30m/2h/6h真实播放验收，长时长映射目前仅 JVM。设备、全JVM、lint、Release、手机、家庭LAN、生产服务均未由本 writer 执行；版本 / 正式发布留 Task9。未 commit，待根独立审查及统一设备验收；ControlHub 保持 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT，无新增长期对象或脚本。
+
+### Task3 根设备失败后测试隔离修正候选
+根设备53517真实终态为4tests/4FAIL/59.535s，全部停在测试launch等待Home首屏列表非空，尚未执行待删除业务断言。生产Home bootstrap读取持久化模式；测试helper只在未存模式时默认DEMO，而旧AVD可持久化SERVER。另reloadAll对直接Server Repository且未配置session明确return。测试修正仅在Stage8IPendingDeleteHttpTest保存旧mode→设置DEMO→After finally恢复；Home UI host使用仅mode=DEMO的委托适配器，全部媒体分页、队列读取/加入/撤销仍走真实生产Server Repository HTTP，播放器VM仍直连该Repository。没有修改production health/configured Gate，没有延长timeout、假确认或清app数据；这个测试不验证真实profile/health bootstrap。修正编译及业务设备重跑尚待根协调，原4失败保留，不把它们归因为SystemUI ANR。
+
+### Task3 Server bootstrap fixture 修正（替代上一未验收 mode-adapter 候选）
+按根审查要求撤回测试mode适配器，未用它声明业务通过。新的测试保存旧ServerProfile及mode，临时将fixture地址/随机凭据写入既有ServerProfileStore（凭据使用既有Keystore密文存储），设SERVER，直传生产V2ServerMediaRepository，让正式Bootstrap.restore、HealthMonitor.probe、configured/contract gate、reloadAll依次执行。fixture补API2 health和Home所需空folders；新pending测试opt-in既有AuthInterceptor，受保护fixture API要求正确认证，真实probe的media?page_size=1认证请求及host configured/paired有布尔断言。旧fixture默认bare API模式未变，不声称旧Full/Review测试API认证整链路；视频X-Emby认证证据仍独立。After finally用Store.clear/saveBaseUrl/savePairing恢复旧profile并检查base/token一致，嵌套finally恢复旧mode；日志仅记录恢复及Gate布尔值，不输出旧profile、fixture地址或凭据。生产Gate未改，不扩真实配对UI、手机、家庭LAN。此次仅测试三文件变化；主程序沿用95134已验APK，待增量TestAPK编译及根HTTP4重跑。
+
+### Task3 Viewer 认证图片门禁补齐候选
+68394仅TestAPK构建真实EXIT0/BUILD SUCCESSFUL4m14，但根只读发现新fixture保护PNG接口、App全局Coil TokenProvider与测试bootstrap provider独立；未把该中间候选当正常Viewer通过。随后仅测试fixture增加私有凭据作用域的CacheAuthInterceptor图片client，Viewer测试保存旧Coil loader、安装独占loader、After恢复旧loader并关闭owned loader/client。fixture为真实64×64绿PNG，接口认证要求保持；点击待删除之前同时等待当前first/original已认证HTTP、真实Drawable success及viewer_pager可见绿色像素，避免blank/error占位伪通过。生产图片DI/预取lifetime/缓存管线没有修改。8110仅TestAPK增量构建中，最终设备HTTP4仍待根统一执行。
+
+### Task3 根最终设备验收（2026-10-13）
+正式源码12项冻结哈希无变化，Main APK SHA256=37b044a9b7224c5b02a103d4938a1afd1bdcaeedba2eafd2c29adc8a2e9426b0。复用95134对应35项定向JVM通过；设备62172的2项adaptive与55752的6项bar/double/resume回归均实际通过。实际60s MP4证明横滑move不seek、up仅一次、半屏+15s、暂停保持；5m/30m/2h/6h范围仅JVM验证。
+
+最新测试包8115实际EXIT0、BUILD SUCCESSFUL in 1m35s，三项测试输入冻结无变；Test SHA256=acda660d6d08a03ea82677f951aa8849e91fcbe446de03becb9ae294ef10939e。39038隔离只读AVD实际终态OK(4 tests)/64.998s：Full初始状态/HTTP确认后加入/真实DELETE撤销、加载失败重试与写失败、旧媒体迟到隔离、Viewer真实跨页撤销。Viewer先经过认证original请求、Drawable success及中央绿色像素验证，再加入first、真实swipe到second并断言标题与2/2，点击原Snackbar撤销后两次HTTP仍绑定first且true/false。四项都观察到正式Server配置/配对/probe及旧profile/mode恢复安全布尔日志，未输出凭据。
+
+历史53517四项初始化失败与31192三通过一Viewer图片失败保留。Viewer fixture缺cover/original URL已补，并改为同origin LAN测试地址满足既有URL解析限制；生产解析/认证门禁未放宽。99216中间测试包构建通过但未运行，不代替最终8115测试包。新版仅测试fixture与跨页断言改变，前述35JVM/8gesture依据未变正式源码限定复用，不宣称全量一次性通过。
+
+证据见review_meta/stage8i/task-3-cross-page-final-{build,device}-receipt.json与temp/stage8i-ux/task-3-cross-page-final-{device,events}.log。测试仅本Agent只读AVD及合成HTTP；owned AVD已正常退出、adb设备列表空。全JVM/lint/全connected/Release/手机/家庭LAN/生产部署未执行，Task9保留；ControlHub保持BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。

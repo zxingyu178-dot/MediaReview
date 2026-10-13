@@ -28,28 +28,28 @@ class SeekGesturePreviewTest {
     }
 
     @Test
-    fun `灵敏度长视频全宽 = 90s span 不越界`() {
+    fun `灵敏度长视频全宽 = 72s span 不越界`() {
         val state = SeekGesturePreview()
         state.onStart(0L, 0f, 1080f)
         state.onDrag(1080f, durationMs = 3_600_000L)
-        assertEquals(90_000L, state.targetMs)
+        assertEquals(72_000L, state.targetMs)
     }
 
     @Test
-    fun `灵敏度中等视频全宽 = 视频时长`() {
+    fun `灵敏度中等视频全宽 = 30s下限`() {
         val state = SeekGesturePreview()
         state.onStart(0L, 0f, 1080f)
         state.onDrag(1080f, durationMs = 40_000L)
-        assertEquals(40_000L, state.targetMs)
+        assertEquals(30_000L, state.targetMs)
     }
 
     @Test
-    fun `span 始终落在 30s 到 90s`() {
+    fun `span 使用2%且受30s到180s限制`() {
         assertEquals(30_000L, SeekGesturePreview.spanFor(5_000L))
         assertEquals(30_000L, SeekGesturePreview.spanFor(20_000L))
-        assertEquals(40_000L, SeekGesturePreview.spanFor(40_000L))
-        assertEquals(90_000L, SeekGesturePreview.spanFor(300_000L))
-        assertEquals(90_000L, SeekGesturePreview.spanFor(3_600_000L))
+        assertEquals(30_000L, SeekGesturePreview.spanFor(40_000L))
+        assertEquals(30_000L, SeekGesturePreview.spanFor(300_000L))
+        assertEquals(72_000L, SeekGesturePreview.spanFor(3_600_000L))
     }
 
     @Test

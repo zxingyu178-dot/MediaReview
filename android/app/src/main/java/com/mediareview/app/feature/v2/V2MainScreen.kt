@@ -52,7 +52,6 @@ import com.mediareview.app.feature.v2.organize.duplicates.DuplicateCompareScreen
 import com.mediareview.app.feature.v2.organize.duplicates.DuplicatesScreen
 import com.mediareview.app.feature.v2.organize.libraries.LibraryManagerScreen
 import com.mediareview.app.feature.v2.player.V2NativePlayerViewModel
-import com.mediareview.app.feature.v2.player.native.GsyNativePlayerScreen
 import com.mediareview.app.feature.v2.player.native.state.PlaybackContext
 import com.mediareview.app.feature.v2.player.native.state.PlaybackQueueItem
 import com.mediareview.app.feature.v2.releasenotes.WhatsNewSheet
@@ -268,20 +267,8 @@ fun V2MainScreen(
                     }
                     val playerViewModel: V2NativePlayerViewModel = hiltViewModel()
                     LaunchedEffect(playbackContext) { playerViewModel.open(playbackContext) }
-                    val playerState by playerViewModel.state.collectAsState()
-                    GsyNativePlayerScreen(
-                        state = playerState,
-                        onRequestIndex = { index -> playerViewModel.moveTo(index) },
-                        onPlaybackFailed = { failingMediaId ->
-                            playerViewModel.onPlaybackFailed(failingMediaId)
-                        },
-                        onRetry = { playerViewModel.retry() },
-                        onPlaybackStable = playerViewModel::onPlaybackStable,
-                        onReportLoadedProgress = playerViewModel::reportLoadedProgress,
-                        onReportProgress = { positionMs, isPaused ->
-                            playerViewModel.reportProgress(positionMs, isPaused)
-                        },
-                        onBack = { navController.popBackStack() },
+                    com.mediareview.app.feature.v2.player.native.GsyNativePlayerWithPendingDelete(
+                        vm, playerViewModel, onBack = { navController.popBackStack() },
                     )
                 }
             }

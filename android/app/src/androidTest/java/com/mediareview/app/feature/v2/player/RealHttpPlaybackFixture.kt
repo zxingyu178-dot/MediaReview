@@ -4,6 +4,10 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.mediareview.app.R
 import com.mediareview.app.core.network.ApiFactory
+import com.mediareview.app.core.network.AuthInterceptor
+import com.mediareview.app.core.network.CacheAuthInterceptor
+import com.mediareview.app.core.network.TokenProvider
+import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.data.server.*
 import com.mediareview.app.feature.v2.review.data.V2ServerReviewSessionRepository
@@ -27,7 +31,24 @@ internal class RealHttpPlaybackFixture(
     private val blockSecondPlayback: Boolean = false,
     private val blockFirstVideo: Boolean = false,
     private val resumeMs: Long = 0L,
+    private val blockPendingRead: Boolean = false,
+    private val blockPendingWrite: Boolean = false,
+    private val imageMedia: Boolean = false,
+    private val authenticatedApi: Boolean = false,
 ) : AutoCloseable {
+    @Volatile var pending: Set<String> = emptySet()
+    @Volatile var pendingReadFailure = false
+    @Volatile var pendingWriteFailure = false
+    val pendingReadRequested = CountDownLatch(1)
+    private val pendingReadRelease = CountDownLatch(1)
+    fun releasePendingRead() { pendingReadRelease.countDown() }
+    val pendingWriteRequested = CountDownLatch(1)
+    private val pendingWriteRelease = CountDownLatch(1)
+    fun releasePendingWrite() { pendingWriteRelease.countDown() }
+    data class PendingWrite(val mediaId: String, val pending: Boolean, val succeeded: Boolean)
+    val pendingWrites = CopyOnWriteArrayList<PendingWrite>()
+    data class ApiRequest(val path: String, val pageSize: String?, val authenticated: Boolean)
+    val apiRequests = CopyOnWriteArrayList<ApiRequest>()
     val firstVideoRequested = CountDownLatch(1)
     private val firstVideoRelease = CountDownLatch(1)
     fun releaseFirstVideo() { firstVideoRelease.countDown() }
@@ -57,16 +78,40 @@ internal class RealHttpPlaybackFixture(
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val bytes = if (longVideo) androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.assets
         .open("gesture_60s.mp4").use { it.readBytes() } else context.resources.openRawResource(R.raw.demo_05_longer).use { it.readBytes() }
+    private val imageBytes by lazy {
+        val bitmap = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888)
+        try {
+            bitmap.eraseColor(android.graphics.Color.GREEN)
+            java.io.ByteArrayOutputStream().use { output ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        } finally { bitmap.recycle() }
+    }
     private fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
     private fun envelope(body: String) = json("""{"success":true,"data":$body}""")
-    private fun media(id: String) = """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"video","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"test","folder_name":"测试","is_favorite":false}"""
-    private fun session(index: Int = 0) = """{"session_id":"http-review","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":{"media_type":"video"},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
+    private fun media(id: String): String {
+        val images = if (imageMedia) ""","cover_url":"/api/v1/media/$id/cover?v=fixture1","original_url":"/api/v1/media/$id/original?v=fixture1" """ else ""
+        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia) "image" else "video"}","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"test","folder_name":"测试","is_favorite":false$images}"""
+    }
+    private fun session(index: Int = 0) = """{"session_id":"http-review","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":{"media_type":"${if (imageMedia) "image" else "video"}"},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
 
     init {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.requestUrl?.encodedPath.orEmpty()
+                if (path.startsWith("/api/v1/")) {
+                    val valid = request.getHeader("Authorization") == "Bearer $credential"
+                    apiRequests += ApiRequest(path, request.requestUrl?.queryParameter("page_size"), valid)
+                    if (authenticatedApi && path != "/api/v1/system/health" && !valid) {
+                        return MockResponse().setResponseCode(401)
+                    }
+                }
                 return when {
+                    path == "/api/v1/system/health" -> envelope("""{"status":"ok","version":"1.4.0","api_contract":2,"capabilities":[]}""")
+                    path == "/api/v1/media/folders" -> envelope("[]")
+                    imageMedia && (path.endsWith("/thumbnail") || path.endsWith("/original")) ->
+                        MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(imageBytes))
                     path.startsWith("/video/") -> video(request, path.substringAfterLast('/').removeSuffix(".mp4"))
                     path.endsWith("/playback") -> {
                         val id = path.removePrefix("/api/v1/media/").removeSuffix("/playback")
@@ -87,13 +132,26 @@ internal class RealHttpPlaybackFixture(
                     path.endsWith("/seen") -> envelope("""{"media_id":"first","seen":true,"seen_count":1,"total_count":2,"remaining_count":1,"unavailable_count":0,"completed_count":1}""")
                     path.contains("/review/sessions") -> envelope(session())
                     path == "/api/v1/delete-queue" -> {
-                        android.util.Log.d("MRFixtureRoute",
-                            "known-delete-queue method=" + request.method + " path=" + path +
-                                " status=" + (if (request.method == "GET") 200 else 405))
+                        pendingReadRequested.countDown()
+                        if (blockPendingRead && !pendingReadRelease.await(20, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        if (pendingReadFailure) return MockResponse().setResponseCode(503)
                         if (request.method != "GET") MockResponse().setResponseCode(405)
-                        else envelope("[]")
+                        else envelope(pending.joinToString(prefix = "[", postfix = "]") { """{"media_id":"$it","status":"pending"}""" })
                     }
-                    path == "/api/v1/media" -> envelope("""{"items":[${media("first")},${media("second")}],"total":2,"page":1,"page_size":50}""")
+                    path.startsWith("/api/v1/delete-queue/") -> {
+                        val id = path.substringAfterLast('/')
+                        if (request.method !in listOf("POST", "DELETE")) return MockResponse().setResponseCode(405)
+                        pendingWriteRequested.countDown()
+                        if (blockPendingWrite && !pendingWriteRelease.await(20, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        val target = request.method == "POST"
+                        pendingWrites += PendingWrite(id, target, !pendingWriteFailure)
+                        if (pendingWriteFailure) return MockResponse().setResponseCode(503)
+                        pending = if (target) pending + id else pending - id
+                        envelope("""{"media_id":"$id","queued":$target}""")
+                    }
+                    path == "/api/v1/media" -> if (request.requestUrl?.queryParameter("page_size") == "1") {
+                        envelope("""{"items":[${media("first")}],"total":2,"page":1,"page_size":1}""")
+                    } else envelope("""{"items":[${media("first")},${media("second")}],"total":2,"page":1,"page_size":50}""")
                     path.endsWith("/progress") -> {
                         if (request.method != "POST") return MockResponse().setResponseCode(405)
                         val id = path.removePrefix("/api/v1/media/").removeSuffix("/progress")
@@ -136,8 +194,21 @@ internal class RealHttpPlaybackFixture(
             .setBody(Buffer().write(bytes, start.toInt(), (end - start + 1).toInt()))
     }
 
-    /** MediaReview API 基地址（业务接口，不受媒体 URL 安全策略约束）。 */
-    private val apiBase: String = "http://127.0.0.1:${server.port}/"
+    /** 认证图片测试与配对/业务接口同origin；旧播放fixture仍保留原回环API基址。 */
+    private val apiBase: String
+        get() = if (authenticatedApi) playbackBase.toString() else "http://127.0.0.1:${server.port}/"
+
+    /** 仅测试 Store 的临时 fixture 配置；随机凭据不通过公开字段/日志暴露。 */
+    suspend fun configureTestProfile(store: ServerProfileStore) {
+        store.saveBaseUrl(apiBase)
+        store.savePairing(credential)
+    }
+
+    /** Viewer 测试独占的图片 HTTP client；调用方负责关闭，凭据仍仅保存在拦截器中。 */
+    fun authenticatedImageClient(): OkHttpClient {
+        val tokens = TokenProvider().apply { set(credential, apiBase) }
+        return OkHttpClient.Builder().addInterceptor(CacheAuthInterceptor(tokens)).build()
+    }
 
     /** 播放地址必须用设备真实 LAN 地址（生产 Resolver 拒绝回环/本机目的地）。 */
     private val playbackBase: HttpUrl = run {
@@ -154,7 +225,10 @@ internal class RealHttpPlaybackFixture(
     private val resources = V2ServerResourceCache()
     private val resolver = MediaUrlResolver()
     private val mapper = V2MediaMapper(resolver)
-    private val http = OkHttpClient()
+    private val http = if (authenticatedApi) {
+        val tokens = TokenProvider().apply { set(credential, apiBase) }
+        OkHttpClient.Builder().addInterceptor(AuthInterceptor(tokens)).build()
+    } else OkHttpClient()
     private val api = ApiFactory(http, http, Json { ignoreUnknownKeys = true; coerceInputValues = true })
     private val profile = object : V2ServerProfilePort {
         override suspend fun baseUrl() = apiBase

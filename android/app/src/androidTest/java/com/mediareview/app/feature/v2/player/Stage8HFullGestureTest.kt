@@ -135,8 +135,34 @@ class Stage8HFullGestureTest {
             moveTo(Offset(width * .7f, height * .45f))
             up()
         }
-        near(before + 30_000)
+        near(before + 15_000)
         Assert.assertTrue("横滑seek后应恢复原播放态", kernel { it.isPlaying })
+    }
+
+    @Test fun adaptiveBodyPreviewDoesNotSeekAndUpCommitsExactlyOnce() {
+        launch(); showControls()
+        compose.onNodeWithContentDescription("更多").performClick()
+        compose.onNodeWithText("暂停播放").performClick()
+        compose.waitUntil(5_000) { !kernel { it.isPlaying } }
+        compose.onNodeWithTag("player_seek_bar").performTouchInput { click(Offset(width * .2f, centerY)) }
+        near(12_000)
+        val anchor = position()
+        val recorder = kernel { KernelSeekRecorder(it.player.mediaPlayer as IjkExo2MediaPlayer) }
+        try {
+            body().performTouchInput {
+                down(Offset(width * .2f, height * .45f))
+                moveTo(Offset(width * .35f, height * .45f))
+                moveTo(Offset(width * .7f, height * .45f))
+            }
+            Assert.assertEquals("move只能预览", 0, recorder.count)
+            Assert.assertTrue(abs(position() - anchor) < 1000)
+            body().performTouchInput { up() }
+            near(anchor + 15_000)
+            compose.waitUntil(5_000) { recorder.count == 1 }
+            compose.waitForIdle()
+            Assert.assertEquals("一个手势只提交一次真实seek", 1, recorder.count)
+            Assert.assertFalse(kernel { it.isPlaying })
+        } finally { compose.runOnUiThread { recorder.close() } }
     }
 
     @Test fun pausedSeekStaysPausedAtCommittedPosition() {
@@ -175,7 +201,7 @@ class Stage8HFullGestureTest {
             moveTo(Offset(width * .3f, height * .45f))
             up()
         }
-        near(anchor + 6_000, timeoutMs = 2_000)
+        near(anchor + 3_000, timeoutMs = 2_000)
         Assert.assertFalse("暂停横滑不得恢复声音", kernel { it.isPlaying })
         Assert.assertSame("横滑不得重新装载播放器", originalPlayer, kernel { it.player.mediaPlayer })
         Assert.assertTrue(fixture!!.videos.all { it.authenticated && it.mediaId == "first" })

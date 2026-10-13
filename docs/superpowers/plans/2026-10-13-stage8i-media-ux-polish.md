@@ -51,9 +51,9 @@ def test_profile_contract(profile,expected):
 fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
     ((dx / width) * (durationMs * 0.02).coerceIn(30_000.0,180_000.0)).toLong()
 ```
-- [ ] RED：5m/30m/2h/6h范围、一次seek与bar/double不变；待删除初始加载/add/undo成功server后更新、失败不假切UI、切源晚到不污染、撤销按钮真实HTTP。
-- [ ] 实现Full顶部待删除及轻量偏移/起终时间提示；不直接删除文件，Viewer兼容。
-- [ ] JVM/编译GREEN、真实player和Viewer HTTP操作轮次；审查/DEV_LOG/feat(android): share pending deletion and adaptive seek提交。
+- [x] RED：5m/30m/2h/6h范围、一次seek与bar/double不变；待删除初始加载/add/undo成功server后更新、失败不假切UI、切源晚到不污染、撤销按钮真实HTTP。
+- [x] 实现Full顶部待删除及轻量偏移/起终时间提示；不直接删除文件，Viewer兼容。
+- [x] JVM/编译GREEN、真实player和Viewer HTTP操作轮次；审查/DEV_LOG/feat(android): share pending deletion and adaptive seek提交。
 
 ### Task 4: Jellyfin Size与DeleteReceipt Server（§15–17/31相关/27部分）
 **Files:** server/app/adapters/jellyfin/models.py/mapper.py；services/media_index.py/delete_queue.py；api/v1/delete_queue.py；tests/test_jellyfin_mapper.py/test_delete_nonce_11.py及新test_delete_receipt_8i.py。

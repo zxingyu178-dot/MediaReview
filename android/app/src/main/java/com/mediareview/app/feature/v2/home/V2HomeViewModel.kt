@@ -28,7 +28,8 @@ import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import com.mediareview.app.feature.v2.perf.V2Perf
-import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteController
+import com.mediareview.app.feature.v2.viewer.state.PendingDeleteController
+import com.mediareview.app.feature.v2.viewer.state.PendingDeleteMessage
 import com.mediareview.app.feature.v2.viewer.state.AlbumPagingController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -258,12 +259,17 @@ class V2HomeViewModel @Inject constructor(
     val loadingFirstPage: Boolean
         get() = _listLoading.value && _currentList.value.isEmpty()
 
-    /** Viewer 全屏覆盖根页面，待删除提示只交给 Viewer 的消息入口。 */
+    /** Viewer / Full 共用队列及带代次的撤销消息；旧提示入口保留兼容。 */
     private val _viewerPendingDeleteMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val viewerPendingDeleteMessages: SharedFlow<String> = _viewerPendingDeleteMessages
-    private val viewerPendingController = ViewerPendingDeleteController(
+    private val _pendingDeleteMessages = MutableSharedFlow<PendingDeleteMessage>(extraBufferCapacity = 8)
+    val pendingDeleteMessages: SharedFlow<PendingDeleteMessage> = _pendingDeleteMessages
+    private val viewerPendingController = PendingDeleteController(
         viewModelScope, repository::pendingDeleteIds, repository::setPendingDelete,
-        { _viewerPendingDeleteMessages.tryEmit(it) },
+        { text ->
+            _viewerPendingDeleteMessages.tryEmit(text)
+        },
+        { _pendingDeleteMessages.tryEmit(it) },
     )
     val viewerPendingDeleteState = viewerPendingController.state
     val viewerPendingDeleteBusy = viewerPendingController.busy
@@ -271,6 +277,8 @@ class V2HomeViewModel @Inject constructor(
     fun closeViewerPendingDelete(session: Long) = viewerPendingController.close(session)
     fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
     fun toggleViewerPendingDelete(session: Long, mediaId: String) = viewerPendingController.toggle(session, mediaId)
+    fun undoPendingDelete(session: Long, mediaId: String) = viewerPendingController.undo(session, mediaId)
+    fun isPendingDeleteSessionCurrent(session: Long): Boolean = viewerPendingController.isCurrentSession(session)
 
     private var albumSourceGeneration = 0L
     private val albumController = AlbumPagingController(viewModelScope, repository::albumPage, ::emitMessage, sourceGeneration = { albumSourceGeneration })

@@ -9,11 +9,44 @@ import org.junit.Test
 /** 通过生产控制器验证真实状态、确认写入与取消竞态。 */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ViewerPendingDeleteControllerTest {
+    @Test fun `failure event belongs to current session and has no undo action`() = runTest {
+        val events = mutableListOf<PendingDeleteMessage>()
+        val c = PendingDeleteController(backgroundScope, { emptySet() }, { _, _ -> false }, {}, events::add)
+        val session = c.open(); runCurrent(); c.toggle(session, "video"); runCurrent()
+        assertEquals(listOf(PendingDeleteMessage("加入待删除失败", session)), events)
+        assertEquals(emptySet<String>(), ids(c))
+    }
+    @Test fun `undo action uses original media and cannot cross session`() = runTest {
+        val events = mutableListOf<PendingDeleteMessage>()
+        val writes = mutableListOf<Pair<String, Boolean>>()
+        val gate = CompletableDeferred<Boolean>()
+        val c = PendingDeleteController(backgroundScope, { emptySet() }, { id, target ->
+            writes += id to target
+            if (target) gate.await() else true
+        }, {}, events::add)
+        val session = c.open(); runCurrent()
+        c.toggle(session, "original"); runCurrent()
+        assertTrue(events.isEmpty()); assertEquals(emptySet<String>(), ids(c))
+        gate.complete(true); runCurrent()
+        val action = events.single()
+        assertEquals(PendingDeleteMessage("已加入待删除", session, "original"), action)
+        c.undo(action.session, action.undoMediaId!!); runCurrent()
+        assertEquals(listOf("original" to true, "original" to false), writes)
+        assertEquals(emptySet<String>(), ids(c))
+        c.open(); runCurrent(); c.undo(action.session, "original"); runCurrent()
+        assertEquals(2, writes.size)
+    }
     private fun controller(scope: CoroutineScope, read: suspend () -> Set<String>, write: suspend (String, Boolean) -> Boolean, message: (String) -> Unit = {}) = ViewerPendingDeleteController(scope, read, write, message)
     private fun state(c: ViewerPendingDeleteController): ViewerPendingDeleteState = c.state.value
     private fun ids(c: ViewerPendingDeleteController): Set<String> = (state(c) as ViewerPendingDeleteState.Ready).ids
     private fun busy(c: ViewerPendingDeleteController): Boolean = c.busy.value
     private fun open(c: ViewerPendingDeleteController): Long = c.open()
+    @Test fun `successful add exposes confirmed feedback`() = runTest {
+        val messages = mutableListOf<String>()
+        val c = controller(backgroundScope, { emptySet() }, { _, _ -> true }, messages::add)
+        val session = open(c); runCurrent(); c.toggle(session, "video"); runCurrent()
+        assertEquals(listOf("已加入待删除"), messages)
+    }
     @Test fun `existing queue is loaded and reopen sees Organize undo`() = runTest {
         var queue = setOf("img"); var reads = 0
         val c = controller(backgroundScope, { reads++; queue }, { _, _ -> true })
