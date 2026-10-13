@@ -55,6 +55,26 @@ class DeleteCommitPrep:
     media_ids: list[str]
 
 
+class DeleteReceipt(dict[str, str]):
+    """保留旧字典调用合同，并携带本次真实删除字节数。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.deleted_bytes = 0
+
+    @property
+    def deleted_count(self) -> int:
+        return sum(value == "success" for value in self.values())
+
+    @property
+    def missing_count(self) -> int:
+        return sum(value == "missing" for value in self.values())
+
+    @property
+    def failed_count(self) -> int:
+        return sum(value == "failed" for value in self.values())
+
+
 def enqueue(session: Session, media_id: str, *, size_bytes: int | None = None) -> bool:
     """加入待删除队列。已 committed 的不再入队。返回是否为新增入队。"""
     row = session.get(DeleteQueue, media_id)
@@ -78,7 +98,32 @@ def dequeue(session: Session, media_id: str) -> bool:
 
 
 def list_queue(session: Session) -> list[DeleteQueue]:
+    backfill_pending_sizes(session)
     return list(session.scalars(sa.select(DeleteQueue).order_by(DeleteQueue.added_at.asc())).all())
+
+
+def backfill_pending_sizes(session: Session) -> None:
+    """仅从持久索引补未知 pending 尺寸，绝不访问文件系统。"""
+    from app.db.models import MediaCacheIndex
+
+    size = (
+        sa.select(MediaCacheIndex.size_bytes)
+        .where(
+            MediaCacheIndex.media_id == DeleteQueue.media_id,
+            MediaCacheIndex.size_bytes > 0,
+        )
+        .scalar_subquery()
+    )
+    session.execute(
+        sa.update(DeleteQueue)
+        .where(
+            DeleteQueue.status == "pending",
+            sa.or_(DeleteQueue.size_bytes.is_(None), DeleteQueue.size_bytes <= 0),
+            size.is_not(None),
+        )
+        .values(size_bytes=size),
+        execution_options={"synchronize_session": "fetch"},
+    )
 
 
 def pending_summary(session: Session) -> tuple[int, int]:
@@ -87,6 +132,7 @@ def pending_summary(session: Session) -> tuple[int, int]:
     Stage 8C §11: Organize 首页只需要数字,不得为此拉取整个队列;
     单条 SQL 聚合;failed 项(删除失败仍留在队列)不计入"预计释放"。
     """
+    backfill_pending_sizes(session)
     count, total = session.execute(
         sa.select(
             sa.func.count(DeleteQueue.media_id),
@@ -118,7 +164,9 @@ def _mtime_ms(media) -> int | None:
     return None
 
 
-def _deletion_guard(session: Session, media, media_path: str) -> str | None:
+def _deletion_guard(
+    session: Session, media, media_path: str, *, file_stat: os.stat_result | None = None
+) -> str | None:
     """在真实删除前校验媒体身份,返回拒绝原因;通过校验返回 None。
 
     校验项:
@@ -132,7 +180,7 @@ def _deletion_guard(session: Session, media, media_path: str) -> str | None:
         return _GUARD_LIBRARY
 
     try:
-        st = os.stat(media_path)
+        st = file_stat if file_stat is not None else os.stat(media_path)
     except FileNotFoundError:
         raise
     except OSError as exc:
@@ -159,6 +207,7 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
     返回的 nonce 只能使用一次、10 分钟过期;media_ids 快照防止 nonce 生成后
     新入队的媒体被"顺手"删除(TOCTOU)。
     """
+    backfill_pending_sizes(session)
     pending = list(
         session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
     )
@@ -185,7 +234,7 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
     )
 
 
-def commit_with_nonce(session: Session, nonce: str) -> dict[str, str]:
+def commit_with_nonce(session: Session, nonce: str) -> DeleteReceipt:
     """使用一次性 nonce 确认并删除其快照内的媒体(逐项 success/missing/failed)。"""
     row = session.get(DeleteCommitNonce, nonce)
     if row is None:
@@ -201,7 +250,7 @@ def commit_with_nonce(session: Session, nonce: str) -> dict[str, str]:
     return outcome
 
 
-def commit_all(session: Session) -> dict[str, str]:
+def commit_all(session: Session) -> DeleteReceipt:
     """确认并真实删除全部 pending 项(内部/测试入口;生产走 nonce 合同)。"""
     pending = list(
         session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
@@ -209,14 +258,14 @@ def commit_all(session: Session) -> dict[str, str]:
     return _commit_media_ids(session, [row.media_id for row in pending])
 
 
-def _commit_media_ids(session: Session, media_ids: list[str]) -> dict[str, str]:
+def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
     """对指定媒体逐项确认删除,返回 {media_id: result}。
 
     result ∈ success(已删除) / missing(文件路径缺失或已不存在,仍清理索引) / failed。
     删除前重新校验媒体归属与文件身份;文件被替换/修改/不再属于允许库时拒绝删除,
     并记录审计与失败原因。逐项处理,失败不影响其余项;成功后清理索引、收藏与队列记录。
     """
-    outcome: dict[str, str] = {}
+    outcome = DeleteReceipt()
     for media_id in media_ids:
         row = session.get(DeleteQueue, media_id)
         if row is None:
@@ -234,11 +283,20 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> dict[str, str]:
                 # 文件已不存在 -> 视为成功并清理索引(幂等,不误删新文件)
                 result = "missing"
             else:
-                guard_reason = _deletion_guard(session, media, media_path)
+                file_stat = os.stat(media_path)
+                guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)
                 if guard_reason is not None:
                     raise ValueError(guard_reason)
+                actual_size = file_stat.st_size
                 os.remove(media_path)
+                try:
+                    os.lstat(media_path)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError("delete_not_verified")
                 result = "success"
+                outcome.deleted_bytes += actual_size
         except FileNotFoundError:
             result = "missing"
         except (OSError, ValueError) as exc:

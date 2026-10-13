@@ -15,11 +15,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
+import stat
 import time
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -27,10 +30,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters.jellyfin.client import JellyfinClient
-from app.adapters.jellyfin.models import Library, MediaItem
+from app.adapters.jellyfin.mapper import compute_fingerprint
+from app.adapters.jellyfin.models import JFItem, Library, MediaItem
 from app.core.config import JellyfinConfig
 from app.db.models import (
     BackgroundTask,
+    DeleteQueue,
     Favorite,
     LibrarySelection,
     MediaCacheIndex,
@@ -167,6 +172,36 @@ def selected_library_ids(session: Session) -> list[str]:
 # ---- 媒体缓存索引 ----
 
 
+def _sync_local_size(item: MediaItem, allowed_libraries: set[str]) -> MediaItem:
+    """仅受控同步时访问本机普通文件；不接受 URI/UNC/链接或未选库。"""
+    raw = item.media_path
+    if item.size_bytes or not raw or item.library_id not in allowed_libraries:
+        return item
+    if "://" in raw or raw.startswith(("\\\\", "//")):
+        return item
+    path = Path(raw)
+    if not path.is_absolute():
+        return item
+    try:
+        # 不跟随文件或任意父级符号链接/Windows junction/reparse point。
+        for component in [*reversed(path.parents), path]:
+            info = os.lstat(component)
+            if stat.S_ISLNK(info.st_mode) or (
+                getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            ):
+                return item
+        if not stat.S_ISREG(info.st_mode):
+            return item
+    except OSError:
+        return item
+    fingerprint = compute_fingerprint(JFItem(
+        jellyfin_id=item.jellyfin_id, path=raw, size_bytes=info.st_size,
+        date_modified=item.modified_at,
+    ))
+    return item.model_copy(update={"size_bytes": info.st_size, "fingerprint": fingerprint})
+
+
 def _index_payload(item: MediaItem, *, generation: str | None, now: datetime) -> dict:
     return {
         "media_id": item.media_id,
@@ -199,6 +234,10 @@ def upsert_media_items(
 ) -> int:
     """用 SQLite ON CONFLICT 批量 upsert，不预载整个媒体索引。"""
     timestamp = now or utc_now()
+    # 普通索引写入/GET 不做文件 I/O；generation 仅由媒体 refresh 提供。
+    if generation is not None:
+        allowed = set(selected_library_ids(session))
+        items = [_sync_local_size(item, allowed) for item in items]
     payload = [
         _index_payload(item, generation=generation, now=timestamp)
         for item in items
@@ -245,6 +284,17 @@ def upsert_media_items(
             set_=update_values,
         )
         session.execute(statement)
+        known_sizes = {item["media_id"]: item["size_bytes"] for item in batch
+                       if item["size_bytes"] is not None and item["size_bytes"] > 0}
+        if known_sizes:
+            session.execute(
+                sa.update(DeleteQueue).where(
+                    DeleteQueue.media_id.in_(known_sizes),
+                    DeleteQueue.status == "pending",
+                    sa.or_(DeleteQueue.size_bytes.is_(None), DeleteQueue.size_bytes <= 0),
+                ).values(size_bytes=sa.case(known_sizes, value=DeleteQueue.media_id)),
+                execution_options={"synchronize_session": "fetch"},
+            )
         inserted_count += len(batch) - existing_count
     session.flush()
     return inserted_count

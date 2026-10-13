@@ -59,6 +59,11 @@ def map_media_item(item: JFItem, library_id: str) -> MediaItem:
     media_type = media_type_of(item.item_type)
     if media_type is None:
         raise ValueError(f"不支持的 Jellyfin 类型: {item.item_type!r}")
+    primary = item.media_sources[0] if item.media_sources else None
+    size = item.size_bytes if item.size_bytes is not None and item.size_bytes > 0 else None
+    if size is None and primary is not None:
+        size = primary.size
+    item = item.model_copy(update={"size_bytes": size})
     duration_ms = item.run_time_ticks // 10_000 if item.run_time_ticks else None
     return MediaItem(
         media_id=compute_media_id(item.jellyfin_id),

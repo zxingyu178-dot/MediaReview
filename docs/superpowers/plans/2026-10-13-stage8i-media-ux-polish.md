@@ -58,9 +58,9 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 ### Task 4: Jellyfin Size与DeleteReceipt Server（§15–17/31相关/27部分）
 **Files:** server/app/adapters/jellyfin/models.py/mapper.py；services/media_index.py/delete_queue.py；api/v1/delete_queue.py；tests/test_jellyfin_mapper.py/test_delete_nonce_11.py及新test_delete_receipt_8i.py。
 **Interfaces:** JFMediaSource id,size,run_time_ticks,container,path内部；有效顶Size>主MediaSource.Size>可信local sync stat；现有pending缺size在load/refresh索引回填。response保留outcome，新增deleted_count/deleted_bytes/missing_count/failed_count。
-- [ ] RED：topSize缺失MediaSources4GB→index/queue4GB，refresh更新原index/pending，队列读取不N+1stat；真实tempfileremove后不存在且精确bytes，missing/failed不计bytes、失败项保留。
-- [ ] 实现sync-only安全stat及回填；只计os.remove成功且后验不存在的文件，保留nonce两阶段验证/身份/白名单安全逻辑。
-- [ ] 定向pytest+ruff GREEN，独立审查/DEV_LOG/feat(server): report verified disk deletion and media sizes提交。
+- [x] RED：topSize缺失MediaSources4GB→index/queue4GB，refresh更新原index/pending，队列读取不N+1stat；真实tempfileremove后不存在且精确bytes，missing/failed不计bytes、失败项保留。
+- [x] 实现sync-only安全stat及回填；只计os.remove成功且后验不存在的文件，保留nonce两阶段验证/身份/白名单安全逻辑。
+- [x] 定向pytest+ruff GREEN，独立审查/DEV_LOG/feat(server): report verified disk deletion and media sizes提交。
 
 ### Task 5: Runtime Diagnosis与FolderBrowser（§6–8/28Folder/31FOLDER）
 **Files:** feature/v2/data/server/V2ServerStatus.kt（内含V2ServerStatusStore）；home/HomeScreen.kt/FolderBrowserScreen.kt/FolderPagingController.kt/FolderChipRow.kt/V2HomeViewModel.kt；folder合同JVM/androidTest。

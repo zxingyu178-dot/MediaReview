@@ -32,6 +32,10 @@ router = APIRouter(prefix="/delete-queue", tags=["delete-queue"])
 
 class CommitResult(BaseModel):
     outcome: dict[str, str]
+    deleted_count: int = 0
+    deleted_bytes: int = 0
+    missing_count: int = 0
+    failed_count: int = 0
 
 
 class QueueSummaryView(BaseModel):
@@ -126,7 +130,15 @@ async def commit(
     except delete_queue.NonceExpiredError:
         raise ConflictError(message="该删除确认已过期,请重新发起") from None
     db.commit()
-    return ok(CommitResult(outcome=outcome))
+    return ok(
+        CommitResult(
+            outcome=outcome,
+            deleted_count=outcome.deleted_count,
+            deleted_bytes=outcome.deleted_bytes,
+            missing_count=outcome.missing_count,
+            failed_count=outcome.failed_count,
+        )
+    )
 
 
 @router.post("/{media_id}", response_model=Envelope[dict])

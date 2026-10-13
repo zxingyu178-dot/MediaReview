@@ -2671,3 +2671,15 @@ Full 与 Review 的实际 PlayerBodyGestures 回调共同使用 PlayerSeekMappin
 历史53517四项初始化失败与31192三通过一Viewer图片失败保留。Viewer fixture缺cover/original URL已补，并改为同origin LAN测试地址满足既有URL解析限制；生产解析/认证门禁未放宽。99216中间测试包构建通过但未运行，不代替最终8115测试包。新版仅测试fixture与跨页断言改变，前述35JVM/8gesture依据未变正式源码限定复用，不宣称全量一次性通过。
 
 证据见review_meta/stage8i/task-3-cross-page-final-{build,device}-receipt.json与temp/stage8i-ux/task-3-cross-page-final-{device,events}.log。测试仅本Agent只读AVD及合成HTTP；owned AVD已正常退出、adb设备列表空。全JVM/lint/全connected/Release/手机/家庭LAN/生产部署未执行，Task9保留；ControlHub保持BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。
+
+## 2026-10-13 Stage8I Task4 Jellyfin 尺寸与真实删除回执候选
+
+服务端新增内部 JFMediaSource 最小解析；有效顶层正 Size 优先，否则仅 primary MediaSources[0].Size。媒体 refresh 沿现有批量索引 upsert 更新旧行并补未知 pending 尺寸；generation 受控同步路径才允许已选库、本机绝对普通文件尺寸兜底，拒绝 URI/UNC/相对路径及父级/文件 symlink/reparse。兜底更新原指纹；队列 load/prepare/summary 只从持久索引做批量 SQL 回填，不做文件 stat。已知队列尺寸和 failed 不改。
+
+DeleteReceipt 保持旧 dict/outcome 合同，API 加 deleted_count/deleted_bytes/missing_count/failed_count。只有 guard 文件身份检查通过、os.remove 返回且 lstat 后验确认路径不存在才计 success 与实际 stat 字节；missing/failed 不计释放 bytes，失败队列保留。库白名单、size/mtime guard、认证与 nonce 快照/单次/过期合同保持。真实隔离小文件测试删除18字节，API认证 nonce 闭环删除16字节；缺失1000估计字节不计释放，noop/PermissionError回执0字节且保留failed。
+
+真实 RED：纠正 cwd 后46339/pytest EXIT1，10项中9 expected failures/1原有topSize行为PASS；本地stat RED 14项中1fail，指纹RED 16项中1fail。首批定向36项PASS/pytest EXIT0；最终80836/EXIT0、18项PASS，ruff相关5源码+1新测试PASS，git diff --check PASS。现有Starlette httpx deprecation warning保留，未因此升级依赖。temp/stage8i-ux/task4-frozen-inputs.json为最终18项结束后的6项SHA256 snapshot，不声称预冻结；该18项执行期间输入无修改。日志/命令/exit/selfreview见task4-report.md。较宽相关回归36700仍在运行，未以18项代表全回归。
+
+未commit；根独立审查后提交。仅隔离temp/syntheticDB/Mock数据，未使用家庭媒体、真实Jellyfin设置、生产服务或手机；Gradle/ADB/部署未执行，无新长期对象/脚本。delete_receipt_v1 health能力宣告与正式1.4版本保留Task9；整体Stage8I未完成，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。
+
+Task4独立审查specCompliance/codeQuality PASS、C0/I0/M0，定向开发门禁通过并由根提交；较宽36700仍待真实终态，交原执行者只读继续观察。后续Android开发不修改此轮稳定server输入；不以定向通过声称全量回归完成。

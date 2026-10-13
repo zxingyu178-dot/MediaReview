@@ -55,6 +55,24 @@ class JFUser(BaseModel):
         return cls(jellyfin_id=raw.get("Id", ""), name=raw.get("Name", ""))
 
 
+class JFMediaSource(BaseModel):
+    id: str = ""
+    size: int | None = None
+    run_time_ticks: int | None = None
+    container: str | None = None
+    path: str | None = None
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any]) -> JFMediaSource:
+        return cls(
+            id=raw.get("Id") or "",
+            size=_positive_int(raw.get("Size")),
+            run_time_ticks=_optional_int(raw.get("RunTimeTicks")),
+            container=raw.get("Container"),
+            path=raw.get("Path"),
+        )
+
+
 class JFItem(BaseModel):
     """Jellyfin Item 的最小字段集,宽松解析,字段缺失一律为 None。"""
 
@@ -72,6 +90,7 @@ class JFItem(BaseModel):
     date_created: datetime | None = None
     date_modified: datetime | None = None
     location_type: str | None = None
+    media_sources: list[JFMediaSource] = Field(default_factory=list)
 
     @classmethod
     def from_raw(cls, raw: dict[str, Any]) -> JFItem:
@@ -80,7 +99,7 @@ class JFItem(BaseModel):
             name=raw.get("Name", ""),
             item_type=raw.get("Type", ""),
             path=raw.get("Path"),
-            size_bytes=_optional_int(raw.get("Size")),
+            size_bytes=_positive_int(raw.get("Size")),
             run_time_ticks=_optional_int(raw.get("RunTimeTicks")),
             width=_optional_int(raw.get("Width")),
             height=_optional_int(raw.get("Height")),
@@ -90,6 +109,11 @@ class JFItem(BaseModel):
             date_created=_parse_datetime(raw.get("DateCreated")),
             date_modified=_parse_datetime(raw.get("DateModified")),
             location_type=raw.get("LocationType"),
+            media_sources=[
+                JFMediaSource.from_raw(source)
+                for source in (raw.get("MediaSources") or [])
+                if isinstance(source, dict)
+            ],
         )
 
 
@@ -138,14 +162,21 @@ class MediaItem(BaseModel):
 def _optional_int(value: Any) -> int | None:
     if value is None or isinstance(value, bool):
         return None
+
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
 
 
+def _positive_int(value: Any) -> int | None:
+    parsed = _optional_int(value)
+    return parsed if parsed is not None and parsed > 0 else None
+
+
 __all__ = [
     "JFItem",
+    "JFMediaSource",
     "JFItemsPage",
     "JFSystemInfo",
     "JFUser",
