@@ -10,7 +10,34 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FolderPagingControllerTest {
-    @Test fun requestsOnlyDirectMediaInBoundedPagesAndDoesNotPolluteHomeQuery() = runTest {
+    @Test fun scopeWindowsAndAnchorsRemainSeparateAcrossToggleAndSWRFailure() = runTest {
+        var fail = false
+        val requests = mutableListOf<V2MediaQuery>()
+        val pager = FolderPagingController(backgroundScope) { query ->
+            requests += query
+            if (fail) error("offline")
+            V2MediaPage(listOf(media().copy(id = if (query.includeDescendants) "recursive" else "direct")), 1, 50, 1)
+        }
+        pager.open("ft_parent", V2SortSpec()); runCurrent()
+        val recursiveAnchor = HomeGridAnchor("media_recursive", 12)
+        pager.updateAnchor(recursiveAnchor)
+        pager.open("ft_parent", V2SortSpec(), false)
+        assertTrue(pager.state.value.items.isEmpty())
+        runCurrent()
+        pager.updateAnchor(HomeGridAnchor("media_direct", 3))
+        fail = true
+        pager.open("ft_parent", V2SortSpec(), true)
+        assertEquals("recursive", pager.state.value.items.single().id)
+        assertEquals(recursiveAnchor, pager.state.value.anchor)
+        runCurrent()
+        assertEquals("刷新失败，已保留上次内容", pager.state.value.error)
+        pager.open("ft_parent", V2SortSpec(), false)
+        assertEquals("direct", pager.state.value.items.single().id)
+        assertEquals(3, pager.state.value.anchor?.offset)
+        runCurrent()
+        assertEquals(listOf(true, false, true, false), requests.map { it.includeDescendants })
+    }
+    @Test fun defaultsToRecursiveMediaInBoundedPagesAndDoesNotPolluteHomeQuery() = runTest {
         val requests = mutableListOf<V2MediaQuery>()
         val pager = FolderPagingController(backgroundScope) { query ->
             requests += query
@@ -20,7 +47,7 @@ class FolderPagingControllerTest {
         runCurrent()
         assertEquals(1, requests.size)
         assertEquals("ft_movies", requests.single().folderId)
-        assertFalse(requests.single().includeDescendants)
+        assertTrue(requests.single().includeDescendants)
         assertEquals(50, requests.single().pageSize)
         pager.loadNextPage()
         runCurrent()

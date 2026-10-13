@@ -2685,3 +2685,16 @@ DeleteReceipt 保持旧 dict/outcome 合同，API 加 deleted_count/deleted_byte
 Task4独立审查specCompliance/codeQuality PASS、C0/I0/M0，定向开发门禁通过并由根提交；较宽36700仍待真实终态，交原执行者只读继续观察。后续Android开发不修改此轮稳定server输入；不以定向通过声称全量回归完成。
 
 Task4较宽回归最终补记：原执行者36700真实工具EXIT0/pytestEXIT0，日志与exit于21:58更新；根实读71条PASSED、0FAILED。包括collection时旧16项Task4和55项既有nonce/mapper/收藏删除/Organize/媒体syncAPI回归；新test在collection后修选库并加父链接，故不将该轮描述为最终18项。80836最终18项独立PASS，二者范围分别保留。五项production在36700期未改，6项postrun当前hash均一致。无全server/手机/生产部署结论。
+
+## 2026-10-13 Stage8I Task5 — FolderBrowser 与运行诊断（软件门禁，设备待验）
+
+沿现有 FolderTree/FolderBrowser/WindowKey 实现：运行诊断读取实际 health store 的 Server 版本/API Contract/Capabilities；缺 folder_tree_v1 时提示层级分类需要 MediaReview Server 1.3.0+，禁用目录入口及 ViewModel 目录请求，保持全局 API contract Gate 与普通媒体/播放/图片/Review 边界。目录卡使用 tree cover_url 与既有缩略图 profile，展示名称/递归媒体数/子目录数；默认包含子目录、可切仅当前目录，scope 实际进入缓存键和 HTTP query，保留锚点/SWR。
+
+真实 RED session15219 EXIT1：默认递归断言失败，5项/1失败；之前78768因测试改写路径失败只是旧5项baseline通过，不记RED。GREEN session59434 EXIT0：FolderPagingControllerTest6、FolderTreeContractTest3、FolderTreeHttpContractTest2，共11项/0失败/0error；默认范围与scope独立缓存/anchor/SWR失败保留已覆盖。仅测试收紧后，最终Debug/AndroidTest构建86962 EXIT0（2m），11项tracked/untracked Android输入SHA256前后一致。日志、counts、manifest、APK hash见temp/stage8i-ux/task-5-*。
+
+新增Stage8IFolderHttpTest两项待根运行：正式Server mode/配对恢复/认证health probe、生产Repo、非回环真实HTTP ft_root>ft_parent>ft_child>ft_leaf、true/false范围query、parent-onlychildren可点、HTTP PNG与中心绿色像素门禁、breadcrumb/back及缺cap基本媒体/Playback/Review Ready。此为Compose widget host，不是NavHost路由验收；既有Demo树测试仅为回归。实际instrumentation/AVD/手机/真实Jellyfin/家庭LAN未执行。没有服务部署、清数据、新长期对象或脚本；BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。未commit，根独立审查/设备门禁后接管；整个Stage8I未完成。
+
+### Task5 根设备终态补记（2026-10-14）
+最终Main66915cea34b51f07d7d53c0d601b3979dfecabfea6175847090a8a3444477276/Test45f49c85193960826198de2e478f28d093a4f6d225ff37050018ddbb04497c96，11份预构建输入哈希重连后全部一致。前轮82921实际instrumentation终态OK(2 tests)/30.599s，认证bootstrap/真实ft目录/封面绿色像素/true,false范围/返回路径及缺cap基础Repository Ready；重连工具句柄不存在，不补造shell退出码。证据见task-5-http-device.log/events及review_meta/stage8i/task-5-http-device-receipt.json。
+
+新只读AVD169696运行受影响旧FolderBrowserTouchTest：11109真实工具EXIT0、OK(2 tests)/19.46s，目录真实pointer/父子树/页1,2/50项有界分页/面包屑返回、封面预取窗口回归通过。该轮Demo/widget不能代替上轮认证HTTP，也不代表正式NavHost/手机/家庭LAN。前置SystemUI ANR在测试启动前通过Window/XML观察，选实际Wait按钮并确认Launcher恢复；测试本身无失败。ownedAVD已正常退出，adb列表空。日志/receipt保留，不声称全connected/全JVM/lint/Release或生产部署。

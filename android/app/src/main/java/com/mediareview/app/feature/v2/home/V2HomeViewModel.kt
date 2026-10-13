@@ -96,7 +96,13 @@ class V2HomeViewModel @Inject constructor(
     private val browseCache = BrowseWindowCache()
     private val folderBrowserController = FolderPagingController(viewModelScope, browseCache, { albumSourceGeneration }, ::emitMessage, repository::mediaPage)
     val folderBrowserState = folderBrowserController.state
-    fun openFolderBrowser(folderId: String?) = folderBrowserController.open(folderId, _sortSpec.value)
+    fun openFolderBrowser(folderId: String?, includeDescendants: Boolean = true) {
+        if (isServerMode && !statusStore.supportsFolderTree) {
+            folderBrowserController.close()
+            return
+        }
+        folderBrowserController.open(folderId, _sortSpec.value, includeDescendants)
+    }
     fun closeFolderBrowser() = folderBrowserController.close()
     fun updateFolderAnchor(anchor: HomeGridAnchor?) = folderBrowserController.updateAnchor(anchor)
     fun nextFolderPage() = folderBrowserController.loadNextPage()
@@ -120,6 +126,7 @@ class V2HomeViewModel @Inject constructor(
     /** Server 人类可读版本 + API Contract（Stage 8D.1 §36：设置页展示/排查用）。 */
     val serverVersion: StateFlow<String> = statusStore.serverVersion
     val serverApiContract: StateFlow<Int> = statusStore.serverApiContract
+    val serverCapabilities = statusStore.capabilities
 
     private val _serverSession = MutableStateFlow(V2ServerSession())
     val serverSession: StateFlow<V2ServerSession> = _serverSession.asStateFlow()
@@ -895,7 +902,7 @@ class V2HomeViewModel @Inject constructor(
             val tree = repository.folderTree()
             if (source != albumSourceGeneration) return
             _folderTree.value = tree.orEmpty()
-            _categoryHint.value = if (tree == null) "电脑端版本较旧，升级后可使用层级分类" else null
+            _categoryHint.value = if (tree == null) "电脑端版本过旧，层级分类需要 MediaReview Server 1.3.0+" else null
             val roots = com.mediareview.app.feature.v2.model.homeFolderRoots(tree.orEmpty())
             _folders.value = roots.map {
                 V2Folder(it.id, it.name, "", emptyList(), it.recursiveMediaCount, it.directImageCount, it.coverUrl)

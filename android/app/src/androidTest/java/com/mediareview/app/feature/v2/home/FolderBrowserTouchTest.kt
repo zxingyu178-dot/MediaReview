@@ -32,7 +32,7 @@ class FolderBrowserTouchTest {
         runBlocking { V2DataModeStore(context).set(originalMode) }
     }
 
-    @Test fun actualFolderClicksUseParentTreeBreadcrumbsAndBoundedDirectPages() {
+    @Test fun actualFolderClicksUseParentTreeBreadcrumbsAndBoundedRecursivePages() {
         val queries = CopyOnWriteArrayList<V2MediaQuery>()
         val sample = DemoMediaCatalog.buildMedia().first { !it.isVideo }
         val nodes = listOf(
@@ -70,7 +70,7 @@ class FolderBrowserTouchTest {
         compose.onNodeWithTag("home_grid").performScrollToIndex(40)
         compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 75 }
         assertEquals(listOf(1, 2), queries.filter { it.folderId == "action" }.map { it.page })
-        assertTrue(queries.filter { it.folderId != null }.all { !it.includeDescendants && it.pageSize == 50 })
+        assertTrue(queries.filter { it.folderId != null }.all { it.includeDescendants && it.pageSize == 50 })
         compose.onNodeWithText("电影", substring = false).performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "movies" && !vm.folderBrowserState.value.loading }
         compose.onNodeWithTag("folder_action").assertIsDisplayed()
@@ -78,7 +78,7 @@ class FolderBrowserTouchTest {
         compose.waitForIdle()
         compose.onNodeWithTag("folder_movies").assertIsDisplayed()
         compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
-        android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 direct=true; breadcrumb/back preserve parent-child")
+        android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 recursive=true; breadcrumb/back preserve parent-child")
     }
 
     @Test fun folderChildrenDoNotShiftMediaCoverPrefetchWindow() {

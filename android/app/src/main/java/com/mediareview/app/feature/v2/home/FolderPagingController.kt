@@ -18,6 +18,7 @@ data class FolderBrowseState(
     val error: String? = null,
     val refreshing: Boolean = false,
     val anchor: HomeGridAnchor? = null,
+    val includeDescendants: Boolean = true,
 )
 
 /** 与搜索、相册分离的有界窗口；后台刷新成功才原子替换已经加载的页。 */
@@ -36,12 +37,12 @@ internal class FolderPagingController(
     private var key: WindowKey? = null
     private val favoriteOverrides = mutableMapOf<String, Boolean>()
 
-    fun open(folderId: String?, spec: V2SortSpec) {
+    fun open(folderId: String?, spec: V2SortSpec, includeDescendants: Boolean = true) {
         close()
-        key = WindowKey(sourceGeneration(), folderId, spec, includeDescendants = false)
+        key = WindowKey(sourceGeneration(), folderId, spec, includeDescendants = includeDescendants)
         val cached = if (folderId != null) cache.get(key!!) else null
-        mutable.value = if (cached == null) FolderBrowseState(folderId = folderId)
-            else FolderBrowseState(folderId, cached.items, cached.page, cached.total, cached.hasMore, anchor = cached.anchor)
+        mutable.value = if (cached == null) FolderBrowseState(folderId = folderId, includeDescendants = includeDescendants)
+            else FolderBrowseState(folderId, cached.items, cached.page, cached.total, cached.hasMore, anchor = cached.anchor, includeDescendants = includeDescendants)
         if (folderId != null) request(if (cached == null) 1 else cached.page, refresh = cached != null)
     }
     fun close() {
@@ -86,7 +87,7 @@ internal class FolderPagingController(
                 val incoming = mutableListOf<V2Media>()
                 var result: V2MediaPage? = null
                 for (p in if (refresh) 1..page else page..page) {
-                    result = load(V2MediaQuery(p, 50, folder, spec = active.sort, includeDescendants = false))
+                    result = load(V2MediaQuery(p, 50, folder, spec = active.sort, includeDescendants = active.includeDescendants))
                     if (token != generation || active.sourceGeneration != sourceGeneration()) return@launch
                     check(result.page == p && result.pageSize == 50 && result.total >= 0) { "分页响应无效" }
                     incoming += result.items

@@ -39,6 +39,7 @@ fun FolderBrowserScreen(
     val state by vm.folderBrowserState.collectAsState()
     val mode by vm.displayMode.collectAsState()
     var folderId by rememberSaveable(initialFolderId) { mutableStateOf(initialFolderId) }
+    var includeDescendants by rememberSaveable { mutableStateOf(true) }
     val libraryRoots = tree.filter { it.parentId == null }
     val children = if (folderId == null) homeFolderRoots(tree) else tree.filter { it.parentId == folderId }
     // 单库分类主页省略虚拟 Library 层，但不能漏掉直接放在库根的媒体。
@@ -54,8 +55,8 @@ fun FolderBrowserScreen(
         else folderId = parent?.takeUnless { it == implicitRoot }
     }
     BackHandler(onBack = ::goBack)
-    LaunchedEffect(effectiveFolderId, tree) {
-        vm.openFolderBrowser(effectiveFolderId)
+    LaunchedEffect(effectiveFolderId, tree, includeDescendants) {
+        vm.openFolderBrowser(effectiveFolderId, includeDescendants)
         val anchor = vm.folderBrowserState.value.anchor
         val keys = children.map { "folder_${it.id}" } + vm.folderBrowserState.value.items.map { "media_${it.id}" }
         grid.scrollToItem(anchor?.indexIn(keys) ?: 0, anchor?.offset ?: 0)
@@ -85,6 +86,11 @@ fun FolderBrowserScreen(
                 }
             }
         }
+        if (vm.isServerMode) RuntimeDiagnosis(vm)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (includeDescendants) "包含子文件夹" else "仅当前文件夹", color = MediaTextPrimary, modifier = Modifier.weight(1f))
+            Switch(checked = includeDescendants, onCheckedChange = { includeDescendants = it }, modifier = Modifier.testTag("folder_scope_toggle"))
+        }
         hint?.let {
             Text(it, color = MediaTextSecondary,
                 modifier = Modifier.padding(16.dp).clickable(onClick = vm::retryFolders))
@@ -105,13 +111,8 @@ fun FolderBrowserScreen(
             },
         ) { entry ->
             when (entry) {
-                is FolderEntry.Folder -> Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MediaSurfaceRaised)
-                        .clickable { folderId = entry.node.id }.padding(16.dp).testTag(entry.key),
-                ) {
-                    Text("文件夹 · ${entry.node.name}", color = MediaTextPrimary, maxLines = 2)
-                    Text("${entry.node.childCount} 个子目录 · ${entry.node.recursiveMediaCount} 项", color = MediaTextSecondary)
-                }
+                is FolderEntry.Folder -> FolderCard(entry.node, mode,
+                    onClick = { folderId = entry.node.id }, modifier = Modifier.testTag(entry.key))
                 is FolderEntry.Media -> MediaCard(entry.media, vm.coverUri(entry.media),
                     onClick = { onOpenMedia(entry.media, visibleMedia, effectiveFolderId) },
                     displayMode = mode, modifier = Modifier.testTag(entry.key))

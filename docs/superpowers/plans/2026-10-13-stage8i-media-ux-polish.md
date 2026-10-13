@@ -65,9 +65,9 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 ### Task 5: Runtime Diagnosis与FolderBrowser（§6–8/28Folder/31FOLDER）
 **Files:** feature/v2/data/server/V2ServerStatus.kt（内含V2ServerStatusStore）；home/HomeScreen.kt/FolderBrowserScreen.kt/FolderPagingController.kt/FolderChipRow.kt/V2HomeViewModel.kt；folder合同JVM/androidTest。
 **Interfaces:** UI显示version/contract/capabilities，缺folder_tree_v1显示电脑端版本过旧/需要Server1.3.0+；子目录卡片cover/name/recursivecount/childcount；defaultinclude_descendants=true可切当前。
-- [ ] RED：新fixture根→child→child→media实际folder_id=ft_xxx、breadcrumb/back；parentonlychildren不为空、卡片可点；旧cap提示且play/image/Review仍可用。
-- [ ] 接通同一FolderTree/分页scope与封面，不新folder系统；保留anchor与SWR。
-- [ ] JVM/DebugGREEN，统一device真实HTTP指针验收；审查/DEV_LOG/fix(android): restore folder browsing and runtime diagnosis提交。
+- [x] RED：新fixture根→child→child→media实际folder_id=ft_xxx、breadcrumb/back；parentonlychildren不为空、卡片可点；旧cap提示且play/image/Review仍可用。
+- [x] 接通同一FolderTree/分页scope与封面，不新folder系统；保留anchor与SWR。
+- [x] JVM/DebugGREEN，统一device真实HTTP指针验收；审查/DEV_LOG/fix(android): restore folder browsing and runtime diagnosis提交。
 
 ### Task 6: Review Folder Scope Server与Android（§19–23/27–28/31SCOPE）
 **Files:** server/app/api/v1/review.py/services/review.py/services/folder_tree.py；feature/v2/review/data/ReviewSessionModels.kt/V2ServerReviewSessionRepository.kt/V2ReviewSessionRepository.kt；V2ReviewViewModel.kt/V2ReviewUiState.kt/V2ReviewScreen.kt；相应tests。

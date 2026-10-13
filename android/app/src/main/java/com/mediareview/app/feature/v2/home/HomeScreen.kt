@@ -116,6 +116,8 @@ fun HomeScreen(
     val sortSpec by vm.sortSpec.collectAsState()
     val displayMode by vm.displayMode.collectAsState()
     val categoryHint by vm.categoryHint.collectAsState()
+    val capabilities by vm.serverCapabilities.collectAsState()
+    val folderFlowEnabled = !vm.isServerMode || "folder_tree_v1" in capabilities
     WindowCoverPrefetch(albums.map { it.coverUrl ?: vm.mediaById(it.coverImageId.orEmpty())?.let(vm::coverUri).orEmpty() }, albumCovers = true)
     val searchActive = vm.searchActive
     val homeGridState = rememberLazyGridState()
@@ -164,12 +166,13 @@ fun HomeScreen(
                 if (vm.currentTab == V2HomeTab.MEDIA) {
                     FolderChipRow(folders, null, vm.selectedRecent,
                         { vm.selectAll() }, { vm.selectRecent() },
-                        { onOpenFolderBrowser(it) }, { onOpenFolderBrowser(null) })
+                        { onOpenFolderBrowser(it) }, { onOpenFolderBrowser(null) }, folderFlowEnabled = folderFlowEnabled)
                     Row(Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
                         verticalAlignment = Alignment.CenterVertically) {
                         SortFilterRow(sortSpec, { showSortSheet = true }, Modifier.weight(1f))
                         layoutButton("home_layout_toggle")
                     }
+                    if (vm.isServerMode) RuntimeDiagnosis(vm)
                     categoryHint?.let {
                         Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(horizontal = V2Spacing.Lg).testTag("home_category_hint").clickable(onClick = vm::retryFolders))

@@ -35,6 +35,7 @@ internal class RealHttpPlaybackFixture(
     private val blockPendingWrite: Boolean = false,
     private val imageMedia: Boolean = false,
     private val authenticatedApi: Boolean = false,
+    private val folderFixture: Boolean = false,
 ) : AutoCloseable {
     @Volatile var pending: Set<String> = emptySet()
     @Volatile var pendingReadFailure = false
@@ -47,7 +48,8 @@ internal class RealHttpPlaybackFixture(
     fun releasePendingWrite() { pendingWriteRelease.countDown() }
     data class PendingWrite(val mediaId: String, val pending: Boolean, val succeeded: Boolean)
     val pendingWrites = CopyOnWriteArrayList<PendingWrite>()
-    data class ApiRequest(val path: String, val pageSize: String?, val authenticated: Boolean)
+    data class ApiRequest(val path: String, val pageSize: String?, val authenticated: Boolean,
+        val folderId: String? = null, val includeDescendants: String? = null)
     val apiRequests = CopyOnWriteArrayList<ApiRequest>()
     val firstVideoRequested = CountDownLatch(1)
     private val firstVideoRelease = CountDownLatch(1)
@@ -92,7 +94,7 @@ internal class RealHttpPlaybackFixture(
     private fun envelope(body: String) = json("""{"success":true,"data":$body}""")
     private fun media(id: String): String {
         val images = if (imageMedia) ""","cover_url":"/api/v1/media/$id/cover?v=fixture1","original_url":"/api/v1/media/$id/original?v=fixture1" """ else ""
-        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia) "image" else "video"}","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"test","folder_name":"测试","is_favorite":false$images}"""
+        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia) "image" else "video"}","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false$images}"""
     }
     private fun session(index: Int = 0) = """{"session_id":"http-review","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":{"media_type":"${if (imageMedia) "image" else "video"}"},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
 
@@ -102,13 +104,20 @@ internal class RealHttpPlaybackFixture(
                 val path = request.requestUrl?.encodedPath.orEmpty()
                 if (path.startsWith("/api/v1/")) {
                     val valid = request.getHeader("Authorization") == "Bearer $credential"
-                    apiRequests += ApiRequest(path, request.requestUrl?.queryParameter("page_size"), valid)
+                    apiRequests += ApiRequest(path, request.requestUrl?.queryParameter("page_size"), valid,
+                        request.requestUrl?.queryParameter("folder_id"), request.requestUrl?.queryParameter("include_descendants"))
                     if (authenticatedApi && path != "/api/v1/system/health" && !valid) {
                         return MockResponse().setResponseCode(401)
                     }
                 }
                 return when {
-                    path == "/api/v1/system/health" -> envelope("""{"status":"ok","version":"1.4.0","api_contract":2,"capabilities":[]}""")
+                    path == "/api/v1/system/health" -> envelope("""{"status":"ok","version":"1.4.0","api_contract":2,"capabilities":${if (folderFixture) "[\"folder_tree_v1\"]" else "[]"}}""")
+                    folderFixture && path == "/api/v1/media/folder-tree" -> envelope(listOf(
+                        Triple("ft_root", null, "媒体库"), Triple("ft_parent", "ft_root", "旅行"),
+                        Triple("ft_child", "ft_parent", "海边"), Triple("ft_leaf", "ft_child", "日落")
+                    ).joinToString(prefix = "[", postfix = "]") { (id, parent, name) ->
+                        """{"folder_id":"$id","parent_id":${parent?.let { "\"$it\"" } ?: "null"},"library_id":"test","name":"$name","child_count":${if (id == "ft_leaf") 0 else 1},"direct_media_count":${if (id == "ft_leaf") 2 else 0},"recursive_media_count":2,"direct_image_count":${if (id == "ft_leaf") 2 else 0},"cover_url":"/api/v1/media/first/thumbnail?v=fixture1"}"""
+                    })
                     path == "/api/v1/media/folders" -> envelope("[]")
                     imageMedia && (path.endsWith("/thumbnail") || path.endsWith("/original")) ->
                         MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(imageBytes))
@@ -149,6 +158,9 @@ internal class RealHttpPlaybackFixture(
                         pending = if (target) pending + id else pending - id
                         envelope("""{"media_id":"$id","queued":$target}""")
                     }
+                    folderFixture && path == "/api/v1/media" && request.requestUrl?.queryParameter("include_descendants") == "false" &&
+                        request.requestUrl?.queryParameter("folder_id") in listOf("ft_root", "ft_parent", "ft_child") ->
+                        envelope("""{"items":[],"total":0,"page":1,"page_size":50}""")
                     path == "/api/v1/media" -> if (request.requestUrl?.queryParameter("page_size") == "1") {
                         envelope("""{"items":[${media("first")}],"total":2,"page":1,"page_size":1}""")
                     } else envelope("""{"items":[${media("first")},${media("second")}],"total":2,"page":1,"page_size":50}""")
@@ -221,7 +233,10 @@ internal class RealHttpPlaybackFixture(
         HttpUrl.Builder().scheme("http").host(host.hostAddress!!).port(server.port).build()
     }
 
-    private val status = V2ServerStatusStore().apply { update(V2ServerStatus.Online) }
+    val status = V2ServerStatusStore().apply {
+        if (folderFixture) recordCompatible("1.4.0", 2, listOf("folder_tree_v1"))
+        else update(V2ServerStatus.Online)
+    }
     private val resources = V2ServerResourceCache()
     private val resolver = MediaUrlResolver()
     private val mapper = V2MediaMapper(resolver)

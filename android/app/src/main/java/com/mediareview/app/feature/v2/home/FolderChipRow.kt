@@ -50,6 +50,7 @@ fun FolderChipRow(
     onSelectFolder: (String) -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
+    folderFlowEnabled: Boolean = true,
 ) {
     Row(
         modifier = modifier
@@ -67,10 +68,11 @@ fun FolderChipRow(
                 text = folder.name,
                 selected = !selectedRecent && selectedFolderId == folder.id,
                 onClick = { onSelectFolder(folder.id) },
+                enabled = folderFlowEnabled,
             )
         }
         Spacer(modifier = Modifier.size(V2Spacing.Sm))
-        Chip(text = "全部分类", selected = false, onClick = onMore)
+        Chip(text = "全部分类", selected = false, onClick = onMore, enabled = folderFlowEnabled)
         Spacer(modifier = Modifier.size(V2Spacing.Md))
     }
 }
@@ -80,12 +82,13 @@ private fun Chip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(V2Radius.Chip))
             .background(if (selected) V2Colors.Accent else MediaSurfaceRaised)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = V2Spacing.Lg, vertical = 8.dp),
     ) {
         Text(
