@@ -22,7 +22,7 @@
 ### Task 1: Server Thumbnail Profile合同（§2/27部分）
 **Files:** server/app/services/thumbnail_cache.py；server/app/api/v1/media.py；server/app/adapters/jellyfin/client.py；server/tests/test_thumbnail_profiles_8i.py；既有image/loading tests。
 **Interfaces:** /api/v1/media/{id}/thumbnail?profile=GRID_SMALL|GRID_LARGE|ALBUM；default GRID_LARGE；完整variant参与ETag/cache。Jellyfin thumbnail_image新增可选quality，保持旧调用默认行为。
-- [ ] RED：认证真实HTTP调用三profile验证尺寸/quality/fill；默认兼容；未知/任意尺寸quality拒绝或不生效且无缓存变体；sameprofile HIT不访问上游，crossprofile互不污染，源指纹改变失效，304遵循profile。
+- [x] RED：认证真实HTTP调用三profile验证尺寸/quality/fill；默认兼容；未知/任意尺寸quality拒绝或不生效且无缓存变体；sameprofile HIT不访问上游，crossprofile互不污染，源指纹改变失效，304遵循profile。
 ```python
 @pytest.mark.parametrize('profile,expected',[('GRID_SMALL',(256,144,60)),('GRID_LARGE',(480,270,65)),('ALBUM',(320,427,65))])
 def test_profile_contract(profile,expected):
@@ -31,13 +31,13 @@ def test_profile_contract(profile,expected):
     assert response.status_code == 200
     assert upstream.requested_variant == expected
 ```
-- [ ] 在server目录运行 .venv/Scripts/python.exe -m pytest tests/test_thumbnail_profiles_8i.py，记录正确RED原因。
-- [ ] 增加不可变白名单profile描述与variant；HTTP路由只查表，将完整参数传上游；保持single-flight/prune/认证。
-- [ ] 同上新测试及tests/test_media_image_proxy_11.py、test_loading_pipeline_8a1.py、test_loading_closure_8a11.py、test_jellyfin_client.py全部GREEN，ruff相关文件PASS。
-- [ ] 写DEV_LOG、提交feat(server): add bounded thumbnail profiles；独立规格/质量审查无C/I后登记。
+- [x] 在server目录运行 .venv/Scripts/python.exe -m pytest tests/test_thumbnail_profiles_8i.py，记录正确RED原因。
+- [x] 增加不可变白名单profile描述与variant；HTTP路由只查表，将完整参数传上游；保持single-flight/prune/认证。
+- [x] 同上新测试及tests/test_media_image_proxy_11.py、test_loading_pipeline_8a1.py、test_loading_closure_8a11.py、test_jellyfin_client.py全部GREEN，ruff相关文件PASS。
+- [x] 写DEV_LOG、提交feat(server): add bounded thumbnail profiles；独立规格/质量审查无C/I后登记。
 
 ### Task 2: Android图片档位与Viewer低清/原图邻接（§2–4/24–25/31IMAGE/32图片）
-**Files:** core/network/MediaReviewApi.kt、feature/v2/data/server/V2ServerMediaRepository.kt及V2MediaMapper.kt/ResourceCache；home/MediaCard.kt/MediaGrid.kt/AlbumScreen.kt/ShelfGrid.kt；viewer/V2ImageViewer.kt/ZoomableImage.kt；相关JVM和androidTest。
+**Files:** core/network/MediaReviewApi.kt、feature/v2/data/server/V2ServerMediaRepository.kt及V2MediaMapper.kt/ResourceCache；home/MediaCard.kt/HomeScreen.kt（MediaGrid）/AlbumScreen.kt/ShelfGrid.kt；viewer/V2ImageViewer.kt/ZoomableImage.kt；相关JVM和androidTest。
 **Interfaces:** 统一profile URL函数保留原v与base/header；低清URL不取original；Viewercurrent优先、邻±1源预取、±2无original，取消远端job；记录preview_visible/current_original_ready/neighbor_prefetch_ready。
 - [ ] RED：MockWebServer真实HTTP100张列表original=0；三布局profile请求正确，当前N原图先于相邻，邻±1预取、±2无original、快滑远邻取消/并发上限。
 - [ ] 实现固定aspectratio低清优先、无中央遮挡Spinner、无内容比例Skeleton、有界source缓存预取与当前单解码；保留zoom和Viewer上下文。
@@ -63,7 +63,7 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 - [ ] 定向pytest+ruff GREEN，独立审查/DEV_LOG/feat(server): report verified disk deletion and media sizes提交。
 
 ### Task 5: Runtime Diagnosis与FolderBrowser（§6–8/28Folder/31FOLDER）
-**Files:** feature/v2/data/server/V2ServerStatus.kt/V2ServerStatusStore.kt；home/HomeScreen.kt/FolderBrowserScreen.kt/FolderPagingController.kt/FolderChipRow.kt/V2HomeViewModel.kt；folder合同JVM/androidTest。
+**Files:** feature/v2/data/server/V2ServerStatus.kt（内含V2ServerStatusStore）；home/HomeScreen.kt/FolderBrowserScreen.kt/FolderPagingController.kt/FolderChipRow.kt/V2HomeViewModel.kt；folder合同JVM/androidTest。
 **Interfaces:** UI显示version/contract/capabilities，缺folder_tree_v1显示电脑端版本过旧/需要Server1.3.0+；子目录卡片cover/name/recursivecount/childcount；defaultinclude_descendants=true可切当前。
 - [ ] RED：新fixture根→child→child→media实际folder_id=ft_xxx、breadcrumb/back；parentonlychildren不为空、卡片可点；旧cap提示且play/image/Review仍可用。
 - [ ] 接通同一FolderTree/分页scope与封面，不新folder系统；保留anchor与SWR。
@@ -84,7 +84,7 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 - [ ] JVM/编译GREEN，真实设备loop/pager/source/seek回归；记录settle_to_first_frame及Alpha11对比；审查/DEV_LOG/fix(review): loop playback and use native pager gestures提交。
 
 ### Task 8: Delete Result UI与整体反馈（§18/24–25/31receiptUI）
-**Files:** core/model/DeleteQueueModels.kt及实际现有delete DTO；feature/v2/organize/OrganizePage.kt/OrganizeUiState.kt/OrganizeViewModel.kt；相关servermapperUItests。
+**Files:** core/model/ApiModels.kt（DeleteQueue DTO）；feature/v2/organize/delete/DeleteQueuePage.kt/DeleteQueueViewModel.kt、organize/data/V2OrganizeRepository.kt及映射；相关servermapperUItests。
 **Interfaces:** 新receipt数据显示真实从盘删除count/释放bytes/missing/failed及failureitems，刷新success项消失，旧response不伪造释放空间；固定比例/pressed反馈，120–180ms仅短动画，haptic限2xlock/unlock和危险确认。
 - [ ] RED：新/旧response准确展示、failed清楚列出、刷新queue成功项消失；已有内容不整页Spinner、anchor恢复。
 - [ ] 最小UI/状态接通真实receipt，避免全局多crossfade；审查/DEV_LOG/fix(android): show disk deletion receipts and preserve content提交。
