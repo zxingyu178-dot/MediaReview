@@ -2613,3 +2613,9 @@ Task6提交ec5ccc656d112654b2a31757fb5b3d656eebb807。唯一正式Release构建�
 Server fresh EXE隔离health确认1.3.0 / Contract2 / 七能力；EXE SHA256 abe8eb048768a172cab2cb45c361d14501af9b27ba966555cafa6b890c7a9088。正式ZIP126871995 bytes，SHA256 44b9609c1a5dd290ccf015ed7eb0f458c9743e61f3e17b3e6e8eb02f5d7356a8；169项SHA和ZIP完整性回验PASS。receipt在deploy_handoff/stage8h-build-evidence.json；日志与签名连续性回执在review_meta/stage8h。
 
 最终有效自动化：Server577、JVM444、connected141全部通过；lint0错误/42警告/15信息，Ruff115文件通过。状态CODE_READY / READY_FOR_USER_VALIDATION。后续仅文档提交，正式产物保持ec5ccc6 provenance；最终HEAD、冻结输入一致性、push与十文档Handoff结果通过独立交付回执记录，不反向修改官方产物。未执行手机安装、真实LAN验收、生产部署或ControlHub生命周期；生产升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT。
+
+## 2026-10-13 Stage8I Task1 固定缩略图档位
+
+新增 GRID_SMALL 256×144/q60、GRID_LARGE 480×270/q65、ALBUM 320×427/q65 不可变白名单；认证 thumbnail HTTP 默认 GRID_LARGE，未知 profile 返回422，任意尺寸/quality查询不生效。完整 profile/尺寸/quality/fill variant 参与缓存与ETag，继续使用既有single-flight/prune。Jellyfin thumbnail_image 增加可选quality且直接旧调用默认80。
+
+TDD：新增认证真实HTTP→真实JellyfinClient→MockTransport上游合同，修正测试异步runner后RED为4失败/1通过（旧尺寸/q80）；GREEN指定thumbnail/image/loading/client五文件50 passed、1现有Starlette弃用警告，Ruff check/format五改动文件通过。旧loading_closure默认HTTP期望按新规格从q80更新65。未执行全suite、Release、手机、真实媒体、生产部署或ControlHub操作；版本及capabilities由Task9对齐。待root独立规格/质量审查。

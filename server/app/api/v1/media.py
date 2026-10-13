@@ -31,7 +31,7 @@ from app.db.session import get_db
 from app.services import folder_tree, media_index
 from app.services import tasks as task_service
 from app.services.thumbnail_cache import (
-    VARIANT_GRID,
+    THUMBNAIL_PROFILES,
     ThumbnailCacheService,
     media_source_fingerprint,
     source_version,
@@ -392,11 +392,13 @@ GRID_COVER_HEIGHT = 270
 async def get_media_thumbnail(
     media_id: str,
     request: Request,
+    profile: Literal["GRID_SMALL", "GRID_LARGE", "ALBUM"] = "GRID_LARGE",
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
 ) -> Response:
     """封面缩略图: SQLite 取指纹 → 磁盘缓存 HIT 直接返回 / MISS 才回源 Jellyfin。"""
+    selected_profile = THUMBNAIL_PROFILES[profile]
     started = perf_now()
     row = media_index.get_cached_media(db, media_id)
     if row is None or not row.jellyfin_id:
@@ -406,7 +408,7 @@ async def get_media_thumbnail(
     key = thumbnail_cache_key(
         media_id=row.media_id,
         fingerprint=media_source_fingerprint(row),
-        variant=VARIANT_GRID,
+        variant=selected_profile.variant,
     )
     etag = f'"{key}"'
     headers = {
@@ -422,9 +424,10 @@ async def get_media_thumbnail(
         key,
         lambda: client.thumbnail_image(
             row.jellyfin_id,
-            max_width=GRID_COVER_WIDTH,
-            max_height=GRID_COVER_HEIGHT,
-            fill=True,
+            max_width=selected_profile.width,
+            max_height=selected_profile.height,
+            fill=selected_profile.fill,
+            quality=selected_profile.quality,
         ),
     )
     cache.prune_locks()

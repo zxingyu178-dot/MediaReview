@@ -130,7 +130,7 @@ def test_grid_thumbnail_requests_16_9_fill_for_all_aspect_ratios(closure_client)
     for params in upstream.params:
         assert params.get("fillWidth") == "480", params
         assert params.get("fillHeight") == "270", params
-        assert params.get("quality") == "80", params
+        assert params.get("quality") == "65", params
         # 回归点: 不得再使用等比缩放参数(竖图会只剩约 152x270)
         assert "maxWidth" not in params, params
         assert "maxHeight" not in params, params

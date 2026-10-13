@@ -516,14 +516,14 @@ class JellyfinClient:
             return 0
 
     def _thumbnail_params(
-        self, *, max_width: int, max_height: int | None, fill: bool
+        self, *, max_width: int, max_height: int | None, fill: bool, quality: int = 80
     ) -> dict[str, Any]:
         """缩略图尺寸参数: 媒体卡约 480x270,竖图不应传输 480x850 再由客户端裁剪。
 
         - 默认 maxWidth/maxHeight: Jellyfin 按比例缩放,不会放大;
         - fill=True 时改用 fillWidth/fillHeight,由 Jellyfin 生成真正贴合卡片的构图。
         """
-        params: dict[str, Any] = {"quality": 80}
+        params: dict[str, Any] = {"quality": quality}
         if fill:
             params["fillWidth"] = max_width
             if max_height:
@@ -541,10 +541,13 @@ class JellyfinClient:
         max_width: int = 480,
         max_height: int | None = None,
         fill: bool = False,
+        quality: int = 80,
     ) -> tuple[bytes, str]:
         return await self._image_request(
             f"/Items/{_path_segment(item_id)}/Images/Primary",
-            params=self._thumbnail_params(max_width=max_width, max_height=max_height, fill=fill),
+            params=self._thumbnail_params(
+                max_width=max_width, max_height=max_height, fill=fill, quality=quality
+            ),
         )
 
     async def original_image(self, item_id: str) -> tuple[bytes, str]:

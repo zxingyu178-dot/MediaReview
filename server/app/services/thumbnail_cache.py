@@ -25,6 +25,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from app.core.logging import get_logger
@@ -58,8 +59,29 @@ _CONTENT_TYPES = {
 }
 _FALLBACK_EXTENSION = ".img"
 
+
 # 变体名参与 cache key: 尺寸/裁剪方式变化时必须自然失效
-VARIANT_GRID = "grid_480"
+@dataclass(frozen=True)
+class ThumbnailProfile:
+    name: str
+    width: int
+    height: int
+    quality: int
+    fill: bool = True
+
+    @property
+    def variant(self) -> str:
+        return f"{self.name}:{self.width}x{self.height}:q{self.quality}:fill={int(self.fill)}"
+
+
+THUMBNAIL_PROFILES = MappingProxyType(
+    {
+        "GRID_SMALL": ThumbnailProfile("GRID_SMALL", 256, 144, 60),
+        "GRID_LARGE": ThumbnailProfile("GRID_LARGE", 480, 270, 65),
+        "ALBUM": ThumbnailProfile("ALBUM", 320, 427, 65),
+    }
+)
+VARIANT_GRID = THUMBNAIL_PROFILES["GRID_LARGE"].variant
 
 
 def thumbnail_cache_key(*, media_id: str, fingerprint: str, variant: str) -> str:
