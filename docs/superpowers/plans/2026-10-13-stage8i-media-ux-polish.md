@@ -39,13 +39,13 @@ def test_profile_contract(profile,expected):
 ### Task 2: Android图片档位与Viewer低清/原图邻接（§2–4/24–25/31IMAGE/32图片）
 **Files:** core/network/MediaReviewApi.kt、feature/v2/data/server/V2ServerMediaRepository.kt及V2MediaMapper.kt/ResourceCache；home/MediaCard.kt/HomeScreen.kt（MediaGrid）/AlbumScreen.kt/ShelfGrid.kt；viewer/V2ImageViewer.kt/ZoomableImage.kt；相关JVM和androidTest。
 **Interfaces:** 统一profile URL函数保留原v与base/header；低清URL不取original；Viewercurrent优先、邻±1源预取、±2无original，取消远端job；记录preview_visible/current_original_ready/neighbor_prefetch_ready。
-- [ ] RED：MockWebServer真实HTTP100张列表original=0；三布局profile请求正确，当前N原图先于相邻，邻±1预取、±2无original、快滑远邻取消/并发上限。
-- [ ] 实现固定aspectratio低清优先、无中央遮挡Spinner、无内容比例Skeleton、有界source缓存预取与当前单解码；保留zoom和Viewer上下文。
-- [ ] JVM目标测试+Debug编译GREEN，真实Coil像素/HTTP验收交根统一设备轮次；记录冷热payload/time与Alpha11同fixture基线。
-- [ ] 独立审查、DEV_LOG和feat(android): optimize image previews and adjacent originals提交。
+- [x] RED与回归：MockWebServer真实HTTP100张列表original=0；三布局profile请求正确，当前N原图先于相邻，邻±1预取、±2无original、快滑远邻取消/并发上限。保留真实profile/source/cache/预览/传输取消失败证据；原图零请求本身旧版已通过，不伪造该项RED。
+- [x] 实现固定aspectratio低清优先、无中央遮挡Spinner、无内容比例Skeleton、有界source缓存预取与当前单解码；保留zoom和Viewer上下文。
+- [x] 目标JVM28PASS、Debug Main/Test真实编译GREEN；分轮真实Coil像素/HTTP与最终取消/缓存过期测试通过。记录Alpha11同fixture100图payload/time；复用范围和模拟器SystemUI ANR失败/单项重跑均见DEV_LOG及task-2-report，Task9全量门禁仍待执行。
+- [x] 独立审查源码C0/I0、qualityApproved=true、TargetedRuntimeGate=PASS；DEV_LOG登记分轮复用、真实失败/重跑及限制，提交feat(android): optimize image previews and adjacent originals。
 
 ### Task 3: PendingDelete与bounded Seek（§5/13–14/26/31相关）
-**Files:** viewer/state/ViewerPendingDeleteController.kt泛化PendingDeleteController；viewer/V2ImageViewer.kt；player/native/ui/GsyNativeTopBar.kt/GsyNativePlayerScreen.kt；player/native/state/SeekEngine.kt/SeekGesturePreview.kt；V2MainScreen及相关测试。
+**Files:** viewer/state/ViewerPendingDeleteController.kt泛化PendingDeleteController；viewer/V2ImageViewer.kt；player/native/ui/GsyNativeTopBar.kt与player/native/GsyNativePlayerScreen.kt；player/native/state/SeekEngine.kt/SeekGesturePreview.kt；V2MainScreen及相关测试。
 **Interfaces:** Viewer/Full共用server-confirmed load/add/undo，Snackbar action撤销；横滑range=(duration*.02).coerceIn(30000,180000)，bar绝对定位，double±10000不变。
 ```kotlin
 fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =

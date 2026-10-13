@@ -50,6 +50,9 @@ internal object V2ServerWire {
  * - LRU 上限防止长列表 / 大库把内存撑爆。
  */
 class V2ServerResourceCache(private val maxEntries: Int = 2048) {
+    private val sessionId = java.util.UUID.randomUUID().toString()
+    private var generation = 0L
+    @Synchronized fun imageCacheNamespace(): String = "$sessionId:$generation"
 
     data class Entry(
         val media: V2Media,
@@ -99,5 +102,6 @@ class V2ServerResourceCache(private val maxEntries: Int = 2048) {
     @Synchronized
     fun clear() {
         entries.clear()
+        generation++
     }
 }

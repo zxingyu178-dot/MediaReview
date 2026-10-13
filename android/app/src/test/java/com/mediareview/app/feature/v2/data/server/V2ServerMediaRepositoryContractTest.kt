@@ -14,6 +14,7 @@ import java.net.InetAddress
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.mockwebserver.Dispatcher
@@ -90,6 +91,67 @@ class V2ServerMediaRepositoryContractTest {
     // ---------- 列表 / 分页 / 参数 ----------
 
     @Test
+    fun `图片默认低清保留源版本且切源清除资源`() = runTest {
+        router.mediaBody = mediaPageJson(1, 1, 50, """{"media_id":"photo","name":"照片","media_type":"image","library_id":"lib","cover_url":"/api/v1/media/photo/thumbnail?v=source1","original_url":"/api/v1/media/photo/original?v=source1"}""")
+        val photo = repository.mediaPage(V2MediaQuery()).items.single()
+        val cover = repository.coverUri(photo).toHttpUrl()
+        assertEquals("GRID_SMALL", cover.queryParameter("profile"))
+        assertEquals("source1", cover.queryParameter("v"))
+        val namespace = repository.imageCacheNamespace
+        repository.mediaPage(V2MediaQuery())
+        assertEquals(namespace, repository.imageCacheNamespace)
+        repository.invalidateAuxiliaryCache()
+        assertNull(repository.mediaById("photo"))
+        assertTrue(namespace != repository.imageCacheNamespace)
+        router.mediaBody = mediaPageJson(1, 1, 50, """{"media_id":"photo","name":"照片","media_type":"image","library_id":"lib","cover_url":"/api/v1/media/photo/thumbnail?v=source2","original_url":"/api/v1/media/photo/original?v=source2"}""")
+        val replacement = repository.mediaPage(V2MediaQuery()).items.single()
+        assertTrue(repository.imageUri(replacement).endsWith("?v=source2"))
+    }
+
+    @Test
+    fun `生产original无v时继承同媒体封面指纹更新且删除保留其他资源`() = runTest {
+        fun body(version: String) = mediaPageJson(2, 1, 50, """{"media_id":"photo","name":"照片","media_type":"image","library_id":"lib","cover_url":"/api/v1/media/photo/thumbnail?v=$version","original_url":"/api/v1/media/photo/original?transport=ok"},{"media_id":"keep","name":"保留","media_type":"image","library_id":"lib","cover_url":"/api/v1/media/keep/thumbnail?v=k1","original_url":"/api/v1/media/keep/original?v=own"}""")
+        router.mediaBody = body("source1")
+        val first = repository.mediaPage(V2MediaQuery()).items.first()
+        val namespace = repository.imageCacheNamespace
+        assertEquals("source1", repository.imageUri(first).toHttpUrl().queryParameter("v"))
+        assertEquals("ok", repository.imageUri(first).toHttpUrl().queryParameter("transport"))
+        router.mediaBody = body("source2")
+        val updated = repository.mediaPage(V2MediaQuery()).items.first()
+        assertEquals(namespace, repository.imageCacheNamespace)
+        assertEquals("source2", repository.imageUri(updated).toHttpUrl().queryParameter("v"))
+        repository.dropCachedMedia(listOf("photo"))
+        assertNull(repository.mediaById("photo"))
+        val kept = repository.mediaById("keep")!!
+        assertTrue(repository.coverUri(kept).contains("v=k1"))
+        assertEquals("own", repository.imageUri(kept).toHttpUrl().queryParameter("v"))
+        assertEquals(namespace, repository.imageCacheNamespace)
+    }
+
+    @Test
+    fun `真实HTTP分页一百图片三档浏览不取原图`() = runTest {
+        val all = (1..2).flatMap { page ->
+            val items = ((page - 1) * 50 + 1..page * 50).joinToString(",") { id ->
+                """{"media_id":"p$id","name":"照片$id","media_type":"image","library_id":"lib","cover_url":"/api/v1/media/p$id/thumbnail?v=s1","original_url":"/api/v1/media/p$id/original?v=s1"}"""
+            }
+            router.mediaBody = mediaPageJson(100, page, 50, items)
+            repository.mediaPage(V2MediaQuery(page = page, pageSize = 50)).items
+        }
+        assertEquals(100, all.size)
+        for (profile in com.mediareview.app.core.network.ThumbnailProfile.entries) {
+            for (photo in all) {
+                val uri = com.mediareview.app.core.network.thumbnailProfileUrl(repository.coverUri(photo), profile)
+                http.newCall(Request.Builder().url(uri).header("Authorization", "Bearer fixture-auth").build()).execute().use { assertTrue(it.isSuccessful) }
+            }
+        }
+        val images = router.requests.filter { it.requestUrl!!.encodedPath.endsWith("/thumbnail") }
+        assertEquals(300, images.size)
+        assertTrue(images.all { it.getHeader("Authorization") == "Bearer fixture-auth" && it.requestUrl!!.queryParameter("v") == "s1" })
+        assertEquals(setOf("GRID_SMALL", "GRID_LARGE", "ALBUM"), images.map { it.requestUrl!!.queryParameter("profile") }.toSet())
+        assertEquals(0, router.requests.count { it.requestUrl!!.encodedPath.endsWith("/original") })
+    }
+
+    @Test
     fun `媒体列表映射分页与资源URL解析`() = runTest {
         router.mediaBody = mediaPageJson(
             total = 2,
@@ -135,9 +197,9 @@ class V2ServerMediaRepositoryContractTest {
 
         val image = page.items.first { it.id == "m2" }
         assertFalse(image.isVideo)
-        assertEquals("$baseUrl/api/v1/media/m1/thumbnail", repository.coverUri(video))
+        assertEquals("$baseUrl/api/v1/media/m1/thumbnail?profile=GRID_SMALL", repository.coverUri(video))
         assertEquals("$baseUrl/api/v1/media/m2/original", repository.imageUri(image))
-        assertEquals("$baseUrl/api/v1/media/m2/thumbnail", repository.coverUri(image))
+        assertEquals("$baseUrl/api/v1/media/m2/thumbnail?profile=GRID_SMALL", repository.coverUri(image))
 
         val request = router.requests.first { it.path!!.startsWith("/api/v1/media?") }
         assertEquals("1", request.query("page"))
@@ -324,7 +386,7 @@ class V2ServerMediaRepositoryContractTest {
 
         assertEquals(1, favorites.size)
         assertTrue(favorites.first().isFavorite)
-        assertEquals("$baseUrl/api/v1/media/m9/thumbnail", repository.coverUri(favorites.first()))
+        assertEquals("$baseUrl/api/v1/media/m9/thumbnail?profile=GRID_SMALL", repository.coverUri(favorites.first()))
     }
 
     // ---------- 错误映射：401 / 网络不可达 ----------

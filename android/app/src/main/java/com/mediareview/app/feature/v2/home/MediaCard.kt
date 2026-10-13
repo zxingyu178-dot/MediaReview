@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.mediareview.app.core.network.ThumbnailProfile
+import com.mediareview.app.core.network.thumbnailProfileUrl
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.ui.V2Colors
@@ -44,9 +46,6 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
 
 /** V2 媒体卡片：只显示静态封面，普通点击浏览。 */
 
-/** 封面轻量解码目标尺寸（像素）：约 176dp 双列卡，不按 1920×1080 原始尺寸解码。 */
-internal const val COVER_TARGET_WIDTH = 484
-internal const val COVER_TARGET_HEIGHT = 272
 @Composable
 fun MediaCard(
     media: V2Media,
@@ -57,15 +56,13 @@ fun MediaCard(
 ) {
     val context = LocalContext.current
 
-    // Stage6 轻量封面：目标解码尺寸 = 双列卡片约 176dp * 2.75x ≈ 484×272px，
-    // 明确要求小于原始 1920×1080 的缩小解码，同时关闭 crossfade 淡入，降低组合路径开销；
-    // 统一走 data-ui 双路径（占位/错误仍保留灰底图标，不出现黑块）。
+    // 下载变体与解码目标一致；单列480×270、双列256×144。
     val coverRequest = remember(coverUri, displayMode) {
+        val profile = if (displayMode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
         ImageRequest.Builder(context)
-            .data(coverUri)
+            .data(thumbnailProfileUrl(coverUri, profile))
             .crossfade(false)
-            .size(if (displayMode == HomeDisplayMode.ONE_COLUMN) COVER_TARGET_WIDTH * 2 else COVER_TARGET_WIDTH,
-                if (displayMode == HomeDisplayMode.ONE_COLUMN) COVER_TARGET_HEIGHT * 2 else COVER_TARGET_HEIGHT)
+            .size(profile.width, profile.height)
             .build()
     }
 

@@ -13,6 +13,7 @@ class CacheAuthInterceptor(
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        request.tag(ImageRequestLifetime::class.java)?.register(chain.call())
         if (request.url.encodedPath.startsWith("/api/v1/")) {
             val token = tokenProvider.tokenFor(request.url.toString())
             if (!token.isNullOrBlank()) {

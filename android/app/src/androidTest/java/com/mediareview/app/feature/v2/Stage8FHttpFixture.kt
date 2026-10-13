@@ -75,7 +75,7 @@ internal class Stage8FHttpFixture(private val legacy: Boolean = false, private v
                         }
                         envelope("""{"items":[${selected.drop((page - 1) * size).take(size).joinToString(",") { media(it) }}],"total":${selected.size},"page":$page,"page_size":$size}""")
                     }
-                    path.endsWith("/cover") || path.endsWith("/original") -> {
+                    path.endsWith("/cover") || path.endsWith("/thumbnail") || path.endsWith("/original") -> {
                         val id = path.split('/')[4]
                         // 封面与原图颜色不同：Viewer 像素必须证明原图已解码，不能被缓存封面冒充。
                         binary(if (id.startsWith("p") && path.endsWith("/original")) photoBytes.getValue(id.drop(1).toInt() % 4) else greenBytes, "image/png")

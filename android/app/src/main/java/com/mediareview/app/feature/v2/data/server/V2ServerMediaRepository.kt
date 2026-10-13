@@ -218,10 +218,12 @@ class V2ServerMediaRepository internal constructor(
      */
     override fun invalidateAuxiliaryCache() {
         foldersCacheEntry = null
+        resources.clear()
     }
 
     /** Stage 8C §24：最终删除 success/missing 后，缓存不得继续命中已不存在的媒体。 */
     override fun dropCachedMedia(mediaIds: List<String>) {
+        foldersCacheEntry = null
         if (mediaIds.isNotEmpty()) resources.removeAll(mediaIds)
     }
 
@@ -341,10 +343,14 @@ class V2ServerMediaRepository internal constructor(
 
     override fun thumbUri(media: V2Media): String = coverUri(media)
 
-    override fun coverUri(media: V2Media): String = resources.coverUrl(media.id).orEmpty()
+    override fun coverUri(media: V2Media): String = com.mediareview.app.core.network.thumbnailProfileUrl(
+        resources.coverUrl(media.id).orEmpty(), com.mediareview.app.core.network.ThumbnailProfile.GRID_SMALL)
 
-    override fun imageUri(media: V2Media): String =
-        resources.originalUrl(media.id) ?: resources.coverUrl(media.id).orEmpty()
+    override val imageCacheNamespace: String get() = resources.imageCacheNamespace()
+
+    override fun imageUri(media: V2Media): String = resources.originalUrl(media.id)?.let {
+        com.mediareview.app.core.network.originalSourceVersionUrl(it, resources.coverUrl(media.id).orEmpty())
+    } ?: resources.coverUrl(media.id).orEmpty()
 
     // ---------- 相册（书架） ----------
 

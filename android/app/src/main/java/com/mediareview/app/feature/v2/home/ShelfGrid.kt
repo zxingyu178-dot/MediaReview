@@ -71,9 +71,7 @@ fun ShelfGrid(
     }
 }
 
-/** 相册书封卡：目标解码尺寸 ≈ 168dp 宽 * 2.75x = 462×616px（3:4）。 */
-private const val ALBUM_COVER_WIDTH = 462
-private const val ALBUM_COVER_HEIGHT = 616
+/** 相册书封使用固定ALBUM320×427变体。 */
 
 @Composable
 private fun AlbumBookCard(
@@ -100,11 +98,11 @@ private fun AlbumBookCard(
                     .background(MediaSurfaceRaised),
             ) {
                 if (coverUri != null) {
-                    // Stage6 轻量封面：3:4 书封约 168dp 宽 → 缩小解码 + 关 crossfade
+                    // 书封请求与窗口预取使用同一ALBUM URL和尺寸。
                     val request = ImageRequest.Builder(LocalContext.current)
-                        .data(coverUri)
+                        .data(com.mediareview.app.core.network.thumbnailProfileUrl(coverUri, com.mediareview.app.core.network.ThumbnailProfile.ALBUM))
                         .crossfade(false)
-                        .size(ALBUM_COVER_WIDTH, ALBUM_COVER_HEIGHT)
+                        .size(320, 427)
                         .build()
                     SubcomposeAsyncImage(
                         model = request,

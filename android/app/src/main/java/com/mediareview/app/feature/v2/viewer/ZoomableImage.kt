@@ -9,11 +9,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,9 +45,14 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import coil.request.CachePolicy
 import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import com.mediareview.app.core.network.ThumbnailProfile
+import com.mediareview.app.core.network.thumbnailProfileUrl
+import com.mediareview.app.feature.v2.ui.V2Colors
+import com.mediareview.app.core.network.ImageRequestLifetime
 
 /**
  * 该页是否应加载原图（§27~§28）。
@@ -91,20 +97,37 @@ fun ZoomableImage(
 
     // 封面(媒体墙已缓存)作为渐进加载的第一帧: 进入 Viewer 立即有内容,不黑屏
     val context = LocalContext.current
+    val originalSession = LocalOriginalImageSession.current
+    val smallPreviewUri = thumbnailProfileUrl(previewUri, ThumbnailProfile.GRID_SMALL)
+    val largePreviewUri = thumbnailProfileUrl(previewUri, ThumbnailProfile.GRID_LARGE)
     val previewPainter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
-            .data(previewUri.takeIf { it.isNotBlank() })
+            .data(smallPreviewUri.takeIf { it.isNotBlank() })
+            .placeholderMemoryCacheKey(largePreviewUri)
             .crossfade(false)
+            .size(256, 144)
             .build(),
+        contentScale = ContentScale.Fit,
+    )
+    // 单列墙已有Large：只读现有memory/disk源，不另发Large网络；异步Coil读盘不阻塞UI。
+    // 独立底层也能在Small失败时保留已显示的封面。
+    val cachedLargePainter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data(largePreviewUri.takeIf { it.isNotBlank() && it != smallPreviewUri })
+            .networkCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.READ_ONLY)
+            .crossfade(false).size(256, 144).build(),
         contentScale = ContentScale.Fit,
     )
     val previewState = previewPainter.state
     val previewReady = previewState is AsyncImagePainter.State.Success
     val previewFailed = previewState is AsyncImagePainter.State.Error
+    val previewHasContent = previewReady || cachedLargePainter.state is AsyncImagePainter.State.Success ||
+        (previewState is AsyncImagePainter.State.Loading && previewState.painter != null)
 
     // 性能打点: 当前页第一帧封面可见(相对 viewer 会话,不是 home 会话)
-    LaunchedEffect(previewReady, isCurrent) {
-        if (isCurrent && previewReady) {
+    LaunchedEffect(previewHasContent, isCurrent) {
+        if (isCurrent && previewHasContent) {
             V2Perf.viewer()?.markOnce("preview_visible", "viewer_preview_visible")
         }
     }
@@ -211,26 +234,33 @@ fun ZoomableImage(
                     translationY = offsetRef.value.y
                 }
             // 原图请求: 仅当前页发起(邻页 model = null,Coil 不会请求)
-            val fullModel = if (loadFullResolution) fullUri else null
+            val fullModel = if (loadFullResolution && viewport.width > 0 && viewport.height > 0) fullUri else null
             val fullPainter = rememberAsyncImagePainter(
-                model = ImageRequest.Builder(context)
-                    .data(fullModel)
-                    .crossfade(false)
-                    .build(),
+                model = originalImageRequest(context, fullModel, originalSession.namespace,
+                    viewport.width.toInt(), viewport.height.toInt()).newBuilder()
+                    .tag(ImageRequestLifetime::class.java, originalSession.lifetime).build(),
                 contentScale = ContentScale.Fit,
             )
             val fullState = fullPainter.state
             val fullReady = fullState is AsyncImagePainter.State.Success
             val fullFailed = fullState is AsyncImagePainter.State.Error
             // 性能打点: 原图就绪(渐进加载的"清晰度提升"时刻)
-            LaunchedEffect(fullReady) {
-                if (fullReady) {
+            LaunchedEffect(fullReady, isCurrent, fullUri, originalSession.namespace) {
+                if (fullReady && isCurrent) {
                     V2Perf.viewer()?.markOnce("full_ready", "viewer_full_image_ready")
+                    V2Perf.viewer()?.markOnce("current_original_ready", "current_original_ready")
+                    originalSession.onReady(fullUri)
                 }
             }
             // Coil 默认尺寸来自 Painter.onDraw；不能等 Success 后才挂载 Image，
             // 否则 preview/full 都在等待尺寸，永远无法完成加载。
             // 原图未就绪时为空绘制，保留下面的封面；就绪后以相同 Fit 无感覆盖。
+            Image(
+                painter = cachedLargePainter,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = imageLayer,
+            )
             Image(
                 painter = previewPainter,
                 contentDescription = if (!fullReady) "图片" else null,
@@ -244,7 +274,7 @@ fun ZoomableImage(
                 modifier = imageLayer,
             )
             when {
-                fullReady || previewReady -> Unit
+                fullReady || previewHasContent -> Unit
                 previewFailed && fullFailed -> Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -258,11 +288,8 @@ fun ZoomableImage(
                     }
                 }
                 else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        color = MediaTextPrimary,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(32.dp),
-                    )
+                    val ratio = if (naturalWidth > 0 && naturalHeight > 0) naturalWidth.toFloat() / naturalHeight else 16f / 9f
+                    Box(Modifier.fillMaxWidth().aspectRatio(ratio).background(V2Colors.Skeleton))
                 }
             }
         }

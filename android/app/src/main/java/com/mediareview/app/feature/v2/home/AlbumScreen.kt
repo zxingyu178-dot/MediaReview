@@ -254,7 +254,7 @@ private fun AlbumImageCell(
             .clickable(onClick = onClick),
     ) {
         SubcomposeAsyncImage(
-            model = ImageRequest.Builder(LocalContext.current).data(coverUri).crossfade(false).size(484, 484).build(),
+            model = ImageRequest.Builder(LocalContext.current).data(com.mediareview.app.core.network.thumbnailProfileUrl(coverUri, com.mediareview.app.core.network.ThumbnailProfile.GRID_SMALL)).crossfade(false).size(256, 144).build(),
             contentDescription = media.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),

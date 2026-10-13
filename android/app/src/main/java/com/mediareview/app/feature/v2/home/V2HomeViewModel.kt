@@ -751,6 +751,7 @@ class V2HomeViewModel @Inject constructor(
 
     /** 统一封面 URI（视频→Poster、图片→缩略图；UI 全用这个，不感知数据来源）。 */
     fun coverUri(media: V2Media): String = repository.coverUri(media)
+    val imageCacheNamespace: String get() = repository.imageCacheNamespace
 
     /** 图片原图 URI（薄委托，加载逻辑在数据层；Server 模式为原图代理 URL）。 */
     fun imageUri(media: V2Media): String = repository.imageUri(media)
@@ -865,8 +866,8 @@ class V2HomeViewModel @Inject constructor(
      */
     fun refreshAfterFinalDelete(removedMediaIds: List<String> = emptyList()) {
         invalidateAlbumSource()
-        if (removedMediaIds.isNotEmpty()) repository.dropCachedMedia(removedMediaIds)
-        repository.invalidateAuxiliaryCache()
+        // 删除仅失效已删资源和folder计数；SWR期间保留未删图片的URL/源缓存身份。
+        repository.dropCachedMedia(removedMediaIds)
         viewModelScope.launch { reloadAll() }
     }
 

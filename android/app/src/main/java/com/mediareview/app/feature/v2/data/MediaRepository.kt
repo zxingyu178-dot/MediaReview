@@ -134,6 +134,9 @@ interface MediaRepository {
     /** 图片原图 URI（Demo 为 asset/res-raw；Server 为原图代理 URL）。 */
     fun imageUri(media: V2Media): String
 
+    /** 原图源缓存身份；只有切源/库变化等显式失效才变化，不含凭据。 */
+    val imageCacheNamespace: String get() = "demo"
+
     // ---------- 相册（书架）能力 ----------
 
     /** 照片相册列表：只能由 IMAGE 构成；无照片的文件夹不出现在书架。 */

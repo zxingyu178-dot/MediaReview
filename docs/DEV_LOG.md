@@ -2619,3 +2619,27 @@ Server fresh EXE隔离health确认1.3.0 / Contract2 / 七能力；EXE SHA256 abe
 新增 GRID_SMALL 256×144/q60、GRID_LARGE 480×270/q65、ALBUM 320×427/q65 不可变白名单；认证 thumbnail HTTP 默认 GRID_LARGE，未知 profile 返回422，任意尺寸/quality查询不生效。完整 profile/尺寸/quality/fill variant 参与缓存与ETag，继续使用既有single-flight/prune。Jellyfin thumbnail_image 增加可选quality且直接旧调用默认80。
 
 TDD：新增认证真实HTTP→真实JellyfinClient→MockTransport上游合同，修正测试异步runner后RED为4失败/1通过（旧尺寸/q80）；GREEN指定thumbnail/image/loading/client五文件50 passed、1现有Starlette弃用警告，Ruff check/format五改动文件通过。旧loading_closure默认HTTP期望按新规格从q80更新65。未执行全suite、Release、手机、真实媒体、生产部署或ControlHub操作；版本及capabilities由Task9对齐。待root独立规格/质量审查。
+
+## 2026-10-13 Stage8I Task2 Android 图片管线候选
+
+MediaCard、相册双列、书架和WindowCoverPrefetch使用同一固定profile URL/尺寸，保留origin/v/认证和Demo/Jellyfin路径。当前原图继承同媒体封面源指纹v，source namespace仅显式清源变化；最终删除只drop对应资源并失效folder辅助缓存，未删内容及namespace保留。Viewer当前原图成功后才串行预取±1源，±2仅低清，页/源/退出取消旧预取；current按viewport上限2048、prefetch1×1，均Precision.EXACT。HTTP original仅复用源盘缓存、禁memory旁路，局部max-stale30仍尊重no-store/no-cache；不改全局Coil。低清层保留，单列已有Large以memory占位/cache-only disk层显示，无新增Large HTTP、无UI读盘；空内容自然比例Skeleton，无中央Spinner，原有zoom/上下文保持。
+
+真实TDD记录：默认profile RED20/1fail→第一GREEN35目标JVM及Debug Main/Test通过；production original缺v RED22/1fail（expected source1/null）→GREEN25/0fail；endpoint边界RED4/1fail（fingerprint/null）→最终26目标JVM通过。新Test错误把Coil EventListener interface当构造函数，首次最后编译失败已保留；修复后最终repair session53006 EXIT0、BUILD SUCCESSFUL3m49、26tests0failure/error、两个Debug APK通过，18源码/测试输入哈希未变。Repository真实HTTP两页100图片、三profile300次请求、original0、认证/v与删除保留回归；policy仅补充边界，不代替真实图片。
+
+新增统一设备合同：同一100逐张JPEG列表与Viewer像素性能对比（Alpha11未发生邻预取记录NOT_PRESENT）、actualCoil noTTL源复用/新namespace/no-store与no-cache current回访、真实painter1100×800→300×218、5MP源精确解码、真实Home/Album组合与WindowPrefetch、当前原图优先/±1/±2/连续swipe取消及有界HTTP、单列memory/disk-only Large缓存双延迟仍绿图。当前仅编写/编译，设备执行与最终独立验收由根Agent统一，不能标为device PASS或Task2全部完成。既有Stage8F真实App图片/上下文合同保留。未执行Release、ADB/AVD、手机、生产服务或ControlHub操作；版本由Task9对齐。完整命令、失败历史、APK原字节SHA及局部30秒缓存限制见任务报告。
+
+### Stage8I Task2 根接手：设备证据与原图传输取消（2026-10-13）
+
+- 图片测试首轮7项5PASS/2FAIL；原有App Viewer/缩放/待删除真实合成HTTP回归1PASS。相册组合测试修正为先进入已有SHELF页后已单项PASS。
+- Alpha11同100图片真实逐张绿像素/零原图基准1PASS：缩略图body6785700B；改进候选同100图片body1329400B，热回访0B。候选仍是中间Debug（versionName待Task9），以冻结SHA区分；仅模拟器合成fixture记录，不代表手机或家庭LAN验收。
+- 已修测试类非void返回。旧内存缓存候选真实RED：no-store回访预期NETWORK实为MEMORY_CACHE；修正版缓存/真实painter/5MP解码3PASS。旧单列缓存候选盘预览1000ms超时（body5000ms），修正版内存/盘两项PASS；旧精度候选真实painter也PASS，不能声称该项已证明RED。
+- 快翻复现两轮maxActive4。新增MR_IMAGE_HTTP仅记录路径/计数/单调时间，不记录凭据。p51旧邻预取与p51当前慢body未及时中止，叠加p52/p53至4；翻页取消job不足以立即停止已收到headers后的body读取。
+- 根接手新增ImageRequestLifetime：当前源key拥有显式tagged原图Call；现有图片CacheAuthInterceptor登记；Viewer页/来源变化和退出DisposableEffect主动cancel，当前Painter与串行±1源共享所有权。普通缩略图、外部未tagged请求和认证边界不改。新增真实延迟body/晚登记取消JVM测试；生产修复尚待构建与快翻设备GREEN，不能声明Task2验收完成。
+- 所有测试仅owned read-onlyAVD，手机/生产服务未操作。终态/日志见temp/stage8i-ux/progress.md与review_meta/stage8i/task-2-device-round1-receipt.json。没有新增长期对象或脚本。
+
+## 根设备终态补充（覆盖前述未执行状态，2026-10-13）
+最终window候选Main SHA630863a31b043490a70bb20c336739e58e975a9f9cb8ee7f899f21a7c413a875/Test80f90c15c153fa69c5958c18e460885b214448f2ca17b93b45f900c659644632，97848真实EXIT0/BUILD SUCCESSFUL2m53且输入hash无变化。原图current与prefetch现分独立传输lifetime；通过既有CacheAuthInterceptor把tag传到真实Call，页/源/退出取消两者，同页adjacent变化只取消旧prefetch。新JVM真实延迟body与晚登记取消2PASS，Repo22+Policy4累计28PASS（96421输入，之后只改Compose邻scope与device tests；未广泛重跑无影响JVM）。
+设备分轮：旧memory候选no-store回访1FAIL(expectedNETWORK actualMEMORY_CACHE)→修正版缓存class3PASS；原图片class7项5PASS/2FAIL，Shelf导航修正后真实Home/Album PASS；快翻max4真实失败两轮，原图连接取消修正后最终rapid PASS/max2/exit0。旧before-window同页邻源更新1FAIL1500ms旧body仍活→最终same-page PASS。最终另current-before-neighbors PASS、Date60秒过期及5秒must-revalidate真实网络PASS。
+最终聚焦5tests四业务PASS、原AppViewer因模拟器SystemUI ANR占窗失败；XML/dumpsys核实后在ownedAVD点击Wait、确认MainActivityfocus，单项AppViewer真实pixel/zoom/pending-delete/context重跑PASS1/35.505秒。失败日志保留，不把首轮合并伪造5/5。累计各候选测试复用范围明确；没有宣称最新APK12个新测试全跑，Task9全量门禁仍待执行。
+Alpha11同fixture100逐张绿像素/原图0：缩略图body6785700B；profile候选1329400B，热回访0B。记录均是合成emulator，不是手机/家庭LAN，非SLA。旧precision候选实际Painter也PASS，不能称该項证明RED。最终正式Alpha12/Server1.4/Handoff均未生成。Task2可进入针对性代码验收，整体Stage8I仍未完成。
+证据：review_meta/stage8i/task-2-device-round1-receipt.json、task-2-device-round3-receipt.json、task-2-window-build-receipt.json；temp/stage8i-ux相应原始日志、MR_IMAGE_HTTP时序；静态独立审查C0/I0，终态证据刷新请求因模型capacity失败，根已核对实际终态，不虚构独立运行审查。

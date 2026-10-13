@@ -110,6 +110,8 @@ class V2MediaRepositoryRouter @Inject constructor(
 
     override fun imageUri(media: V2Media): String = active().imageUri(media)
 
+    override val imageCacheNamespace: String get() = active().imageCacheNamespace
+
     override suspend fun albums(): List<V2Album> = dataActive().albums()
 
     override suspend fun albumPage(

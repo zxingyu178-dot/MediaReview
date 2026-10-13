@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,13 +42,16 @@ import com.mediareview.app.feature.v2.viewer.state.ImageViewerContext
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerState
 import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteState
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
+import coil.imageLoader
+import coil.request.SuccessResult
+import com.mediareview.app.core.network.ImageRequestLifetime
 
 /**
  * V2 图片查看器（画册体验）：
  * - ImageViewerContext：只包含 IMAGE，initialIndex 过滤后按 initialMediaId 重算
  * - HorizontalPager 左右翻图；scale==1 翻页、scale>1 拖动图片
  * - 单击显隐 UI；双击 1.0x↔2.5x（以点击点为中心）；双指缩放 1~5x；平移带边界
- * - 预加载 N-1 / N+1 / N+2
+ * - ±2低清预组合；当前成功后串行预取±1原图源。
  * - 收藏与待删除均由 Repository 确认；读取未知时禁用待删除并提供重试
  * - 信息面板 ModalBottomSheet；沉浸式黑底，离开恢复系统栏
  */
@@ -104,6 +108,31 @@ fun V2ImageViewer(
     val currentMedia = cachedMedia?.let { media ->
         confirmedFavoriteStates[media.id]?.let { media.copy(isFavorite = it) } ?: media
     }
+    val sourceNamespace = vm.imageCacheNamespace
+    val currentOriginal = currentMedia?.let(vm::imageUri)
+    var originalReadyKey by remember { mutableStateOf<String?>(null) }
+    val readyKey = currentOriginal?.let { originalImageCacheKey(sourceNamespace, it) }
+    val originalLifetime = remember(readyKey) { ImageRequestLifetime() }
+    DisposableEffect(originalLifetime) {
+        onDispose { originalLifetime.cancel() }
+    }
+    // 页或源变化立即取消旧预取；当前解码成功后才串行预取±1，最多一个小解码。
+    val adjacentUrls = adjacentOriginalIndices(pagerState.currentPage, ids.size)
+        .mapNotNull { ids.getOrNull(it)?.let(vm::mediaById)?.let(vm::imageUri) }
+        .filter { it.isNotBlank() && it != currentOriginal }.distinct()
+    // 同页追加相册/邻源更新也会重启预取；其body传输必须随该窗口一起取消。
+    val prefetchLifetime = remember(readyKey, originalReadyKey, adjacentUrls) { ImageRequestLifetime() }
+    DisposableEffect(prefetchLifetime) {
+        onDispose { prefetchLifetime.cancel() }
+    }
+    LaunchedEffect(readyKey, originalReadyKey, adjacentUrls) {
+        if (readyKey == null || originalReadyKey != readyKey) return@LaunchedEffect
+        for (url in adjacentUrls) {
+            val result = context.imageLoader.execute(originalImageRequest(context, url, sourceNamespace, 1, 1, prefetch = true)
+                .newBuilder().tag(ImageRequestLifetime::class.java, prefetchLifetime).build())
+            if (result is SuccessResult) V2Perf.viewer()?.markOnce("neighbor_prefetch_ready", "neighbor_prefetch_ready")
+        }
+    }
 
     var showInfo by remember { mutableStateOf(false) }
     var currentScale by remember { mutableFloatStateOf(1f) }
@@ -140,6 +169,9 @@ fun V2ImageViewer(
     }
 
     Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
+        CompositionLocalProvider(LocalOriginalImageSession provides OriginalImageSession(sourceNamespace, originalLifetime) { url ->
+            if (url == currentOriginal) originalReadyKey = originalImageCacheKey(sourceNamespace, url)
+        }) {
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = currentScale <= 1.01f,
@@ -161,6 +193,7 @@ fun V2ImageViewer(
                     onScaleChange = { if (page == pagerState.currentPage) currentScale = it },
                 )
             }
+        }
         }
 
         if (viewerState.uiVisible) {

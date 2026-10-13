@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil.imageLoader
 import coil.request.ImageRequest
+import com.mediareview.app.core.network.ThumbnailProfile
+import com.mediareview.app.core.network.thumbnailProfileUrl
 import com.mediareview.app.feature.v2.ui.V2Colors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -45,9 +47,9 @@ internal fun WindowCoverPrefetch(
     LaunchedEffect(urls, grid, mode, albumCovers, squareCovers, leadingItemCount) {
         suspend fun warm(first: Int) {
             prefetchBoundedCovers(coverPrefetchIndices(urls.size, first).map { urls[it] }) { url ->
-                context.imageLoader.execute(ImageRequest.Builder(context).data(url).crossfade(false)
-                    .size(if (albumCovers) 462 else COVER_TARGET_WIDTH * mode.columns.let { if (it == 1) 2 else 1 },
-                        if (albumCovers) 616 else if (squareCovers) 484 else COVER_TARGET_HEIGHT * mode.columns.let { if (it == 1) 2 else 1 })
+                val profile = if (albumCovers) ThumbnailProfile.ALBUM else if (mode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
+                context.imageLoader.execute(ImageRequest.Builder(context).data(thumbnailProfileUrl(url, profile)).crossfade(false)
+                    .size(profile.width, profile.height)
                     .build())
             }
         }
