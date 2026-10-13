@@ -58,6 +58,7 @@ runtime/
 temp/managed-upgrade-fixtures/
 temp/stage8g-emulator/
 temp/stage8h-player/
+temp/stage8i-ux/
 
 # OS/editor noise
 Thumbs.db
