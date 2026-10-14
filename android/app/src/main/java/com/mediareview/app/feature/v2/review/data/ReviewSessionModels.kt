@@ -1,5 +1,9 @@
 package com.mediareview.app.feature.v2.review.data
 
+data class ReviewScope(val folderIds: List<String> = emptyList(), val includeDescendants: Boolean = true) {
+    init { require(folderIds.size <= 100 && folderIds.all { it.isNotBlank() }) }
+}
+
 /**
  * 批阅队列项（UI 唯一可见形态，Stage 8B §4）。
  *
@@ -41,6 +45,7 @@ data class ReviewSessionInfo(
     val unavailableCount: Int = -1,
     val remainingCount: Int = -1,
     val completedCount: Int = -1,
+    val scope: ReviewScope = ReviewScope(),
 ) {
     /**
      * 可批阅数量：优先服务端权威值；旧 Server 缺字段时保守回退
@@ -131,6 +136,8 @@ data class ReviewQueuePageResult(
 
 /** 进入批阅（恢复 / 新建）的结果。 */
 sealed interface ReviewSessionOpen {
+    /** UI entry never creates a queue before the user chooses its scope. */
+    data object ScopeRequired : ReviewSessionOpen
     /** 会话就绪，并已定位到 current_index 所在分页。 */
     data class Ready(
         val session: ReviewSessionInfo,

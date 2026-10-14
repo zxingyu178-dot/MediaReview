@@ -54,6 +54,101 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class V2ReviewViewModelTest {
+    @Test
+    fun oldPageResponseCannotReplaceNewScopedWindow() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(sessionId = "old", total = 100, window = window(50, total = 100))
+            nextHandler = { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                gate.await(); ReviewQueuePageResult(window(50, firstPage = 2, total = 100, startId = 51))
+            } }
+        }
+        val vm = V2ReviewViewModel(FakeMediaRepository(100), sessions)
+        vm.enterReview()
+        vm.onPageSettled(49)
+        assertTrue((vm.state.value as V2ReviewUiState.Ready).loadingNext)
+        vm.chooseReviewScope()
+        vm.submitReviewScope()
+        sessions.entryResult = readyOpen(sessionId = "new", total = 1)
+        vm.confirmReviewScope()
+        assertEquals(1, (vm.state.value as V2ReviewUiState.Ready).totalCount)
+        gate.complete(Unit)
+        assertEquals("new", (vm.state.value as V2ReviewUiState.Ready).sessionId)
+        assertEquals(1, (vm.state.value as V2ReviewUiState.Ready).totalCount)
+        assertEquals(listOf("v1"), (vm.state.value as V2ReviewUiState.Ready).items.map { it.mediaId })
+    }
+    @Test
+    fun scopeCancellationIsNotReviewCompletion() = runTest {
+        val sessions = FakeSessions().apply { entryResult = ReviewSessionOpen.ScopeRequired }
+        val vm = vm(sessions)
+        vm.enterReview()
+        assertTrue("必须已经显示实际范围Sheet再取消", vm.scopeSheet.value.visible)
+        vm.cancelReviewScope()
+        assertFalse("尚未创建会话，取消不得冒充全部视频已批阅", vm.state.value == V2ReviewUiState.Empty)
+        assertEquals(listOf(false), sessions.enterForceNew)
+    }
+    @Test
+    fun `慢范围标题不阻塞Ready播放且restart保留范围`() = runTest {
+        val scope = com.mediareview.app.feature.v2.review.data.ReviewScope(listOf("ft_a"), false)
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeMediaRepository(3).apply { folderHandler = { gate.await(); listOf(scopeNode("ft_a", "旅行")) } }
+        val sessions = FakeSessions().apply {
+            folderScopeSupported = true
+            val opened = readyOpen() as ReviewSessionOpen.Ready
+            entryResult = opened.copy(session = opened.session.copy(scope = scope))
+        }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        assertTrue(vm.state.value is V2ReviewUiState.Ready)
+        assertTrue(repo.resolvedMediaIds.contains("v1"))
+        gate.complete(Unit)
+        assertEquals("旅行", vm.scopeTitle.value)
+        vm.restart()
+        assertEquals(scope, sessions.scopedCreates.single())
+    }
+
+    @Test
+    fun `取消后重开Sheet旧tree迟到不能覆盖新tree`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        val repo = FakeMediaRepository(3).apply {
+            folderHandler = {
+                calls++
+                if (calls == 1) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    gate.await(); listOf(scopeNode("ft_old", "旧"))
+                } else listOf(scopeNode("ft_new", "新"))
+            }
+        }
+        val sessions = FakeSessions().apply { folderScopeSupported = true; entryResult = readyOpen() }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        vm.chooseReviewScope()
+        vm.cancelReviewScope()
+        vm.chooseReviewScope()
+        assertEquals(listOf("ft_new"), vm.scopeSheet.value.folders.map { it.id })
+        gate.complete(Unit)
+        assertEquals(listOf("ft_new"), vm.scopeSheet.value.folders.map { it.id })
+    }
+
+    private fun scopeNode(id: String, name: String) = com.mediareview.app.feature.v2.model.V2FolderNode(id, null, "lib", name, 0, 3, 3, 0)
+    @Test
+    fun `active范围确认前和取消后保留旧session与queue`() = runTest {
+        val sessions = FakeSessions().apply { entryResult = readyOpen(sessionId = "old", total = 2, currentIndex = 0, window = window(count = 2, total = 2)) }
+        val vm = vm(sessions)
+        vm.enterReview()
+        val old = vm.state.value
+        vm.chooseReviewScope()
+        vm.submitReviewScope()
+        assertTrue(vm.scopeSheet.value.confirmReplacement)
+        assertEquals(listOf(false), sessions.enterForceNew)
+        vm.cancelReviewScope()
+        assertEquals(old, vm.state.value)
+        assertEquals(listOf(false), sessions.enterForceNew)
+        vm.chooseReviewScope()
+        vm.submitReviewScope()
+        vm.confirmReviewScope()
+        assertEquals(listOf(false, true), sessions.enterForceNew)
+    }
 
     private val dispatcher = UnconfinedTestDispatcher()
 
@@ -668,6 +763,14 @@ class V2ReviewViewModelTest {
  * 也可以通过 [seenResultOverride] 固定服务端返回值（测"权威值"语义）。
  */
 private class FakeSessions : V2ReviewSessionRepository {
+    var nextHandler: (suspend () -> ReviewQueuePageResult?)? = null
+    var folderScopeSupported = false
+    override val supportsFolderScope: Boolean get() = folderScopeSupported
+    val scopedCreates = mutableListOf<com.mediareview.app.feature.v2.review.data.ReviewScope>()
+    override suspend fun createScopedSession(scope: com.mediareview.app.feature.v2.review.data.ReviewScope): ReviewSessionOpen {
+        scopedCreates += scope
+        return enterSession(true)
+    }
     var entryResult: ReviewSessionOpen = ReviewSessionOpen.Empty
     var loadNextResult: ReviewQueuePageResult? = null
     var loadPrevResult: ReviewQueuePageResult? = null
@@ -712,7 +815,7 @@ private class FakeSessions : V2ReviewSessionRepository {
         return entryResult
     }
 
-    override suspend fun loadNextPage(): ReviewQueuePageResult? = loadNextResult
+    override suspend fun loadNextPage(): ReviewQueuePageResult? = nextHandler?.invoke() ?: loadNextResult
 
     override suspend fun loadPrevPage(): ReviewQueuePageResult? = loadPrevResult
 
@@ -774,7 +877,9 @@ private class FakeSessions : V2ReviewSessionRepository {
 }
 
 /** 只提供媒体 / 收藏 / 待删除 / 播放解析的最小仓库（记录播放解析次数，可对指定媒体加门）。 */
-private class FakeMediaRepository(private val mediaCount: Int) : MediaRepository {
+internal class FakeMediaRepository(private val mediaCount: Int) : MediaRepository {
+    var folderHandler: (suspend () -> List<com.mediareview.app.feature.v2.model.V2FolderNode>?)? = null
+    override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode>? = folderHandler?.invoke()
 
     var favoriteResult = true
     var pendingDeleteResult = true

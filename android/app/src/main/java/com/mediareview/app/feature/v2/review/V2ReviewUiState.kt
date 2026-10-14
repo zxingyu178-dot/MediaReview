@@ -3,6 +3,17 @@ package com.mediareview.app.feature.v2.review
 import com.mediareview.app.feature.v2.review.data.ReviewQueueItemUi
 import com.mediareview.app.feature.v2.review.data.ReviewQueueWindow
 
+data class ReviewScopeSheetState(
+    val visible: Boolean = false,
+    val scope: com.mediareview.app.feature.v2.review.data.ReviewScope = com.mediareview.app.feature.v2.review.data.ReviewScope(),
+    val folders: List<com.mediareview.app.feature.v2.model.V2FolderNode> = emptyList(),
+    val folderEnabled: Boolean = false,
+    val loading: Boolean = false,
+    val confirmReplacement: Boolean = false,
+    val creating: Boolean = false,
+    val error: String? = null,
+)
+
 /**
  * 批阅页状态机（Stage 8B §23）。
  *
@@ -13,6 +24,8 @@ sealed interface V2ReviewUiState {
 
     /** 尚未进入（首帧）。 */
     data object Idle : V2ReviewUiState
+    /** No session has been created; cancelling scope selection is not completion. */
+    data object ScopeSelection : V2ReviewUiState
 
     /** 正在恢复 / 创建批阅会话（`latest` → 必要时创建）。 */
     data object LoadingSession : V2ReviewUiState

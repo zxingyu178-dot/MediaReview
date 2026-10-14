@@ -72,9 +72,9 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 ### Task 6: Review Folder Scope Server与Android（§19–23/27–28/31SCOPE）
 **Files:** server/app/api/v1/review.py/services/review.py/services/folder_tree.py；feature/v2/review/data/ReviewSessionModels.kt/V2ServerReviewSessionRepository.kt/V2ReviewSessionRepository.kt；V2ReviewViewModel.kt/V2ReviewUiState.kt/V2ReviewScreen.kt；相应tests。
 **Interfaces:** folder_ids List<String><=100/include_descendants bool=true；验证selectedlibraries node，OR scope，创建Session固定快照；UI全部/多选Sheet，oldserverfailclosed，active先确认不覆盖，title不显示真实path。
-- [ ] RED：one/descendants/multiOR/illegal/foreignlibrary/over100；已有session冻结；旧cap禁folder/提示升级；active继续恢复，reselect需明确确认，cancel不覆盖。
-- [ ] 复用现有scope_condition和FolderTree；客户端会话API字段向后兼容；已有session不因新选择重新过滤。
-- [ ] 定向Server/JVM/编译GREEN，Scope Sheet真实HTTPdevice验收；独立审查/DEV_LOG/feat(review): add frozen folder scope提交。
+- [x] RED：one/descendants/multiOR/illegal/foreignlibrary/over100；已有session冻结；旧cap禁folder/提示升级；active继续恢复，reselect需明确确认，cancel不覆盖。
+- [x] 复用现有scope_condition和FolderTree；客户端会话API字段向后兼容；已有session不因新选择重新过滤。
+- [x] 定向Server/JVM/编译GREEN，Scope Sheet真实HTTPdevice验收；独立审查/DEV_LOG/feat(review): add frozen folder scope提交。
 
 ### Task 7: Review Loop与原生Pager预取（§9–12/24–26/31LOOP/PAGER/32）
 **Files:** feature/v2/review/V2ReviewScreen.kt/V2ReviewViewModel.kt/ReviewStableGate.kt；player/gsy controller/native相关；shared gesture layer；androidTest真实短MP4/HLS fixture及JVM。

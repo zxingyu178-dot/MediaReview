@@ -10,6 +10,15 @@ import org.junit.Test
 
 /** 阶段 8:验证服务端统一响应包与配对模型的反序列化(纯 JVM,无 Android 依赖)。 */
 class ApiModelsTest {
+    @Test
+    fun `批阅范围新旧快照保留真实 JSON 类型`() {
+        val scoped = json.decodeFromString<ReviewSourceDto>("""{"filter":{"media_type":"video","folder_ids":["ft_a","ft_b"],"include_descendants":false}}""")
+        val encoded = json.encodeToString(scoped)
+        assertTrue(encoded.contains("\"folder_ids\":[\"ft_a\",\"ft_b\"]"))
+        assertTrue(encoded.contains("\"include_descendants\":false"))
+        val old = json.decodeFromString<ReviewSourceDto>("""{"filter":{"media_type":"video","search":"旧条件"}}""")
+        assertTrue(json.encodeToString(old).contains("旧条件"))
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
 

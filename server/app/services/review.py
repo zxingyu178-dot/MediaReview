@@ -14,8 +14,9 @@ import threading
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from app.core.errors import ValidationFailedError
 from app.db.models import MediaCacheIndex, ReviewSession, ReviewSessionItem, utc_now
-from app.services import media_index
+from app.services import folder_tree, media_index
 from app.services.hash_contract import full_sha256_sql_predicate
 
 _session_id_lock = threading.Lock()
@@ -115,12 +116,15 @@ def _representative_queue_select(
     sort_by: str,
     sort_order: str,
     random_seed: str | None,
+    folder_condition=None,
 ):
     """构造仅含完全重复代表项的有序 SQL，不物化媒体索引。"""
     conditions = [
         MediaCacheIndex.is_available.is_(True),
         MediaCacheIndex.library_id.in_(library_ids),
     ]
+    if folder_condition is not None:
+        conditions.append(folder_condition)
     if media_type:
         conditions.append(MediaCacheIndex.media_type == media_type)
     if search and search.strip():
@@ -182,6 +186,18 @@ def _representative_queue_select(
     return sa.select(representatives.c.media_id, representatives.c.queue_index)
 
 
+def validate_folder_scope(snapshot: dict) -> None:
+    """Strict JSON types: never coerce an invalid scope into all media."""
+    if "folder_ids" in snapshot:
+        ids = snapshot["folder_ids"]
+        if not isinstance(ids, list) or len(ids) > 100 or any(
+            not isinstance(node, str) or not node.strip() for node in ids
+        ):
+            raise ValidationFailedError("文件夹范围必须为最多 100 个文件夹 ID 的列表")
+    if "include_descendants" in snapshot and type(snapshot["include_descendants"]) is not bool:
+        raise ValidationFailedError("包含子文件夹必须为布尔值")
+
+
 def create_session_from_index(
     session: Session,
     *,
@@ -194,6 +210,18 @@ def create_session_from_index(
     if not targets:
         raise ValueError("尚未勾选任何媒体库,请先完成媒体库配置")
     saved_filter = dict(filter_snapshot or {})
+    validate_folder_scope(saved_filter)
+    folder_condition = None
+    if saved_filter.get("folder_ids"):
+        saved_filter.setdefault("include_descendants", True)
+        scopes = []
+        for node in dict.fromkeys(saved_filter["folder_ids"]):
+            condition = folder_tree.scope_condition(session, targets, node,
+                include_descendants=saved_filter["include_descendants"])
+            if condition is None:
+                raise ValueError("文件夹不存在或不属于已选媒体库")
+            scopes.append(condition)
+        folder_condition = sa.or_(*scopes)
     saved_sort = dict(sort_snapshot or {})
     media_type = saved_filter.get("media_type")
     search = saved_filter.get("search")
@@ -207,6 +235,7 @@ def create_session_from_index(
         sort_by=sort_by,
         sort_order=sort_order,
         random_seed=random_seed,
+        folder_condition=folder_condition,
     ).subquery()
     total = int(session.scalar(sa.select(sa.func.count()).select_from(queue_select)) or 0)
     if total == 0:

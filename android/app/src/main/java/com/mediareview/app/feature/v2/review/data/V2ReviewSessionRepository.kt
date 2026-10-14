@@ -12,6 +12,10 @@ package com.mediareview.app.feature.v2.review.data
  * - Demo：本地未审队列，无分页（单页即全量），行为与 Stage 7.1 一致。
  */
 interface V2ReviewSessionRepository {
+    val supportsFolderScope: Boolean get() = false
+    suspend fun prepareSession(): ReviewSessionOpen = enterSession()
+    suspend fun createScopedSession(scope: ReviewScope): ReviewSessionOpen =
+        if (scope.folderIds.isEmpty()) enterSession(true) else ReviewSessionOpen.Failed("请升级服务器以选择文件夹批阅范围")
 
     /**
      * 进入批阅：恢复最新 active 会话，并定位到其 `current_index` 所在分页（§21 深位置恢复：

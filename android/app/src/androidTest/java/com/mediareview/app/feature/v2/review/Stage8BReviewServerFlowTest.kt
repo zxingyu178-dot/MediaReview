@@ -155,8 +155,12 @@ class Stage8BReviewServerFlowTest {
 
         val vm = V2ReviewViewModel(media, sessions)
 
-        // 1) 进入批阅：latest 404 → 新建会话（§17）
+        // 1) 冷进入 latest 404 先选择范围；明确选全部并开始后才创建会话。
         vm.enterReview()
+        waitUntil("批阅范围选择已显示") { vm.scopeSheet.value.visible }
+        assertEquals(0, countPath("/api/v1/review/sessions", method = "POST"))
+        vm.selectAllScope()
+        vm.submitReviewScope()
         waitUntil("会话建立") { vm.state.value is V2ReviewUiState.Ready }
         val ready = vm.state.value as V2ReviewUiState.Ready
         assertEquals(totalCount, ready.totalCount)

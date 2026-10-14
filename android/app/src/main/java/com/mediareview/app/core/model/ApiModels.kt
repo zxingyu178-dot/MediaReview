@@ -155,7 +155,7 @@ data class ReviewNearestDto(
 /** 会话筛选/排序快照。 */
 @Serializable
 data class ReviewSourceDto(
-    val filter: Map<String, String> = emptyMap(),
+    val filter: Map<String, JsonElement> = emptyMap(),
     val sort: Map<String, String> = emptyMap(),
 )
 

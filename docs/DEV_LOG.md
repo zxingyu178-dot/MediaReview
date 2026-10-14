@@ -2698,3 +2698,26 @@ Task4较宽回归最终补记：原执行者36700真实工具EXIT0/pytestEXIT0�
 最终Main66915cea34b51f07d7d53c0d601b3979dfecabfea6175847090a8a3444477276/Test45f49c85193960826198de2e478f28d093a4f6d225ff37050018ddbb04497c96，11份预构建输入哈希重连后全部一致。前轮82921实际instrumentation终态OK(2 tests)/30.599s，认证bootstrap/真实ft目录/封面绿色像素/true,false范围/返回路径及缺cap基础Repository Ready；重连工具句柄不存在，不补造shell退出码。证据见task-5-http-device.log/events及review_meta/stage8i/task-5-http-device-receipt.json。
 
 新只读AVD169696运行受影响旧FolderBrowserTouchTest：11109真实工具EXIT0、OK(2 tests)/19.46s，目录真实pointer/父子树/页1,2/50项有界分页/面包屑返回、封面预取窗口回归通过。该轮Demo/widget不能代替上轮认证HTTP，也不代表正式NavHost/手机/家庭LAN。前置SystemUI ANR在测试启动前通过Window/XML观察，选实际Wait按钮并确认Launcher恢复；测试本身无失败。ownedAVD已正常退出，adb列表空。日志/receipt保留，不声称全connected/全JVM/lint/Release或生产部署。
+
+## 2026-10-14 Stage8I Task6 — Review Folder Scope（软件候选，设备门禁待根）
+
+Server source.filter 接受真实 folder_ids 列表（最多100）与真实 include_descendants 布尔值（默认true）；未知/foreign节点或错误类型拒绝，复用 folder_tree.scope_condition 多选OR，在完全重复代表项排序之前过滤，创建队列与范围快照固定。恢复沿既有持久队列，不重新过滤。Android升级唯一共用 ReviewSourceDto.filter 为 Map<String,JsonElement>，保留旧字符串字段与 sort 合同；生产Repo/router/VM/Scope Sheet真实发送arrays/bool。复用FolderTree与FolderCard，全部/多选/包含子目录；旧active默认恢复，重新选择须确认，确认前取消保留旧session/queue。缺review_folder_filter_v1时禁folder并提示升级，基础全部视频仍可用。冷进入先Sheet，取消保持尚未创建的ScopeSelection，不宣称批阅完成。
+
+确认开始新会话时先退役旧Ready并取消旧P0/P1/position/page；POST结果未知或新queue失败转Error，重试只GET canonical latest，避免重复POST。seen在任何挂起前固定原session目标，晚seen/page响应校验会话身份；page另校验generation。创建/恢复与分页共享既有Repo mutex，避免晚旧page写新缓存。标题树异步加载，不阻塞Ready/P0；Sheet/title请求显式传播取消并有generation/session保护。普通restart保持范围；无真实路径标题。
+
+真实RED：Server修正fixture后17项功能断言失败/1原有OR全选快照通过，日志task6-server-red.log（该次tail包装未保留pytest退出码，不把工具EXIT0解释为pytest通过）；首轮84440工具EXIT1含fixture属性错误，已修正。JVM DTO32827 EXIT1，9项/1失败；cold取消21945 EXIT1，1/1失败；POST成功queue失败65590 EXIT1，1/1失败；late16597 EXIT1，2/2失败，实际seen目标old→new及新window总数1→100均被捕获。
+
+最终Server session1244 EXIT0，19 Scope +27既有Queue共46PASS。最终JVM session38736 EXIT0，75PASS/0FAIL/0ERROR（Api9、ServerRepo34、VM32）。唯一最后Main/Test build82780 EXIT0，2m27；326项Android输入前后SHA256一致，0漂移。只有Stage8B旧instrumentation冷进入语义在最终unit后更新：明确选择全部再创建，继续原queue/seen合同；未重复JVM。Server最后仅机械import排序，实际Ruff三文件EXIT0 All checks passed，按无语义变更复用46项行为验证。既有AGP/deprecated警告及VM405冗余always-true条件警告保留，非功能失败。
+
+新增Stage8IReviewScopeHttpTest四项已编译，未由writer运行：正式Store/配对bootstrap/认证HTTP与既有FolderCard绿色封面像素；active取消POST0、确认multi-array/bool POST1、resume仍1；冷进入先Sheet/取消不假完成；缺cap基础全部Review；POST接受但queue503退役旧Ready、canonical retry不再POST。沿现有RealHttpPlaybackFixture opt-in Scope模式，默认Task3/5行为不变；profile/mode嵌套finally恢复且仅assert布尔，不输出凭据。属于Compose widget host，不代表正式NavHost/手机/真实Jellyfin/家庭LAN。
+
+Main SHA256 B7EA00A4C97A71D639CD2CE44485258EABA5F53B94896892D26313A9EA4DB536；Test D1E8C36551C1E892C24CEE1955BDAF65F251300563F8102A48B52E5CAEF2E75B。报告与receipt见temp/stage8i-ux/task6-report.md、task6-build-receipt.json；所有必要log/manifest保留为验收证据，没有一次性脚本或无用temp需清理。未commit/push，根接管独立审查/统一AVD四项Scope及受影响Stage8B门禁。全JVM/全Server/lint/全connected/Release/手机/生产部署未执行；无新增长期对象/脚本或Registry/ControlHub改动，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持，整个Stage8I未完成。
+
+### Task6 根运行门禁补记（2026-10-14）
+最终软件：46项Server scope/queue、75项JVM（API9/Repo34/VM32）均实际通过，Ruff相关3文件通过。82780构建实际EXIT0、SUCCESS2m27，326份Android预构建输入根重算0漂移。Main SHA b7ea00a4c97a71d639cd2ce44485258eaba5f53b94896892d26313a9ea4db536；Test SHA d1e8c36551c1e892c24cee1955bdaf65f251300563f8102a48b52e5caef2e75b。Server仅构建终态后机械排序import，未改变46项对应行为；未重复无关检查。
+
+真实Scope设备92623：工具EXIT0、OK(4 tests)/54.772s。正式Server配置/配对/health probe、生产Repository、认证合成HTTP和实际目录封面绿色像素，验证多选JSON数组/include_descendants布尔、取消POST0/确认POST1/恢复仍POST1、冷进入先Sheet取消为中性ScopeSelection、缺cap禁folder但all可建、POST已接受且queue503时退役旧Ready并从latest恢复同一新session且不再次POST。四方法status0；只有两方法输出事件布尔日志，不补造另外两项events。开始捕获误用MRScopeHTTP得到空日志，已按真实MRReviewScopeHTTP重新读取并保留。
+
+受影响旧Stage8B全链路5024：工具EXIT0、OK(1 test)/1.131s，冷latest404显式选择all后继续原真实HTTP queue/seen/progress合同，非原生播放回归。证据为review_meta/stage8i/task-6-{scope-http-device,legacy-review}-receipt.json及对应temp日志。仅owned只读AVD156524，boot1/75.715s、Launcher前台无ANR、安装两APK成功，测试后正常退出、adb空。
+
+保留真实RED：DTO array/bool旧stringMap解码失败；冷cancel假完成；POST成功queue失败旧Ready；seen目标s-0001误变s-created-1；latepage total1被100覆盖。对应修复后同一针对性真实HTTP/VM断言通过；没有用mock policy替代真实ScopeUI门禁。范围限widget/AVD/合成HTTP，未正式NavHost/手机/家庭LAN/生产部署；最终全pytest/fullJVM/lint/connected/Release/1.4cap宣告保留Task9，整体Stage8I未完成。

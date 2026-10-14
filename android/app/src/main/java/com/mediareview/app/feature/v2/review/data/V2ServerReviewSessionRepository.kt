@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import retrofit2.HttpException
+import kotlinx.serialization.json.*
 
 /**
  * Production 批阅会话仓库（Stage 8B §15：**复用现有 Server Review API**，不新造 Review Server）。
@@ -94,9 +95,30 @@ class V2ServerReviewSessionRepository internal constructor(
     private val pagingMutex = Mutex()
 
     // ---------- 进入会话 ----------
+    override val supportsFolderScope: Boolean
+        get() = "review_folder_filter_v1" in statusStore.capabilities.value && statusStore.supportsFolderTree
+
+    override suspend fun prepareSession(): ReviewSessionOpen = pagingMutex.withLock { try {
+        val info = call { api, _ -> unwrap(api.latestReviewSession()) }.toInfo()
+        if (info.totalCount <= 0) ReviewSessionOpen.Empty else openWindow(info)
+    } catch (cancelled: CancellationException) { throw cancelled
+    } catch (error: HttpException) {
+        if (error.code() == HTTP_NOT_FOUND) ReviewSessionOpen.ScopeRequired
+        else ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
+    } catch (error: Throwable) { ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅") } }
+
+    override suspend fun createScopedSession(scope: ReviewScope): ReviewSessionOpen {
+        if (scope.folderIds.isNotEmpty() && !supportsFolderScope)
+            return ReviewSessionOpen.Failed("请升级服务器以选择文件夹批阅范围")
+        return pagingMutex.withLock { try {
+            val info = createNewSession(scope)
+            if (info.totalCount <= 0) ReviewSessionOpen.Empty else openWindow(info)
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: Throwable) { ReviewSessionOpen.Failed(error.message ?: "无法创建批阅") } }
+    }
 
     override suspend fun enterSession(forceNew: Boolean): ReviewSessionOpen {
-        return try {
+        return pagingMutex.withLock { try {
             val info = if (forceNew) createNewSession() else restoreOrCreate()
             if (info.totalCount <= 0) return ReviewSessionOpen.Empty
             openWindow(info)
@@ -105,7 +127,7 @@ class V2ServerReviewSessionRepository internal constructor(
         } catch (error: Throwable) {
             // §17/§34：任何失败都必须如实上报，绝不"失败即新建会话"、绝不当作"没有可用媒体"
             ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
-        }
+        } }
     }
 
     /** 恢复最新 active 会话；**只有服务端明确 404（NOT_FOUND）才新建**。 */
@@ -124,10 +146,16 @@ class V2ServerReviewSessionRepository internal constructor(
      * 新建会话（§18）：V2 产品批阅当前是 VIDEO ONLY，排序沿用产品默认（最新添加倒序）。
      * 服务端建会话时会先完成旧 active 会话（§39），因此不需要逐项重置旧队列。
      */
-    private suspend fun createNewSession(): ReviewSessionInfo {
+    private suspend fun createNewSession(scope: ReviewScope = ReviewScope()): ReviewSessionInfo {
         val body = ReviewCreateRequest(
             source = ReviewSourceDto(
-                filter = mapOf("media_type" to "video"),
+                filter = buildMap {
+                    put("media_type", JsonPrimitive("video"))
+                    if (scope.folderIds.isNotEmpty()) {
+                        put("folder_ids", JsonArray(scope.folderIds.distinct().map(::JsonPrimitive)))
+                        put("include_descendants", JsonPrimitive(scope.includeDescendants))
+                    }
+                },
                 sort = mapOf("sort_by" to "created", "sort_order" to "desc"),
             ),
         )
@@ -324,10 +352,11 @@ class V2ServerReviewSessionRepository internal constructor(
     // ---------- 状态变更 ----------
 
     override suspend fun markSeen(mediaId: String): ReviewSeenResult? {
-        if (sessionId.isBlank() || mediaId.isBlank()) return null
+        val target = sessionId
+        if (target.isBlank() || mediaId.isBlank()) return null
         return try {
             val dto = call { api, _ ->
-                unwrap(api.markSeen(sessionId, ReviewSeenRequest(media_id = mediaId)))
+                unwrap(api.markSeen(target, ReviewSeenRequest(media_id = mediaId)))
             }
             ReviewSeenResult(
                 mediaId = dto.media_id.ifBlank { mediaId },
@@ -472,6 +501,10 @@ class V2ServerReviewSessionRepository internal constructor(
         unavailableCount = unavailable_count,
         remainingCount = remaining_count,
         completedCount = completed_count,
+        scope = ReviewScope(
+            folderIds = (source?.filter?.get("folder_ids") as? JsonArray)?.map { it.jsonPrimitive.content } ?: emptyList(),
+            includeDescendants = (source?.filter?.get("include_descendants") as? JsonPrimitive)?.booleanOrNull ?: true,
+        ),
     )
 
     private companion object {

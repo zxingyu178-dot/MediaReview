@@ -10,7 +10,9 @@ import com.mediareview.app.onlineServerStatus
 import java.net.InetAddress
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.resetMain
+import kotlinx.serialization.json.*
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -44,6 +46,92 @@ import org.junit.Test
  * - 队列项绝对索引原样保留 + 封面走共享资源缓存。
  */
 class V2ServerReviewSessionRepositoryContractTest {
+    @Test
+    fun seenStartedBeforeScopeSwitchKeepsItsOriginalHttpSessionTarget() = runTest {
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var blockNext = false
+        val port = object : V2ServerProfilePort {
+            override suspend fun baseUrl(): String {
+                if (blockNext) { blockNext = false; started.complete(Unit); release.await() }
+                return "http://mediareview.test:${server.port}"
+            }
+        }
+        val scoped = V2ServerReviewSessionRepository(port, testApiFactory(), V2MediaMapper(MediaUrlResolver()), resources, onlineServerStatus())
+        router.latestStatus = 200
+        router.sessionTotal = 2
+        assertTrue(scoped.prepareSession() is ReviewSessionOpen.Ready)
+        blockNext = true
+        val seen = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { scoped.markSeen("m1") }
+        started.await()
+        assertTrue(scoped.createScopedSession(ReviewScope()) is ReviewSessionOpen.Ready)
+        release.complete(Unit)
+        assertNotNull(seen.await())
+        assertEquals("/api/v1/review/sessions/s-0001/seen", router.paths().single { it.endsWith("/seen") })
+    }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun acceptedCreateQueueFailureCannotExposeOldReadyAndRetryOnlyRestores() = runTest {
+        kotlinx.coroutines.Dispatchers.setMain(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler))
+        val vm = com.mediareview.app.feature.v2.review.V2ReviewViewModel(
+            com.mediareview.app.feature.v2.review.FakeMediaRepository(3), repository)
+        val store = androidx.lifecycle.ViewModelStore().apply { put("scope-http", vm) }
+        try {
+            router.latestStatus = 200
+            router.sessionTotal = 2
+            router.resumeCreatedSession = true
+            vm.enterReview()
+            awaitVm { vm.state.value is com.mediareview.app.feature.v2.review.V2ReviewUiState.Ready }
+            vm.chooseReviewScope()
+            vm.submitReviewScope()
+            assertTrue(vm.scopeSheet.value.confirmReplacement)
+            router.queueStatus = 503
+            vm.confirmReviewScope()
+            awaitVm { vm.state.value is com.mediareview.app.feature.v2.review.V2ReviewUiState.Error || vm.scopeSheet.value.error != null }
+            assertTrue("POST已成功但queue失败时不能继续操作旧session", vm.state.value is com.mediareview.app.feature.v2.review.V2ReviewUiState.Error)
+            assertFalse(vm.scopeSheet.value.visible)
+            assertEquals(1, router.paths().count { it == "/api/v1/review/sessions" })
+            router.queueStatus = 200
+            vm.retryEnter()
+            awaitVm { vm.state.value is com.mediareview.app.feature.v2.review.V2ReviewUiState.Ready }
+            assertEquals("s-created-1", (vm.state.value as com.mediareview.app.feature.v2.review.V2ReviewUiState.Ready).sessionId)
+            assertEquals(1, router.paths().count { it == "/api/v1/review/sessions" })
+        } finally { store.clear(); kotlinx.coroutines.Dispatchers.resetMain() }
+    }
+
+    private suspend fun awaitVm(predicate: () -> Boolean) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
+        while (!predicate()) {
+            check(System.nanoTime() < deadline) { "VM state did not settle" }
+            Thread.sleep(10)
+        }
+    }
+    @Test
+    fun `UI准备无active仅打开范围选择不创建队列`() = runTest {
+        router.latestStatus = 404
+        assertEquals(ReviewSessionOpen.ScopeRequired, repository.prepareSession())
+        assertEquals(listOf("/api/v1/review/sessions/latest"), router.paths())
+    }
+
+    @Test
+    fun `旧服务器禁folder请求但全部视频仍创建可用`() = runTest {
+        router.sessionTotal = 2
+        assertTrue(repository.createScopedSession(ReviewScope(listOf("ft_a"))) is ReviewSessionOpen.Failed)
+        assertTrue(router.paths().isEmpty())
+        assertTrue(repository.createScopedSession(ReviewScope()) is ReviewSessionOpen.Ready)
+    }
+
+    @Test
+    fun `文件夹新会话真实HTTP发送数组布尔`() = runTest {
+        val status = onlineServerStatus().apply { recordCompatible("1.4.0", 2, listOf("folder_tree_v1", "review_folder_filter_v1")) }
+        val scoped = V2ServerReviewSessionRepository(baseUrlPort(), testApiFactory(), V2MediaMapper(MediaUrlResolver()), resources, status)
+        router.sessionTotal = 2
+        assertTrue(scoped.createScopedSession(ReviewScope(listOf("ft_a", "ft_b"), false)) is ReviewSessionOpen.Ready)
+        val body = router.requests.single { it.method == "POST" && it.requestUrl?.encodedPath == "/api/v1/review/sessions" }.body.readUtf8()
+        val filter = Json.parseToJsonElement(body).jsonObject["source"]!!.jsonObject["filter"]!!.jsonObject
+        assertEquals(listOf("ft_a", "ft_b"), filter["folder_ids"]!!.jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(false, filter["include_descendants"]!!.jsonPrimitive.boolean)
+    }
 
     private lateinit var server: MockWebServer
     private lateinit var router: ReviewDispatcher
@@ -645,6 +733,8 @@ class V2ServerReviewSessionRepositoryContractTest {
         var sessionCurrentIndex = 0
         var seenStatus = 200
         var nearestStatus = 200
+        var queueStatus = 200
+        var resumeCreatedSession = false
 
         /** GET /review/sessions/{id}（单会话权威进度）的状态码。 */
         var sessionDetailStatus = 200
@@ -715,7 +805,7 @@ class V2ServerReviewSessionRepositoryContractTest {
                     """{"success": false, "error": {"code": "INTERNAL_ERROR", "message": "latest 暂时不可用"}}""",
                     latestStatus,
                 )
-                path == "/api/v1/review/sessions/latest" -> json(sessionBody("s-0001"))
+                path == "/api/v1/review/sessions/latest" -> json(sessionBody(if (resumeCreatedSession && createCount > 0) "s-created-$createCount" else "s-0001"))
                 path == "/api/v1/review/sessions" -> {
                     createCount += 1
                     json(sessionBody("s-created-$createCount"))
@@ -738,6 +828,7 @@ class V2ServerReviewSessionRepositoryContractTest {
                     val sessionId = path.substringAfterLast('/')
                     json(sessionBody(sessionId))
                 }
+                path.endsWith("/queue") && queueStatus != 200 -> json("""{"success":false,"error":{"code":"INTERNAL_ERROR","message":"queue unavailable"}}""", queueStatus)
                 path.endsWith("/queue") -> {
                     val page = url?.queryParameter("page")?.toIntOrNull() ?: 1
                     val pageSize = url?.queryParameter("page_size")?.toIntOrNull() ?: 50

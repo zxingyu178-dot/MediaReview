@@ -75,6 +75,7 @@ def _validated_source(body: CreateSessionBody) -> tuple[dict, dict]:
     """按 GET /media 的字段语义校验灵活 source 快照。"""
     filter_snapshot = dict(body.source.filter)
     sort_snapshot = dict(body.source.sort)
+    review.validate_folder_scope(filter_snapshot)
     media_type = filter_snapshot.get("media_type")
     if media_type is not None and media_type not in ("video", "image"):
         raise ValidationFailedError("不支持的媒体类型")

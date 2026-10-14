@@ -11,7 +11,7 @@ import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.data.server.*
 import com.mediareview.app.feature.v2.review.data.V2ServerReviewSessionRepository
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import com.mediareview.app.core.model.ProgressRequest
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
@@ -36,7 +36,19 @@ internal class RealHttpPlaybackFixture(
     private val imageMedia: Boolean = false,
     private val authenticatedApi: Boolean = false,
     private val folderFixture: Boolean = false,
+    private val reviewScopeFixture: Boolean = false,
+    private val reviewScopeCapability: Boolean = true,
 ) : AutoCloseable {
+    @Volatile var reviewActive = true
+    @Volatile var reviewQueueFailure = false
+    @Volatile private var reviewSessionId = "http-review"
+    @Volatile private var reviewSource = """{"media_type":"video"}"""
+    data class ReviewCreate(val folderIds: List<String>, val includeDescendants: Boolean)
+    val reviewCreates = CopyOnWriteArrayList<ReviewCreate>()
+    private fun fixtureCapabilities(): List<String> = buildList {
+        if (folderFixture) add("folder_tree_v1")
+        if (reviewScopeFixture && reviewScopeCapability) add("review_folder_filter_v1")
+    }
     @Volatile var pending: Set<String> = emptySet()
     @Volatile var pendingReadFailure = false
     @Volatile var pendingWriteFailure = false
@@ -94,9 +106,9 @@ internal class RealHttpPlaybackFixture(
     private fun envelope(body: String) = json("""{"success":true,"data":$body}""")
     private fun media(id: String): String {
         val images = if (imageMedia) ""","cover_url":"/api/v1/media/$id/cover?v=fixture1","original_url":"/api/v1/media/$id/original?v=fixture1" """ else ""
-        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia) "image" else "video"}","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false$images}"""
+        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia && !reviewScopeFixture) "image" else "video"}","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false$images}"""
     }
-    private fun session(index: Int = 0) = """{"session_id":"http-review","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":{"media_type":"${if (imageMedia) "image" else "video"}"},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
+    private fun session(index: Int = 0) = """{"session_id":"$reviewSessionId","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":${if (reviewScopeFixture) reviewSource else """{"media_type":"${if (imageMedia) "image" else "video"}"}"""},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
 
     init {
         server.dispatcher = object : Dispatcher() {
@@ -111,7 +123,17 @@ internal class RealHttpPlaybackFixture(
                     }
                 }
                 return when {
-                    path == "/api/v1/system/health" -> envelope("""{"status":"ok","version":"1.4.0","api_contract":2,"capabilities":${if (folderFixture) "[\"folder_tree_v1\"]" else "[]"}}""")
+                    path == "/api/v1/system/health" -> envelope("""{"status":"ok","version":"1.4.0","api_contract":2,"capabilities":${JsonArray(fixtureCapabilities().map(::JsonPrimitive))}}""")
+                    reviewScopeFixture && path == "/api/v1/review/sessions/latest" && !reviewActive -> MockResponse().setResponseCode(404)
+                    reviewScopeFixture && path == "/api/v1/review/sessions" && request.method == "POST" -> {
+                        val filter = Json.parseToJsonElement(request.body.readUtf8()).jsonObject["source"]!!.jsonObject["filter"]!!.jsonObject
+                        reviewCreates += ReviewCreate((filter["folder_ids"] as? JsonArray)?.map { it.jsonPrimitive.content }.orEmpty(),
+                            (filter["include_descendants"] as? JsonPrimitive)?.booleanOrNull ?: true)
+                        reviewSource = filter.toString()
+                        reviewSessionId = "http-review-${reviewCreates.size}"
+                        reviewActive = true
+                        envelope(session())
+                    }
                     folderFixture && path == "/api/v1/media/folder-tree" -> envelope(listOf(
                         Triple("ft_root", null, "媒体库"), Triple("ft_parent", "ft_root", "旅行"),
                         Triple("ft_child", "ft_parent", "海边"), Triple("ft_leaf", "ft_child", "日落")
@@ -137,6 +159,7 @@ internal class RealHttpPlaybackFixture(
                         envelope("""{"media_id":"$id","title":"HTTP 视频","stream_url":"$url","stream_url_authoritative":true,"stream_url_source":"configured_client_url","direct":{"url":"$url","headers":{"X-Emby-Token":"$credential"}},"fallback_hls":null,"resume_position_ms":${if (id == "first") resumeMs else 0L}}""")
                     }
                     path.endsWith("/nearest") -> envelope("""{"index":0}""")
+                    reviewScopeFixture && path.endsWith("/queue") && reviewQueueFailure && reviewCreates.isNotEmpty() -> MockResponse().setResponseCode(503)
                     path.endsWith("/queue") -> envelope("""{"items":[{"index":0,"seen":false,"media":${media("first")}}, {"index":1,"seen":false,"media":${media("second")}}],"total":2,"page":1,"page_size":50}""")
                     path.endsWith("/seen") -> envelope("""{"media_id":"first","seen":true,"seen_count":1,"total_count":2,"remaining_count":1,"unavailable_count":0,"completed_count":1}""")
                     path.contains("/review/sessions") -> envelope(session())
@@ -234,7 +257,7 @@ internal class RealHttpPlaybackFixture(
     }
 
     val status = V2ServerStatusStore().apply {
-        if (folderFixture) recordCompatible("1.4.0", 2, listOf("folder_tree_v1"))
+        if (folderFixture) recordCompatible("1.4.0", 2, fixtureCapabilities())
         else update(V2ServerStatus.Online)
     }
     private val resources = V2ServerResourceCache()

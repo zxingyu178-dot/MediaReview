@@ -160,6 +160,7 @@ fun V2ReviewScreen(
 ) {
     val state by vm.state.collectAsState()
     val playback by vm.playback.collectAsState()
+    val scopeSheet by vm.scopeSheet.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
 
@@ -181,6 +182,11 @@ fun V2ReviewScreen(
 
     Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
         when (val current = state) {
+            V2ReviewUiState.ScopeSelection -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("请选择批阅范围", color = MediaTextPrimary)
+                TextButton(vm::chooseReviewScope) { Text("选择批阅范围") }
+                TextButton(onBack) { Text("返回") }
+            }
             V2ReviewUiState.Idle,
             V2ReviewUiState.LoadingSession,
             V2ReviewUiState.LoadingQueue,
@@ -195,14 +201,14 @@ fun V2ReviewScreen(
             V2ReviewUiState.Empty -> ReviewCompletePage(
                 emptyQueue = true,
                 total = 0,
-                onRestart = { vm.restartAll() },
+                onRestart = { vm.chooseReviewScope() },
                 onBack = onBack,
             )
 
             is V2ReviewUiState.Complete -> ReviewCompletePage(
                 emptyQueue = false,
                 total = current.totalCount,
-                onRestart = { vm.restart() },
+                onRestart = { vm.chooseReviewScope() },
                 onBack = onBack,
             )
 
@@ -225,6 +231,7 @@ fun V2ReviewScreen(
                 .padding(top = 64.dp),
         )
     }
+    ReviewScopeSheet(scopeSheet, vm)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -830,12 +837,13 @@ private fun ReviewPagerContent(
                     tint = MediaTextPrimary,
                 )
             }
-            Text(
-                text = currentItem?.let { "${it.absoluteIndex + 1} / ${state.totalCount}" }.orEmpty(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MediaTextPrimary,
-                modifier = Modifier.align(Alignment.Center),
-            )
+            val scopeTitle by vm.scopeTitle.collectAsState()
+            Column(Modifier.align(Alignment.Center).padding(horizontal = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                TextButton(vm::chooseReviewScope, Modifier.testTag("review_scope_reselect")) {
+                    Text("批阅 · $scopeTitle", color = MediaTextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(currentItem?.let { "${it.absoluteIndex + 1} / ${state.totalCount}" }.orEmpty(), color = MediaTextPrimary)
+            }
         }
 
         // 底部：标题 + 编号 · 文件夹 · 时长。

@@ -13,6 +13,9 @@ import com.mediareview.app.feature.v2.review.data.ReviewQueuePaging
 import com.mediareview.app.feature.v2.review.data.ReviewSessionInfo
 import com.mediareview.app.feature.v2.review.data.ReviewSessionOpen
 import com.mediareview.app.feature.v2.review.data.V2ReviewSessionRepository
+import com.mediareview.app.feature.v2.review.data.ReviewScope
+import com.mediareview.app.feature.v2.model.V2FolderNode
+import com.mediareview.app.feature.v2.model.folderBreadcrumbs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -53,6 +56,113 @@ class V2ReviewViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<V2ReviewUiState>(V2ReviewUiState.Idle)
     val state: StateFlow<V2ReviewUiState> = _state.asStateFlow()
+    private val _scopeSheet = MutableStateFlow(ReviewScopeSheetState())
+    val scopeSheet: StateFlow<ReviewScopeSheetState> = _scopeSheet.asStateFlow()
+    private val _scopeTitle = MutableStateFlow("全部视频")
+    val scopeTitle: StateFlow<String> = _scopeTitle.asStateFlow()
+    private var activeScope = ReviewScope()
+    private var scopeTreeJob: Job? = null
+    private var scopeGeneration = 0L
+    private var titleJob: Job? = null
+
+    fun chooseReviewScope() {
+        if (enterJob?.isActive == true) return
+        scopeTreeJob?.cancel()
+        val generation = ++scopeGeneration
+        _scopeSheet.value = ReviewScopeSheetState(visible = true, scope = activeScope,
+            folderEnabled = sessions.supportsFolderScope, loading = sessions.supportsFolderScope)
+        if (sessions.supportsFolderScope) scopeTreeJob = viewModelScope.launch {
+            try {
+                val tree = repository.folderTree()
+                if (generation == scopeGeneration && _scopeSheet.value.visible) _scopeSheet.value = _scopeSheet.value.copy(
+                    folders = tree.orEmpty(), loading = false,
+                    error = if (tree == null) "无法加载文件夹，请重试" else null)
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (_: Throwable) {
+                if (generation == scopeGeneration && _scopeSheet.value.visible) _scopeSheet.value = _scopeSheet.value.copy(loading = false, error = "无法加载文件夹，请重试")
+            }
+        }
+    }
+    private fun chooseReviewScopeAfterPrepare() {
+        _state.value = V2ReviewUiState.ScopeSelection
+        // The prepare job is still active here; open once it exits without creating a session.
+        viewModelScope.launch { enterJob?.join(); chooseReviewScope() }
+    }
+
+    fun toggleScopeFolder(id: String) {
+        val sheet = _scopeSheet.value
+        if (!sheet.visible || !sheet.folderEnabled || sheet.loading || sheet.confirmReplacement || sheet.creating || sheet.folders.none { it.id == id }) return
+        val selected = sheet.scope.folderIds
+        val next = if (id in selected) selected - id else if (selected.size < 100) selected + id else return
+        _scopeSheet.value = sheet.copy(scope = sheet.scope.copy(folderIds = next))
+    }
+    fun selectAllScope() { if (!_scopeSheet.value.creating) _scopeSheet.value = _scopeSheet.value.copy(scope = ReviewScope()) }
+    fun setScopeDescendants(value: Boolean) { if (!_scopeSheet.value.creating) _scopeSheet.value = _scopeSheet.value.copy(scope = _scopeSheet.value.scope.copy(includeDescendants = value)) }
+    fun cancelReviewScope() {
+        if (_scopeSheet.value.creating) return
+        ++scopeGeneration
+        scopeTreeJob?.cancel()
+        _scopeSheet.value = ReviewScopeSheetState()
+        if (_state.value == V2ReviewUiState.LoadingSession) _state.value = V2ReviewUiState.ScopeSelection
+    }
+    fun submitReviewScope() {
+        if (!_scopeSheet.value.visible || _scopeSheet.value.loading || _scopeSheet.value.creating) return
+        if (_state.value is V2ReviewUiState.Ready) {
+            _scopeSheet.value = _scopeSheet.value.copy(confirmReplacement = true)
+        } else createSelectedScope()
+    }
+    fun confirmReviewScope() {
+        if (!_scopeSheet.value.confirmReplacement) return
+        createSelectedScope()
+    }
+    private fun createSelectedScope() {
+        if (enterJob?.isActive == true || _scopeSheet.value.creating) return
+        val draft = _scopeSheet.value
+        if (draft.scope.folderIds.isNotEmpty() && (!sessions.supportsFolderScope || draft.scope.folderIds.any { id -> draft.folders.none { it.id == id } })) return
+        _scopeSheet.value = draft.copy(creating = true)
+        // POST may already have replaced the server session even if its queue response fails.
+        // Retire the old actionable UI before sending it; retries restore canonical latest only.
+        ++scopeGeneration
+        scopeTreeJob?.cancel()
+        titleJob?.cancel()
+        resolveJob?.cancel()
+        prefetchJob?.cancel()
+        positionWorker?.cancel()
+        nextPageJob?.cancel()
+        prevPageJob?.cancel()
+        ++sessionGeneration
+        positionWorker = null
+        pendingPosition = null
+        sources.moveTo("")
+        _state.value = V2ReviewUiState.LoadingSession
+        _playback.value = V2PlaybackUiState.Loading
+        enterJob = viewModelScope.launch {
+            val opened = try { sessions.createScopedSession(draft.scope) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Throwable) { ReviewSessionOpen.Failed(error.message ?: "无法创建批阅") }
+            when (opened) {
+                is ReviewSessionOpen.Ready -> {
+                    activeScope = draft.scope
+                    _scopeTitle.value = scopeLabel(draft.scope, draft.folders)
+                    _scopeSheet.value = ReviewScopeSheetState()
+                    applyOpened(opened)
+                }
+                ReviewSessionOpen.Empty -> { _scopeSheet.value = ReviewScopeSheetState(); _state.value = V2ReviewUiState.Empty }
+                else -> {
+                    _scopeSheet.value = ReviewScopeSheetState()
+                    _state.value = V2ReviewUiState.Error((opened as? ReviewSessionOpen.Failed)?.message ?: "无法恢复新批阅会话，请重试")
+                }
+            }
+        }
+    }
+
+    private fun scopeLabel(scope: ReviewScope, tree: List<V2FolderNode>): String {
+        if (scope.folderIds.isEmpty()) return "全部视频"
+        val first = scope.folderIds.first()
+        val path = folderBreadcrumbs(tree, first).joinToString("/") { it.name }
+        val label = path.ifBlank { "所选文件夹" }
+        return if (scope.folderIds.size == 1) label else "$label +${scope.folderIds.size - 1}"
+    }
 
     /** 当前项的播放源状态（UI 只消费本状态，不直接发网络请求）。 */
     private val _playback = MutableStateFlow<V2PlaybackUiState>(V2PlaybackUiState.Loading)
@@ -74,6 +184,9 @@ class V2ReviewViewModel @Inject constructor(
     private var prefetchJob: Job? = null
     private var positionWorker: Job? = null
     private var enterJob: Job? = null
+    private var nextPageJob: Job? = null
+    private var prevPageJob: Job? = null
+    private var sessionGeneration = 0L
 
     /** 本次会话内已确认批阅的媒体 id（服务端确认成功才加入）。 */
     private val confirmedSeen = mutableSetOf<String>()
@@ -120,19 +233,26 @@ class V2ReviewViewModel @Inject constructor(
     }
 
     private fun openSession(forceNew: Boolean) {
+        nextPageJob?.cancel()
+        prevPageJob?.cancel()
+        ++sessionGeneration
+        ++scopeGeneration
+        scopeTreeJob?.cancel()
+        titleJob?.cancel()
         enterJob?.cancel()
         enterJob = viewModelScope.launch {
             _state.value = V2ReviewUiState.LoadingSession
             _playback.value = V2PlaybackUiState.Loading
             V2Perf.openReview()
             val opened = try {
-                sessions.enterSession(forceNew)
+                if (forceNew) sessions.createScopedSession(activeScope) else sessions.prepareSession()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
             }
             when (opened) {
+                ReviewSessionOpen.ScopeRequired -> { chooseReviewScopeAfterPrepare() }
                 is ReviewSessionOpen.Ready -> applyOpened(opened)
                 ReviewSessionOpen.Empty -> _state.value = V2ReviewUiState.Empty
                 ReviewSessionOpen.NoAvailableMedia -> {
@@ -146,6 +266,8 @@ class V2ReviewViewModel @Inject constructor(
     }
 
     private suspend fun applyOpened(opened: ReviewSessionOpen.Ready) {
+        activeScope = opened.session.scope
+        _scopeTitle.value = scopeLabel(activeScope, emptyList())
         _state.value = V2ReviewUiState.LoadingQueue
         V2Perf.review()?.markOnce(
             "session_restore",
@@ -184,6 +306,16 @@ class V2ReviewViewModel @Inject constructor(
             completedCount = opened.session.completedCount.coerceAtLeast(0),
         )
         resolveCurrent()
+        titleJob?.cancel()
+        val scope = activeScope
+        val generation = scopeGeneration
+        if (scope.folderIds.isNotEmpty() && sessions.supportsFolderScope) titleJob = viewModelScope.launch {
+            val tree = try { repository.folderTree().orEmpty() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Throwable) { emptyList() }
+            if (generation == scopeGeneration && (_state.value as? V2ReviewUiState.Ready)?.sessionId == opened.session.sessionId)
+                _scopeTitle.value = scopeLabel(scope, tree)
+        }
         maybeCompleteIfQueueFinished()
     }
 
@@ -267,8 +399,9 @@ class V2ReviewViewModel @Inject constructor(
                 seenInFlight -= item.mediaId
             }
             if (result != null && result.seen) {
-                confirmedSeen += item.mediaId
                 val current = _state.value as? V2ReviewUiState.Ready
+                if (current == null || current.sessionId != ready.sessionId) return@launch
+                confirmedSeen += item.mediaId
                 if (current != null && current.sessionId == ready.sessionId) {
                     _state.value = current.copy(
                         window = current.window.copy(
@@ -365,6 +498,7 @@ class V2ReviewViewModel @Inject constructor(
                 ReviewSessionOpen.Failed(error.message ?: "重建批阅队列失败")
             }
             when (opened) {
+                ReviewSessionOpen.ScopeRequired -> chooseReviewScopeAfterPrepare()
                 is ReviewSessionOpen.Ready -> applyOpened(opened)
                 ReviewSessionOpen.Empty -> _state.value = V2ReviewUiState.Empty
                 ReviewSessionOpen.NoAvailableMedia -> {
@@ -499,8 +633,10 @@ class V2ReviewViewModel @Inject constructor(
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         if (ready.loadingNext) return
         _state.value = ready.copy(loadingNext = true)
-        viewModelScope.launch {
+        val generation = sessionGeneration
+        nextPageJob = viewModelScope.launch {
             val result = sessions.loadNextPage()
+            if (generation != sessionGeneration || (_state.value as? V2ReviewUiState.Ready)?.sessionId != ready.sessionId) return@launch
             applyPageResult(result, isNext = true)
         }
     }
@@ -509,8 +645,10 @@ class V2ReviewViewModel @Inject constructor(
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         if (ready.loadingPrev) return
         _state.value = ready.copy(loadingPrev = true)
-        viewModelScope.launch {
+        val generation = sessionGeneration
+        prevPageJob = viewModelScope.launch {
             val result = sessions.loadPrevPage()
+            if (generation != sessionGeneration || (_state.value as? V2ReviewUiState.Ready)?.sessionId != ready.sessionId) return@launch
             applyPageResult(result, isNext = false)
         }
     }

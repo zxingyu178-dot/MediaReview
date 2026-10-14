@@ -25,6 +25,10 @@ class V2ReviewSessionRepositoryRouter @Inject constructor(
     private fun active(): V2ReviewSessionRepository =
         if (modeStore.mode.value == V2DataMode.SERVER) server else demo
 
+    override val supportsFolderScope: Boolean get() = active().supportsFolderScope
+    override suspend fun prepareSession(): ReviewSessionOpen = active().prepareSession()
+    override suspend fun createScopedSession(scope: ReviewScope): ReviewSessionOpen = active().createScopedSession(scope)
+
     override suspend fun enterSession(forceNew: Boolean): ReviewSessionOpen =
         active().enterSession(forceNew)
 
