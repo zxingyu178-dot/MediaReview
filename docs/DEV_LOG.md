@@ -2735,3 +2735,19 @@ Review 使用原生 VerticalPager / atMost(1)，移除 Channel<Float> 逐像素�
 独立最终审查 review_meta/stage8i/task-7-candidate-5-independent-review.md：SOURCE/RUNTIME PASS，C0/I0/M0，支持本任务提交。原始及失败回执保留；build中的PENDING及native中的legacy RUNNING是阶段旧字段，后续独立终态回执覆盖。owned AVD14848/qemu16352正常退出且进程、5584/5585监听与adb设备均已核实为空。
 
 慢滑首RGB观察代理11226/2771/2565/2493/3274ms包含polling/截图/桥延迟，不是精确硬件首帧或SLA，也不是Alpha11→Alpha12性能提升；同fixture对照留Task9。Task8删除结果/整理刷新和Task9版本、全量门禁、正式发布、交接及push仍未完成。仅合成HTTP与只读AVD；未操作手机、家庭Server、真实Jellyfin或用户媒体，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。
+
+## 2026-10-15 Stage8I Task8 — 真实删除结果与整理页内容保留（定向验收通过）
+
+真实 receipt 四统计字段沿 DTO→Server/Router/Demo/Repository→ViewModel→ResultSheet 保留；完整非负且与逐项结果一致的磁盘统计才展示从盘删除数量/实际释放。缺字段、部分字段、非法统计保持未知，不从 prepare 估算或 outcome 推算释放空间；Demo 明确没有删除磁盘文件。missing/failed包括0始终显示，失败名称与保留队列说明可见，刷新后成功项消失；刷新失败继续保留旧队列。
+
+整理首页同源刷新保留 Ready 摘要和可点击卡片，失败保留内容、显示上次结果并提供独立重试；换源同步清空旧摘要，generation/seq/mode守卫覆盖请求开始和结果写回。相册首次 skeleton 改1:1，与真实cell一致。既有Home/Search/Album/Viewer缓存、anchor、preview和Review180ms反馈沿用，未重写播放器或图片管线。
+
+真实行为RED为原52551日志 BUILDFAILED2m9/11项3失败：DTO字段丢失、同源慢刷新撤下摘要、失败撤下摘要。原agent私有句柄在root重连时不存在，不补造工具退出；XML保存review_meta/stage8i/task8-red。root52791实际EXIT0 SUCCESS5m52，fresh58项通过；补充Ready换源/迟到刷新隔离后65513阶段59项JVM全部PASS（DTO1、ServerRepo19、DeleteQueue12、Duplicates11、Libraries5、Organize11），整体构建因新增AndroidTest extension imports缺失失败，不记产品行为RED。
+
+候选2构建27652 EXIT0 SUCCESS2m42，354输入0漂移；真实AVD测试93006 shellEXIT0但9项1失败/43.752s，不将shell0当全部通过。失败是混合结果名称在底层队列和Sheet重复匹配；其余8方法通过，包括真实0B/failed0、旧Server未知、真实HTTP慢刷新保留/按压像素反馈/实际成功重试与原6导航恢复流程。修正为Dialog祖先限定及等待dismiss完成，候选3构建81863 EXIT0 SUCCESS1m8，Main保持4AC2BE27291C1117C60ABD1B9683DE0D27FAB56EFF000CE21A8D3D7E060284A7，Test为C58EEEC220C41DCD47ADB799276D53A4AABAFE377B8F60396B9D0B2A0356DC54。
+
+候选3原生91788实际EXIT0 / OK(1 test)/16.249s：混合真实4321B/failed1、失败名称限定结果Dialog、关闭后成功项消失且失败项仍在通过；ADB pm path+sha256sum实测安装两APK与归档完全匹配。354份输入运行后0漂移。其他8方法在同Main、未改方法体下复用候选2通过证据，不能称候选3新鲜单轮9/9；59 JVM同样明确复用匹配输入。日志和回执分别保存在review_meta/stage8i/task8-candidate-{1,2,3}及temp/stage8i-ux。
+
+独立产品源码审查C0/I0/M0；测试修正复审C0/I0/M1，唯一Minor为局部HTTP初始化/首次UI等待仍在try之前，若其失败client可能未完整清理。此项不阻断Task8提交，已交Task9在全量connected前关闭。测试对重试的断言已收紧为HTTP成功计数增加+正常非刷新摘要+无错误，避免只等错误文案消失的假通过。
+
+仅root owned只读AVD，不是手机/家庭LAN；未真实用户媒体删除或生产部署，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。Task9正式版本、性能对照、全pytest/ruff/JVM/lint/fullconnected/Release、正式APK/Server ZIP/十二文档交接和push仍未完成；整体Stage8I未完成。

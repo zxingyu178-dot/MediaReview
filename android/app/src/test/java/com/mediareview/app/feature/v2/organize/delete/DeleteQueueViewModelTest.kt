@@ -41,6 +41,29 @@ class DeleteQueueViewModelTest {
         DeleteCommitPrepare("nonce-1", "2026-10-01T12:10:00", count, bytes, listOf("aaa", "bbb"))
 
     @Test
+    fun `真实Receipt不借用prepare估算且刷新失败保留队列`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            deleteQueueResult = Result.success(listOf(entry("aaa"), entry("ccc")))
+            prepareResult = Result.success(prepare(bytes = 999999999L))
+            commitResult = Result.success(mapOf("aaa" to DeleteOutcomeStatus.Success, "ccc" to DeleteOutcomeStatus.Failed))
+            diskReceipt = com.mediareview.app.feature.v2.organize.data.DiskDeletionReceipt(1, 0, 0, 1)
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        vm.requestFinalDelete(); advanceUntilIdle()
+        repo.deleteQueueResult = Result.failure(IllegalStateException("刷新离线"))
+        vm.confirmFinalDelete(); advanceUntilIdle()
+        val result = (vm.ui.value.phase as DeleteCommitPhase.Result).result
+        assertEquals(0L, result.diskReceipt!!.deletedBytes)
+        assertEquals(listOf("媒体 ccc"), result.failedNames)
+        assertEquals(2, vm.ui.value.entries.size)
+        assertTrue(vm.ui.value.error != null)
+        repo.deleteQueueResult = Result.success(listOf(entry("ccc", status = "failed")))
+        vm.load(); advanceUntilIdle()
+        assertEquals(listOf("ccc"), vm.ui.value.entries.map { it.mediaId })
+    }
+
+    @Test
     fun `列表加载与统计`() = runTest(main.dispatcher) {
         val repo = FakeOrganizeRepository().apply {
             deleteQueueResult = Result.success(

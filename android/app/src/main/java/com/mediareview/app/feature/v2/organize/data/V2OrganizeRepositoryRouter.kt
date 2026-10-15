@@ -39,7 +39,7 @@ class V2OrganizeRepositoryRouter @Inject constructor(
 
     override suspend fun prepareDeleteCommit(): DeleteCommitPrepare = active().prepareDeleteCommit()
 
-    override suspend fun commitDelete(nonce: String): Map<String, DeleteOutcomeStatus> =
+    override suspend fun commitDelete(nonce: String): DeleteCommitResponse =
         active().commitDelete(nonce)
 
     override suspend fun loadDuplicateGroups(

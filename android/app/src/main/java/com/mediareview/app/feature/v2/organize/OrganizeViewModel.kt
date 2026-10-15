@@ -48,7 +48,8 @@ class OrganizeViewModel @Inject constructor(
     /** 每次进入整理页 / 数据源变化时刷新四张卡（四张卡并行、互不等待，绝不整页 Loading）。 */
     fun load() {
         val generation = ++loadGeneration
-        _state.update { it.copy(dataMode = repository.mode) }
+        val mode = repository.mode
+        _state.update { if (it.dataMode == mode) it else OrganizeUiState(dataMode = mode) }
         loadDeleteCard(generation)
         loadDuplicateCard(generation)
         loadReviewCard(generation)
@@ -69,10 +70,11 @@ class OrganizeViewModel @Inject constructor(
         val seq = ++deleteSeq
         val requestedMode = repository.mode
         viewModelScope.launch {
-            _state.update { it.copy(deleteCard = OrganizeCard.Loading) }
+            if (!isCurrent(generation, seq, deleteSeq, requestedMode)) return@launch
+            _state.update { it.copy(deleteCard = refreshing(it.deleteCard)) }
             val card = loadCard { repository.deleteSummary() }
             if (isCurrent(generation, seq, deleteSeq, requestedMode)) {
-                _state.update { it.copy(deleteCard = card) }
+                _state.update { it.copy(deleteCard = refreshed(it.deleteCard, card)) }
             }
         }
     }
@@ -81,10 +83,11 @@ class OrganizeViewModel @Inject constructor(
         val seq = ++duplicateSeq
         val requestedMode = repository.mode
         viewModelScope.launch {
-            _state.update { it.copy(duplicateCard = OrganizeCard.Loading) }
+            if (!isCurrent(generation, seq, duplicateSeq, requestedMode)) return@launch
+            _state.update { it.copy(duplicateCard = refreshing(it.duplicateCard)) }
             val card = loadCard { repository.duplicateSummary() }
             if (isCurrent(generation, seq, duplicateSeq, requestedMode)) {
-                _state.update { it.copy(duplicateCard = card) }
+                _state.update { it.copy(duplicateCard = refreshed(it.duplicateCard, card)) }
             }
         }
     }
@@ -93,11 +96,12 @@ class OrganizeViewModel @Inject constructor(
         val seq = ++reviewSeq
         val requestedMode = repository.mode
         viewModelScope.launch {
-            _state.update { it.copy(reviewCard = OrganizeCard.Loading) }
+            if (!isCurrent(generation, seq, reviewSeq, requestedMode)) return@launch
+            _state.update { it.copy(reviewCard = refreshing(it.reviewCard)) }
             // Ready(null) = 服务端明确"没有进行中的批阅"，与网络失败区分
             val card = loadCard { repository.reviewSummary() }
             if (isCurrent(generation, seq, reviewSeq, requestedMode)) {
-                _state.update { it.copy(reviewCard = card) }
+                _state.update { it.copy(reviewCard = refreshed(it.reviewCard, card)) }
             }
         }
     }
@@ -106,13 +110,23 @@ class OrganizeViewModel @Inject constructor(
         val seq = ++librarySeq
         val requestedMode = repository.mode
         viewModelScope.launch {
-            _state.update { it.copy(libraryCard = OrganizeCard.Loading) }
+            if (!isCurrent(generation, seq, librarySeq, requestedMode)) return@launch
+            _state.update { it.copy(libraryCard = refreshing(it.libraryCard)) }
             val card = loadCard { repository.librarySummary() }
             if (isCurrent(generation, seq, librarySeq, requestedMode)) {
-                _state.update { it.copy(libraryCard = card) }
+                _state.update { it.copy(libraryCard = refreshed(it.libraryCard, card)) }
             }
         }
     }
+
+    private fun <T> refreshing(card: OrganizeCard<T>): OrganizeCard<T> =
+        if (card is OrganizeCard.Ready) card.copy(refreshing = true, refreshError = null)
+        else OrganizeCard.Loading
+
+    private fun <T> refreshed(previous: OrganizeCard<T>, result: OrganizeCard<T>): OrganizeCard<T> =
+        if (previous is OrganizeCard.Ready && result is OrganizeCard.Error)
+            previous.copy(refreshing = false, refreshError = result.message)
+        else result
 
     /**
      * 结果写回资格（Stage 8C.1 §26/§27）：

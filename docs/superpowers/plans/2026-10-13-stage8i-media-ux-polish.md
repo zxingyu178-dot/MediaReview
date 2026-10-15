@@ -87,8 +87,10 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 ### Task 8: Delete Result UI与整体反馈（§18/24–25/31receiptUI）
 **Files:** core/model/ApiModels.kt（DeleteQueue DTO）；feature/v2/organize/delete/DeleteQueuePage.kt/DeleteQueueViewModel.kt、organize/data/V2OrganizeRepository.kt及映射；相关servermapperUItests。
 **Interfaces:** 新receipt数据显示真实从盘删除count/释放bytes/missing/failed及failureitems，刷新success项消失，旧response不伪造释放空间；固定比例/pressed反馈，120–180ms仅短动画，haptic限2xlock/unlock和危险确认。
-- [ ] RED：新/旧response准确展示、failed清楚列出、刷新queue成功项消失；已有内容不整页Spinner、anchor恢复。
-- [ ] 最小UI/状态接通真实receipt，避免全局多crossfade；审查/DEV_LOG/fix(android): show disk deletion receipts and preserve content提交。
+- [x] RED：新/旧response准确展示、failed清楚列出、刷新queue成功项消失；已有内容不整页Spinner、anchor恢复。
+- [x] 最小UI/状态接通真实receipt，避免全局多crossfade；审查/DEV_LOG/fix(android): show disk deletion receipts and preserve content提交。
+
+已完成产品源码独审C0/I0/M0；测试复审保留M1（初始化失败的局部HTTP清理边界），不阻断本任务提交，Task9全量connected前修。原生证据为候选2八项通过+候选3混合receipt单项复测通过，同Main/未改方法复用，不称新鲜单轮9/9。
 
 ### Task 9: 版本/性能/最终门禁与正式交付（§1/27–35）
 **Files:** android/app/build.gradle.kts、releasenotes/ReleaseNotesCatalog.kt；server/app/__init__.py/api/v1/system.py/server/pyproject.toml；scripts/build_deploy.py/deployment/version.ps1；根发布指南/docs/DEV_LOG/TASKS/REVIEW_SUMMARY与stage8i tests。

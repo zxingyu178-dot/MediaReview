@@ -302,6 +302,10 @@ data class DeleteQueueItemDto(
 @Serializable
 data class CommitResultDto(
     val outcome: Map<String, String> = emptyMap(),
+    val deleted_count: Int? = null,
+    val deleted_bytes: Long? = null,
+    val missing_count: Int? = null,
+    val failed_count: Int? = null,
 )
 
 /** 最终删除预备信息(POST /delete-queue/commit/prepare):一次性 nonce + 队列快照摘要。 */

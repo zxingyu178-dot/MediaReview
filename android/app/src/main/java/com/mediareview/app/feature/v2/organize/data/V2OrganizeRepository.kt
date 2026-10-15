@@ -48,7 +48,7 @@ interface V2OrganizeRepository {
     suspend fun prepareDeleteCommit(): DeleteCommitPrepare
 
     /** 最终删除第二步：用 prepare 的 nonce 提交（`POST /delete-queue/commit`），禁止重新 prepare。 */
-    suspend fun commitDelete(nonce: String): Map<String, DeleteOutcomeStatus>
+    suspend fun commitDelete(nonce: String): DeleteCommitResponse
 
     // ---------- 重复媒体 ----------
 
@@ -209,3 +209,16 @@ enum class DuplicateGroupType(val wire: String) {
  */
 class OrganizeFeatureUnavailableInDemoException(feature: String) :
     Exception("演示模式不支持$feature")
+/** 保留逐项 outcome；缺少实际磁盘统计的旧 Server / Demo 不推算释放空间。 */
+data class DeleteCommitResponse(
+    val outcome: Map<String, DeleteOutcomeStatus>,
+    val diskReceipt: DiskDeletionReceipt? = null,
+    val demo: Boolean = false,
+)
+
+data class DiskDeletionReceipt(
+    val deletedCount: Int,
+    val deletedBytes: Long,
+    val missingCount: Int,
+    val failedCount: Int,
+)

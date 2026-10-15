@@ -3,6 +3,8 @@ package com.mediareview.app.feature.v2.organize.delete
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.DeleteOutcomeStatus
+import com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse
+import com.mediareview.app.feature.v2.organize.data.DiskDeletionReceipt
 import com.mediareview.app.feature.v2.organize.data.DeleteCommitPrepare
 import com.mediareview.app.feature.v2.organize.data.DeleteQueueEntry
 import com.mediareview.app.feature.v2.organize.data.V2OrganizeRepository
@@ -51,6 +53,8 @@ data class DeleteCommitResult(
     val failedNames: List<String>,
     /** success + missing：这些媒体在服务端已消失，需要上层同步刷新并丢弃缓存。 */
     val changedMediaIds: List<String>,
+    val diskReceipt: DiskDeletionReceipt? = null,
+    val demo: Boolean = false,
 ) {
     val total: Int get() = successCount + missingCount + failedCount
 }
@@ -185,12 +189,12 @@ class DeleteQueueViewModel @Inject constructor(
         viewModelScope.launch {
             _ui.update { it.copy(phase = DeleteCommitPhase.Committing(prepare)) }
             try {
-                val outcome = repository.commitDelete(prepare.nonce)
-                if (outcome.isEmpty()) {
+                val response = repository.commitDelete(prepare.nonce)
+                if (response.outcome.isEmpty()) {
                     _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
                     _events.tryEmit(DeleteQueueEvent.Info("没有需要删除的内容"))
                 } else {
-                    val result = summarize(outcome)
+                    val result = summarize(response)
                     _ui.update { it.copy(phase = DeleteCommitPhase.Result(result)) }
                     if (result.changedMediaIds.isNotEmpty()) {
                         _events.tryEmit(DeleteQueueEvent.FinalDeleteCompleted(result.changedMediaIds))
@@ -213,7 +217,8 @@ class DeleteQueueViewModel @Inject constructor(
     }
 
     /** 按服务端合同汇总：success 计成功；missing 单列；failed/未知计失败（失败项留队列）。 */
-    private fun summarize(outcome: Map<String, DeleteOutcomeStatus>): DeleteCommitResult {
+    private fun summarize(response: DeleteCommitResponse): DeleteCommitResult {
+        val outcome = response.outcome
         val success = outcome.count { (_, status) -> status.successful }
         val missing = outcome.count { (_, status) -> status == DeleteOutcomeStatus.Missing }
         val failedIds = outcome.filter { (_, status) -> !status.changed }.keys.toList()
@@ -225,6 +230,8 @@ class DeleteQueueViewModel @Inject constructor(
             failedCount = failedIds.size,
             failedNames = failedIds.map { nameById[it] ?: it },
             changedMediaIds = changed,
+            diskReceipt = response.diskReceipt,
+            demo = response.demo,
         )
     }
 }

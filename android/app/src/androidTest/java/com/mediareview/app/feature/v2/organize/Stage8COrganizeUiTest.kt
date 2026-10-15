@@ -1,6 +1,12 @@
 package com.mediareview.app.feature.v2.organize
 
 import android.content.Context
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.graphics.toPixelMap
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -221,6 +227,105 @@ class Stage8COrganizeUiTest {
         compose.waitUntilExactlyOneExists(hasTestTag("organize_page"), timeoutMillis = 15_000)
     }
 
+    @Test
+    fun diskReceiptShowsActualBytesAndRetainsFailedItemAfterRefresh() {
+        router.receiptMode = 1
+        setContent()
+        openOrganizeTab()
+        compose.onNodeWithText("待删除").performClick()
+        compose.waitUntilExactlyOneExists(hasText("最终删除（2 项）"), 15_000)
+        compose.onNodeWithText("最终删除（2 项）").performClick()
+        compose.waitUntilExactlyOneExists(hasText("确认永久删除？"), 15_000)
+        compose.onNodeWithText("永久删除").performClick()
+        compose.waitUntilExactlyOneExists(hasText("已从磁盘删除：1 个文件"), 15_000)
+        compose.onNodeWithText("实际释放：4 KB").assertIsDisplayed()
+        compose.onNodeWithText("文件原本已不存在：0").assertIsDisplayed()
+        compose.onNodeWithText("删除失败：1").assertIsDisplayed()
+        compose.onNode(hasText("视频 2") and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        compose.onNodeWithText("失败项仍保留在待删除队列").assertIsDisplayed()
+        compose.onNodeWithText("知道了").performClick()
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("删除完成").fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("视频 1").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("视频 2").assertIsDisplayed()
+        assertTrue(router.paths.count { it == "/api/v1/delete-queue" } >= 2)
+    }
+
+    @Test
+    fun verifiedZeroBytesAndZeroFailuresAreExplicit() {
+        router.receiptMode = 2
+        setContent()
+        openOrganizeTab()
+        compose.onNodeWithText("待删除").performClick()
+        compose.waitUntilExactlyOneExists(hasText("最终删除（2 项）"), 15_000)
+        compose.onNodeWithText("最终删除（2 项）").performClick()
+        compose.waitUntilExactlyOneExists(hasText("确认永久删除？"), 15_000)
+        compose.onNodeWithText("永久删除").performClick()
+        compose.waitUntilExactlyOneExists(hasText("已从磁盘删除：1 个文件"), 15_000)
+        compose.onNodeWithText("实际释放：0 B").assertIsDisplayed()
+        compose.onNodeWithText("文件原本已不存在：1").assertIsDisplayed()
+        compose.onNodeWithText("删除失败：0").assertIsDisplayed()
+        compose.onNodeWithText("实际磁盘删除数量和释放空间：未知").assertDoesNotExist()
+    }
+
+    @Test
+    fun summaryRefreshKeepsExistingCardClickableAndFailureOffersRetry() {
+        val http = okhttp3.OkHttpClient.Builder().build()
+        val vm = OrganizeViewModel(
+            com.mediareview.app.feature.v2.organize.data.V2ServerOrganizeRepository(
+                profilePort = object : com.mediareview.app.feature.v2.data.server.V2ServerProfilePort {
+                    override suspend fun baseUrl() = "http://127.0.0.1:${server.port}"
+                },
+                apiFactory = com.mediareview.app.core.network.ApiFactory(http, http, kotlinx.serialization.json.Json { ignoreUnknownKeys = true }),
+                mapper = com.mediareview.app.feature.v2.data.server.V2MediaMapper(com.mediareview.app.core.network.MediaUrlResolver()),
+                resources = com.mediareview.app.feature.v2.data.server.V2ServerResourceCache(),
+                statusStore = entryPoint().serverStatusStore(),
+            ),
+        )
+        compose.activity.viewModelStore.put("stage8i-organize-feedback", vm)
+        var opened = 0
+        compose.setContent {
+            MediaReviewTheme { OrganizePage(V2DataMode.SERVER, {}, { opened++ }, {}, {}, vm = vm) }
+        }
+        compose.waitUntilExactlyOneExists(hasText("2 项 · 预计释放 2.8 GB"), 15_000)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        router.summaryGate = gate
+        router.summaryFailure = true
+        try {
+            compose.runOnIdle { vm.load() }
+            compose.waitUntil(10_000) { router.summaryWaiting }
+            compose.onNodeWithText("2 项 · 预计释放 2.8 GB · 正在刷新").assertIsDisplayed()
+            val card = compose.onNodeWithText("待删除")
+            val before = card.captureToImage().toPixelMap()
+            card.performTouchInput { down(center) }
+            compose.mainClock.advanceTimeBy(150)
+            val pressed = card.captureToImage().toPixelMap()
+            assertTrue("抬起前不应执行操作", opened == 0)
+            assertTrue("按下已有卡片应有即时反馈", (0 until before.height).any { y ->
+                (0 until before.width).any { x -> before[x, y] != pressed[x, y] }
+            })
+            card.performTouchInput { up() }
+            compose.runOnIdle { assertTrue(opened == 1) }
+            gate.countDown()
+            compose.waitUntilExactlyOneExists(hasText("刷新失败，显示上次结果 · 点击重试"), 15_000)
+            compose.onNodeWithText("2 项 · 预计释放 2.8 GB").assertIsDisplayed()
+            router.summaryGate = null
+            router.summaryFailure = false
+            val previousSuccesses = router.summarySuccesses
+            compose.onNodeWithText("刷新失败，显示上次结果 · 点击重试").performClick()
+            compose.waitUntil(15_000) {
+                router.summarySuccesses > previousSuccesses &&
+                    compose.onAllNodesWithText("2 项 · 预计释放 2.8 GB").fetchSemanticsNodes().size == 1 &&
+                    compose.onAllNodesWithText("刷新失败，显示上次结果 · 点击重试").fetchSemanticsNodes().isEmpty()
+            }
+            compose.onNodeWithText("待删除").performClick()
+            compose.runOnIdle { assertTrue(opened == 2) }
+        } finally {
+            gate.countDown()
+            compose.runOnUiThread { compose.activity.viewModelStore.clear() }
+            http.dispatcher.cancelAll(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown()
+        }
+    }
+
     // ---------- 待删除：恢复 / 两步最终删除 ----------
 
     @Test
@@ -259,8 +364,10 @@ class Stage8COrganizeUiTest {
         compose.onNodeWithText("永久删除").performClick()
         // 结果 Sheet 逐类显示 success / missing（绝不把失败藏起来）
         compose.waitUntilExactlyOneExists(hasText("删除完成"), timeoutMillis = 15_000)
-        compose.onNodeWithText("成功删除：1").assertIsDisplayed()
-        compose.onNodeWithText("文件已不存在：1").assertIsDisplayed()
+        compose.onNodeWithText("服务端已处理：1 项").assertIsDisplayed()
+        compose.onNodeWithText("实际磁盘删除数量和释放空间：未知").assertIsDisplayed()
+        compose.onNodeWithText("删除失败：0").assertIsDisplayed()
+        compose.onNodeWithText("文件原本已不存在：1").assertIsDisplayed()
         compose.onNodeWithText("知道了").performClick()
 
         // 完成后停留在待删除中心并刷新列表（不自动退出）
@@ -276,6 +383,12 @@ private class OrganizeUiDispatcher : Dispatcher() {
     @Volatile
     private var committed = false
 
+    @Volatile var receiptMode = 0
+    @Volatile var summaryGate: java.util.concurrent.CountDownLatch? = null
+    @Volatile var summaryWaiting = false
+    @Volatile var summaryFailure = false
+    @Volatile var summarySuccesses = 0
+
     val restoredIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     private data class Item(val id: String, val name: String, val status: String, val size: Long)
@@ -286,7 +399,9 @@ private class OrganizeUiDispatcher : Dispatcher() {
     )
 
     private fun pending(): List<Item> =
-        if (committed) emptyList() else items.filter { it.id !in restoredIds }
+        if (committed) {
+            if (receiptMode == 1) listOf(items[1].copy(status = "failed")) else emptyList()
+        } else items.filter { it.id !in restoredIds }
 
     override fun dispatch(request: RecordedRequest): MockResponse {
         val path = request.requestUrl?.encodedPath.orEmpty()
@@ -296,9 +411,14 @@ private class OrganizeUiDispatcher : Dispatcher() {
         val pendingBytes = pendingNow.sumOf { item -> item.size }
         val pendingIds = pendingNow.joinToString(",") { item -> "\"" + item.id + "\"" }
         return when {
-            path == "/api/v1/delete-queue/summary" -> json(
-                """{"success":true,"data":{"count":${pendingNow.size},"total_bytes":$pendingBytes}}""",
-            )
+            path == "/api/v1/delete-queue/summary" -> {
+                summaryGate?.let { summaryWaiting = true; it.await(30, TimeUnit.SECONDS) }
+                if (summaryFailure) MockResponse().setResponseCode(503)
+                else {
+                    summarySuccesses++
+                    json("""{"success":true,"data":{"count":${pendingNow.size},"total_bytes":$pendingBytes}}""")
+                }
+            }
             path == "/api/v1/delete-queue" && method == "GET" -> json(deleteQueueBody())
             path.startsWith("/api/v1/delete-queue/") && method == "DELETE" -> {
                 restoredIds += path.removePrefix("/api/v1/delete-queue/")
@@ -309,7 +429,11 @@ private class OrganizeUiDispatcher : Dispatcher() {
             )
             path == "/api/v1/delete-queue/commit" -> {
                 committed = true
-                json("""{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing"}}}""")
+                json(when (receiptMode) {
+                    1 -> """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"failed"},"deleted_count":1,"deleted_bytes":4321,"missing_count":0,"failed_count":1}}"""
+                    2 -> """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing"},"deleted_count":1,"deleted_bytes":0,"missing_count":1,"failed_count":0}}"""
+                    else -> """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing"}}}"""
+                })
             }
             path == "/api/v1/duplicates/summary" -> json(
                 """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"t1","scan_status":"succeeded","scan_progress":100}}""",

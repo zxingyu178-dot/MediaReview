@@ -161,7 +161,7 @@ fun AlbumScreen(
 
         if (window == null || window.status == AlbumLoadStatus.Loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                SkeletonCards()
+                SkeletonCards(aspectRatio = 1f)
             }
             return@Column
         }

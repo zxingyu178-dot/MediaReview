@@ -79,6 +79,7 @@ class FakeOrganizeRepository : V2OrganizeRepository {
     var restoreResult: Result<Unit> = Result.success(Unit)
     var prepareResult: Result<DeleteCommitPrepare> =
         Result.success(DeleteCommitPrepare("nonce-1", null, 0, 0L, emptyList()))
+    var diskReceipt: com.mediareview.app.feature.v2.organize.data.DiskDeletionReceipt? = null
     var commitResult: Result<Map<String, DeleteOutcomeStatus>> = Result.success(emptyMap())
 
     /** 可选的提交挂起闸门（测试"提交进行中"状态：确认/取消交互）。 */
@@ -168,11 +169,11 @@ class FakeOrganizeRepository : V2OrganizeRepository {
         return prepareResult.getOrThrow()
     }
 
-    override suspend fun commitDelete(nonce: String): Map<String, DeleteOutcomeStatus> {
+    override suspend fun commitDelete(nonce: String): com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse {
         commitCalls++
         committedNonces += nonce
         commitGate?.await()
-        return commitResult.getOrThrow()
+        return com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse(commitResult.getOrThrow(), diskReceipt)
     }
 
     override suspend fun loadDuplicateGroups(

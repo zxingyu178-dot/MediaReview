@@ -163,7 +163,7 @@ private fun <T> DataCard(
             action = null
         }
         is OrganizeCard.Ready -> {
-            subtitle = text(card.data)
+            subtitle = text(card.data) + if (card.refreshing) " · 正在刷新" else ""
             action = onOpen
         }
         is OrganizeCard.Error -> {
@@ -175,13 +175,20 @@ private fun <T> DataCard(
             action = null
         }
     }
-    OrganizeCardRow(
-        icon = icon,
-        title = title,
-        subtitle = subtitle,
-        tint = if (action == null) MediaTextSecondary else MediaTextPrimary,
-        onClick = action,
-    )
+    Column {
+        OrganizeCardRow(
+            icon = icon,
+            title = title,
+            subtitle = subtitle,
+            tint = if (action == null) MediaTextSecondary else MediaTextPrimary,
+            onClick = action,
+        )
+        if (card is OrganizeCard.Ready && card.refreshError != null) {
+            androidx.compose.material3.TextButton(onClick = onRetry) {
+                Text("刷新失败，显示上次结果 · 点击重试", color = MediaTextSecondary)
+            }
+        }
+    }
 }
 
 @Composable

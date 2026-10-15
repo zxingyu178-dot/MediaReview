@@ -196,10 +196,22 @@ class V2ServerOrganizeRepository internal constructor(
         )
     }
 
-    override suspend fun commitDelete(nonce: String): Map<String, DeleteOutcomeStatus> =
+    override suspend fun commitDelete(nonce: String): DeleteCommitResponse =
         call { api, _ ->
             val dto = unwrap(api.commitDeleteQueue(CommitRequest(nonce)))
-            dto.outcome.mapValues { (_, value) -> DeleteOutcomeStatus.fromWire(value) }
+            val outcome = dto.outcome.mapValues { (_, value) -> DeleteOutcomeStatus.fromWire(value) }
+            val receipt = if (
+                dto.deleted_count != null && dto.deleted_bytes != null &&
+                dto.missing_count != null && dto.failed_count != null &&
+                dto.deleted_count >= 0 && dto.deleted_bytes >= 0 &&
+                dto.missing_count >= 0 && dto.failed_count >= 0 &&
+                dto.deleted_count == outcome.count { it.value == DeleteOutcomeStatus.Success } &&
+                dto.missing_count == outcome.count { it.value == DeleteOutcomeStatus.Missing } &&
+                dto.failed_count == outcome.count { !it.value.changed } &&
+                (dto.deleted_count > 0 || dto.deleted_bytes == 0L)
+            ) DiskDeletionReceipt(dto.deleted_count, dto.deleted_bytes, dto.missing_count, dto.failed_count)
+            else null
+            DeleteCommitResponse(outcome, receipt)
         }
 
     // ---------- 重复媒体 ----------

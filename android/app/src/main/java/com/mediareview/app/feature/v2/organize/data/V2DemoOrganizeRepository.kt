@@ -81,12 +81,12 @@ class V2DemoOrganizeRepository @Inject constructor(
         )
     }
 
-    override suspend fun commitDelete(nonce: String): Map<String, DeleteOutcomeStatus> {
+    override suspend fun commitDelete(nonce: String): DeleteCommitResponse {
         // 一次性 nonce：只接受本仓库 prepare 签发的值，使用后立即失效
         val ids = commitSnapshots.remove(nonce)
             ?: throw IllegalStateException("演示模式:删除确认不存在或已使用")
         ids.forEach { demoMedia.setPendingDelete(it, false) }
-        return ids.associateWith { DeleteOutcomeStatus.Success }
+        return DeleteCommitResponse(ids.associateWith { DeleteOutcomeStatus.Success }, demo = true)
     }
 
     // ---------- 重复媒体（Demo 不可用） ----------

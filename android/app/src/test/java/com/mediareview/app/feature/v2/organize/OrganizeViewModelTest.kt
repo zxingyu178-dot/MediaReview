@@ -209,6 +209,74 @@ class OrganizeViewModelTest {
         )
     }
 
+    @Test
+    fun `同源慢刷新保留已显示摘要`() = runTest(main.dispatcher) {
+        val fake = FakeOrganizeRepository().apply {
+            deleteSummaryResult = Result.success(DeleteQueueSummary(7, 700L))
+        }
+        val gate = CompletableDeferred<Unit>()
+        var refreshing = false
+        val repo = object : com.mediareview.app.feature.v2.organize.data.V2OrganizeRepository by fake {
+            override suspend fun deleteSummary(): DeleteQueueSummary {
+                if (refreshing) gate.await()
+                return fake.deleteSummary()
+            }
+        }
+        val vm = OrganizeViewModel(repo)
+        vm.load()
+        advanceUntilIdle()
+        refreshing = true
+        vm.load()
+        runCurrent()
+        assertTrue("同源刷新不能撤下已有摘要", vm.state.value.deleteCard is OrganizeCard.Ready)
+        assertEquals(7, vm.state.value.deleteCard.dataOrNull()!!.count)
+        gate.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `同源刷新失败保留旧摘要`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            deleteSummaryResult = Result.success(DeleteQueueSummary(7, 700L))
+        }
+        val vm = OrganizeViewModel(repo)
+        vm.load()
+        advanceUntilIdle()
+        repo.deleteSummaryResult = Result.failure(IllegalStateException("离线"))
+        vm.load()
+        advanceUntilIdle()
+        assertTrue("刷新失败仍应显示旧摘要", vm.state.value.deleteCard is OrganizeCard.Ready)
+        assertEquals(7, vm.state.value.deleteCard.dataOrNull()!!.count)
+        assertTrue((vm.state.value.deleteCard as OrganizeCard.Ready).refreshError != null)
+    }
+
+    @Test
+    fun `换源时同步清空旧Ready且迟到刷新不得混回`() = runTest(main.dispatcher) {
+        val fake = FakeOrganizeRepository().apply { deleteSummaryResult = Result.success(DeleteQueueSummary(7, 700)) }
+        val gate = CompletableDeferred<Unit>()
+        var slow = false
+        val repo = object : com.mediareview.app.feature.v2.organize.data.V2OrganizeRepository by fake {
+            override suspend fun deleteSummary(): DeleteQueueSummary {
+                val captured = fake.deleteSummaryResult.getOrThrow()
+                if (slow) gate.await()
+                return captured
+            }
+        }
+        val vm = OrganizeViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        slow = true
+        vm.load(); runCurrent()
+        fake.mode = V2DataMode.DEMO
+        fake.deleteSummaryResult = Result.success(DeleteQueueSummary(3, 300))
+        vm.load()
+        assertTrue(vm.state.value.deleteCard is OrganizeCard.Loading)
+        slow = false
+        runCurrent()
+        assertEquals(3, vm.state.value.deleteCard.dataOrNull()!!.count)
+        gate.complete(Unit); advanceUntilIdle()
+        assertEquals(3, vm.state.value.deleteCard.dataOrNull()!!.count)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun <T> OrganizeCard<T>.dataOrNull(): T? =
         (this as? OrganizeCard.Ready<T>)?.data

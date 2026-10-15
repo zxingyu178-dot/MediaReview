@@ -16,7 +16,7 @@ sealed interface OrganizeCard<out T> {
 
     data object Loading : OrganizeCard<Nothing>
 
-    data class Ready<T>(val data: T) : OrganizeCard<T>
+    data class Ready<T>(val data: T, val refreshing: Boolean = false, val refreshError: String? = null) : OrganizeCard<T>
 
     data class Error(val message: String) : OrganizeCard<Nothing>
 

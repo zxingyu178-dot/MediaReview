@@ -12,6 +12,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.mediareview.app.feature.v2.ui.V2Spacing
+import com.mediareview.app.feature.v2.organize.formatBytes
 import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
@@ -41,22 +42,33 @@ fun DeleteResultSheet(
                 style = MaterialTheme.typography.titleMedium,
                 color = MediaTextPrimary,
             )
+            val receipt = result.diskReceipt
             Text(
-                text = "成功删除：${result.successCount}",
+                text = when {
+                    result.demo -> "演示操作已完成，未删除磁盘文件"
+                    receipt != null -> "已从磁盘删除：${receipt.deletedCount} 个文件"
+                    else -> "服务端已处理：${result.successCount} 项"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MediaTextPrimary,
             )
             Text(
-                text = "文件已不存在：${result.missingCount}",
+                text = if (receipt != null) "实际释放：${formatBytes(receipt.deletedBytes)}"
+                    else "实际磁盘删除数量和释放空间：未知",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MediaTextSecondary,
+            )
+            Text(
+                text = "删除失败：${result.failedCount}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (result.failedCount > 0) MediaDanger else MediaTextSecondary,
+            )
+            Text(
+                text = "文件原本已不存在：${result.missingCount}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MediaTextSecondary,
             )
             if (result.failedCount > 0) {
-                Text(
-                    text = "删除失败：${result.failedCount}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MediaDanger,
-                )
                 result.failedNames.take(MAX_FAILED_NAMES).forEach { name ->
                     Text(
                         text = name,

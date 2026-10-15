@@ -61,11 +61,11 @@ internal fun WindowCoverPrefetch(
 
 /** 没有窗口缓存时显示卡片轮廓，而不是整屏 loading。 */
 @Composable
-internal fun SkeletonCards(modifier: Modifier = Modifier) {
+internal fun SkeletonCards(modifier: Modifier = Modifier, aspectRatio: Float = 16f / 9f) {
     Column(modifier.fillMaxWidth().padding(16.dp).testTag("window_skeleton"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         repeat(3) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                repeat(2) { Box(Modifier.weight(1f).aspectRatio(16f / 9f).background(V2Colors.Skeleton)) }
+                repeat(2) { Box(Modifier.weight(1f).aspectRatio(aspectRatio).background(V2Colors.Skeleton)) }
             }
         }
     }

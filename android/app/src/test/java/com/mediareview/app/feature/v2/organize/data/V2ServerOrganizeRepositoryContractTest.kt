@@ -163,13 +163,25 @@ class V2ServerOrganizeRepositoryContractTest {
         assertEquals(3000L, prep.totalBytes)
         assertEquals(listOf("aaa", "bbb"), prep.mediaIds)
 
-        val outcome = repository.commitDelete(prep.nonce)
+        val outcome = repository.commitDelete(prep.nonce).outcome
         assertEquals(DeleteOutcomeStatus.Success, outcome["aaa"])
         assertEquals(DeleteOutcomeStatus.Missing, outcome["bbb"])
         assertEquals(DeleteOutcomeStatus.Failed, outcome["ccc"])
         assertEquals(DeleteOutcomeStatus.Unknown, outcome["ddd"])
         // commit 请求体必须携带同一 nonce
         assertEquals("""{"nonce":"nonce-1"}""", router.lastBody("/api/v1/delete-queue/commit"))
+    }
+
+    @Test
+    fun `新Server真实字节沿仓库保留且旧Server不推算`() = runTest {
+        org.junit.Assert.assertNull(repository.commitDelete("old").diskReceipt)
+        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":4321,\"missing_count\":1,\"failed_count\":2"
+        val response = repository.commitDelete("new")
+        assertEquals(DiskDeletionReceipt(1, 4321L, 1, 2), response.diskReceipt)
+        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":-1,\"missing_count\":1,\"failed_count\":2"
+        org.junit.Assert.assertNull(repository.commitDelete("invalid").diskReceipt)
+        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":0"
+        org.junit.Assert.assertNull(repository.commitDelete("partial").diskReceipt)
     }
 
     // ---------- 重复媒体 ----------
@@ -311,6 +323,7 @@ private class OrganizeDispatcher : Dispatcher() {
     private val bodies = java.util.Collections.synchronizedMap(mutableMapOf<String, String>())
     private val queries = java.util.Collections.synchronizedMap(mutableMapOf<String, String>())
 
+    var receiptFields = ""
     var deleteSummaryStatus = 200
     var restoreStatus = 200
     var keepStatus = 200
@@ -353,7 +366,7 @@ private class OrganizeDispatcher : Dispatcher() {
                 """{"success":true,"data":{"nonce":"nonce-1","expires_at":"2026-10-01T12:10:00","count":2,"total_bytes":3000,"media_ids":["aaa","bbb"]}}""",
             )
             path == "/api/v1/delete-queue/commit" -> json(
-                """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"weird"}}}""",
+                """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"weird"}$receiptFields}}""",
             )
             path == "/api/v1/duplicates/summary" -> json(
                 """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"task-9","scan_status":"succeeded","scan_progress":100,"last_successful_scan_at":"2026-10-02T08:00:00"}}""",
