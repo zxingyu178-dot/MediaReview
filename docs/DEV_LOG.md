@@ -2721,3 +2721,17 @@ Main SHA256 B7EA00A4C97A71D639CD2CE44485258EABA5F53B94896892D26313A9EA4DB536；T
 受影响旧Stage8B全链路5024：工具EXIT0、OK(1 test)/1.131s，冷latest404显式选择all后继续原真实HTTP queue/seen/progress合同，非原生播放回归。证据为review_meta/stage8i/task-6-{scope-http-device,legacy-review}-receipt.json及对应temp日志。仅owned只读AVD156524，boot1/75.715s、Launcher前台无ANR、安装两APK成功，测试后正常退出、adb空。
 
 保留真实RED：DTO array/bool旧stringMap解码失败；冷cancel假完成；POST成功queue失败旧Ready；seen目标s-0001误变s-created-1；latepage total1被100覆盖。对应修复后同一针对性真实HTTP/VM断言通过；没有用mock policy替代真实ScopeUI门禁。范围限widget/AVD/合成HTTP，未正式NavHost/手机/家庭LAN/生产部署；最终全pytest/fullJVM/lint/connected/Release/1.4cap宣告保留Task9，整体Stage8I未完成。
+
+## 2026-10-15 Stage8I Task7 — 循环播放、原生上下滑与邻项预取（定向验收通过）
+
+Review 使用原生 VerticalPager / atMost(1)，移除 Channel<Float> 逐像素驱动；横向确认消费与纵向原生滑动、长按、子进度条事件隔离。当前页稳定后有界预取相邻 endpoint/poster，当前源优先，过期取消，不创建第二播放器。Review loop=true，Full 保持非循环；poster 请求与展示尺寸一致，短渐变180ms。
+
+真实 EOF 根因是 SDK Completed 清除 prepared 标志，旧 startAfterPrepared 会重建内核。修复通过公开 render 接口恢复同一 Surface/内核，并以归属、生命周期、用户暂停、错误状态和取消守卫约束；等待实际目标落点及两次进展后恢复公开播放状态。独立审查发现任意3秒等待截止的问题后，新行为测试82531真实 RED（3项1失败），取消该截止后 GREEN；不伪造 Playing 或通过反射设置 SDK 状态。
+
+最终候选5 build55086实际EXIT0 / SUCCESS5m32：353份预构建及运行后输入哈希0漂移；新鲜JVM9项通过，未变 VM37 + ServerContract34复用候选4，共80项对应覆盖，不能称80项新鲜运行。Main SHA EEC6ABD0BB71C5F8CA26B6098A790672E8B518D139D7AFC685643BC5A4CE4668；Test SHA 297562FFED07C6074A6BF791736ABE4950D30B70A6C0F28EE31DEAE9C9BC0CC1。
+
+原生59621实际EXIT0 / OK(10 tests)/143.887s：Direct/HLS真实6秒视频超过1.5时长并自然wrap、动态RGB、同一内核；真实EOF后物理seek一次1500ms，Exo READY/Playing、position2102、host2、同一内核，随后自然2次wrap且有RGB。邻poster真实授权HTTP→内存命中、展示重复HTTP0；按住pointer时分页48→49；慢/快各5次纵滑每手势一条、正确source/旧kernel停止；横seek/长按独占、进度条与body隔离；真实Review→Full非循环自然Completed及重播UI。旧手势41303实际EXIT0 / OK(6 tests)/31.951s，Full bar/body/double及Review bar/double通过。根查看EOF post-wrap PNG确认实际画面。
+
+独立最终审查 review_meta/stage8i/task-7-candidate-5-independent-review.md：SOURCE/RUNTIME PASS，C0/I0/M0，支持本任务提交。原始及失败回执保留；build中的PENDING及native中的legacy RUNNING是阶段旧字段，后续独立终态回执覆盖。owned AVD14848/qemu16352正常退出且进程、5584/5585监听与adb设备均已核实为空。
+
+慢滑首RGB观察代理11226/2771/2565/2493/3274ms包含polling/截图/桥延迟，不是精确硬件首帧或SLA，也不是Alpha11→Alpha12性能提升；同fixture对照留Task9。Task8删除结果/整理刷新和Task9版本、全量门禁、正式发布、交接及push仍未完成。仅合成HTTP与只读AVD；未操作手机、家庭Server、真实Jellyfin或用户媒体，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。

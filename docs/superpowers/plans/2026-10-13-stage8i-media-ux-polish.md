@@ -79,9 +79,10 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 ### Task 7: Review Loop与原生Pager预取（§9–12/24–26/31LOOP/PAGER/32）
 **Files:** feature/v2/review/V2ReviewScreen.kt/V2ReviewViewModel.kt/ReviewStableGate.kt；player/gsy controller/native相关；shared gesture layer；androidTest真实短MP4/HLS fixture及JVM。
 **Interfaces:** currentReview内核loop=true，Full不loop；EOFseek恢复，原生VerticalPager drag/fling/snap至多1，纵向交Pager横向确认后consume，长按独占；stable后邻±1endpoint/poster不二player。
-- [ ] RED：真实5–8sMP4与HLS播放>1.5duration，positionwrap/画面/当前media/noTerminalCompleted；EOFrace seek重播；5次真实纵滑每gesture恰好1/nooldaudio/wrongsource，横seek不翻页。
-- [ ] 删除Channel<Float>手动pagerState.scroll路径，用原生PagerSnapDistance.atMost(1)或当前等价；保持当前优先和旧ownedkernel释放隔离。
-- [ ] JVM/编译GREEN，真实设备loop/pager/source/seek回归；记录settle_to_first_frame及Alpha11对比；审查/DEV_LOG/fix(review): loop playback and use native pager gestures提交。
+- [x] RED：真实5–8sMP4与HLS播放>1.5duration，positionwrap/画面/当前media/noTerminalCompleted；EOFrace seek重播；5次真实纵滑每gesture恰好1/nooldaudio/wrongsource，横seek不翻页。
+- [x] 删除Channel<Float>手动pagerState.scroll路径，用原生PagerSnapDistance.atMost(1)或当前等价；保持当前优先和旧ownedkernel释放隔离。
+- [x] JVM/编译GREEN，owned只读AVD loop/pager/source/seek及受影响旧手势回归；原始首帧观察事件已记录；独立审查C0/I0/M0，DEV_LOG及fix(review): loop playback and use native pager gestures提交。
+- [ ] Alpha11同fixture性能对比留Task9；§32整体仍未完成，不将本次采样当作正式Alpha12对比。
 
 ### Task 8: Delete Result UI与整体反馈（§18/24–25/31receiptUI）
 **Files:** core/model/ApiModels.kt（DeleteQueue DTO）；feature/v2/organize/delete/DeleteQueuePage.kt/DeleteQueueViewModel.kt、organize/data/V2OrganizeRepository.kt及映射；相关servermapperUItests。

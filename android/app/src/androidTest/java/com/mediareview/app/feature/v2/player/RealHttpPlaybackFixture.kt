@@ -38,6 +38,10 @@ internal class RealHttpPlaybackFixture(
     private val folderFixture: Boolean = false,
     private val reviewScopeFixture: Boolean = false,
     private val reviewScopeCapability: Boolean = true,
+    private val shortVideo: Boolean = false,
+    private val reviewItemCount: Int = 2,
+    private val reviewStartIndex: Int = 0,
+    private val blockNextReviewPage: Boolean = false,
 ) : AutoCloseable {
     @Volatile var reviewActive = true
     @Volatile var reviewQueueFailure = false
@@ -45,6 +49,9 @@ internal class RealHttpPlaybackFixture(
     @Volatile private var reviewSource = """{"media_type":"video"}"""
     data class ReviewCreate(val folderIds: List<String>, val includeDescendants: Boolean)
     val reviewCreates = CopyOnWriteArrayList<ReviewCreate>()
+    val nextReviewPageRequested = CountDownLatch(1)
+    private val nextReviewPageGate = CountDownLatch(1)
+    fun releaseNextReviewPage() { nextReviewPageGate.countDown() }
     private fun fixtureCapabilities(): List<String> = buildList {
         if (folderFixture) add("folder_tree_v1")
         if (reviewScopeFixture && reviewScopeCapability) add("review_folder_filter_v1")
@@ -90,8 +97,9 @@ internal class RealHttpPlaybackFixture(
     private val credential = UUID.randomUUID().toString()
     private val server = MockWebServer()
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val bytes = if (longVideo) androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.assets
-        .open("gesture_60s.mp4").use { it.readBytes() } else context.resources.openRawResource(R.raw.demo_05_longer).use { it.readBytes() }
+    private val bytes = if (longVideo || shortVideo) androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.assets
+        .open(if (shortVideo) "review_loop_6s.mp4" else "gesture_60s.mp4").use { it.readBytes() } else context.resources.openRawResource(R.raw.demo_05_longer).use { it.readBytes() }
+    private val reviewIds = (0 until reviewItemCount).map { when (it) { 0 -> "first"; 1 -> "second"; else -> "item$it" } }
     private val imageBytes by lazy {
         val bitmap = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888)
         try {
@@ -105,10 +113,10 @@ internal class RealHttpPlaybackFixture(
     private fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
     private fun envelope(body: String) = json("""{"success":true,"data":$body}""")
     private fun media(id: String): String {
-        val images = if (imageMedia) ""","cover_url":"/api/v1/media/$id/cover?v=fixture1","original_url":"/api/v1/media/$id/original?v=fixture1" """ else ""
-        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia && !reviewScopeFixture) "image" else "video"}","library_id":"test","duration_ms":${if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false$images}"""
+        val images = if (imageMedia || shortVideo) ""","cover_url":"/api/v1/media/$id/${if (shortVideo) "thumbnail" else "cover"}?v=fixture1","original_url":"/api/v1/media/$id/original?v=fixture1" """ else ""
+        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia && !reviewScopeFixture) "image" else "video"}","library_id":"test","duration_ms":${if (shortVideo) 6000 else if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false$images}"""
     }
-    private fun session(index: Int = 0) = """{"session_id":"$reviewSessionId","status":"active","current_index":$index,"total_count":2,"seen_count":0,"remaining_count":2,"unavailable_count":0,"completed_count":0,"source":{"filter":${if (reviewScopeFixture) reviewSource else """{"media_type":"${if (imageMedia) "image" else "video"}"}"""},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
+    private fun session(index: Int = reviewStartIndex) = """{"session_id":"$reviewSessionId","status":"active","current_index":$index,"total_count":$reviewItemCount,"seen_count":0,"remaining_count":$reviewItemCount,"unavailable_count":0,"completed_count":0,"source":{"filter":${if (reviewScopeFixture) reviewSource else """{"media_type":"${if (imageMedia) "image" else "video"}"}"""},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
 
     init {
         server.dispatcher = object : Dispatcher() {
@@ -141,7 +149,7 @@ internal class RealHttpPlaybackFixture(
                         """{"folder_id":"$id","parent_id":${parent?.let { "\"$it\"" } ?: "null"},"library_id":"test","name":"$name","child_count":${if (id == "ft_leaf") 0 else 1},"direct_media_count":${if (id == "ft_leaf") 2 else 0},"recursive_media_count":2,"direct_image_count":${if (id == "ft_leaf") 2 else 0},"cover_url":"/api/v1/media/first/thumbnail?v=fixture1"}"""
                     })
                     path == "/api/v1/media/folders" -> envelope("[]")
-                    imageMedia && (path.endsWith("/thumbnail") || path.endsWith("/original")) ->
+                    (imageMedia || shortVideo) && (path.endsWith("/thumbnail") || path.endsWith("/original")) ->
                         MockResponse().setHeader("Content-Type", "image/png").setBody(Buffer().write(imageBytes))
                     path.startsWith("/video/") -> video(request, path.substringAfterLast('/').removeSuffix(".mp4"))
                     path.endsWith("/playback") -> {
@@ -158,10 +166,31 @@ internal class RealHttpPlaybackFixture(
                         val url = playbackBase.newBuilder().addPathSegments("video/$id.mp4").build()
                         envelope("""{"media_id":"$id","title":"HTTP 视频","stream_url":"$url","stream_url_authoritative":true,"stream_url_source":"configured_client_url","direct":{"url":"$url","headers":{"X-Emby-Token":"$credential"}},"fallback_hls":null,"resume_position_ms":${if (id == "first") resumeMs else 0L}}""")
                     }
-                    path.endsWith("/nearest") -> envelope("""{"index":0}""")
+                    path.endsWith("/nearest") -> {
+                        val asked = request.requestUrl?.queryParameter("index")?.toIntOrNull() ?: 0
+                        val available = reviewIds.indices
+                        val found = when (request.requestUrl?.queryParameter("direction")) {
+                            "forward" -> available.firstOrNull { it >= asked }
+                            "backward" -> available.lastOrNull { it < asked }
+                            else -> available.firstOrNull { it >= asked } ?: available.lastOrNull { it < asked }
+                        }
+                        envelope("""{"index":${found ?: "null"}}""")
+                    }
                     reviewScopeFixture && path.endsWith("/queue") && reviewQueueFailure && reviewCreates.isNotEmpty() -> MockResponse().setResponseCode(503)
-                    path.endsWith("/queue") -> envelope("""{"items":[{"index":0,"seen":false,"media":${media("first")}}, {"index":1,"seen":false,"media":${media("second")}}],"total":2,"page":1,"page_size":50}""")
-                    path.endsWith("/seen") -> envelope("""{"media_id":"first","seen":true,"seen_count":1,"total_count":2,"remaining_count":1,"unavailable_count":0,"completed_count":1}""")
+                    path.endsWith("/queue") -> {
+                        val page = request.requestUrl?.queryParameter("page")?.toIntOrNull() ?: 1
+                        val pageSize = request.requestUrl?.queryParameter("page_size")?.toIntOrNull() ?: 50
+                        if (page > 1) {
+                            nextReviewPageRequested.countDown()
+                            if (blockNextReviewPage && !nextReviewPageGate.await(45, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        }
+                        val start = (page - 1) * pageSize
+                        val items = reviewIds.drop(start).take(pageSize).mapIndexed { offset, id ->
+                            """{"index":${start + offset},"seen":false,"media":${media(id)}}"""
+                        }.joinToString(prefix = "[", postfix = "]")
+                        envelope("""{"items":$items,"total":$reviewItemCount,"page":$page,"page_size":$pageSize}""")
+                    }
+                    path.endsWith("/seen") -> envelope("""{"media_id":"first","seen":true,"seen_count":1,"total_count":$reviewItemCount,"remaining_count":${reviewItemCount - 1},"unavailable_count":0,"completed_count":1}""")
                     path.contains("/review/sessions") -> envelope(session())
                     path == "/api/v1/delete-queue" -> {
                         pendingReadRequested.countDown()
@@ -277,5 +306,5 @@ internal class RealHttpPlaybackFixture(
             override suspend fun setCover(folderId: String, mediaId: String?) = Unit
         }, status, resources)
     val sessions = V2ServerReviewSessionRepository(profile, api, mapper, resources, status)
-    override fun close() { releaseFirstVideo(); releaseSecondPlayback(); server.shutdown(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown() }
+    override fun close() { releaseFirstVideo(); releaseSecondPlayback(); releaseNextReviewPage(); server.shutdown(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown() }
 }

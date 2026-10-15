@@ -343,6 +343,99 @@ class V2ReviewViewModelTest {
 
     // ---------- §5/§33 播放解析上限 ----------
 
+    @Test fun `当前先稳定随后分页追加必须补取新相邻而不重新P0`() = runTest {
+        val pageGate = CompletableDeferred<Unit>()
+        val repo = FakeMediaRepository(mediaCount = 100)
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 100, currentIndex = 49, window = window(count = 50, total = 100))
+            nextHandler = { pageGate.await(); ReviewQueuePageResult(window(count = 100, total = 100)) }
+        }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        waitUntil("P0 v50") { playbackMediaId(vm) == "v50" }
+        vm.onPageSettled(49)
+        vm.onPlaybackStable("v50")
+        waitUntil("已有前邻v49") { repo.resolvedMediaIds.contains("v49") }
+        assertFalse(repo.resolvedMediaIds.contains("v51"))
+        pageGate.complete(Unit)
+        waitUntil("页追加完成") { (vm.state.value as? V2ReviewUiState.Ready)?.items?.size == 100 }
+        assertTrue("稳定后补进的N+1必须被预取", repo.resolvedMediaIds.contains("v51"))
+        assertEquals("P0不可重新解析", 1, repo.resolvedMediaIds.count { it == "v50" })
+        assertFalse("禁止远端N+2", repo.resolvedMediaIds.contains("v52"))
+    }
+
+    @Test fun `深位置当前稳定后只预取前后相邻且前项切换命中缓存`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 10)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, currentIndex = 4) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        waitUntil("P0 v5") { playbackMediaId(vm) == "v5" }
+        assertEquals(listOf("v5"), repo.resolvedMediaIds)
+        vm.onPlaybackStable("v5")
+        waitUntil("前后相邻完成") { repo.resolvedMediaIds.containsAll(listOf("v6", "v4")) }
+        assertEquals("稳定窗口必须含前后各1且无远端", setOf("v4", "v5", "v6"), repo.resolvedMediaIds.toSet())
+        vm.onPageSettled(3)
+        waitUntil("前项v4命中") { playbackMediaId(vm) == "v4" }
+        assertEquals(1, repo.resolvedMediaIds.count { it == "v4" })
+    }
+
+    @Test fun `跳过稳定窗口不沿用远端预取且旧stable不能启动相邻解析`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 10)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, currentIndex = 4) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        waitUntil("v5") { playbackMediaId(vm) == "v5" }
+        vm.onPlaybackStable("v5")
+        waitUntil("前后相邻完成") { repo.resolvedMediaIds.containsAll(listOf("v6", "v4")) }
+        assertTrue("深位置必须预取前邻", repo.resolvedMediaIds.contains("v4"))
+        vm.onPageSettled(7)
+        waitUntil("v8") { playbackMediaId(vm) == "v8" }
+        vm.onPlaybackStable("v5")
+        assertFalse(repo.resolvedMediaIds.contains("v9"))
+        vm.onPlaybackStable("v8")
+        waitUntil("新前后相邻完成") { repo.resolvedMediaIds.containsAll(listOf("v9", "v7")) }
+        assertTrue(repo.resolvedMediaIds.contains("v7"))
+        vm.onPageSettled(3)
+        waitUntil("回到远端v4") { playbackMediaId(vm) == "v4" }
+        assertEquals("远端cache必须被裁剪，v4需要重新解析", 2, repo.resolvedMediaIds.count { it == "v4" })
+    }
+
+    @Test fun `NonCancellable旧预取跨同媒体新session返回不得污染cache`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeMediaRepository(mediaCount = 10).apply { gateMediaId = "v6"; mediaGate = gate; ignoreCancellation = true }
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, currentIndex = 4) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        waitUntil("v5") { playbackMediaId(vm) == "v5" }
+        vm.onPlaybackStable("v5")
+        waitUntil("旧v6开始") { repo.resolvedMediaIds.contains("v6") }
+        sessions.entryResult = readyOpen(sessionId = "s2", total = 10, currentIndex = 4)
+        vm.restart()
+        waitUntil("新session同v5") { (vm.state.value as? V2ReviewUiState.Ready)?.sessionId == "s2" && playbackMediaId(vm) == "v5" }
+        gate.complete(Unit)
+        waitUntil("旧v6晚返回") { repo.completedMediaIds.contains("v6") }
+        vm.onPageSettled(5)
+        waitUntil("新v6") { playbackMediaId(vm) == "v6" }
+        assertEquals("旧session晚到结果不得命中新cache", 2, repo.resolvedMediaIds.count { it == "v6" })
+    }
+
+    @Test fun `NonCancellable滚动取消后同源晚返回不得命中cache`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeMediaRepository(mediaCount = 10).apply { gateMediaId = "v6"; mediaGate = gate; ignoreCancellation = true }
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, currentIndex = 4) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        waitUntil("v5") { playbackMediaId(vm) == "v5" }
+        vm.onPlaybackStable("v5")
+        waitUntil("v6开始") { repo.resolvedMediaIds.contains("v6") }
+        vm.onPlaybackUnstable()
+        gate.complete(Unit)
+        waitUntil("v6晚返回") { repo.completedMediaIds.contains("v6") }
+        vm.onPageSettled(5)
+        waitUntil("v6新P0") { playbackMediaId(vm) == "v6" }
+        assertEquals("同源也必须遵守滚动generation", 2, repo.resolvedMediaIds.count { it == "v6" })
+    }
+
     @Test
     fun `进入仅解析当前项且稳定后才解析下一条`() = runTest {
         val repo = FakeMediaRepository(mediaCount = 10)
@@ -887,6 +980,8 @@ internal class FakeMediaRepository(private val mediaCount: Int) : MediaRepositor
     /** 该媒体的 resolvePlayback 会等待 [mediaGate]（模拟慢网络）。 */
     var gateMediaId: String? = null
     var mediaGate: CompletableDeferred<Unit>? = null
+    var ignoreCancellation = false
+    val completedMediaIds = mutableListOf<String>()
 
     val resolvedMediaIds = mutableListOf<String>()
     val favoriteCalls = mutableListOf<Pair<String, Boolean>>()
@@ -958,7 +1053,11 @@ internal class FakeMediaRepository(private val mediaCount: Int) : MediaRepositor
 
     override suspend fun resolvePlayback(mediaId: String): V2PlaybackSource {
         resolvedMediaIds += mediaId
-        if (mediaId == gateMediaId) mediaGate?.await()
+        if (mediaId == gateMediaId) {
+            if (ignoreCancellation) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { mediaGate?.await() }
+            else mediaGate?.await()
+        }
+        completedMediaIds += mediaId
         return V2PlaybackSource(
             mediaId = mediaId,
             title = mediaId,

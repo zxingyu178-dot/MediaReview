@@ -126,7 +126,7 @@ class V2ReviewViewModel @Inject constructor(
         scopeTreeJob?.cancel()
         titleJob?.cancel()
         resolveJob?.cancel()
-        prefetchJob?.cancel()
+        onPlaybackUnstable()
         positionWorker?.cancel()
         nextPageJob?.cancel()
         prevPageJob?.cancel()
@@ -182,6 +182,10 @@ class V2ReviewViewModel @Inject constructor(
 
     private var resolveJob: Job? = null
     private var prefetchJob: Job? = null
+    private var prefetchGeneration = 0L
+    private var stableMediaId: String? = null
+    private var prefetchNeighborIds = emptySet<String>()
+    private val adjacentSources = mutableMapOf<String, com.mediareview.app.feature.v2.model.V2PlaybackSource>()
     private var positionWorker: Job? = null
     private var enterJob: Job? = null
     private var nextPageJob: Job? = null
@@ -266,6 +270,8 @@ class V2ReviewViewModel @Inject constructor(
     }
 
     private suspend fun applyOpened(opened: ReviewSessionOpen.Ready) {
+        onPlaybackUnstable()
+        adjacentSources.clear()
         activeScope = opened.session.scope
         _scopeTitle.value = scopeLabel(activeScope, emptyList())
         _state.value = V2ReviewUiState.LoadingQueue
@@ -537,12 +543,17 @@ class V2ReviewViewModel @Inject constructor(
             return
         }
         resolveJob?.cancel()
-        prefetchJob?.cancel()
+        onPlaybackUnstable()
+        val warm = if (sources.activeMediaId != item.mediaId) adjacentSources.remove(item.mediaId) else null
+        val neighborIds = listOf(ready.localCurrentIndex - 1, ready.localCurrentIndex + 1)
+            .mapNotNull { ready.items.getOrNull(it)?.mediaId }.toSet()
+        sources.source?.takeIf { it.mediaId in neighborIds }?.let { adjacentSources[it.mediaId] = it }
+        adjacentSources.keys.retainAll(neighborIds)
         // §7/§8：解析开始前就切换 source identity（清空上一媒体的 source、回到 Direct）
         val eventToken = sources.moveTo(item.mediaId)
         _playback.value = V2PlaybackUiState.Loading
         resolveJob = viewModelScope.launch {
-            val resolved = sources.takePrefetched(item.mediaId)
+            val resolved = warm
                 ?: try {
                     repository.resolvePlayback(item.mediaId)
                 } catch (cancelled: CancellationException) {
@@ -575,34 +586,48 @@ class V2ReviewViewModel @Inject constructor(
         val item = ready.items.getOrNull(ready.localCurrentIndex) ?: return
         val current = _playback.value as? V2PlaybackUiState.Ready ?: return
         if (mediaId != item.mediaId || current.source.mediaId != mediaId || sources.activeMediaId != mediaId) return
-        prefetchNext()
+        stableMediaId = mediaId
+        prefetchAdjacent()
     }
 
-    /** P1：只预取"下一条"一个播放源（§33；快速滑动时旧预取自然作废）。 */
-    private fun prefetchNext() {
-        if (prefetchJob?.isActive == true) return
+    /** Retire outstanding neighbor work before current P0, a drag or a lifecycle transition. */
+    fun onPlaybackUnstable() {
+        stableMediaId = null
+        prefetchGeneration++
+        prefetchJob?.cancel()
+        prefetchJob = null
+    }
+
+    /** Only ±1 endpoints; sequential network work and at most two cached sources, never players. */
+    private fun prefetchAdjacent() {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         val currentItem = ready.items.getOrNull(ready.localCurrentIndex) ?: return
-        val next = ready.items.getOrNull(ready.localCurrentIndex + 1) ?: return
-        // 预取槽里已有同一个 mediaId：不重复请求
-        if (sources.peekPrefetched(next.mediaId) != null) return
-        prefetchJob?.cancel()
+        val neighbors = listOf(ready.localCurrentIndex + 1, ready.localCurrentIndex - 1)
+            .mapNotNull { ready.items.getOrNull(it) }.distinctBy { it.mediaId }
+        val neighborIds = neighbors.map { it.mediaId }.toSet()
+        adjacentSources.keys.retainAll(neighborIds)
+        if (prefetchJob?.isActive == true) {
+            if (prefetchNeighborIds == neighborIds) return
+            prefetchGeneration++
+            prefetchJob?.cancel()
+        }
+        prefetchNeighborIds = neighborIds
+        val generation = prefetchGeneration
+        val token = sources.token
         prefetchJob = viewModelScope.launch {
-            val resolved = try {
-                repository.resolvePlayback(next.mediaId)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                return@launch
+            for (neighbor in neighbors) {
+                if (adjacentSources[neighbor.mediaId] != null) continue
+                val resolved = try { repository.resolvePlayback(neighbor.mediaId) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Throwable) { continue }
+                val latest = _state.value as? V2ReviewUiState.Ready ?: return@launch
+                val latestNeighbors = listOf(latest.localCurrentIndex - 1, latest.localCurrentIndex + 1)
+                    .mapNotNull { latest.items.getOrNull(it)?.mediaId }
+                if (generation != prefetchGeneration || token != sources.token || latest.sessionId != ready.sessionId ||
+                    latest.items.getOrNull(latest.localCurrentIndex)?.mediaId != currentItem.mediaId ||
+                    sources.activeMediaId != currentItem.mediaId || neighbor.mediaId !in latestNeighbors) return@launch
+                adjacentSources[neighbor.mediaId] = resolved
             }
-            // §22 身份校验：写入单槽前必须确认"当前媒体 + next 媒体"都没有变，
-            // 否则 DROP STALE PREFETCH（极端网络延迟下旧预取不得覆盖新预取）
-            val latest = _state.value as? V2ReviewUiState.Ready ?: return@launch
-            val latestCurrent = latest.items.getOrNull(latest.localCurrentIndex)?.mediaId ?: return@launch
-            val latestNext = latest.items.getOrNull(latest.localCurrentIndex + 1)?.mediaId ?: return@launch
-            if (latestCurrent != currentItem.mediaId || latestNext != next.mediaId) return@launch
-            if (sources.activeMediaId != currentItem.mediaId) return@launch
-            sources.prefetch(next.mediaId, resolved)
         }
     }
 
@@ -669,6 +694,9 @@ class V2ReviewViewModel @Inject constructor(
             loadingNext = false,
             loadingPrev = false,
         )
+        // A stable edge can acquire its N+1 only after this page response. Re-evaluate
+        // the bounded window without preparing another player or waiting for a second reveal.
+        stableMediaId?.let(::onPlaybackStable)
         // §16：新分页带进来的收藏状态必须并入本地集合（第 2 页以后不能显示成未收藏）
         val newFavorites = result.window.items.filter { it.favorite }.map { it.mediaId }
         if (newFavorites.isNotEmpty()) {

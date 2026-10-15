@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalDensity
 import com.mediareview.app.feature.v2.player.native.state.GestureDirection
 import com.mediareview.app.feature.v2.player.native.state.GestureDirectionLock
@@ -48,6 +49,7 @@ fun rememberPlayerBodyGestures(
     enabled: Boolean,
     speed: SpeedGestureState,
     callbacks: PlayerBodyGestureCallbacks,
+    handoffVerticalToPager: Boolean = false,
 ): Modifier {
     val latest = rememberUpdatedState(callbacks)
     val scope = rememberCoroutineScope()
@@ -57,10 +59,19 @@ fun rememberPlayerBodyGestures(
     LaunchedEffect(enabled) {
         if (!enabled) { taps.job?.cancel(); taps.timeMs = null }
     }
-    return Modifier.pointerInput(enabled, speed, density) {
+    return Modifier.pointerInput(enabled, speed, density, handoffVerticalToPager) {
         if (!enabled) return@pointerInput
         awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = true)
+            // Review shares the Pager hit ancestry. Initial sees horizontal/speed before its drag
+            // recognizer; Full retains its existing exclusive Main-pass volume/brightness path.
+            val pass = if (handoffVerticalToPager) PointerEventPass.Initial else PointerEventPass.Main
+            val down = awaitFirstDown(requireUnconsumed = true, pass = pass)
+            if (handoffVerticalToPager) {
+                // Child controls receive Main after this ancestor's Initial pass. Respect
+                // their down consumption before scheduling any body tap/seek/speed work.
+                val finalDown = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id }
+                if (finalDown?.isConsumed == true) return@awaitEachGesture
+            }
             val start = down.position
             val width = size.width.coerceAtLeast(1).toFloat()
             val height = size.height.coerceAtLeast(1).toFloat()
@@ -73,13 +84,13 @@ fun rememberPlayerBodyGestures(
             var ended = false
             var totalDy = 0f
             latest.value.onActive(true)
-            down.consume()
+            if (!handoffVerticalToPager) down.consume()
             try {
                 while (true) {
                     val remaining = (SpeedGestureState.LONG_PRESS_MS - (lastTime - down.uptimeMillis)).coerceAtLeast(1L)
                     val event = if (!longAttempted && !moved && direction.direction == GestureDirection.Undecided) {
-                        withTimeoutOrNull(remaining) { awaitPointerEvent() }
-                    } else awaitPointerEvent()
+                        withTimeoutOrNull(remaining) { awaitPointerEvent(pass) }
+                    } else awaitPointerEvent(pass)
                     if (event == null) {
                         longAttempted = true
                         taps.job?.cancel()
@@ -92,7 +103,7 @@ fun rememberPlayerBodyGestures(
                     }
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                     lastTime = change.uptimeMillis
-                    if (change.isConsumed) break
+                    if (change.isConsumed && !handoffVerticalToPager) break
                     val offset = change.position - start
                     totalDy = offset.y / height
                     if (!longAttempted && !moved && offset.getDistance() <= viewConfiguration.touchSlop &&
@@ -124,7 +135,9 @@ fun rememberPlayerBodyGestures(
                         GestureDirection.Undecided -> Unit
                     }
                     previous = change.position
-                    change.consume()
+                    if (!handoffVerticalToPager || current == GestureDirection.Horizontal || current == GestureDirection.Speed) {
+                        change.consume()
+                    }
                     if (!change.pressed) {
                         when (current) {
                             GestureDirection.Speed -> latest.value.onSpeedChange(speed.release())
@@ -152,6 +165,16 @@ fun rememberPlayerBodyGestures(
                         }
                         ended = true
                         break
+                    }
+                    if (handoffVerticalToPager && current == GestureDirection.Undecided) {
+                        // A diagonal sequence may cross Pager's vertical slop before our 1.2x
+                        // dominance threshold. Once native drag owns it, never turn it into seek.
+                        val finalChange = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id }
+                        if (finalChange?.isConsumed == true) {
+                            direction.update(0f, viewConfiguration.touchSlop * 2f)
+                            taps.job?.cancel(); taps.timeMs = null
+                            latest.value.onVerticalStart(side)
+                        }
                     }
                 }
             } finally {

@@ -12,9 +12,14 @@ internal class KernelSeekRecorder(kernel: IjkExo2MediaPlayer) : AutoCloseable {
         .apply { isAccessible = true }.get(kernel) as ExoPlayer
     @Volatile var count = 0
         private set
+    @Volatile var lastTargetMs: Long? = null
+        private set
     private val listener = object : Player.Listener {
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-            if (reason == Player.DISCONTINUITY_REASON_SEEK) count++
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                lastTargetMs = newPosition.positionMs
+                count++
+            }
         }
     }
     init { exo.addListener(listener) }

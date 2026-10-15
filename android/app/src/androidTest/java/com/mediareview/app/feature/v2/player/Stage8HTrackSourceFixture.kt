@@ -22,6 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 internal class Stage8HTrackSourceFixture(
     private val blockOriginal: Boolean = false,
     private val blockReplacement: Boolean = false,
+    private val shortVideo: Boolean = false,
 ) : AutoCloseable {
     data class Hit(val path: String, val authenticated: Boolean)
     val hits = CopyOnWriteArrayList<Hit>()
@@ -40,7 +41,7 @@ internal class Stage8HTrackSourceFixture(
     }
     private val credential = UUID.randomUUID().toString()
     private val assets = InstrumentationRegistry.getInstrumentation().context.assets
-    private val mp4 = assets.open("dual_audio_60s.mp4").use { it.readBytes() }
+    private val mp4 = assets.open(if (shortVideo) "review_loop_6s.mp4" else "dual_audio_60s.mp4").use { it.readBytes() }
     private val server = MockWebServer()
     val mp4Endpoint: V2PlaybackEndpoint
     val replacementEndpoint: V2PlaybackEndpoint
@@ -69,7 +70,7 @@ internal class Stage8HTrackSourceFixture(
                 }
                 val file = path.removePrefix("/hls/")
                 if (path.startsWith("/hls/") && (file == "index.m3u8" || Regex("segment\\d{3}\\.ts").matches(file))) {
-                    val bytes = assets.open("hls_fixture/$file").use { it.readBytes() }
+                    val bytes = assets.open("${if (shortVideo) "review_loop_hls" else "hls_fixture"}/$file").use { it.readBytes() }
                     return MockResponse().setHeader("Content-Type", if (file.endsWith(".m3u8")) "application/vnd.apple.mpegurl" else "video/mp2t")
                         .setBody(Buffer().write(bytes))
                 }

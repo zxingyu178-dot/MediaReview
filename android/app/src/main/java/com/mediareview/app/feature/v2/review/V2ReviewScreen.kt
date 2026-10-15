@@ -8,8 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.MutatePriority
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,7 +69,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.layout.ContentScale
@@ -78,6 +77,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.imageLoader
+import coil.size.Scale
+import coil.size.Precision
 import com.mediareview.app.BuildConfig
 import com.mediareview.app.feature.v2.player.V2PlaybackUiState
 import com.mediareview.app.feature.v2.player.native.state.awaitPlayerHostReady
@@ -93,11 +95,7 @@ import com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerSurface
 import com.shuyu.gsyvideoplayer.compose.native_.rememberGSYPlayerController
 import com.shuyu.gsyvideoplayer.utils.GSYVideoType
 import com.shuyu.gsyvideoplayer.video.base.GSYVideoView
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlin.math.abs
-import kotlin.math.roundToLong
 import com.mediareview.app.feature.v2.player.native.state.SeekDragEngine
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureState
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureChange
@@ -111,10 +109,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Poster 从"播放状态可用"到淡出的时长（消灭切换黑屏的视觉过渡）。 */
-private const val POSTER_FADE_MS = 200
+private const val POSTER_FADE_MS = 180
 
 /** 播放可用等待超时（模拟器 SwiftShader 软解启动慢，放宽到 10s；超过则保留 Poster / Loading）。 */
 private const val PLAYBACK_READY_TIMEOUT_MS = 10_000L
+private fun reviewPosterRequest(context: android.content.Context, url: String) = ImageRequest.Builder(context)
+    .data(url).crossfade(false).size(720, 1280).scale(Scale.FIT).precision(Precision.INEXACT).build()
 
 /**
  * "画面确实在输出"判定（Playback-ready reveal，Stage 8A §17.2 修正）：
@@ -263,6 +263,7 @@ private fun ReviewPagerContent(
     val playbackFailure = playback as? V2PlaybackUiState.Failed
     val latestPlayback by rememberUpdatedState(playback)
     val latestItems by rememberUpdatedState(items)
+    val latestSessionId by rememberUpdatedState(state.sessionId)
 
     val pagerState = rememberPagerState(initialPage = state.localCurrentIndex) { items.size }
 
@@ -281,6 +282,7 @@ private fun ReviewPagerContent(
     var loadedStage by remember { mutableStateOf("") }
     var ownedHost by remember { mutableStateOf<com.shuyu.gsyvideoplayer.video.StandardGSYVideoPlayer?>(null) }
     var sourceStarted by remember { mutableStateOf(false) }
+    var eofRecovery by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     // 已完成"播放可用"揭示、允许 Poster 淡出的页面（-1 = 无）。
     var revealedPage by remember { mutableIntStateOf(-1) }
     // Stage 8A §17.2：当前源是否真的出现过画面（Playing 且 position > 0）。
@@ -304,12 +306,7 @@ private fun ReviewPagerContent(
     var bodyDurationMs by remember { mutableStateOf(0L) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var verticalActive by remember { mutableStateOf(false) }
-    var verticalSettling by remember { mutableStateOf(false) }
-    var verticalGeneration by remember { mutableIntStateOf(0) }
-    var verticalOrigin by remember { mutableIntStateOf(0) }
-    var surfaceHeight by remember { mutableIntStateOf(1) }
-    var verticalChannel by remember { mutableStateOf<Channel<Float>?>(null) }
-    var verticalJob by remember { mutableStateOf<Job?>(null) }
+    val verticalSettling = pagerState.isScrollInProgress
 
     fun sourceIsCurrent(): Boolean {
         val ready = latestPlayback as? V2PlaybackUiState.Ready ?: return false
@@ -329,6 +326,7 @@ private fun ReviewPagerContent(
         return current
     }
     fun pauseOwnedHost() {
+        eofRecovery?.cancel()
         val host = ownedHost ?: return
         if (host.isAttachedToWindow && host.getGSYVideoManager().listener() === host) host.onVideoPause()
     }
@@ -362,6 +360,7 @@ private fun ReviewPagerContent(
         if (!foreground || !sourceIsCurrent() || sheetOpen || verticalActive || verticalSettling) return
         // Preparing may report !isPlaying even though automatic start is requested.
         if (!userPaused) {
+            eofRecovery?.cancel()
             userPaused = true
             pauseOwnedHost()
         } else {
@@ -377,58 +376,80 @@ private fun ReviewPagerContent(
     LaunchedEffect(feedback) {
         if (feedback != null) { delay(800L); feedback = null }
     }
+    fun seekCurrent(targetMs: Long, resume: Boolean) {
+        eofRecovery?.cancel()
+        val host = currentOwnedSourceHost() ?: return
+        val manager = host.getGSYVideoManager()
+        val eof = host.currentState == GSYVideoView.CURRENT_STATE_AUTO_COMPLETE
+        if (eof) {
+            // Completed clears GSY's prepared flag; startAfterPrepared would prepare a new
+            // kernel. Reattach its existing public render view instead of entering that path.
+            val kernel = manager.player?.mediaPlayer as? tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer ?: return
+            val render = host.renderProxy ?: return
+            val view = render.showView ?: return
+            val container = host.findViewById<android.view.ViewGroup>(com.shuyu.gsyvideoplayer.R.id.surface_container) ?: return
+            if (view.parent != null && view.parent !== container) return
+            val session = latestSessionId
+            val url = loadedUrl
+            val stage = loadedStage
+            val page = pagerState.settledPage
+            val requestToken = playRequestToken
+            fun stillOwned() = latestSessionId == session && loadedUrl == url && loadedStage == stage &&
+                playRequestToken == requestToken && pagerState.settledPage == page && foreground && !userPaused && !sheetOpen &&
+                !scrub.active && !bodySeek.active && !verticalActive && !verticalSettling && !pagerState.isScrollInProgress &&
+                currentOwnedSourceHost() === host && manager.player?.mediaPlayer === kernel &&
+                host.currentState != GSYVideoView.CURRENT_STATE_ERROR
+            controller.setLooping(true)
+            kernel.setLooping(true)
+            userPaused = false
+            if (!stillOwned()) return
+            if (view.parent == null) com.shuyu.gsyvideoplayer.render.GSYRenderView.addToParent(container, view)
+            render.onResume()
+            manager.seekTo(targetMs)
+            manager.start()
+            eofRecovery = scope.launch {
+                // isPlaying alone also includes buffering in this SDK. Actual position
+                // advancement after landing near the seek target proves decoding, rather
+                // than treating the asynchronous seek discontinuity as playback progress.
+                val advancing = awaitOwnedReviewPlaybackAdvance(
+                    targetMs, ::stillOwned, { kernel.isPlaying },
+                    { kernel.currentPosition }, { kernel.duration },
+                )
+                if (!advancing || !stillOwned()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("MRReview", "EofSeekRestore advanced=$advancing owned=${stillOwned()}")
+                    return@launch
+                }
+                host.onVideoPause()
+                if (stillOwned()) host.onVideoResume(false)
+            }
+        } else {
+            controller.seekTo(targetMs)
+            if (resume) resumeCurrent()
+        }
+    }
     fun commitSeek(engine: SeekDragEngine) {
         val result = engine.commit()
         if (result == null) return
         seekPreview = null
         if (!foreground || !sourceIsCurrent() || sheetOpen || verticalActive) return
-        if (currentOwnedSourceHost() == null) return
-        controller.seekTo(result.targetMs)
-        if (result.resumePlaying) resumeCurrent()
+        seekCurrent(result.targetMs, result.resumePlaying)
     }
     fun cancelSeek(engine: SeekDragEngine) {
         val resume = engine.cancel()
         seekPreview = null
         if (resume) resumeCurrent()
     }
-    fun stopVertical(cancel: Boolean, totalDy: Float = 0f) {
-        if (!verticalActive || verticalSettling) return
-        verticalSettling = true
-        val generation = verticalGeneration
-        val channel = verticalChannel
-        val job = verticalJob
-        verticalChannel = null
-        verticalJob = null
-        channel?.close()
-        val origin = verticalOrigin
-        scope.launch {
-            try {
-                if (cancel) job?.cancel()
-                job?.join()
-                if (generation != verticalGeneration) return@launch
-                val delta = when { totalDy < -.12f -> 1; totalDy > .12f -> -1; else -> 0 }
-                val lastIndex = latestItems.lastIndex
-                if (lastIndex < 0) return@launch
-                val target = if (cancel) origin.coerceIn(0, lastIndex) else (origin + delta).coerceIn(0, lastIndex)
-                pagerState.animateScrollToPage(target)
-            } finally {
-                if (generation == verticalGeneration) {
-                    verticalActive = false
-                    verticalSettling = false
-                }
-            }
-        }
-    }
     val bodyModifier = rememberPlayerBodyGestures(
-        enabled = foreground && !sheetOpen && !verticalSettling && items.isNotEmpty(),
+        enabled = foreground && !sheetOpen && items.isNotEmpty(),
         speed = speed,
+        handoffVerticalToPager = true,
         callbacks = PlayerBodyGestureCallbacks(
             isPlaying = ::kernelPlaying,
             onTap = ::togglePlayPause,
             onDoubleTap = { side ->
                 if (foreground && currentOwnedSourceHost() != null && !verticalActive) {
                     val tap = doubleTap.tap(side, SystemClock.uptimeMillis(), kernelPosition(), kernelDuration())
-                    controller.seekTo(tap.targetMs)
+                    seekCurrent(tap.targetMs, !userPaused)
                     feedback = "${if (tap.accumulatedDeltaMs > 0) "+" else ""}${tap.accumulatedDeltaMs / 1000}s"
                 }
             },
@@ -448,24 +469,15 @@ private fun ReviewPagerContent(
             onSeekEnd = { commitSeek(bodySeek) },
             onSeekCancel = { cancelSeek(bodySeek) },
             onVerticalStart = {
-                // Shared GestureDirectionLock exclusively owns this sequence; no second Pager pointer recognizer.
-                if (foreground && !verticalActive && !verticalSettling) {
-                    verticalGeneration++
-                    verticalOrigin = pagerState.settledPage
+                if (foreground && !verticalActive) {
                     verticalActive = true
+                    vm.onPlaybackUnstable()
                     pauseOwnedHost()
-                    val channel = Channel<Float>(Channel.UNLIMITED)
-                    verticalChannel = channel
-                    verticalJob = scope.launch {
-                        pagerState.scroll(MutatePriority.UserInput) {
-                            for (delta in channel) scrollBy(-delta * surfaceHeight)
-                        }
-                    }
                 }
             },
-            onVerticalMove = { delta, _, _ -> verticalChannel?.trySend(delta) },
-            onVerticalEnd = { stopVertical(false, it) },
-            onVerticalCancel = { stopVertical(true) },
+            onVerticalMove = { _, _, _ -> },
+            onVerticalEnd = { verticalActive = false },
+            onVerticalCancel = { verticalActive = false },
             onActive = {},
         ),
     )
@@ -475,6 +487,7 @@ private fun ReviewPagerContent(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    eofRecovery?.cancel()
                     if (foreground) lifecycleResumeIntent = !userPaused
                     foreground = false
                     controller.withHost { host ->
@@ -487,7 +500,8 @@ private fun ReviewPagerContent(
                     val restoredSpeed = speed.cancel().speed
                     if (currentOwnedSourceHost() != null) controller.setSpeed(restoredSpeed)
                     feedback = null
-                    stopVertical(cancel = true)
+                    verticalActive = false
+                    vm.onPlaybackUnstable()
                     stableGate.reset()
                 }
                 Lifecycle.Event.ON_RESUME -> {
@@ -505,9 +519,7 @@ private fun ReviewPagerContent(
     }
     DisposableEffect(controller) {
         onDispose {
-            verticalGeneration++
-            verticalChannel?.close()
-            verticalJob?.cancel()
+            eofRecovery?.cancel()
             scrub.cancel(); bodySeek.cancel(); speed.cancel()
             val host = ownedHost
             val manager = host?.getGSYVideoManager()
@@ -524,6 +536,8 @@ private fun ReviewPagerContent(
     LaunchedEffect(pagerState.settledPage, playbackReady?.source?.mediaId, playbackReady?.endpoint?.url,
         playbackReady?.stage, pagerState.isScrollInProgress) {
         if (!sourceIsCurrent() || pagerState.isScrollInProgress) {
+            eofRecovery?.cancel()
+            vm.onPlaybackUnstable()
             // No old-source resume after cancel/up when P0 is Loading or the page changed.
             scrub.cancel(); bodySeek.cancel(); seekPreview = null
             doubleTap.reset(); applySpeed(speed.cancel())
@@ -562,6 +576,7 @@ private fun ReviewPagerContent(
                 .setUrl(ready.endpoint.url)
                 .setCacheWithPlay(false)
                 .setVideoTitle(item.title)
+                .setLooping(true)
                 .setMapHeadData(ready.endpoint.headers.ifEmpty { null })
             if (!awaitPlayerHostReady(controller)) return@LaunchedEffect
             val latestReadyAfterWait = latestPlayback as? V2PlaybackUiState.Ready ?: return@LaunchedEffect
@@ -677,6 +692,17 @@ private fun ReviewPagerContent(
         }
     }
 
+    // Only a revealed, settled current page releases bounded adjacent poster work. Cancellation
+    // of this effect cancels Coil's requests when a new drag/source/lifecycle replaces the window.
+    LaunchedEffect(state.sessionId, items, pagerState.settledPage, revealedPage, pagerState.isScrollInProgress, foreground, loadedUrl) {
+        if (!foreground || pagerState.isScrollInProgress || revealedPage != pagerState.settledPage || !sourceIsCurrent()) return@LaunchedEffect
+        val page = pagerState.settledPage
+        listOf(page + 1, page - 1).mapNotNull { items.getOrNull(it)?.coverUrl?.takeIf(String::isNotBlank) }
+            .distinct().forEach { url ->
+                context.imageLoader.execute(reviewPosterRequest(context, url))
+            }
+    }
+
     // ---------- 自动批阅：内容可见（revealed）后才开始稳定 ~480ms 计时（High 2 语义不变） ----------
     LaunchedEffect(items, foreground) {
         snapshotFlow {
@@ -710,8 +736,10 @@ private fun ReviewPagerContent(
     }
 
     // 恢复定位 / 前置分页后的偏移补偿：ViewModel 的 localCurrentIndex 变化时对齐 pager。
-    LaunchedEffect(state.sessionId, state.localCurrentIndex, items.size) {
-        if (state.localCurrentIndex in 0..items.lastIndex && pagerState.currentPage != state.localCurrentIndex) {
+    LaunchedEffect(state.sessionId, state.localCurrentIndex) {
+        // Appending changes size, never the requested anchor. Native drag/fling has priority
+        // over restoration; stable Pager keys retain the visible media across a prepend.
+        if (!pagerState.isScrollInProgress && state.localCurrentIndex in 0..items.lastIndex && pagerState.currentPage != state.localCurrentIndex) {
             pagerState.scrollToPage(state.localCurrentIndex)
         }
     }
@@ -741,6 +769,8 @@ private fun ReviewPagerContent(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(MediaImmersiveBackground)) {
+        // The gesture ancestor and native Pager share a hit chain; controls remain siblings.
+        Box(Modifier.fillMaxSize().testTag("review_gesture_surface").then(bodyModifier)) {
         // 常驻视频 Surface：换页时 setUp 换源（单 Controller，不做双 Player）。
         GSYPlayerSurface(
             controller = controller,
@@ -750,7 +780,9 @@ private fun ReviewPagerContent(
         // Pager：每页一个 Poster 层（posterAlpha 控制整个层，淡出后 Surface 完全露出）。
         VerticalPager(
             state = pagerState,
-            userScrollEnabled = false,
+            key = { items[it].mediaId },
+            userScrollEnabled = foreground && !sheetOpen,
+            flingBehavior = PagerDefaults.flingBehavior(pagerState, pagerSnapDistance = PagerSnapDistance.atMost(1)),
             modifier = Modifier.fillMaxSize().testTag("review_pager"),
         ) { page ->
             val item = items[page]
@@ -763,8 +795,7 @@ private fun ReviewPagerContent(
             boxOfPosterStack(item, context, posterAlpha)
         }
 
-        Box(Modifier.fillMaxSize().onSizeChanged { surfaceHeight = it.height.coerceAtLeast(1) }
-            .testTag("review_gesture_surface").then(bodyModifier))
+        }
 
         // 暂停态：中央轻量 ▶（单击 = 播放/暂停，抖音式，不整体隐藏 UI）。
         if (userPaused && sourceIsCurrent() && !sheetOpen && !verticalActive) {
@@ -1047,11 +1078,7 @@ private fun boxOfPosterStack(
                 .background(Color.Black),
         )
         AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(item.coverUrl)
-                .crossfade(false)
-                .size(720, 1280)
-                .build(),
+            model = reviewPosterRequest(context, item.coverUrl),
             contentDescription = item.title,
             // 与视频画面同一视觉策略（Review Display Mode = FIT）。
             contentScale = ContentScale.Fit,
