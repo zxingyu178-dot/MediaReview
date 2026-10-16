@@ -12,9 +12,9 @@ from fastapi.testclient import TestClient
 from app import SERVER_API_CONTRACT, SERVER_CAPABILITIES, __version__
 
 
-def test_server_version_is_130() -> None:
-    """Stage 8H: Server 1.3.0，Contract 保持 2。"""
-    assert __version__ == "1.3.0"
+def test_server_version_is_140() -> None:
+    """Stage 8I: Server 1.4.0，Contract 保持 2。"""
+    assert __version__ == "1.4.0"
 
 
 def test_api_contract_is_2() -> None:
@@ -38,6 +38,9 @@ def test_health_exposes_api_contract_and_capabilities(client: TestClient) -> Non
         "duplicates_paged",
         "library_selection",
         "folder_tree_v1",
+        "thumbnail_profiles_v1",
+        "review_folder_filter_v1",
+        "delete_receipt_v1",
     ):
         assert expected in data["capabilities"], f"缺少能力 {expected}"
 

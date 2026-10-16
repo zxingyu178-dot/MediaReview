@@ -34,8 +34,10 @@ from __future__ import annotations
 
 import argparse
 import email
+import functools
 import hashlib
 import imaplib
+import importlib.util
 import os
 import re
 import shutil
@@ -49,13 +51,167 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO = Path(__file__).resolve().parents[1]
 AIHOME = Path(r"D:\AIHome_2.0_L1_L2")
 TEMP = AIHOME / "temp"
 SECRETS = AIHOME / "projects" / "hermes" / "config" / "secrets.env"
 HANDOFF_DIR = REPO / "review_handoff"
+
+STAGE8I_DOCS = (
+    "00_HANDOFF.md",
+    "01_ACCEPTANCE.md",
+    "02_TEST_REPORT.md",
+    "03_IMAGE_PIPELINE.md",
+    "04_PLAYER_DELETE_SEEK.md",
+    "05_REVIEW_LOOP_PAGER_SCOPE.md",
+    "06_FOLDER_BROWSER.md",
+    "07_DELETE_RECEIPT.md",
+    "08_PERFORMANCE.md",
+    "09_KNOWN_ISSUES.md",
+    "10_USER_VALIDATION.md",
+    "11_RELEASE_NOTES.md",
+)
+
+_CREDENTIAL_KEY = (
+    r"(?:[\w.-]*[._-])?(?:api[_-]?key|access[_-]?token|auth[_-]?token|"
+    r"token|password|passwd|client[_-]?secret|secret[_-]?key)"
+)
+_CREDENTIAL_ASSIGNMENT = re.compile(
+    rf"""^\s*(?:(?:private|public|protected|internal|static|final|const|lateinit|val|var|let|String)\s+)*["']?{_CREDENTIAL_KEY}["']?\s*[:=]\s*(.+?)\s*$""",
+    re.IGNORECASE,
+)
+_INLINE_CREDENTIAL_ASSIGNMENT = re.compile(
+    rf"""(?<![\w.-]){_CREDENTIAL_KEY}\s*[:=]\s*("[^"]*"|'[^']*'|[^\s&"',}}]+)""",
+    re.IGNORECASE,
+)
+_JSON_CREDENTIAL_FIELD = re.compile(
+    rf"""["']{_CREDENTIAL_KEY}["']\s*:\s*("[^"]*"|'[^']*'|[^,\s}}\]]+)""",
+    re.IGNORECASE,
+)
+_BEARER_HEADER = re.compile(
+    r"""\bAuthorization["']?\s*:\s*["']?Bearer\s+([^\s"']+)""", re.IGNORECASE
+)
+_REDACTED_VALUE = re.compile(
+    r"(?i)(?:<[^>]+>|\$\{?[A-Za-z_][A-Za-z_0-9]*\}?|\*+|x+|"
+    r"(?:your|example|sample|dummy|placeholder|redacted|masked|none|null|not[-_ ]?set)"
+    r"(?:[-_ ][A-Za-z_]+)*|(?:mock|fake|fixture)[-_][A-Za-z0-9_-]+|"
+    r"mr_abc123|sk-\.\.\.[A-Za-z0-9]+|\{\})"
+)
+_SOURCE_CODE_SUFFIXES = {".py", ".kt", ".kts", ".java", ".ps1", ".bat", ".gradle"}
+
+
+def _credential_value_is_plaintext(value: str, *, source_code: bool) -> bool:
+    value = value.strip().rstrip(",;`").strip()
+    quoted_literal = False
+    if value and value[0] in "\"'" and value[-1:] == value[0]:
+        value = value[1:-1].strip()
+        quoted_literal = True
+    elif value.endswith(('"', "'")):
+        value = value[:-1].strip()
+    if source_code and not quoted_literal and re.match(r"[A-Za-z_]\w*", value):
+        # 源码右侧为运行时表达式；带引号时只放行凭据字段索引，如 response["token"]。
+        literals = re.findall(r"""["']([^"']+)["']""", value)
+        if not literals or all(
+            re.fullmatch(_CREDENTIAL_KEY, literal, re.IGNORECASE) for literal in literals
+        ):
+            return False
+        if all(_REDACTED_VALUE.fullmatch(literal) for literal in literals):
+            return False
+        # 命名的非凭据参数可用于运行时配对；位置参数中的明文仍拒绝。
+        remainder = value
+        for named in re.finditer(r"""\b([A-Za-z_]\w*)\s*=\s*["']([^"']+)["']""", value):
+            if not re.fullmatch(_CREDENTIAL_KEY, named.group(1), re.IGNORECASE):
+                remainder = remainder.replace(named.group(0), "")
+        if not re.search(r"""["'][^"']+["']""", remainder):
+            return False
+    return bool(value) and not bool(_REDACTED_VALUE.fullmatch(value))
+
+
+def _has_plaintext_credential(line: str, *, source_code: bool) -> bool:
+    match = _CREDENTIAL_ASSIGNMENT.match(line)
+    if match and _credential_value_is_plaintext(match.group(1), source_code=source_code):
+        return True
+    bearer = _BEARER_HEADER.search(line)
+    if bearer and _credential_value_is_plaintext(bearer.group(1), source_code=False):
+        return True
+    if not source_code:
+        for assignment in _INLINE_CREDENTIAL_ASSIGNMENT.finditer(line):
+            if _credential_value_is_plaintext(assignment.group(1), source_code=False):
+                return True
+    for field in _JSON_CREDENTIAL_FIELD.finditer(line):
+        if source_code and "{" not in line[: field.start()]:
+            continue
+        if _credential_value_is_plaintext(field.group(1), source_code=source_code):
+            return True
+    return False
+
+
+@functools.lru_cache(maxsize=1)
+def _review_policy():
+    """Use the existing review builder's approved text/path policy."""
+    spec = importlib.util.spec_from_file_location(
+        "mediareview_handoff_policy", Path(__file__).with_name("build_review_handoff.py")
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def stage8i_approved_source(rel: str) -> bool:
+    policy = _review_policy()
+    path = PurePosixPath(rel.replace("\\", "/"))
+    if path.is_absolute() or ".." in path.parts or ":" in rel:
+        return False
+    if any(part in policy.FORBIDDEN_DIRS for part in path.parts):
+        return False
+    if path.name == ".env" or path.name.endswith(".env") or path.name in policy.SECRET_NAMES:
+        return False
+    if path.suffix in policy.SECRET_SUFFIXES | policy.FORBIDDEN_SUFFIXES:
+        return False
+    return path.suffix in policy.APPROVED_EXTENSIONS
+
+
+def validate_stage8i_payload(pkg: Path) -> None:
+    """Fail before ZIP creation if official evidence contains unapproved material."""
+    actual = {p.name for p in pkg.glob("*.md") if p.is_file()}
+    if actual != set(STAGE8I_DOCS):
+        missing = set(STAGE8I_DOCS) - actual
+        extra = actual - set(STAGE8I_DOCS)
+        raise ValueError(f"Stage8I top-level documents mismatch: missing={missing}, extra={extra}")
+    allowed_roots = set(STAGE8I_DOCS) | {"logs", "source", "git", "SHA256SUMS.txt"}
+    for path in pkg.rglob("*"):
+        rel = path.relative_to(pkg).as_posix()
+        if path.is_symlink():
+            raise ValueError(f"unapproved symlink: {rel}")
+        if path.is_dir():
+            continue
+        if rel.split("/", 1)[0] not in allowed_roots:
+            raise ValueError(f"unapproved payload: {rel}")
+        if rel not in STAGE8I_DOCS and rel != "SHA256SUMS.txt":
+            if rel.startswith("source/"):
+                approved = stage8i_approved_source(rel.removeprefix("source/"))
+            else:
+                approved = PurePosixPath(rel).suffix == ".txt"
+            if not approved:
+                raise ValueError(f"unapproved binary or sensitive path: {rel}")
+        data = path.read_bytes()
+        if b"\x00" in data or len(data) > 2 * 1024 * 1024:
+            raise ValueError(f"unapproved binary or oversized text: {rel}")
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"unapproved binary text: {rel}") from exc
+        if re.search(rb"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----", data):
+            raise ValueError(f"secret material in payload: {rel}")
+        for line_no, line in enumerate(content.splitlines(), start=1):
+            if _has_plaintext_credential(
+                line, source_code=path.suffix.lower() in _SOURCE_CODE_SUFFIXES
+            ):
+                raise ValueError(f"credential material in payload: {rel}:{line_no}")
+
 
 # 日志文件命名 → temp 里的匹配规则（顺序即优先级）
 LOG_PATTERNS: list[tuple[str, str]] = [
@@ -147,6 +303,9 @@ def cmd_collect(stage: str, base: str) -> None:
     dst_root = pkg / "source"
     src_copied = 0
     for rel in changed:
+        if stage.lower() == "8i" and not stage8i_approved_source(rel):
+            print(f"skip(unapproved source) {rel}")
+            continue
         src = REPO / rel
         if not src.is_file():
             print(f"skip(missing) {rel}")
@@ -168,6 +327,11 @@ def cmd_collect(stage: str, base: str) -> None:
 
 def cmd_build(stage: str, date: str, subject_note: str = "") -> Path:
     pkg = pkg_dir(stage)
+    if stage.lower() == "8i":
+        try:
+            validate_stage8i_payload(pkg)
+        except ValueError as exc:
+            fail(str(exc))
     if not (pkg / "00_HANDOFF.md").is_file():
         fail(f"缺少 {pkg / '00_HANDOFF.md'}（请先写交接文档再打包）")
     if not (pkg / "git" / "LOG.txt").is_file():
@@ -237,11 +401,17 @@ def cmd_build(stage: str, date: str, subject_note: str = "") -> Path:
 
     zip_sha = sha256_file(zip_path)
     outside = HANDOFF_DIR / f"MediaReview_Stage{stage}_Handoff_{date}_{short}_SHA256.txt"
+    if stage.lower() == "8i":
+        heading = f"MediaReview Stage {stage} 交付校验（Handoff 不含 APK，官方 APK 单独交付）\n"
+        apk_line = "apk  OFFICIAL ARTIFACT DELIVERED SEPARATELY\n"
+    else:
+        heading = f"MediaReview Stage {stage} 交付校验（小版本：仅 Handoff ZIP，NO USER APK）\n"
+        apk_line = "apk  NOT GENERATED — SMALL VERSION POLICY\n"
     outside.write_text(
-        f"MediaReview Stage {stage} 交付校验（小版本：仅 Handoff ZIP，NO USER APK）\n"
-        f"final_head {head}\n"
-        f"zip  {zip_name}  {zip_path.stat().st_size} bytes  sha256={zip_sha}\n"
-        "apk  NOT GENERATED — SMALL VERSION POLICY\n",
+        heading
+        + f"final_head {head}\n"
+        + f"zip  {zip_name}  {zip_path.stat().st_size} bytes  sha256={zip_sha}\n"
+        + apk_line,
         encoding="utf-8",
     )
 
@@ -469,6 +639,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     stage = args.stage
+    if stage.lower() == "8i" and args.action in ("send", "verify", "all"):
+        fail("Stage8I 不通过邮件交付；仅允许本地 collect/build")
     zip_path = Path(args.zip) if args.zip else None
 
     if args.action in ("collect", "all"):

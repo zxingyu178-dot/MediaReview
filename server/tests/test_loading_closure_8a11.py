@@ -68,7 +68,7 @@ def closure_client(tmp_path) -> Iterator[tuple[TestClient, str, _Upstream]]:
         storage=StorageConfig(data_root=str(tmp_path)),
         security=SecurityConfig(pairing_required=True, pairing_code_remote_allowed=True),
     )
-    config.jellyfin.api_key = SecretStr("closure-key")
+    config.jellyfin.api_key = SecretStr("mock-api-key")
     config.jellyfin.user_id = "user-closure"
     transport = httpx.MockTransport(handler)
     app = create_app(config)

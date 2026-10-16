@@ -241,7 +241,7 @@ class Stage8HReviewGestureTest {
 
     @Test fun blockedNextEndpointStopsOldSourceUntilAuthenticatedNewVideoAdvances() {
         launch(blockSecond = true)
-        body().performTouchInput { down(Offset(width * .3f, height * .7f)); moveTo(Offset(width * .3f, height * .2f)); up() }
+        body().performTouchInput { swipe(Offset(width * .35f, height * .8f), Offset(width * .35f, height * .2f), durationMillis = 140) }
         // P1 can request this endpoint before the gesture; its latch alone is not page settlement.
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Loading && !kernel { it.isPlaying } && fixture!!.secondPlaybackRequested.count == 0L }
         Assert.assertEquals(0L, fixture!!.secondPlaybackRequested.count)

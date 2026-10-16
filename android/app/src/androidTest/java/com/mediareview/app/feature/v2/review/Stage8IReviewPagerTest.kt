@@ -96,27 +96,55 @@ class Stage8IReviewPagerTest {
         compose.setContent { MediaReviewTheme { V2ReviewScreen(vm, {}, {}) } }
         moving(if (paging) 48 else 0)
     }
-    private fun firstFrame(index: Int): Pair<IjkExo2MediaPlayer, Long> {
+    private fun firstFrame(index: Int, evidencePrefix: String = "pager"): Pair<IjkExo2MediaPlayer, Long> {
         var player: IjkExo2MediaPlayer? = null
         var frame: ReviewFrameEvidence? = null
-        clock.until(60_000) {
-            val ready = vm.playback.value as? V2PlaybackUiState.Ready
-            val matches = page() == index && ready != null && kernel {
-                val p = it.player?.mediaPlayer as? IjkExo2MediaPlayer
-                if (p != null && p.dataSource == ready.endpoint.url && it.isPlaying) player = p
-                player === p && p != null && p.dataSource == ready.endpoint.url && it.isPlaying
+        var lastPage: Int? = null
+        var lastReady = false
+        var lastKernelPresent = false
+        var lastSourceMatches = false
+        var lastPlaying = false
+        var captures = 0
+        var lastRed = 0
+        var lastGreen = 0
+        var lastBlue = 0
+        try {
+            clock.until(60_000) {
+                lastPage = page()
+                val ready = vm.playback.value as? V2PlaybackUiState.Ready
+                lastReady = ready != null
+                lastKernelPresent = false
+                lastSourceMatches = false
+                lastPlaying = false
+                val matches = lastPage == index && ready != null && kernel {
+                    val p = it.player?.mediaPlayer as? IjkExo2MediaPlayer
+                    lastKernelPresent = p != null
+                    lastSourceMatches = p != null && p.dataSource == ready.endpoint.url
+                    lastPlaying = it.isPlaying
+                    if (lastSourceMatches && lastPlaying) player = p
+                    player === p && lastSourceMatches && lastPlaying
+                }
+                if (!matches) false else {
+                    val captured = ReviewFrameEvidence.capture("$evidencePrefix-$index-first-frame")
+                    captures++
+                    lastRed = captured.red; lastGreen = captured.green; lastBlue = captured.blue
+                    if (captured.hasVideoColors) frame = captured
+                    captured.hasVideoColors
+                }
             }
-            if (!matches) false else {
-                val captured = ReviewFrameEvidence.capture("pager-$index-first-frame")
-                if (captured.hasVideoColors) frame = captured
-                captured.hasVideoColors
+        } catch (error: AssertionError) {
+            if (evidencePrefix == "rapid-pager") {
+                // Preserve the original timeout and RGB/source contract; record which condition failed.
+                val timeoutFrame = runCatching { ReviewFrameEvidence.capture("rapid-pager-$index-timeout") }.getOrNull()
+                android.util.Log.e("MRTask7Evidence", "rapid_first_frame_timeout index=$index page=$lastPage ready=$lastReady kernel=$lastKernelPresent sourceMatches=$lastSourceMatches playing=$lastPlaying rgbCaptures=$captures lastRgb=$lastRed,$lastGreen,$lastBlue timeoutRgb=${timeoutFrame?.red},${timeoutFrame?.green},${timeoutFrame?.blue}", error)
             }
+            throw error
         }
         frameCaptureLatencyMs = frame!!.captureLatencyMs
         return player!! to frame!!.capturedAtMs
     }
-    private fun moving(index: Int): IjkExo2MediaPlayer {
-        val player = firstFrame(index).first
+    private fun moving(index: Int, evidencePrefix: String = "pager"): IjkExo2MediaPlayer {
+        val player = firstFrame(index, evidencePrefix).first
         val baseline = kernel { it.currentPosition }
         clock.until(5000) { kernel { it.player.mediaPlayer === player && it.isPlaying && it.currentPosition > baseline + 300 } }
         return player
@@ -165,7 +193,7 @@ class Stage8IReviewPagerTest {
             }
             Assert.assertEquals(index, page())
         }
-        val final = moving(5)
+        val final = moving(5, "rapid-pager")
         kernel { observed.filter { it !== final }.forEach { old ->
             Assert.assertFalse("快速连滑旧kernel不得串音", old.isPlaying)
             Assert.assertTrue("快速连滑旧source必须释放", old.dataSource.isNullOrEmpty())

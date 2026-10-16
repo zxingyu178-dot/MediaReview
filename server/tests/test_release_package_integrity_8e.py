@@ -35,7 +35,7 @@ def configure_prepared_builder(builder, tmp_path, monkeypatch, *, historical=Fal
         "DEPLOY": tmp_path / "deployment",
         "OUT": tmp_path / "deploy_handoff",
         "APK_DIR": tmp_path / "android/app/build/outputs/apk",
-        "EVIDENCE": tmp_path / "deploy_handoff/stage8h-build-evidence.json",
+        "EVIDENCE": tmp_path / "deploy_handoff/stage8i-build-evidence.json",
     }.items():
         monkeypatch.setattr(builder, name, path)
     source_paths = (
@@ -392,8 +392,8 @@ class TestReleasePackageInputs8E1:
         builder = prepared_builder
         receipt = json.loads(builder.EVIDENCE.read_text(encoding="utf-8"))
         archive_path = builder.package_verified()
-        assert archive_path.name == "MediaReview_Server_1.3.0_stage8h.zip"
-        assert builder.current_apk_name() == "MediaReview_2.0.0-alpha11_stage8h.apk"
+        assert archive_path.name == "MediaReview_Server_1.4.0_stage8i.zip"
+        assert builder.current_apk_name() == "MediaReview_2.0.0-alpha12_stage8i.apk"
         with zipfile.ZipFile(archive_path) as archive:
             prefix = archive_path.stem + "/"
             manifest = json.loads(archive.read(prefix + "RELEASE_MANIFEST.json"))

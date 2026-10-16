@@ -2751,3 +2751,25 @@ Review 使用原生 VerticalPager / atMost(1)，移除 Channel<Float> 逐像素�
 独立产品源码审查C0/I0/M0；测试修正复审C0/I0/M1，唯一Minor为局部HTTP初始化/首次UI等待仍在try之前，若其失败client可能未完整清理。此项不阻断Task8提交，已交Task9在全量connected前关闭。测试对重试的断言已收紧为HTTP成功计数增加+正常非刷新摘要+无错误，避免只等错误文案消失的假通过。
 
 仅root owned只读AVD，不是手机/家庭LAN；未真实用户媒体删除或生产部署，BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT保持。Task9正式版本、性能对照、全pytest/ruff/JVM/lint/fullconnected/Release、正式APK/Server ZIP/十二文档交接和push仍未完成；整体Stage8I未完成。
+
+## 2026-10-17 Stage8I Task9 — 发布候选与最终验收（进行中）
+
+Android code19 / 2.0.0-alpha12，Server1.4.0 / API2；新增 thumbnail_profiles_v1、review_folder_filter_v1、delete_receipt_v1，保留旧七能力。七条中文更新说明与首次/跨版/关闭持久化合同同步，发布指南和既有构建工具同步版本。交接工具限定十二顶层说明及批准文本，排除二进制、媒体和敏感明文；仅允许本地 collect/build，不发送邮件。
+
+完整源码复审发现并修正：删除前 lstat 整条路径链，拒绝链接、重解析点与非普通文件，防止误计释放字节；交接普通文本凭据漏检；范围界面禁用的符号字面量；健康测试导入排序；恢复会话时仅 latest 404 表示需选择范围，已存在会话的窗口404保持真实失败。Task8客户端清理边界移入完整 try/finally。针对性 RED/GREEN、原始失败及独立审查保留，最终源码 C0/I0/M1；Minor 为三个既有文件格式差异，Ruff检查实际通过，不扩大无关整理。
+
+最终服务端 round2 实际638项、零失败/错误/跳过，Ruff通过，141份输入无漂移。随后交接脚本与测试的凭据扫描修正另有27项针对性通过和批准文本扫描零违规；不称638项在该脚本修正后重新全跑。Android round2 实际488项、零失败/错误/跳过，lint零错误/42警告/16信息，Debug Main/Test 构建通过，354份输入无漂移。
+
+首次完整设备验收178项：174通过、4失败，原报告保存在 review_meta/stage8i/final-connected。失败包括旧提示文案断言、布局请求相互干扰、旧单事件滑动输入，以及快速五次翻页末帧复合条件超时。最后一项日志已确认当前正确源实际 READY/Playing，但失败截图被后续测试覆盖，根因未确定；旧Main/Test单独重现1项通过不能解释原失败。此次四文件仅修测试文案、请求隔离、真实滑动输入、邻预取完成采样与独立失败截图，不修改产品代码或放宽原RGB/源/播放/60秒条件。独立补审C0/I0/M2，诊断完备性Minor不阻断。
+
+Main冻结 SHA256 80cdab2fab23da14f1d3ce5df60b25ca6b179792bb5ec8f922a18b63ef510e7b；新Test为 f5cab35ecf7c589f00976411a8136df26f1986c819549a84beee6474ad91ed56。最终完整 connected 复验已开始，四处批准测试修改之外354份输入无漂移；仅使用 owned readonly AVD。为减少无关重复，不再先跑12项补验，也不重复未受影响的Server/JVM/lint。
+
+真实Alpha11对照保存独立APK与同fixture数据。100图冷payload6785700→1329400字节；首轮同条件冷首屏2426→1824ms、热198→126ms且热传输0字节；preview1718→398ms、当前原图2355→967ms。该轮Alpha12邻预取采样缺失，不能据此宣称性能闭环，新Test改为等待真实HTTP与Coil完成事件。Review五次 settled→RGB代理旧2631/3280/2831/3405/2874ms，新2689/6095/4871/2883/2609ms，包含采样与截图成本，不宣称整体提速或硬件首帧SLA。
+
+待完成：完整设备复验终态、邻原图完成性能证据、唯一正式Release与Server ZIP、35节终审、最终推送及十二文档Handoff。尚未生成正式Alpha12/Server1.4产物，不声称阶段完成、家庭LAN通过或生产就绪。
+
+01:38补充：本次完整设备round2因模拟器SystemUI无响应中断。两项Stage4旧测试RootViewWithoutFocus同时，dumpsys明确显示焦点为Application Not Responding:com.android.systemui；保留window/logcat后主动停止本任务合成App并正常退出AVD，因此第三项Stage8F进程中断属于主动终止的后果。实际仅运行20/178、3失败、退出1，354输入无漂移；不将其称为完成整套或产品回归结论。替代只读AVD将guest RAM由1536调为2048MB，需四次稳定Launcher焦点/无ANR采样后开始下一完整轮次。此变化必须与后续性能样本一起披露；此前Alpha11/12成对1536MB数据仍保留原口径。
+
+第三轮开机预检153.706s后连续四次Launcher稳定且无ANR，方开始完整178项。初期40项零失败，严格图像性能样本已在卸载前归档：100张1329400B/100请求/100不同图，热body0B；相邻p51/p49真实HTTP和Coil完成分别1641/2079ms，请求顺序p50→p51→p49。此为2048MB guest RAM补充样本，不与原1536MB旧版直接计算时间改善比例。前述成对Alpha11/12仍保留原口径；本轮完整终态尚待执行结束。
+
+最终完整设备第三轮实际退出0：178项全部通过，0失败/错误/跳过，1276.588秒，354输入运行前后无漂移。原始XML与逐方法日志已归档final-connected-round3，原始失败与环境中断不抹去。严格相邻完成性能样本已齐，Full/Review真实播放及原四失败方法均在本轮XML中通过。仅owned只读AVD/合成素材；手机/LAN未测。下一步唯一正式Release/EXE与离线包，尚未生成正式产物或完成阶段。

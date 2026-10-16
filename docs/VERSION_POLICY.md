@@ -38,7 +38,7 @@
 
 - `CurrentVersionHasReleaseNotesTest` 会校验 `BuildConfig.VERSION_CODE` 必须能在
   `ReleaseNotesCatalog` 中找到条目：改了版本号却忘记写更新日志 → **测试直接失败**；
-- 更新日志面向真实用户，保持 3~6 条，禁止出现 Stage 编号 / Repository / DTO /
+- 更新日志面向真实用户，通常保持 3~6 条；Alpha11 和 Alpha12 各为七条真实用户收益。禁止出现 Stage 编号 / Repository / DTO /
   Hilt / MockWebServer 等开发内部词（另有源码合同测试禁止 ✓ 等符号占位）。
 
 ## 5. 新版本首次启动行为

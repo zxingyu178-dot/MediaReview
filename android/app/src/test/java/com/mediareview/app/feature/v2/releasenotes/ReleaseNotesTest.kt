@@ -30,24 +30,24 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  * Stage 8C.1 §47/§55 + Stage 8C.2 §34：版本 / 更新日志目录合同。
  */
 class ReleaseNotesContractTest {
-    @Test fun `Alpha11 当前版本与七条说明精确匹配`() {
-        assertEquals(18, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha11", BuildConfig.VERSION_NAME)
-        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(18))
-        assertEquals("2.0.0-alpha11", note.versionName)
-        assertEquals("MediaReview 2.0 Alpha 11", note.title)
+    @Test fun `Alpha12 当前版本与七条说明精确匹配`() {
+        assertEquals(19, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha12", BuildConfig.VERSION_NAME)
+        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(19))
+        assertEquals("2.0.0-alpha12", note.versionName)
+        assertEquals("MediaReview 2.0 Alpha 12", note.title)
         assertEquals(listOf(
-            "首页支持按媒体库与文件夹逐级浏览",
-            "首页支持单列、双列切换并保留浏览位置",
-            "相册和分类再次打开时优先显示缓存内容",
-            "封面按需加载，首页不再长按生成雪碧图预览",
-            "全屏播放器支持拖动进度与双击快进快退",
-            "长按临时二倍速，上滑可锁定并恢复原倍速",
-            "批阅播放器统一进度与倍速手势，区分横向操作和纵向翻页",
+            "提升图片缩略图和图库浏览速度",
+            "图片查看器会预加载相邻原图",
+            "播放器新增待删除操作并优化拖动手感",
+            "优化批阅模式循环播放和上下滑动体验",
+            "批阅现在可以按文件夹选择范围",
+            "修复待删除视频大小显示并增强删除结果确认",
+            "修复部分层级分类无法正常使用的问题",
         ), note.highlights)
-        assertEquals(listOf(18), codes(null, 18))
-        assertEquals(listOf(18), codes(17, 18))
-        assertEquals(listOf(17, 18), codes(16, 18))
+        assertEquals(listOf(19), codes(null, 19))
+        assertEquals(listOf(19), codes(18, 19))
+        assertEquals(listOf(18, 19), codes(17, 19))
     }
 
     @Test fun `Alpha8 历史目录合同保持独立`() {
@@ -123,7 +123,7 @@ class ReleaseNotesContractTest {
             banned.forEach { word ->
                 assertFalse("更新日志必须面向用户，不得出现开发内部词: $word", text.contains(word))
             }
-            assertTrue("${note.versionName} 更新条数符合版本合同", note.highlights.size in (if (note.versionCode == 18) 7..7 else 3..6))
+            assertTrue("${note.versionName} 更新条数符合版本合同", note.highlights.size in (if (note.versionCode in setOf(18, 19)) 7..7 else 3..6))
         }
     }
 
@@ -189,38 +189,38 @@ class WhatsNewViewModelTest {
     val main = MainDispatcherRule()
 
     @Test
-    fun `升级 17 到 18 只展示 alpha11`() = runTest(main.dispatcher) {
-        val vm = WhatsNewViewModel(FakeReleaseNotesStore(17))
+    fun `升级 18 到 19 只展示 alpha12`() = runTest(main.dispatcher) {
+        val vm = WhatsNewViewModel(FakeReleaseNotesStore(18))
         advanceUntilIdle()
 
         assertTrue(vm.state.value.visible)
         assertEquals(listOf(BuildConfig.VERSION_CODE), vm.state.value.notes.map { it.versionCode })
-        assertEquals("2.0.0-alpha11", vm.state.value.notes.single().versionName)
+        assertEquals("2.0.0-alpha12", vm.state.value.notes.single().versionName)
         assertFalse(vm.state.value.isMultiVersion)
     }
 
     @Test
-    fun `升级 8 到 18 一个 Sheet 同时包含 alpha2 到 alpha11`() = runTest(main.dispatcher) {
+    fun `升级 8 到 19 一个 Sheet 同时包含 alpha2 到 alpha12`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(8))
         advanceUntilIdle()
 
         val state = vm.state.value
         assertTrue(state.visible)
-        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16, 17, 18), state.notes.map { it.versionCode })
+        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19), state.notes.map { it.versionCode })
         assertEquals(
-            listOf("2.0.0-alpha2", "2.0.0-alpha3", "2.0.0-alpha4", "2.0.0-alpha5", "2.0.0-alpha6", "2.0.0-alpha7", "2.0.0-alpha8", "2.0.0-alpha9", "2.0.0-alpha10", "2.0.0-alpha11"),
+            listOf("2.0.0-alpha2", "2.0.0-alpha3", "2.0.0-alpha4", "2.0.0-alpha5", "2.0.0-alpha6", "2.0.0-alpha7", "2.0.0-alpha8", "2.0.0-alpha9", "2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12"),
             state.notes.map { it.versionName },
         )
         assertTrue("跨版本必须聚合在一个 Sheet(不同版本分区显示)", state.isMultiVersion)
     }
 
     @Test
-    fun `升级 16 到 18 聚合 alpha10 和 alpha11`() = runTest(main.dispatcher) {
+    fun `升级 16 到 19 聚合 alpha10 到 alpha12`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(16))
         advanceUntilIdle()
         assertTrue(vm.state.value.visible)
-        assertEquals(listOf(17, 18), vm.state.value.notes.map { it.versionCode })
-        assertEquals(listOf("2.0.0-alpha10", "2.0.0-alpha11"), vm.state.value.notes.map { it.versionName })
+        assertEquals(listOf(17, 18, 19), vm.state.value.notes.map { it.versionCode })
+        assertEquals(listOf("2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12"), vm.state.value.notes.map { it.versionName })
         assertTrue(vm.state.value.isMultiVersion)
     }
 
@@ -243,7 +243,7 @@ class WhatsNewViewModelTest {
         vm.dismiss()
         advanceUntilIdle()
         assertFalse(vm.state.value.visible)
-        assertEquals(listOf(18), store.saves)
+        assertEquals(listOf(19), store.saves)
 
         val restart = WhatsNewViewModel(store)
         advanceUntilIdle()

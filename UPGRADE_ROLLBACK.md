@@ -1,8 +1,8 @@
-# MediaReview Alpha11 / Server1.3.0 升级与回滚边界
+# MediaReview Alpha12 / Server1.4.0 升级与回滚边界
 
-当前发布目标：Android code18 / `2.0.0-alpha11`；Server `1.3.0` / Contract2。health应包含七项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`。
+当前发布目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / Contract2。health应包含十项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
 
-## Stage8H本次边界
+## Stage8I本次边界
 
 仅交付官方离线产物；不部署生产Server，不安装用户手机或清数据，不操作SCM或ControlHub生命周期，不修改真实Jellyfin，不删除真实媒体。
 
@@ -12,7 +12,7 @@
 
 备份需包含旧二进制、配置、完整数据库及停服时存在的WAL/SHM、版本标记与服务定义，记录时间、版本及完整文件SHA256。含凭据的备份保存在用户安全位置，不进入Git、交接ZIP或邮件。失败恢复必须校验备份并核验旧版本实际health，不能只看版本文本；恢复失败保留证据并明确报告。
 
-真实用户体验仅使用 [Stage8H的15步路线](USER_LAN_VALIDATION.md)，等待后续官方升级及安装条件具备后执行。
+真实用户体验按 [Stage8I手机验收路线](USER_LAN_VALIDATION.md)，等待后续官方升级及安装条件具备后执行。
 
 ## 历史记录（不构成本次部署授权）
 

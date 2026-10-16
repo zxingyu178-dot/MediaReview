@@ -114,6 +114,32 @@ class V2ServerReviewSessionRepositoryContractTest {
     }
 
     @Test
+    fun `已有会话nearest返回404必须失败而不进入新范围`() = runTest {
+        router.latestStatus = 200
+        router.sessionTotal = 2
+        router.nearestStatus = 404
+
+        val opened = repository.prepareSession()
+
+        assertTrue("nearest 404 应报告恢复失败，实际 $opened", opened is ReviewSessionOpen.Failed)
+        assertEquals(1, router.nearestRequests().size)
+        assertTrue(router.requests.none { it.method == "POST" })
+    }
+
+    @Test
+    fun `已有会话queue返回404必须失败而不进入新范围`() = runTest {
+        router.latestStatus = 200
+        router.sessionTotal = 2
+        router.queueStatus = 404
+
+        val opened = repository.prepareSession()
+
+        assertTrue("queue 404 应报告恢复失败，实际 $opened", opened is ReviewSessionOpen.Failed)
+        assertEquals(listOf(1), router.queuePages())
+        assertTrue(router.requests.none { it.method == "POST" })
+    }
+
+    @Test
     fun `旧服务器禁folder请求但全部视频仍创建可用`() = runTest {
         router.sessionTotal = 2
         assertTrue(repository.createScopedSession(ReviewScope(listOf("ft_a"))) is ReviewSessionOpen.Failed)

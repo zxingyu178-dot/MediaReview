@@ -1,33 +1,32 @@
-# Stage8H 审查摘要
+# Stage8I 审查摘要（正式包构建前）
 
-阶段：Player V2 & Home Experience Reconstruction。分支 feature/mediareview-v2-stage8h-player-home-rebuild；完整104节规格见 docs/STAGE8H_PLAYER_HOME_SPEC.md。
+阶段：Media UX Polish & Review Reliability。分支 feature/mediareview-v2-stage8i-ux-polish；完整35节规格见 docs/STAGE8I_MEDIA_UX_SPEC.md。实现及最终完整设备门禁已完成，正式产物和交接仍未完成。
 
-## 实现与范围
+## 实现与架构
 
-Server新增认证文件夹树、隐藏存储路径及folder_tree_v1；首页单双列、可收起顶部、目录面包屑与浏览锚点保留。相册与浏览窗口采用有界LRU及保留内容的后台刷新，Coil加载真实封面；Android移除Sprite请求，Server旧Sprite缓存/DB保留。
+固定缩略图profile及完整变体缓存键；媒体墙/相册不请求原图。Viewer保留preview、当前原图优先、相邻source有界预取并取消过期任务。Full/Viewer共用服务端确认的待删除与撤销；共享有界横向Seek，保留双击±10秒和进度条绝对定位。
 
-Full/Review共享进度条、方向锁、seek与倍速状态机。播放、切源、恢复与手势核验当前源/真实内核/宿主归属；seek以真实内核位置为起点。旧内核释放错误在确认换源/退出前按宿主和URL隔离，新内核错误反馈保留。根Snackbar按详情路由为操作按钮留出空间。
+首页显示实际版本/API/能力诊断；文件夹封面与计数、子目录、递归范围和面包屑。Review使用原生VerticalPager、单手势最多一条、横向主导消费与子控件优先；当前视频循环，EOF竞态通过公开render恢复同一内核，稳定页预取相邻端点与poster。范围支持多选、库归属验证、冻结会话、显式重建及旧Server禁用文件夹选择。
 
-Android code18 / 2.0.0-alpha11；Server1.3.0 / Contract2 / 七能力。保留MediaRepository、Review Session、SQLite和GSY；无新数据库migration、Room、全量媒体下载或平行生命周期系统。Favorites全量接口及N+1属于既有性能债，没有退化证据不扩展优化。
+Server解析MediaSources大小并回填索引/队列。删除receipt仅统计实际删除且路径已不存在的普通文件，整条路径链拒绝链接和重解析点；failed保留，missing/failed不计释放。Android传递实际字节，区分旧Server未知和Demo；整理刷新保留内容与重试。未重写现有架构、转发完整视频流或引入平行生命周期系统。核心改动位于图片profile/cache、共享pending/seek、folder/scope/review、delete_queue/receipt和现有构建/交接工具；无新增数据库migration。
 
-## 当前有效门禁
+Android code19 / 2.0.0-alpha12；Server1.4.0 / API2，新增thumbnail_profiles_v1、review_folder_filter_v1、delete_receipt_v1并保留旧七能力。七条中文更新说明、首装/跨版/关闭持久化同步。
 
-- Server完整pytest577通过；Ruff服务器114文件及发布builder1文件通过；发布文档/打包契约114项回归通过。
-- 最终Debug/Test冻结输入：Main B7502639 / Test8B979945。完整connected实际141项，0failure/error/skipped，Gradle成功12m15；完整JUnit XML与原输出已归档。
-- 同一生产输入最终JVM444项/69 suites，0failure/error/skipped；Gradle JVM/lint成功9m42，lint0错误/42警告/15信息。旧输入门禁不代替本次结果。
-- 失败与修复追溯保留：原37项34/3、严格补验5项4/1、两次139中断、分类/App16项13/3、根提示3/3、旧错误/控制时钟确定性2项RED及后续GREEN。最终整套覆盖其修正，不改写历史失败。
-- 完整审查链及本轮生产错误监听/测试锚点增量补审C0/I0/M0。所有实际通过与截图/HTTP/真实位置证据均按输入区分，不以语义节点存在替代物理操作。
+## 当前证据
 
-正式唯一assembleRelease通过，APK code18 / Alpha11签名核验通过，与Alpha10证书一致。Server EXE隔离health确认1.3.0 / Contract2 / 七能力；正式ZIP共169项SHA256回验通过。构建与打包提交为ec5ccc656d112654b2a31757fb5b3d656eebb807，后续交付文档提交不改变冻结构建及打包输入。最终push/clean与十文档Handoff在文档提交后执行，其实际结果以交付回执为准。
+- Server完整round2：638项通过，Ruff通过，141输入无漂移。随后仅交接脚本/测试修正，受影响27项及Ruff通过，不冒称修正后全638重跑。
+- Android完整round2：488 JVM项通过；lint零错误/42警告/16信息；Debug Main/Test构建通过，354输入无漂移。此后四处androidTest修改不改变产品源码、JVM或lint输入，复用匹配结果。
+- 最终第三轮完整设备178项全部通过，零失败/错误/跳过，实际退出0，用时1276.588秒，354输入无漂移。保留首轮174/178与第二轮SystemUI ANR中断20项的历史；第三轮独立全178通过，不是跨轮相加。Main字节不变，新Test仅四文件窄修。真实6秒Direct/HLS循环/EOF、Full回归、快速五次翻页、原有blockedNext与图像布局均在最终XML中通过。
+- Tasks1–8定向HTTP、真实6秒Direct/HLS循环/EOF、原生快慢五次翻页、Full手势、真实临时文件删除、范围与文件夹导航证据见DEV_LOG及review_meta/stage8i。只读AVD实际画面/位置/源证据与真实手机/家庭LAN分开。
+- 全分支独立源码审查C0/I0/M1，四测试窄修补审C0/I0/M2。三个既有格式差异与测试诊断完备性为非阻断Minor；Ruff检查实际通过。Task8清理边界Minor已关闭。
+- 真Alpha11→候选Alpha12图片100张body6785700→1329400字节，当前原图2355→967ms；首轮邻完成采样不足，新Test第三轮补齐真实HTTP及Coil完成1641/2079ms；其2048MB guest RAM与旧成对1536MB数据分列。Review首RGB代理波动，不宣称全面提速或硬件首帧SLA。
 
-## 边界与风险
+## 待完成与风险
 
-PiP与外挂SRT/ASS按规格Deferred。内嵌字幕公开cue链无法稳定渲染，入口隐藏；多音轨通过真实公共API与设备专项。视觉/触感、逐档比例与窄屏体验、跨重启磁盘封面缓存及真实手机/LAN仍保留用户验证边界。
+等待唯一正式assembleRelease/Server EXE、签名/版本/隔离health与包SHA核验、最终提交推送及十二文档Handoff。官方Alpha12 APK和Server1.4 ZIP当前未正式生成。最高允许结论为CODE_READY / READY_FOR_USER_VALIDATION，当前尚未达到。
 
-旧内核隔离不能撤回已经入队的GSY回调；本次确定性回归验证退休内核错误重放与当前错误反馈，不冒充真实断网验收。
+风险最高三点：首轮rapid末帧超时根因未确定，保留失败并以完整复验评估；真实手机/家庭网络及视觉触感待用户验证；生产升级依赖外部ControlHub正式合同。
 
-生产升级桥仍BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；本阶段只产出离线Server Artifact，不部署生产、不改真实Jellyfin/媒体、不清手机数据、不操作SCM或ControlHub生命周期。用户仅使用docs/STAGE8H_USER_VALIDATION.md的一条15步路线。
+继续BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；不部署生产、不改真实Jellyfin、不删用户媒体、不清手机数据。不声称REAL_LAN_PASS或PRODUCTION_READY。
 
-风险最高三点：真实手机/家庭网络尚未验证；窄屏视觉/提示/触感及跨重启缓存需体验确认；生产升级依赖外部正式合同。
-
-阶段结论：CODE_READY / READY_FOR_USER_VALIDATION。自动化和正式离线产物已核验；最终提交后的源码推送与Handoff交付由独立回执记录。尚未声明REAL_LAN_PASS或PRODUCTION_READY。
+阶段结论：不合格（阶段交付门禁尚未闭环，开发继续）。

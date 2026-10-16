@@ -1,14 +1,14 @@
-# MediaReview Server 1.3.0 离线发布
+# MediaReview Server 1.4.0 离线发布
 
-当前目标：Android code18 / `2.0.0-alpha11`；Server `1.3.0` / API Contract `2`。
+当前目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / API Contract `2`。
 
-本阶段仅准备与核验官方离线产物：`MediaReview_2.0.0-alpha11_stage8h.apk`、`MediaReview_Server_1.3.0_stage8h.zip`。不得执行生产部署、用户手机安装、SCM操作或ControlHub生命周期操作；不得修改真实Jellyfin或用户媒体。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`，该阻塞不禁止获授权的离线构建。
+本阶段仅准备与核验官方离线产物：`MediaReview_2.0.0-alpha12_stage8i.apk`、`MediaReview_Server_1.4.0_stage8i.zip`。不得执行生产部署、用户手机安装、SCM操作或ControlHub生命周期操作；不得修改真实Jellyfin或用户媒体。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`，该阻塞不禁止获授权的离线构建。
 
 ## 既有发布入口
 
-沿用 `scripts/build_deploy.py` 的 `--prepare-only` / `--package-verified` 两步入口。按Stage8H规格统一安排最终构建，APK只生成一次，不为文档更新重复构建。构建前后源/产物哈希、Git状态、实际Server二进制隔离health、APK版本与签名、完整文件集合及证据有效期均须通过原门禁；源码或产物变化需重新核验，禁止旧产物或Debug回退。
+沿用 `scripts/build_deploy.py` 的 `--prepare-only` / `--package-verified` 两步入口。按Stage8I规格统一安排最终构建，APK只生成一次，不为文档更新重复构建。构建前后源/产物哈希、Git状态、实际Server二进制隔离health、APK版本与签名、完整文件集合及证据有效期均须通过原门禁；源码或产物变化需重新核验，禁止旧产物或Debug回退。
 
-Server实际health应为 `status=ok`、`version=1.3.0`、`api_contract=2`，包含七项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`。`folder_tree_v1`为本阶段新增。
+Server实际health应为 `status=ok`、`version=1.4.0`、`api_contract=2`，包含十项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
 
 完整自动化、签名、隔离二进制与产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`；不等于 `REAL_LAN_PASS` / `PRODUCTION_READY`。
 
@@ -18,7 +18,7 @@ Server实际health应为 `status=ok`、`version=1.3.0`、`api_contract=2`，包�
 
 后续网络配置应使用当时确认的地址：`jellyfin.url`给电脑端，`jellyfin.client_url`给手机直连，保留代理路径。手机视频直连Jellyfin，Server不中转完整视频流。本次不更改配置或防火墙。
 
-安装边界、回滚记录和唯一15步路线分别见 `USER_INSTALL_GUIDE.md`、`UPGRADE_ROLLBACK.md`、`USER_LAN_VALIDATION.md`。这三份文件均位于交付包根目录；在源码仓库中位于本目录的上一级。
+安装边界、回滚记录和Stage8I验收路线分别见 `USER_INSTALL_GUIDE.md`、`UPGRADE_ROLLBACK.md`、`USER_LAN_VALIDATION.md`。这三份文件均位于交付包根目录；在源码仓库中位于本目录的上一级。
 
 ## 历史记录
 

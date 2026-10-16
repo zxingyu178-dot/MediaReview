@@ -30,10 +30,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha11"
-ANDROID_CODE = 18
+ANDROID_VERSION = "2.0.0-alpha12"
+ANDROID_CODE = 19
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
@@ -43,6 +43,9 @@ REQUIRED_CAPABILITIES = (
     "duplicates_paged",
     "library_selection",
     "folder_tree_v1",
+    "thumbnail_profiles_v1",
+    "review_folder_filter_v1",
+    "delete_receipt_v1",
 )
 ALL_SCRIPTS = (
     "install.ps1",
@@ -55,15 +58,15 @@ ALL_SCRIPTS = (
     "uninstall.ps1",
     "upgrade-aihome-managed.ps1",
 )
-EVIDENCE = OUT / "stage8h-build-evidence.json"
+EVIDENCE = OUT / "stage8i-build-evidence.json"
 
 
 def current_package_name() -> str:
-    return f"MediaReview_Server_{VERSION}_stage8h"
+    return f"MediaReview_Server_{VERSION}_stage8i"
 
 
 def current_apk_name() -> str:
-    return f"MediaReview_{ANDROID_VERSION}_stage8h.apk"
+    return f"MediaReview_{ANDROID_VERSION}_stage8i.apk"
 
 
 def sha256(path: Path) -> str:
@@ -186,7 +189,7 @@ def validate_binary_health(data: dict) -> dict:
 
 
 def verify_server_binary(exe: Path) -> dict:
-    scratch = ROOT / "temp/stage8h-player/binary"
+    scratch = ROOT / "temp/stage8i-ux/binary"
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="probe-", dir=scratch) as temporary:
         data_root = Path(temporary)
@@ -241,7 +244,7 @@ def verify_server_binary(exe: Path) -> dict:
                 raise ValueError("Server EXE health 超时，PACKAGING BLOCKED")
             except Exception:
                 output.flush()
-                failure = ROOT / "review_meta/stage8h/binary-failure.txt"
+                failure = ROOT / "review_meta/stage8i/binary-failure.txt"
                 failure.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(data_root / "binary-output.txt", failure)
                 raise

@@ -140,6 +140,20 @@ object ReleaseNotesCatalog {
                 "批阅播放器统一进度与倍速手势，区分横向操作和纵向翻页",
             ),
         ),
+        ReleaseNote(
+            versionCode = 19,
+            versionName = "2.0.0-alpha12",
+            title = "MediaReview 2.0 Alpha 12",
+            highlights = listOf(
+                "提升图片缩略图和图库浏览速度",
+                "图片查看器会预加载相邻原图",
+                "播放器新增待删除操作并优化拖动手感",
+                "优化批阅模式循环播放和上下滑动体验",
+                "批阅现在可以按文件夹选择范围",
+                "修复待删除视频大小显示并增强删除结果确认",
+                "修复部分层级分类无法正常使用的问题",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -9,7 +9,7 @@
 - 防火墙只开放 TCP 8766 + UDP 35001，不触碰其他端口。
 - 卸载默认保留数据，仅显式 -DeleteData 才删。
 - FFmpeg 优先随包、其次系统 PATH。
-- ``scripts/build_deploy.py`` 产出 ``MediaReview_Server_1.3.0_stage8h`` 根 + 8 脚本 +
+- ``scripts/build_deploy.py`` 产出 ``MediaReview_Server_1.4.0_stage8i`` 根 + 8 脚本 +
   SHA-256 校验和。
 - PyInstaller spec 产物名为 ``MediaReviewServer.exe``。
 - Android applicationId 与当前 2.0 产品线版本一致；LICENSE 与 THIRD_PARTY_NOTICES 存在。
@@ -189,8 +189,8 @@ def _release_builder():
 
 def test_build_deploy_uses_current_release_names() -> None:
     builder = _release_builder()
-    assert builder.current_package_name() == "MediaReview_Server_1.3.0_stage8h"
-    assert builder.current_apk_name() == "MediaReview_2.0.0-alpha11_stage8h.apk"
+    assert builder.current_package_name() == "MediaReview_Server_1.4.0_stage8i"
+    assert builder.current_apk_name() == "MediaReview_2.0.0-alpha12_stage8i.apk"
 
 
 def test_build_deploy_packages_all_eight_scripts_and_sha256() -> None:
@@ -203,9 +203,12 @@ def test_build_deploy_packages_all_eight_scripts_and_sha256() -> None:
 def test_build_deploy_version_matches_server() -> None:
     builder = _release_builder()
     builder.verify_version_ssot()
-    assert builder.VERSION == "1.3.0"
+    assert builder.VERSION == "1.4.0"
     assert builder.API_CONTRACT == 2
     assert "folder_tree_v1" in builder.REQUIRED_CAPABILITIES
+    assert {"thumbnail_profiles_v1", "review_folder_filter_v1", "delete_receipt_v1"}.issubset(
+        builder.REQUIRED_CAPABILITIES
+    )
 
 
 # ---------------------------------------------------------------- 许可文档(F2)

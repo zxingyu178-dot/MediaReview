@@ -94,7 +94,7 @@ class Stage8HHomeWindowTest {
         assertTrue(mediaRequests.isNotEmpty() && mediaRequests.all { it.pageSize == 50 })
         assertEquals(listOf(1), mediaRequests.map { it.page })
         compose.onNodeWithTag("home_category_hint").assertIsDisplayed()
-        compose.onNodeWithText("电脑端版本较旧，升级后可使用层级分类").assertIsDisplayed()
+        compose.onNodeWithText("电脑端版本过旧，层级分类需要 MediaReview Server 1.3.0+").assertIsDisplayed()
         val before = folderCalls.get()
         compose.onNodeWithTag("home_category_hint").performTouchInput { click() }
         compose.waitUntil(5_000) { folderCalls.get() > before }
@@ -183,17 +183,17 @@ class Stage8HHomeWindowTest {
         val invalidations = listOf<() -> Unit>({ vm.refreshAfterLibraryChange() }, { vm.refreshAfterFinalDelete(listOf("p1")) }, { vm.retryList() })
         for (invalidate in invalidations) {
             repo.slowAlbum = false
-            var token = 0L
-            compose.runOnIdle { token = vm.openAlbum("a0", V2SortSpec(typeFilter = V2TypeFilter.IMAGE)) }
+            var albumWindowId = 0L
+            compose.runOnIdle { albumWindowId = vm.openAlbum("a0", V2SortSpec(typeFilter = V2TypeFilter.IMAGE)) }
             compose.waitUntil(5_000) { vm.albumState.value?.items?.size == 50 }
-            compose.runOnIdle { vm.closeAlbum(token) }
+            compose.runOnIdle { vm.closeAlbum(albumWindowId) }
             repo.slowAlbum = true
             compose.runOnIdle {
                 invalidate()
-                token = vm.openAlbum("a0", V2SortSpec(typeFilter = V2TypeFilter.IMAGE))
+                albumWindowId = vm.openAlbum("a0", V2SortSpec(typeFilter = V2TypeFilter.IMAGE))
                 assertTrue(vm.albumState.value!!.items.isEmpty())
                 assertEquals(com.mediareview.app.feature.v2.viewer.state.AlbumLoadStatus.Loading, vm.albumState.value!!.status)
-                vm.closeAlbum(token)
+                vm.closeAlbum(albumWindowId)
             }
         }
         Log.i("Stage8HHome", "LIBRARY_FINALDELETE_REFRESH closedAlbumCacheInvalidation=PASS")

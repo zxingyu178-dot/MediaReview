@@ -98,14 +98,26 @@ class V2ServerReviewSessionRepository internal constructor(
     override val supportsFolderScope: Boolean
         get() = "review_folder_filter_v1" in statusStore.capabilities.value && statusStore.supportsFolderTree
 
-    override suspend fun prepareSession(): ReviewSessionOpen = pagingMutex.withLock { try {
-        val info = call { api, _ -> unwrap(api.latestReviewSession()) }.toInfo()
-        if (info.totalCount <= 0) ReviewSessionOpen.Empty else openWindow(info)
-    } catch (cancelled: CancellationException) { throw cancelled
-    } catch (error: HttpException) {
-        if (error.code() == HTTP_NOT_FOUND) ReviewSessionOpen.ScopeRequired
-        else ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
-    } catch (error: Throwable) { ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅") } }
+    override suspend fun prepareSession(): ReviewSessionOpen = pagingMutex.withLock {
+        val info = try {
+            call { api, _ -> unwrap(api.latestReviewSession()) }.toInfo()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: HttpException) {
+            return@withLock if (error.code() == HTTP_NOT_FOUND) ReviewSessionOpen.ScopeRequired
+            else ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
+        } catch (error: Throwable) {
+            return@withLock ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
+        }
+        if (info.totalCount <= 0) return@withLock ReviewSessionOpen.Empty
+        try {
+            openWindow(info)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            ReviewSessionOpen.Failed(error.message ?: "无法恢复批阅")
+        }
+    }
 
     override suspend fun createScopedSession(scope: ReviewScope): ReviewSessionOpen {
         if (scope.folderIds.isNotEmpty() && !supportsFolderScope)

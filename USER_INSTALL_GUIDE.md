@@ -1,19 +1,19 @@
-# Alpha11 离线交付与安装边界
+# Alpha12 离线交付与安装边界
 
-当前发布目标：Android code18 / `2.0.0-alpha11`；Server `1.3.0` / API Contract `2`。
+当前发布目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / API Contract `2`。
 
 本次只交付离线产物，不部署生产服务器、不安装用户手机、不清手机数据，不操作 SCM 或 ControlHub 生命周期。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`。保留当前运行环境，等待官方入口具备条件后再安排安装与升级。
 
 ## 收到产物后
 
-- Android：`MediaReview_2.0.0-alpha11_stage8h.apk`。
-- Server：`MediaReview_Server_1.3.0_stage8h.zip`。
+- Android：`MediaReview_2.0.0-alpha12_stage8i.apk`。
+- Server：`MediaReview_Server_1.4.0_stage8i.zip`。
 - 对照 `RELEASE_MANIFEST.json`、签名验证记录及 SHA256 清单核对文件；交接中有证据才认定产物已生成。
 - 全部自动化、签名、实际二进制隔离核验及产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`。这些状态不表示已安装、生产已升级或真实家庭 LAN 已通过。
 
-目标 Server 的 health 必须为 `status=ok`、`version=1.3.0`、`api_contract=2`，并包含七项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`。
+目标 Server 的 health 必须为 `status=ok`、`version=1.4.0`、`api_contract=2`，并包含十项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
 
-后续获准安装时保留 App 数据。首次安装只显示 Alpha11；17→18 只显示 Alpha11；16→18 在一个 Sheet 聚合 Alpha10/11。关闭保存18，重启不再自动弹出，设置页「本次更新」只显示当前版本。
+后续获准安装时保留 App 数据。首次安装只显示 Alpha12；18→19 只显示 Alpha12；17→19 在一个 Sheet 聚合 Alpha11/12。关闭保存19，重启不再自动弹出，设置页「本次更新」只显示当前版本。
 
 ## 后续升级前提
 
@@ -21,7 +21,7 @@
 
 `jellyfin.url` 用于电脑端访问；`jellyfin.client_url` 用于手机直连，必须在后续部署时确认实际家庭网络地址，保留代理路径前缀。不要复用历史电脑 IP，不记录凭据；电脑健康不能证明手机可播。本次不修改配置或防火墙。
 
-用户体验验收仅使用 [15步路线](USER_LAN_VALIDATION.md)，前提是官方升级入口和后续安装条件已具备。该文件随服务器包一起交付，与项目 Stage8H 验收路线一致。
+用户体验验收仅使用 [Stage8I路线](USER_LAN_VALIDATION.md)，前提是官方升级入口和后续安装条件已具备。该文件随服务器包一起交付，与项目 Stage8I 验收路线一致。
 
 ## 历史记录
 

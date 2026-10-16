@@ -1,5 +1,7 @@
 """Stage8I: 尺寸回填与真实删除回执；全部使用隔离文件/数据库。"""
 
+import os
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -7,7 +9,7 @@ from test_delete_nonce_11 import _enqueue, _make_db, _seed_media
 
 from app.adapters.jellyfin.mapper import map_media_item
 from app.adapters.jellyfin.models import JFItem
-from app.db.models import DeleteQueue
+from app.db.models import DeleteQueue, MediaCacheIndex
 from app.services import delete_queue, media_index
 
 
@@ -75,6 +77,47 @@ def test_receipt_real_remove_exact_bytes_and_missing(tmp_path):
         assert result.missing_count == 1
         assert result.failed_count == 0
         assert not path.exists()
+    db.dispose()
+
+
+@pytest.mark.parametrize("path_kind", ["leaf_link", "parent_link", "directory"])
+def test_commit_rejects_link_chain_and_nonregular_leaf(tmp_path, path_kind):
+    target = tmp_path / "target"
+    target.mkdir()
+    actual = target / "clip.mp4"
+    actual.write_bytes(b"do-not-delete")
+    if path_kind == "leaf_link":
+        media_path = tmp_path / "linked.mp4"
+        try:
+            media_path.symlink_to(actual)
+        except (OSError, NotImplementedError) as exc:
+            pytest.skip(f"file symlink unavailable: {exc}")
+    elif path_kind == "parent_link":
+        linked = tmp_path / "linked-parent"
+        if sys.platform == "win32":
+            import _winapi
+
+            _winapi.CreateJunction(str(target), str(linked))
+        else:
+            linked.symlink_to(target, target_is_directory=True)
+        media_path = linked / "clip.mp4"
+    else:
+        media_path = tmp_path / "directory.mp4"
+        media_path.mkdir()
+
+    db = _make_db(tmp_path)
+    _seed_media(db, "linked", str(media_path), size=len(b"do-not-delete"))
+    _enqueue(db, "linked", len(b"do-not-delete"))
+    with db.session() as s:
+        nonce = delete_queue.prepare_commit(s).nonce
+        receipt = delete_queue.commit_with_nonce(s, nonce)
+        assert receipt == {"linked": "failed"}
+        assert receipt.deleted_bytes == receipt.deleted_count == 0
+        assert s.get(DeleteQueue, "linked").status == "failed"
+        assert s.get(MediaCacheIndex, "linked") is not None
+        assert actual.read_bytes() == b"do-not-delete"
+        if path_kind != "directory":
+            assert os.path.lexists(media_path)
     db.dispose()
 
 

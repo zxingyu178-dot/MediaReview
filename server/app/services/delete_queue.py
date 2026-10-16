@@ -16,6 +16,7 @@ import secrets
 import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -149,6 +150,24 @@ _GUARD_MTIME = "file_modified_changed"
 _GUARD_STAT = "stat_failed"
 
 
+def _lstat_deletion_path(media_path: str) -> os.stat_result:
+    """检查整条路径链，避免跟随叶链接或父目录 junction 删除目标文件。"""
+    path = Path(media_path)
+    leaf_stat: os.stat_result | None = None
+    for component in [*reversed(path.parents), path]:
+        info = os.lstat(component)
+        if stat.S_ISLNK(info.st_mode) or (
+            getattr(info, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise ValueError(f"{_GUARD_STAT}:link_or_reparse_point")
+        leaf_stat = info
+    assert leaf_stat is not None
+    if not stat.S_ISREG(leaf_stat.st_mode):
+        raise ValueError(f"{_GUARD_STAT}:not_a_regular_file")
+    return leaf_stat
+
+
 def _mtime_ms(media) -> int | None:
     """把入库的 modified_at 转为毫秒时间戳(naive UTC)。"""
     if media.modified_at is None:
@@ -279,11 +298,8 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
         try:
             if media is None or not media_path:
                 result = "missing"
-            elif not os.path.isfile(media_path):
-                # 文件已不存在 -> 视为成功并清理索引(幂等,不误删新文件)
-                result = "missing"
             else:
-                file_stat = os.stat(media_path)
+                file_stat = _lstat_deletion_path(media_path)
                 guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)
                 if guard_reason is not None:
                     raise ValueError(guard_reason)

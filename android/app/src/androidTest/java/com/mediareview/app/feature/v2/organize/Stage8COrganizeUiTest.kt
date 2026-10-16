@@ -269,28 +269,30 @@ class Stage8COrganizeUiTest {
 
     @Test
     fun summaryRefreshKeepsExistingCardClickableAndFailureOffersRetry() {
-        val http = okhttp3.OkHttpClient.Builder().build()
-        val vm = OrganizeViewModel(
-            com.mediareview.app.feature.v2.organize.data.V2ServerOrganizeRepository(
-                profilePort = object : com.mediareview.app.feature.v2.data.server.V2ServerProfilePort {
-                    override suspend fun baseUrl() = "http://127.0.0.1:${server.port}"
-                },
-                apiFactory = com.mediareview.app.core.network.ApiFactory(http, http, kotlinx.serialization.json.Json { ignoreUnknownKeys = true }),
-                mapper = com.mediareview.app.feature.v2.data.server.V2MediaMapper(com.mediareview.app.core.network.MediaUrlResolver()),
-                resources = com.mediareview.app.feature.v2.data.server.V2ServerResourceCache(),
-                statusStore = entryPoint().serverStatusStore(),
-            ),
-        )
-        compose.activity.viewModelStore.put("stage8i-organize-feedback", vm)
-        var opened = 0
-        compose.setContent {
-            MediaReviewTheme { OrganizePage(V2DataMode.SERVER, {}, { opened++ }, {}, {}, vm = vm) }
-        }
-        compose.waitUntilExactlyOneExists(hasText("2 项 · 预计释放 2.8 GB"), 15_000)
         val gate = java.util.concurrent.CountDownLatch(1)
-        router.summaryGate = gate
-        router.summaryFailure = true
+        var ownedHttp: okhttp3.OkHttpClient? = null
         try {
+            val http = okhttp3.OkHttpClient.Builder().build()
+            ownedHttp = http
+            val vm = OrganizeViewModel(
+                com.mediareview.app.feature.v2.organize.data.V2ServerOrganizeRepository(
+                    profilePort = object : com.mediareview.app.feature.v2.data.server.V2ServerProfilePort {
+                        override suspend fun baseUrl() = "http://127.0.0.1:${server.port}"
+                    },
+                    apiFactory = com.mediareview.app.core.network.ApiFactory(http, http, kotlinx.serialization.json.Json { ignoreUnknownKeys = true }),
+                    mapper = com.mediareview.app.feature.v2.data.server.V2MediaMapper(com.mediareview.app.core.network.MediaUrlResolver()),
+                    resources = com.mediareview.app.feature.v2.data.server.V2ServerResourceCache(),
+                    statusStore = entryPoint().serverStatusStore(),
+                ),
+            )
+            compose.activity.viewModelStore.put("stage8i-organize-feedback", vm)
+            var opened = 0
+            compose.setContent {
+                MediaReviewTheme { OrganizePage(V2DataMode.SERVER, {}, { opened++ }, {}, {}, vm = vm) }
+            }
+            compose.waitUntilExactlyOneExists(hasText("2 项 · 预计释放 2.8 GB"), 15_000)
+            router.summaryGate = gate
+            router.summaryFailure = true
             compose.runOnIdle { vm.load() }
             compose.waitUntil(10_000) { router.summaryWaiting }
             compose.onNodeWithText("2 项 · 预计释放 2.8 GB · 正在刷新").assertIsDisplayed()
@@ -321,8 +323,17 @@ class Stage8COrganizeUiTest {
             compose.runOnIdle { assertTrue(opened == 2) }
         } finally {
             gate.countDown()
-            compose.runOnUiThread { compose.activity.viewModelStore.clear() }
-            http.dispatcher.cancelAll(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown()
+            router.summaryGate = null
+            router.summaryFailure = false
+            try {
+                compose.runOnUiThread { compose.activity.viewModelStore.clear() }
+            } finally {
+                ownedHttp?.let { client ->
+                    client.dispatcher.cancelAll()
+                    client.connectionPool.evictAll()
+                    client.dispatcher.executorService.shutdown()
+                }
+            }
         }
     }
 

@@ -31,6 +31,7 @@ import org.junit.Assert.*
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -45,6 +46,7 @@ class Stage8IImagePerformanceTest {
     private lateinit var vm: V2HomeViewModel
     private var mode by mutableStateOf(HomeDisplayMode.TWO_COLUMN)
     private var shelf by mutableStateOf(false)
+    private var profileProbePhase by mutableStateOf<String?>(null)
     private var viewer by mutableStateOf(false)
     private var realHome by mutableStateOf(false)
     private var realAlbum by mutableStateOf(false)
@@ -53,6 +55,7 @@ class Stage8IImagePerformanceTest {
     private val maxOriginals = AtomicInteger()
     private val maxDecodedWidth = AtomicInteger()
     private val maxDecodedHeight = AtomicInteger()
+    private val neighborSourceReadyAt = ConcurrentHashMap<String, Long>()
     private var previousMode = V2DataMode.DEMO
     private var previousDisplay = HomeDisplayMode.TWO_COLUMN
     private val evidence by lazy { File(context.getExternalFilesDir(null), "stage8i-images/${SystemClock.uptimeMillis()}").apply { mkdirs() } }
@@ -89,7 +92,13 @@ class Stage8IImagePerformanceTest {
         } }.build()
         loader = ImageLoader.Builder(context).okHttpClient(http).eventListener(object : coil.EventListener {
             override fun onSuccess(request: coil.request.ImageRequest, result: coil.request.SuccessResult) {
-                if (request.data.toString().substringBefore('?').endsWith("/original") && result.drawable.intrinsicWidth > 8) {
+                val source = request.data.toString().substringBefore('?')
+                if (source.endsWith("/original") &&
+                    (source.contains("/p49/") || source.contains("/p51/"))) {
+                    // Coil success is after source fetch/cache completion; HTTP request arrival alone is not ready.
+                    neighborSourceReadyAt.putIfAbsent(source.substringAfterLast("/media/").substringBefore('/'), SystemClock.elapsedRealtime())
+                }
+                if (source.endsWith("/original") && result.drawable.intrinsicWidth > 8) {
                     maxDecodedWidth.updateAndGet { maxOf(it, result.drawable.intrinsicWidth) }
                     maxDecodedHeight.updateAndGet { maxOf(it, result.drawable.intrinsicHeight) }
                 }
@@ -111,15 +120,18 @@ class Stage8IImagePerformanceTest {
             override suspend fun pendingDeleteIds() = emptySet<String>()
         }
         vm = testHomeViewModel(repository, SearchHistoryStore(context))
+        fun coverFor(media: V2Media): String = profileProbePhase?.let { phase ->
+            fixture.url("profile-probe-$phase-${media.id}", "thumbnail")
+        } ?: repository.coverUri(media)
         coldStarted = SystemClock.elapsedRealtime()
         compose.setContent { MediaReviewTheme {
             when {
                 viewer -> V2ImageViewer(vm, "p50", { viewer = false })
                 realAlbum -> AlbumScreen(vm, "fixture-album", { realAlbum = false }, { _, _, _, _, _ -> })
                 realHome -> HomeScreen(vm, {}, { _, _ -> }, { realAlbum = true }, {})
-                shelf -> ShelfGrid(photos.map { V2Album(it.id, "f", it.name, 1, it.id, repository.coverUri(it)) }, { id -> photos.find { it.id == id }?.let(repository::coverUri) }, {})
+                shelf -> ShelfGrid(photos.map { V2Album(it.id, "f", it.name, 1, it.id, coverFor(it)) }, { id -> photos.find { it.id == id }?.let(::coverFor) }, {})
                 else -> LazyVerticalGrid(columns = GridCells.Fixed(mode.columns), modifier = Modifier.testTag("hundred_images")) {
-                    items(photos, key = { it.id }) { media -> MediaCard(media, repository.coverUri(media), {}, displayMode = mode) }
+                    items(photos, key = { it.id }) { media -> MediaCard(media, coverFor(media), {}, displayMode = mode) }
                 }
             }
         } }
@@ -148,6 +160,8 @@ class Stage8IImagePerformanceTest {
         assertTrue(fixture.hits.all { it.authenticated && it.version == "fixture1" })
         assertEquals(0, fixture.hits.count { it.path.endsWith("/original") })
         val coldBytes = fixture.hits.sumOf { it.bytes }
+        val coldThumbnailRequests = fixture.hits.count { it.path.endsWith("/thumbnail") }
+        val coldDistinctThumbnails = fixture.hits.filter { it.path.endsWith("/thumbnail") }.map { it.path }.distinct().size
         val hotStart = SystemClock.elapsedRealtime()
         compose.onNodeWithTag("hundred_images").performScrollToIndex(0)
         waitGreen("照片 1")
@@ -166,27 +180,71 @@ class Stage8IImagePerformanceTest {
             pixels[pixels.width / 2, pixels.height / 2].let { it.red > .8f && it.blue < .2f }
         }
         val originalReadyMs = SystemClock.elapsedRealtime() - viewerStart
-        // 邻接未发生的Alpha11忠实记NOT_PRESENT，性能对比不替老版伪造事件。
-        SystemClock.sleep(1000)
-        val neighbors = fixture.hits.filter { it.path.endsWith("/original") && !it.path.contains("/p50/") }
         val pkg = context.packageManager.getPackageInfo(context.packageName, 0)
-        File(evidence, "performance.txt").writeText("version=${pkg.versionName}\ncold_first_pixels_ms=$coldMs\ncold_payload_bytes=$coldBytes\nhot_first_pixels_ms=$hotMs\nhot_payload_bytes=$hotBytes\npreview_visible_pixels_ms=$previewMs\ncurrent_original_pixels_ms=$originalReadyMs\nneighbor_prefetch=${if (neighbors.isEmpty()) "NOT_PRESENT" else neighbors.joinToString { it.path }}\noriginal_http=${fixture.hits.filter { it.path.endsWith("/original") }}\n")
+        val originals = { fixture.hits.filter { it.path.endsWith("/original") } }
+        val installedVersionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            pkg.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            pkg.versionCode.toLong()
+        }
+        if (installedVersionCode >= 19L) {
+            // Alpha12 must actually fetch and decode both adjacent sources; a missing event is a failed measurement.
+            try {
+                compose.waitUntil(15_000) {
+                    val paths = originals().map { it.path }.toSet()
+                    paths.containsAll(setOf("/api/v1/media/p49/original", "/api/v1/media/p51/original")) &&
+                        neighborSourceReadyAt.keys.containsAll(setOf("p49", "p51"))
+                }
+            } catch (error: Throwable) {
+                File(evidence, "neighbor-prefetch-timeout.txt").writeText(
+                    "version=${pkg.versionName}\ncurrent_original_pixels_ms=$originalReadyMs\n" +
+                        "original_http=${originals().map { "${it.path}@${it.atMs - viewerStart}" }}\n" +
+                        "neighbor_ready=${neighborSourceReadyAt.mapValues { it.value - viewerStart }}\n"
+                )
+                throw error
+            }
+            assertEquals("/api/v1/media/p50/original", originals().first().path)
+            assertEquals(setOf("/api/v1/media/p50/original", "/api/v1/media/p51/original", "/api/v1/media/p49/original"),
+                originals().map { it.path }.toSet())
+            assertTrue(neighborSourceReadyAt.values.all { it >= viewerStart })
+        } else {
+            // Alpha11 baseline has no adjacent-source contract; preserve its actual NOT_PRESENT observation.
+            SystemClock.sleep(1000)
+            if (originals().any { !it.path.contains("/p50/") }) {
+                compose.waitUntil(5_000) { neighborSourceReadyAt.keys.containsAll(setOf("p49", "p51")) }
+            }
+        }
+        val neighbors = originals().filter { !it.path.contains("/p50/") }
+        val neighborReady = listOf("p51", "p49").mapNotNull { id ->
+            neighborSourceReadyAt[id]?.let { "$id:${it - viewerStart}" }
+        }
+        File(evidence, "performance.txt").writeText("version=${pkg.versionName}\ncold_first_pixels_ms=$coldMs\ncold_payload_bytes=$coldBytes\ncold_thumbnail_requests=$coldThumbnailRequests\ncold_distinct_thumbnails=$coldDistinctThumbnails\nhot_first_pixels_ms=$hotMs\nhot_payload_bytes=$hotBytes\npreview_visible_pixels_ms=$previewMs\ncurrent_original_pixels_ms=$originalReadyMs\nneighbor_prefetch_ready_ms=${if (neighborReady.isEmpty()) "NOT_PRESENT" else neighborReady.joinToString()}\nneighbor_original_http=${if (neighbors.isEmpty()) "NOT_PRESENT" else neighbors.joinToString { it.path }}\noriginal_http=${fixture.hits.filter { it.path.endsWith("/original") }}\n")
         File(evidence, "http.txt").writeText(fixture.hits.joinToString("\n"))
     }
 
     /** 新合同单独运行；性能方法本身不强迫旧版profile通过。 */
     @Test fun threeLayoutsUseTheirProfilesAndNoOriginal() {
-        waitGreen("照片 1")
-        assertTrue(fixture.hits.filter { it.path.endsWith("/thumbnail") }.all { it.profile == "GRID_SMALL" })
-        fixture.hits.clear()
-        compose.runOnIdle { mode = HomeDisplayMode.ONE_COLUMN }
-        compose.waitUntil(10_000) { fixture.hits.any { it.profile == "GRID_LARGE" } }
-        assertTrue(fixture.hits.filter { it.path.endsWith("/thumbnail") }.all { it.profile == "GRID_LARGE" })
-        fixture.hits.clear()
-        compose.runOnIdle { shelf = true }
-        compose.waitUntil(10_000) { fixture.hits.any { it.profile == "ALBUM" } }
-        assertTrue(fixture.hits.filter { it.path.endsWith("/thumbnail") }.all { it.profile == "ALBUM" })
-        assertEquals(0, fixture.hits.count { it.path.endsWith("/original") })
+        fun phaseHits(phase: String) = fixture.hits.filter {
+            it.path.contains("/media/profile-probe-$phase-") && it.path.endsWith("/thumbnail")
+        }
+        fun assertPhase(phase: String, expected: String) {
+            compose.waitUntil(10_000) { phaseHits(phase).isNotEmpty() }
+            val hits = phaseHits(phase)
+            assertTrue("$phase 请求变体=${hits.map { "${it.path}:${it.profile}" }}", hits.all { it.profile == expected })
+        }
+        try {
+            waitGreen("照片 1")
+            compose.runOnIdle { profileProbePhase = "small" }
+            assertPhase("small", "GRID_SMALL")
+            compose.runOnIdle { mode = HomeDisplayMode.ONE_COLUMN; profileProbePhase = "large" }
+            assertPhase("large", "GRID_LARGE")
+            compose.runOnIdle { shelf = true; profileProbePhase = "album" }
+            assertPhase("album", "ALBUM")
+            assertEquals(0, fixture.hits.count { it.path.endsWith("/original") })
+        } finally {
+            File(evidence, "profile-probe-http.txt").writeText(fixture.hits.joinToString("\n"))
+        }
     }
 
     @Test fun viewerCurrentBeforeNeighborsOnlyImmediateSources() {
