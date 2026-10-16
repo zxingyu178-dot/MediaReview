@@ -96,7 +96,9 @@ fun horizontalDelta(dx:Float,width:Float,durationMs:Long):Long =
 **Files:** android/app/build.gradle.kts、releasenotes/ReleaseNotesCatalog.kt；server/app/__init__.py/api/v1/system.py/server/pyproject.toml；scripts/build_deploy.py/deployment/version.ps1；根发布指南/docs/DEV_LOG/TASKS/REVIEW_SUMMARY与stage8i tests。
 - [x] RED正式19alpha12/Server1.4/Contract2/能力及7条真实中文notes/未读首次关闭；修正builderstage8i输出合同。最终JVM488/Server638中相关合同通过，交接脚本后续27项窄修验证单独记录。
 - [x] 同fixtureAlpha11→12性能记录payload冷/热首屏、Viewer三个event、Reviewsettle/frame/连续5次，数据不虚设SLA。两版1536MB共同Test F2实际采样保留；新Test F5在2048MB第三轮补齐邻完成1641/2079ms，单列不同配置，不冒称同条件重测或Review全面提速。
-- [ ] fullpytest/ruff、全JVM/lint无新增错误、fullconnected、真实Full/Reviewregression完整终态PASS；对35节要求逐项证据审计；全分支独立审查无C/I。
-- [ ] 仅一次正式assembleRelease与签名/version/hash；freshEXE隔离health及ZIP所有payloadhash，生成MediaReview_2.0.0-alpha12_stage8i.apk和MediaReview_Server_1.4.0_stage8i.zip；不部署生产。
+- [x] fullpytest/ruff、全JVM/lint无新增错误、fullconnected、真实Full/Reviewregression完整终态PASS；对35节要求逐项证据审计；全分支独立审查无C/I。
+- [x] 仅一次正式assembleRelease与签名/version/hash；freshEXE隔离health及ZIP所有payloadhash，生成MediaReview_2.0.0-alpha12_stage8i.apk和MediaReview_Server_1.4.0_stage8i.zip；不部署生产。
 - [ ] commit/push/remote/clean/冻结输入来源核验；按既有builder生成MediaReview_Stage8I_Handoff_<date>_<sha>.zip，十二文档00_HANDOFF/01_ACCEPTANCE/02_TEST_REPORT/03_IMAGE_PIPELINE/04_PLAYER_DELETE_SEEK/05_REVIEW_LOOP_PAGER_SCOPE/06_FOLDER_BROWSER/07_DELETE_RECEIPT/08_PERFORMANCE/09_KNOWN_ISSUES/10_USER_VALIDATION/11_RELEASE_NOTES及证据源码Git/SHA；无秘密/真实media/二进制，正式SHA/成员/bytes回验。
 - [ ] 最高CODE_READY / READY_FOR_USER_VALIDATION，完整audit通过后目标完成并停止。
+
+Task9终态说明：源码、性能、完整178设备轮次及唯一正式二进制/包门禁已通过。最后两项Git远端/Handoff与目标停止在最终文档提交后执行，其终态由Handoff旁置回执及最终35节审计记录；不为填勾选而重复构建或制造自引用SHA。

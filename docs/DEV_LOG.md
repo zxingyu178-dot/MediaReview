@@ -2773,3 +2773,7 @@ Main冻结 SHA256 80cdab2fab23da14f1d3ce5df60b25ca6b179792bb5ec8f922a18b63ef510e
 第三轮开机预检153.706s后连续四次Launcher稳定且无ANR，方开始完整178项。初期40项零失败，严格图像性能样本已在卸载前归档：100张1329400B/100请求/100不同图，热body0B；相邻p51/p49真实HTTP和Coil完成分别1641/2079ms，请求顺序p50→p51→p49。此为2048MB guest RAM补充样本，不与原1536MB旧版直接计算时间改善比例。前述成对Alpha11/12仍保留原口径；本轮完整终态尚待执行结束。
 
 最终完整设备第三轮实际退出0：178项全部通过，0失败/错误/跳过，1276.588秒，354输入运行前后无漂移。原始XML与逐方法日志已归档final-connected-round3，原始失败与环境中断不抹去。严格相邻完成性能样本已齐，Full/Review真实播放及原四失败方法均在本轮XML中通过。仅owned只读AVD/合成素材；手机/LAN未测。下一步唯一正式Release/EXE与离线包，尚未生成正式产物或完成阶段。
+
+## Stage8I 正式离线产物核验
+
+唯一正式Release、Server EXE及离线打包均实际退出0；构建/打包HEAD为91b8406c6ab814326010736b3bf2d57f44723208。APK code19/alpha12、有效签名；EXE实际隔离health1.4.0/API2/十能力；Server ZIP完整文件集合和SHA通过。正式APK SHA256 c5f463dba9db317075e4b866d2b728f4aeff05923fa5448f041d99b957266d21；Server ZIP SHA256 bdd5308b286974758144d9b28e23f7d505e0d3a2fef1262b88c7bd7547ecf6dd。源码与包输入指纹未变，已归档全部Debug/Test和测试报告后才执行clean Release。最终文档提交仅改非指纹状态文档；之后push、远端/clean核验和十二文档ZIP由旁置交付回执记录，不冒称已经执行。未部署生产、未操作真实Jellyfin/用户媒体或手机，真实家庭LAN未测。

@@ -1,6 +1,6 @@
-# Stage8I 审查摘要（正式包构建前）
+# Stage8I 审查摘要
 
-阶段：Media UX Polish & Review Reliability。分支 feature/mediareview-v2-stage8i-ux-polish；完整35节规格见 docs/STAGE8I_MEDIA_UX_SPEC.md。实现及最终完整设备门禁已完成，正式产物和交接仍未完成。
+阶段：Media UX Polish & Review Reliability。分支 feature/mediareview-v2-stage8i-ux-polish；完整35节规格见 docs/STAGE8I_MEDIA_UX_SPEC.md。实现、最终设备门禁与正式离线产物已核验；最终推送和十二文档Handoff执行结果以旁置交付回执为准。
 
 ## 实现与架构
 
@@ -23,10 +23,10 @@ Android code19 / 2.0.0-alpha12；Server1.4.0 / API2，新增thumbnail_profiles_v
 
 ## 待完成与风险
 
-等待唯一正式assembleRelease/Server EXE、签名/版本/隔离health与包SHA核验、最终提交推送及十二文档Handoff。官方Alpha12 APK和Server1.4 ZIP当前未正式生成。最高允许结论为CODE_READY / READY_FOR_USER_VALIDATION，当前尚未达到。
+唯一正式assembleRelease通过；APK code19/alpha12版本与签名核验通过，公共证书SHA256与正式Alpha11一致。新Server EXE隔离health为1.4.0/API2/十能力，正式Server ZIP逐项SHA核验通过。构建及打包提交为91b8406c6ab814326010736b3bf2d57f44723208；后续仅DEV_LOG/TASKS/REVIEW_SUMMARY/计划文档改变，不改变冻结源码及打包输入。最终push/clean与十二文档Handoff在最后文档提交后执行，以旁置终态回执为准。最高CODE_READY / READY_FOR_USER_VALIDATION，不表示真实手机/LAN或生产验收。
 
 风险最高三点：首轮rapid末帧超时根因未确定，保留失败并以完整复验评估；真实手机/家庭网络及视觉触感待用户验证；生产升级依赖外部ControlHub正式合同。
 
 继续BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；不部署生产、不改真实Jellyfin、不删用户媒体、不清手机数据。不声称REAL_LAN_PASS或PRODUCTION_READY。
 
-阶段结论：不合格（阶段交付门禁尚未闭环，开发继续）。
+阶段结论：有条件合格（CODE_READY / READY_FOR_USER_VALIDATION；最终推送及Handoff以交付回执为准，真实手机/LAN待用户验收）。

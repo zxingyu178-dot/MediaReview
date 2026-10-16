@@ -627,7 +627,7 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] 独立源码审查；Server638 与 Android488单元测试通过，lint零错误。交接脚本追加修正另有27项针对性通过。
 - [x] 最终完整设备验收：第三轮178/178独立通过、零失败/错误/跳过，354输入无漂移；首轮4失败及次轮环境中断原样保留。
 - [x] 最终性能证据：保留真实Alpha11成对对照；Alpha12相邻完成1641/2079ms单列配置，不宣称批阅首帧整体提速。
-- [ ] 唯一正式 Alpha12 APK、Server1.4 ZIP、最终提交/推送与十二文档交接 ZIP。
+- [x] 唯一正式Alpha12 APK、Server1.4 ZIP及版本/签名/隔离health/逐项SHA核验通过；最终提交/推送与十二文档Handoff已准备，实际执行结果以旁置交付回执为准。
 - [ ] 真实手机/家庭LAN用户体验验收：未执行。
 
-本阶段尚未完成。生产升级桥继续 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；不自动部署、不修改真实 Jellyfin、不清手机数据、不删除真实媒体。
+本阶段源码与离线产物达到CODE_READY / READY_FOR_USER_VALIDATION；最后推送与Handoff终态见交付回执。生产升级桥继续 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；不自动部署、不修改真实 Jellyfin、不清手机数据、不删除真实媒体。
