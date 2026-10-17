@@ -36,6 +36,20 @@ import org.junit.Test
  * 失败语义（§45）：所有失败必须**上抛异常**，绝不返回空列表/0 冒充成功。
  */
 class V2ServerOrganizeRepositoryContractTest {
+    @Test fun `未知大小沿摘要确认和队列保留`() = runTest {
+        router.unknownSizeFields = ",\"unknown_size_count\":1"
+        router.queueOverride = """{"success":true,"data":[{"media_id":"unknown","status":"pending","size_bytes":null}]}"""
+        assertEquals(1, repository.deleteSummary().unknownSizeCount)
+        assertEquals(1, repository.prepareDeleteCommit().unknownSizeCount)
+        assertFalse(repository.loadDeleteQueue().single().sizeKnown)
+    }
+
+    @Test fun `已处理和过期确认不能混同或返回成功`() = runTest {
+        router.commitErrorCode = "DELETE_ALREADY_PROCESSED"
+        assertTrue(runCatching { repository.commitDelete("used") }.exceptionOrNull() is DeleteAlreadyProcessedException)
+        router.commitErrorCode = "CONFLICT"
+        assertTrue(runCatching { repository.commitDelete("expired") }.exceptionOrNull() is retrofit2.HttpException)
+    }
 
     private lateinit var server: MockWebServer
     private lateinit var router: OrganizeDispatcher
@@ -324,6 +338,9 @@ private class OrganizeDispatcher : Dispatcher() {
     private val queries = java.util.Collections.synchronizedMap(mutableMapOf<String, String>())
 
     var receiptFields = ""
+    var unknownSizeFields = ""
+    var queueOverride: String? = null
+    var commitErrorCode: String? = null
     var deleteSummaryStatus = 200
     var restoreStatus = 200
     var keepStatus = 200
@@ -351,11 +368,11 @@ private class OrganizeDispatcher : Dispatcher() {
         return when {
             path == "/api/v1/delete-queue/summary" ->
                 if (deleteSummaryStatus == 200) {
-                    json("""{"success":true,"data":{"count":12,"total_bytes":1876543210}}""")
+                    json("""{"success":true,"data":{"count":12,"total_bytes":1876543210$unknownSizeFields}}""")
                 } else {
                     error(deleteSummaryStatus)
                 }
-            path == "/api/v1/delete-queue" && method == "GET" -> json(deleteQueueBody())
+            path == "/api/v1/delete-queue" && method == "GET" -> json(queueOverride ?: deleteQueueBody())
             path.startsWith("/api/v1/delete-queue/") && method == "DELETE" ->
                 if (restoreStatus == 200) {
                     json("""{"success":true,"data":{"media_id":"aaa","queued":false}}""")
@@ -363,8 +380,11 @@ private class OrganizeDispatcher : Dispatcher() {
                     error(restoreStatus)
                 }
             path == "/api/v1/delete-queue/commit/prepare" -> json(
-                """{"success":true,"data":{"nonce":"nonce-1","expires_at":"2026-10-01T12:10:00","count":2,"total_bytes":3000,"media_ids":["aaa","bbb"]}}""",
+                """{"success":true,"data":{"nonce":"nonce-1","expires_at":"2026-10-01T12:10:00","count":2,"total_bytes":3000,"media_ids":["aaa","bbb"]$unknownSizeFields}}""",
             )
+            path == "/api/v1/delete-queue/commit" && commitErrorCode != null -> MockResponse()
+                .setResponseCode(409).setHeader("Content-Type", "application/json")
+                .setBody("""{"success":false,"error":{"code":"$commitErrorCode","message":"conflict"}}""")
             path == "/api/v1/delete-queue/commit" -> json(
                 """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"weird"}$receiptFields}}""",
             )

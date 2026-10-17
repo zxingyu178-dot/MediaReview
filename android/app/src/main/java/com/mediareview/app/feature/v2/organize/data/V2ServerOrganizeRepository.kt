@@ -21,6 +21,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Production（真实 Server）整理中心仓库 —— Stage 8C。
@@ -113,7 +116,7 @@ class V2ServerOrganizeRepository internal constructor(
 
     override suspend fun deleteSummary(): DeleteQueueSummary = call { api, _ ->
         val dto = unwrap(api.deleteQueueSummary())
-        DeleteQueueSummary(count = dto.count, totalBytes = dto.total_bytes)
+        DeleteQueueSummary(count = dto.count, totalBytes = dto.total_bytes, unknownSizeCount = dto.unknown_size_count)
     }
 
     override suspend fun duplicateSummary(): DuplicateSummary = call { api, _ ->
@@ -169,10 +172,12 @@ class V2ServerOrganizeRepository internal constructor(
         rows.map { row ->
             val mapped = row.media?.let { mapper.mapMedia(it, base) }
             if (mapped != null) resources.put(mapped)
+            val knownSize = row.size_bytes?.takeIf { it > 0 } ?: row.media?.size_bytes?.takeIf { it > 0 }
             DeleteQueueEntry(
                 mediaId = row.media_id,
                 status = row.status,
-                sizeBytes = row.size_bytes ?: row.media?.size_bytes ?: 0L,
+                sizeBytes = knownSize ?: 0L,
+                sizeKnown = knownSize != null,
                 addedAt = row.added_at,
                 media = mapped?.media,
                 coverUri = mapped?.coverUrl,
@@ -193,12 +198,22 @@ class V2ServerOrganizeRepository internal constructor(
             count = dto.count,
             totalBytes = dto.total_bytes,
             mediaIds = dto.media_ids,
+            unknownSizeCount = dto.unknown_size_count,
         )
     }
 
     override suspend fun commitDelete(nonce: String): DeleteCommitResponse =
         call { api, _ ->
-            val dto = unwrap(api.commitDeleteQueue(CommitRequest(nonce)))
+            val dto = try {
+                unwrap(api.commitDeleteQueue(CommitRequest(nonce)))
+            } catch (error: HttpException) {
+                val code = if (error.code() == 409) runCatching {
+                    Json.parseToJsonElement(error.response()?.errorBody()?.string().orEmpty())
+                        .jsonObject["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content
+                }.getOrNull() else null
+                if (code == "DELETE_ALREADY_PROCESSED") throw DeleteAlreadyProcessedException()
+                throw error
+            }
             val outcome = dto.outcome.mapValues { (_, value) -> DeleteOutcomeStatus.fromWire(value) }
             val receipt = if (
                 dto.deleted_count != null && dto.deleted_bytes != null &&

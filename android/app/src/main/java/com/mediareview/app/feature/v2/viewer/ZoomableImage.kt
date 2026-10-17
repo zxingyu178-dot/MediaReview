@@ -51,6 +51,7 @@ import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 import com.mediareview.app.core.network.ThumbnailProfile
 import com.mediareview.app.core.network.thumbnailProfileUrl
+import com.mediareview.app.core.network.imageFailureDescription
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.core.network.ImageRequestLifetime
 
@@ -103,6 +104,7 @@ fun ZoomableImage(
     val previewPainter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
             .data(smallPreviewUri.takeIf { it.isNotBlank() })
+            .setParameter("mediareview_retry", retryKey)
             .placeholderMemoryCacheKey(largePreviewUri)
             .crossfade(false)
             .size(256, 144)
@@ -274,19 +276,25 @@ fun ZoomableImage(
                 modifier = imageLayer,
             )
             when {
-                fullReady || previewHasContent -> Unit
-                previewFailed && fullFailed -> Column(
-                    modifier = Modifier.fillMaxSize(),
+                fullReady -> Unit
+                fullFailed || (previewFailed && !loadFullResolution) -> Column(
+                    modifier = Modifier.align(if (previewHasContent) Alignment.BottomCenter else Alignment.Center),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
                 ) {
-                    Text("图片加载失败", style = MaterialTheme.typography.bodyMedium, color = MediaTextSecondary)
+                    val error = (fullState as? AsyncImagePainter.State.Error)?.result?.throwable
+                        ?: (previewState as? AsyncImagePainter.State.Error)?.result?.throwable
+                    Text(
+                        (if (previewHasContent) "原图：" else "") + (error?.let(::imageFailureDescription) ?: "图片加载失败"),
+                        style = MaterialTheme.typography.bodyMedium, color = MediaTextSecondary,
+                    )
                     TextButton(onClick = { retryKey++ }) {
                         Icon(Icons.Default.Refresh, null, tint = MediaTextPrimary, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("重试", color = MediaTextPrimary)
                     }
                 }
+                previewHasContent -> Unit
                 else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     val ratio = if (naturalWidth > 0 && naturalHeight > 0) naturalWidth.toFloat() / naturalHeight else 16f / 9f
                     Box(Modifier.fillMaxWidth().aspectRatio(ratio).background(V2Colors.Skeleton))

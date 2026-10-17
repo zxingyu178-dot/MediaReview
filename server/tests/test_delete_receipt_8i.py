@@ -13,6 +13,104 @@ from app.db.models import DeleteQueue, MediaCacheIndex
 from app.services import delete_queue, media_index
 
 
+def test_stale_session_cannot_reuse_consumed_nonce(tmp_path):
+    from app.db.models import DeleteCommitNonce
+
+    db = _make_db(tmp_path)
+    path = tmp_path / "once.mp4"
+    path.write_bytes(b"once")
+    _seed_media(db, "once", str(path))
+    _enqueue(db, "once", 4)
+    with db.session() as s:
+        nonce = delete_queue.prepare_commit(s).nonce
+        s.commit()
+    with db.session() as stale:
+        cached_nonce = stale.get(DeleteCommitNonce, nonce)
+        assert not cached_nonce.used
+        with db.session() as first:
+            delete_queue.commit_with_nonce(first, nonce)
+            first.commit()
+        with patch("app.services.delete_queue._commit_media_ids") as remove:
+            with pytest.raises(delete_queue.NonceReusedError):
+                delete_queue.commit_with_nonce(stale, nonce)
+            remove.assert_not_called()
+    db.dispose()
+
+
+def test_second_snapshot_does_not_retry_failed_item_without_requeue(tmp_path):
+    db = _make_db(tmp_path)
+    path = tmp_path / "protected.mp4"
+    path.write_bytes(b"keep")
+    _seed_media(db, "guarded", str(path))
+    _enqueue(db, "guarded", 4)
+    with db.session() as s:
+        first = delete_queue.prepare_commit(s).nonce
+        second = delete_queue.prepare_commit(s).nonce
+        with patch("os.remove", side_effect=PermissionError("blocked")):
+            assert delete_queue.commit_with_nonce(s, first) == {"guarded": "failed"}
+        result = delete_queue.commit_with_nonce(s, second)
+        assert result == {"guarded": "failed"}
+        assert result.deleted_count == result.deleted_bytes == 0
+        assert path.exists()
+    db.dispose()
+
+
+@pytest.mark.parametrize("kind", ["relative", "parent_traversal", "unc", "uri"])
+def test_relative_deletion_path_rejected(tmp_path, monkeypatch, kind):
+    db = _make_db(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "relative.mp4"
+    path.write_bytes(b"keep")
+    child = tmp_path / "inside"
+    child.mkdir()
+    unsafe = {
+        "relative": "relative.mp4",
+        "parent_traversal": str(child / ".." / "relative.mp4"),
+        "unc": r"\\untrusted-host\share\relative.mp4",
+        "uri": "https://untrusted.invalid/relative.mp4",
+    }[kind]
+    _seed_media(db, "relative", unsafe, size=4)
+    _enqueue(db, "relative", 4)
+    with db.session() as s:
+        result = delete_queue.commit_with_nonce(s, delete_queue.prepare_commit(s).nonce)
+        assert result == {"relative": "failed"}
+        assert result.deleted_bytes == 0
+        assert path.exists()
+    db.dispose()
+
+
+def test_prepare_distinguishes_unknown_size_from_known_bytes(tmp_path):
+    db = _make_db(tmp_path)
+    _seed_media(db, "unknown", str(tmp_path / "not-opened.mp4"), size=0)
+    _enqueue(db, "unknown", 0)
+    with db.session() as s:
+        prep = delete_queue.prepare_commit(s)
+        assert prep.total_bytes == 0
+        assert prep.unknown_size_count == 1
+    db.dispose()
+
+
+def test_api_reports_unknown_sizes_and_replayed_request_without_claiming_success(client, tmp_path):
+    db = client.app.state.database
+    path = tmp_path / "api-delete.mp4"
+    path.write_bytes(b"actual")
+    _seed_media(db, "api-delete", str(path))
+    _enqueue(db, "api-delete", 6)
+    _seed_media(db, "unknown-size", str(tmp_path / "absent.mp4"), size=0)
+    _enqueue(db, "unknown-size", 0)
+    summary = client.get("/api/v1/delete-queue/summary").json()["data"]
+    prep = client.post("/api/v1/delete-queue/commit/prepare").json()["data"]
+    assert summary["unknown_size_count"] == prep["unknown_size_count"] == 1
+    assert summary["total_bytes"] == prep["total_bytes"] == 6
+    response = client.post("/api/v1/delete-queue/commit", json={"nonce": prep["nonce"]})
+    assert response.json()["data"]["deleted_bytes"] == 6
+    assert response.json()["data"]["missing_count"] == 1
+    replay = client.post("/api/v1/delete-queue/commit", json={"nonce": prep["nonce"]})
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == "DELETE_ALREADY_PROCESSED"
+    assert replay.json()["success"] is False
+
+
 @pytest.mark.parametrize(
     "top,expected",
     [(None, 4 * 1024**3), (0, 4 * 1024**3), (-1, 4 * 1024**3), (True, 4 * 1024**3), (9, 9)],

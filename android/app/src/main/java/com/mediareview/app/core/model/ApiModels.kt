@@ -316,6 +316,7 @@ data class DeleteCommitPrepDto(
     val count: Int = 0,
     val total_bytes: Long = 0,
     val media_ids: List<String> = emptyList(),
+    val unknown_size_count: Int? = null,
 )
 
 /**
@@ -326,6 +327,7 @@ data class DeleteCommitPrepDto(
 data class DeleteQueueSummaryDto(
     val count: Int = 0,
     val total_bytes: Long = 0,
+    val unknown_size_count: Int? = null,
 )
 
 /**

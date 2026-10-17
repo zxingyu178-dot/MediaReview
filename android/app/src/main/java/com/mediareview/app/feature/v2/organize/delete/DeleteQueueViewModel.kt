@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.core.model.DeleteOutcomeStatus
 import com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse
+import com.mediareview.app.feature.v2.organize.data.DeleteAlreadyProcessedException
 import com.mediareview.app.feature.v2.organize.data.DiskDeletionReceipt
 import com.mediareview.app.feature.v2.organize.data.DeleteCommitPrepare
 import com.mediareview.app.feature.v2.organize.data.DeleteQueueEntry
@@ -93,6 +94,7 @@ data class DeleteQueueUiState(
     val pendingCount: Int get() = entries.count { it.status == "pending" }
 
     val pendingBytes: Long get() = entries.filter { it.status == "pending" }.sumOf { it.sizeBytes }
+    val pendingUnknownSizes: Int get() = entries.count { it.status == "pending" && !it.sizeKnown }
 }
 
 /**
@@ -204,9 +206,13 @@ class DeleteQueueViewModel @Inject constructor(
                 load()
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: DeleteAlreadyProcessedException) {
+                _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
+                _events.tryEmit(DeleteQueueEvent.Info("删除请求已处理，请刷新队列核对结果，勿重复提交"))
+                load()
             } catch (_: Throwable) {
                 _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
-                _events.tryEmit(DeleteQueueEvent.Info("删除提交失败，请重试"))
+                _events.tryEmit(DeleteQueueEvent.Info("删除结果未确认，请刷新队列核对，勿重复提交"))
                 load()
             }
         }

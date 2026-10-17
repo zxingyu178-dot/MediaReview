@@ -53,7 +53,7 @@ fun DeleteResultSheet(
                 color = MediaTextPrimary,
             )
             Text(
-                text = if (receipt != null) "实际释放：${formatBytes(receipt.deletedBytes)}"
+                text = if (receipt != null) "本次已删除文件大小：${formatBytes(receipt.deletedBytes)}"
                     else "实际磁盘删除数量和释放空间：未知",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MediaTextSecondary,

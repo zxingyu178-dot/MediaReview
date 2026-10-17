@@ -54,6 +54,7 @@ class DeleteCommitPrep:
     count: int
     total_bytes: int
     media_ids: list[str]
+    unknown_size_count: int = 0
 
 
 class DeleteReceipt(dict[str, str]):
@@ -127,20 +128,25 @@ def backfill_pending_sizes(session: Session) -> None:
     )
 
 
-def pending_summary(session: Session) -> tuple[int, int]:
+def pending_summary(session: Session, *, include_unknown: bool = False) -> tuple:
     """可最终删除队列摘要 ``(count, total_bytes)``: 只统计 pending。
 
     Stage 8C §11: Organize 首页只需要数字,不得为此拉取整个队列;
     单条 SQL 聚合;failed 项(删除失败仍留在队列)不计入"预计释放"。
     """
     backfill_pending_sizes(session)
-    count, total = session.execute(
+    count, total, unknown = session.execute(
         sa.select(
             sa.func.count(DeleteQueue.media_id),
             sa.func.coalesce(sa.func.sum(DeleteQueue.size_bytes), 0),
+            sa.func.coalesce(sa.func.sum(sa.case(
+                (sa.or_(DeleteQueue.size_bytes.is_(None), DeleteQueue.size_bytes <= 0), 1),
+                else_=0,
+            )), 0),
         ).where(DeleteQueue.status == "pending")
     ).one()
-    return int(count), int(total or 0)
+    result = (int(count), int(total or 0), int(unknown))
+    return result if include_unknown else result[:2]
 
 
 # 拒绝删除的身份校验详情前缀,用于区分失败原因(写入审计与队列 error)
@@ -153,6 +159,8 @@ _GUARD_STAT = "stat_failed"
 def _lstat_deletion_path(media_path: str) -> os.stat_result:
     """检查整条路径链，避免跟随叶链接或父目录 junction 删除目标文件。"""
     path = Path(media_path)
+    if not path.is_absolute() or ".." in path.parts or media_path.startswith(("\\\\", "//")):
+        raise ValueError(f"{_GUARD_STAT}:unsafe_path")
     leaf_stat: os.stat_result | None = None
     for component in [*reversed(path.parents), path]:
         info = os.lstat(component)
@@ -250,6 +258,7 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
         count=len(media_ids),
         total_bytes=total_bytes,
         media_ids=media_ids,
+        unknown_size_count=sum(row.size_bytes is None or row.size_bytes <= 0 for row in pending),
     )
 
 
@@ -262,7 +271,24 @@ def commit_with_nonce(session: Session, nonce: str) -> DeleteReceipt:
         raise NonceReusedError()
     if row.expires_at < utc_now():
         raise NonceExpiredError()
-    row.used = True
+    # Claim in SQLite before touching files. An ORM identity-map value can be stale
+    # in another request; a conditional write serializes competing committers.
+    claimed = session.execute(
+        sa.update(DeleteCommitNonce)
+        .where(
+            DeleteCommitNonce.nonce == nonce,
+            DeleteCommitNonce.used.is_(False),
+            DeleteCommitNonce.expires_at >= utc_now(),
+        )
+        .values(used=True),
+        execution_options={"synchronize_session": False},
+    ).rowcount
+    if claimed != 1:
+        session.refresh(row)
+        if row.used:
+            raise NonceReusedError()
+        raise NonceExpiredError()
+    session.expire(row, ["used"])
     snapshot_ids: list[str] = json.loads(row.media_ids_json)
     outcome = _commit_media_ids(session, snapshot_ids)
     session.flush()
@@ -280,7 +306,7 @@ def commit_all(session: Session) -> DeleteReceipt:
 def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
     """对指定媒体逐项确认删除,返回 {media_id: result}。
 
-    result ∈ success(已删除) / missing(文件路径缺失或已不存在,仍清理索引) / failed。
+    result ∈ success(已删除) / missing(文件系统确认不存在,仍清理索引) / failed。
     删除前重新校验媒体归属与文件身份;文件被替换/修改/不再属于允许库时拒绝删除,
     并记录审计与失败原因。逐项处理,失败不影响其余项;成功后清理索引、收藏与队列记录。
     """
@@ -290,6 +316,10 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
         if row is None:
             # 队列中已无此项(prepare 后被撤销),跳过且不计入结果
             continue
+        if row.status != "pending":
+            # An older prepared snapshot must never silently retry a failed item.
+            outcome[media_id] = "failed"
+            continue
         row.status = "committed"
         row.committed_at = utc_now()
         media = mi.get_cached_media(session, media_id)
@@ -297,7 +327,8 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
         guard_reason: str | None = None
         try:
             if media is None or not media_path:
-                result = "missing"
+                guard_reason = "media_identity_unavailable"
+                raise ValueError(guard_reason)
             else:
                 file_stat = _lstat_deletion_path(media_path)
                 guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)

@@ -98,7 +98,7 @@ interface V2OrganizeRepository {
 }
 
 /** 待删除摘要。 */
-data class DeleteQueueSummary(val count: Int, val totalBytes: Long)
+data class DeleteQueueSummary(val count: Int, val totalBytes: Long, val unknownSizeCount: Int? = null)
 
 /** 重复媒体摘要。 */
 data class DuplicateSummary(
@@ -141,6 +141,7 @@ data class DeleteQueueEntry(
     val coverUri: String?,
     /** failed 项的服务端失败原因（guard 代码；Stage 8C.1 §23），UI 映射为简短中文。 */
     val error: String? = null,
+    val sizeKnown: Boolean = true,
 )
 
 /** 最终删除预备信息（来自 prepare response，确认弹窗必须使用这份数字，而不是列表旧快照）。 */
@@ -150,6 +151,7 @@ data class DeleteCommitPrepare(
     val count: Int,
     val totalBytes: Long,
     val mediaIds: List<String>,
+    val unknownSizeCount: Int? = null,
 )
 
 /** 重复分组列表项。 */
@@ -209,6 +211,8 @@ enum class DuplicateGroupType(val wire: String) {
  */
 class OrganizeFeatureUnavailableInDemoException(feature: String) :
     Exception("演示模式不支持$feature")
+
+class DeleteAlreadyProcessedException : Exception("删除请求已处理，请刷新队列核对结果，勿重复提交")
 /** 保留逐项 outcome；缺少实际磁盘统计的旧 Server / Demo 不推算释放空间。 */
 data class DeleteCommitResponse(
     val outcome: Map<String, DeleteOutcomeStatus>,

@@ -48,3 +48,11 @@ internal fun formatBytes(bytes: Long): String {
         else -> "$bytes B"
     }
 }
+
+internal fun estimatedDeleteBytes(count: Int, bytes: Long, unknown: Int?): String = when {
+    unknown != null && unknown > 0 && bytes > 0 -> "已知大小 ${formatBytes(bytes)}，另 $unknown 项大小未知"
+    unknown != null && unknown > 0 -> "文件大小未知，无法估算释放空间"
+    unknown == null && count > 0 && bytes <= 0 -> "文件大小未知，无法估算释放空间"
+    unknown == null && count > 0 -> "已知大小 ${formatBytes(bytes)}，总释放空间待确认"
+    else -> "预计释放 ${formatBytes(bytes)}"
+}

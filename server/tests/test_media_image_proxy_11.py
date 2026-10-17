@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import struct
+import zlib
 from collections.abc import AsyncIterator, Iterator
 
 import httpx
@@ -20,6 +22,19 @@ SERVER_KEY = "server-only-test-key"
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
 
 
+def _png_chunk(kind, payload):
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+
+PNG_PIXEL = b"\x00\x10\x20\x30\xff"
+VALID_PNG = (
+    b"\x89PNG\r\n\x1a\n"
+    + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+    + _png_chunk(b"IDAT", zlib.compress(PNG_PIXEL))
+    + _png_chunk(b"IEND", b"")
+)
+
+
 @pytest.fixture
 def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx.Request]]]:
     requests: list[httpx.Request] = []
@@ -28,6 +43,8 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if "/Items/jf-real/" in request.url.path:
+            return httpx.Response(200, content=VALID_PNG, headers={"Content-Type": "image/png"})
         if request.url.path.endswith("/PlaybackInfo"):
             return httpx.Response(200, json={"MediaSources": [{"Id": "confirmed-source"}]})
         if request.method == "GET" and request.url.path.endswith("/Auth/Keys"):
@@ -114,6 +131,7 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
                         is_available=True,
                     )
                     for media_id, jellyfin_id, media_type in (
+                        ("img-real", "jf-real", "image"),
                         ("img-ok", "jf-ok", "image"),
                         ("img-error", "jf-error", "image"),
                         ("img-text", "jf-text", "image"),
@@ -137,6 +155,40 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.parametrize("endpoint", [
+    "thumbnail?profile=GRID_SMALL", "thumbnail?profile=GRID_LARGE",
+    "thumbnail?profile=ALBUM", "original",
+])
+def test_authenticated_image_chain_preserves_decodable_png(secure_image_client, endpoint):
+    client, token, requests = secure_image_client
+    response = client.get(f"/api/v1/media/img-real/{endpoint}", headers=_auth(token))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.content == VALID_PNG
+    assert zlib.decompress(response.content[41:-16]) == PNG_PIXEL
+    assert SERVER_KEY not in response.text
+    assert SERVER_KEY in requests[-1].headers["Authorization"]
+
+
+@pytest.mark.parametrize("media_id,reason", [
+    ("img-error", "upstream_http"), ("img-text", "non_image_content"),
+    ("img-large", "image_too_large"),
+])
+def test_image_failure_has_correlated_safe_server_diagnostic(secure_image_client, media_id, reason):
+    client, token, _ = secure_image_client
+    response = client.get(
+        f"/api/v1/media/{media_id}/original",
+        headers={**_auth(token), "X-Request-ID": "image-diagnostic-test"},
+    )
+    assert response.status_code == 502
+    log = (client.app.state.paths.logs_dir / "server.log").read_text(encoding="utf-8")
+    assert "image_proxy_failed" in log
+    assert "image-diagnostic-test" in log
+    assert f"reason={reason}" in log
+    assert "upstream-secret-body" not in log
+    assert SERVER_KEY not in log
 
 
 def test_review_and_media_json_only_return_safe_relative_image_urls(secure_image_client) -> None:

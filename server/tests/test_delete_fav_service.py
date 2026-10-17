@@ -94,7 +94,7 @@ def test_delete_queue_two_step_lifecycle(tmp_path: Path) -> None:
     db.dispose()
 
 
-def test_delete_queue_missing_path_still_cleans(tmp_path: Path) -> None:
+def test_delete_queue_unknown_path_is_failed_and_keeps_index(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
     media_id = "ccc" * 8
     _seed_media(db, media_id, "")  # 无路径
@@ -102,9 +102,10 @@ def test_delete_queue_missing_path_still_cleans(tmp_path: Path) -> None:
         delete_queue.enqueue(s, media_id)
         outcome = delete_queue.commit_all(s)
         s.commit()
-    assert outcome[media_id] == "missing"
+    assert outcome[media_id] == "failed"
+    assert outcome.deleted_bytes == outcome.missing_count == 0
     with db.session() as s:
-        assert media_index.get_cached_media(s, media_id) is None
+        assert media_index.get_cached_media(s, media_id) is not None
     db.dispose()
 
 

@@ -2777,3 +2777,9 @@ Main冻结 SHA256 80cdab2fab23da14f1d3ce5df60b25ca6b179792bb5ec8f922a18b63ef510e
 ## Stage8I 正式离线产物核验
 
 唯一正式Release、Server EXE及离线打包均实际退出0；构建/打包HEAD为91b8406c6ab814326010736b3bf2d57f44723208。APK code19/alpha12、有效签名；EXE实际隔离health1.4.0/API2/十能力；Server ZIP完整文件集合和SHA通过。正式APK SHA256 c5f463dba9db317075e4b866d2b728f4aeff05923fa5448f041d99b957266d21；Server ZIP SHA256 bdd5308b286974758144d9b28e23f7d505e0d3a2fef1262b88c7bd7547ecf6dd。源码与包输入指纹未变，已归档全部Debug/Test和测试报告后才执行clean Release。最终文档提交仅改非指纹状态文档；之后push、远端/clean核验和十二文档ZIP由旁置交付回执记录，不冒称已经执行。未部署生产、未操作真实Jellyfin/用户媒体或手机，真实家庭LAN未测。
+
+## 2026-10-17 Stage8J 定向故障闭环
+- 修复图片预览重试/原图失败提示，新增安全HTTP请求号与分类日志；真实手机图片主故障未复现（用户不在家，ADB无设备）。
+- 修复未知尺寸0B误导、nonce旧会话认领、旧快照重试失败项、路径资料缺失误报missing与不安全路径拒绝；删除仅隔离样本。无schema迁移、生产升级或真实媒体操作。
+- 验证：Server首轮63通过/1旧版本断言失配，health六项补验通过；后续相关删除43通过、诊断3通过。JVM56通过；版本说明22通过/1旧断言失配，原失败项1通过。不是单轮全绿，不重跑638/488/178全量。
+- Alpha13/code20一次Release构建、签名及Alpha12证书一致性通过；Server1.4.1一次构建、隔离EXE health/Contract2/十项能力通过。保留既有构建warning；生产仍1.4.0。简报与本地媒体源建议见STAGE8J_RESULT.md，至此停止本轮。

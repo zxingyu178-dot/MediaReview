@@ -12,9 +12,9 @@ from fastapi.testclient import TestClient
 from app import SERVER_API_CONTRACT, SERVER_CAPABILITIES, __version__
 
 
-def test_server_version_is_140() -> None:
-    """Stage 8I: Server 1.4.0，Contract 保持 2。"""
-    assert __version__ == "1.4.0"
+def test_server_version_is_141() -> None:
+    """Stage 8J: Server 1.4.1，Contract 保持 2。"""
+    assert __version__ == "1.4.1"
 
 
 def test_api_contract_is_2() -> None:

@@ -105,7 +105,7 @@ fun OrganizePage(
                     icon = Icons.Default.DeleteSweep,
                     title = "待删除",
                     card = state.deleteCard,
-                    text = { vm.summaryText(it.count, it.totalBytes) },
+                    text = { vm.summaryText(it.count, it.totalBytes, it.unknownSizeCount) },
                     onOpen = onOpenDelete,
                     onRetry = vm::retryDeleteCard,
                 )

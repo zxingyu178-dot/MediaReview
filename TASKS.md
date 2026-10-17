@@ -631,3 +631,9 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [ ] 真实手机/家庭LAN用户体验验收：未执行。
 
 本阶段源码与离线产物达到CODE_READY / READY_FOR_USER_VALIDATION；最后推送与Handoff终态见交付回执。生产升级桥继续 BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT；不自动部署、不修改真实 Jellyfin、不清手机数据、不删除真实媒体。
+
+## Stage8J 定向故障闭环
+- [x] 已确认图片重试/诊断和删除状态、安全边界缺陷的最小修复及定向回归。
+- [x] Alpha13/code20、Server1.4.1验收构建与版本/签名/隔离health验证；不部署生产。
+- [x] STAGE8J_RESULT.md：证据、未确认现场问题及原生Python本地源建议；不自动进入下一轮。
+- 真实手机图片主故障仍未复现，手机/LAN未验；本轮按用户允许的证据与诊断交付边界结束。

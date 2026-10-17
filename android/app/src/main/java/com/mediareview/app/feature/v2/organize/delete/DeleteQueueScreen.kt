@@ -48,6 +48,7 @@ import com.mediareview.app.feature.v2.model.V2MediaType
 import com.mediareview.app.feature.v2.organize.data.DeleteCommitPrepare
 import com.mediareview.app.feature.v2.organize.data.DeleteQueueEntry
 import com.mediareview.app.feature.v2.organize.formatBytes
+import com.mediareview.app.feature.v2.organize.estimatedDeleteBytes
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -112,7 +113,7 @@ fun DeleteQueueScreen(
                     )
                     Text(
                         text = if (ui.pendingCount > 0) {
-                            "${ui.pendingCount} 项 · 预计释放 ${formatBytes(ui.pendingBytes)}"
+                            "${ui.pendingCount} 项 · ${estimatedDeleteBytes(ui.pendingCount, ui.pendingBytes, ui.pendingUnknownSizes)}"
                         } else {
                             "没有待删除内容"
                         },
@@ -259,7 +260,7 @@ private fun ConfirmFinalDeleteDialog(
                 )
                 Spacer(modifier = Modifier.height(V2Spacing.Md))
                 Text(
-                    text = "预计释放：\n${formatBytes(prepare.totalBytes)}",
+                    text = estimatedDeleteBytes(prepare.count, prepare.totalBytes, prepare.unknownSizeCount),
                     color = MediaTextPrimary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -333,7 +334,7 @@ private fun DeleteQueueItemRow(
             val typeLabel = if (entry.media?.type == V2MediaType.IMAGE) "图片" else "视频"
             val addedLabel = entry.addedAt?.take(10)?.let { " · 加入于 $it" }.orEmpty()
             Text(
-                text = "$typeLabel · ${formatBytes(entry.sizeBytes)}$addedLabel",
+                text = "$typeLabel · ${if (entry.sizeKnown) formatBytes(entry.sizeBytes) else "大小未知"}$addedLabel",
                 style = MaterialTheme.typography.bodySmall,
                 color = MediaTextSecondary,
                 maxLines = 1,

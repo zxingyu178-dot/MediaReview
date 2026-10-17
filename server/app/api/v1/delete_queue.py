@@ -30,6 +30,11 @@ from app.services import delete_queue, media_index
 router = APIRouter(prefix="/delete-queue", tags=["delete-queue"])
 
 
+class DeleteAlreadyProcessedError(ConflictError):
+    code = "DELETE_ALREADY_PROCESSED"
+    default_message = "该删除请求已处理，请刷新队列核对结果，勿重复提交"
+
+
 class CommitResult(BaseModel):
     outcome: dict[str, str]
     deleted_count: int = 0
@@ -43,6 +48,7 @@ class QueueSummaryView(BaseModel):
 
     count: int
     total_bytes: int
+    unknown_size_count: int = 0
 
 
 class CommitPrepView(BaseModel):
@@ -51,6 +57,7 @@ class CommitPrepView(BaseModel):
     count: int
     total_bytes: int
     media_ids: list[str]
+    unknown_size_count: int = 0
 
 
 class CommitBody(BaseModel):
@@ -94,8 +101,8 @@ async def queue_summary(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[QueueSummaryView]:
     """待删除队列摘要: 单条 SQL 聚合 pending 的 count / total_bytes。"""
-    count, total_bytes = delete_queue.pending_summary(db)
-    return ok(QueueSummaryView(count=count, total_bytes=total_bytes))
+    count, total_bytes, unknown = delete_queue.pending_summary(db, include_unknown=True)
+    return ok(QueueSummaryView(count=count, total_bytes=total_bytes, unknown_size_count=unknown))
 
 
 @router.post("/commit/prepare", response_model=Envelope[CommitPrepView])
@@ -111,6 +118,7 @@ async def prepare_commit(
             count=prep.count,
             total_bytes=prep.total_bytes,
             media_ids=prep.media_ids,
+            unknown_size_count=prep.unknown_size_count,
         )
     )
 
@@ -126,7 +134,7 @@ async def commit(
     except delete_queue.NonceMissingError:
         raise NotFoundError(message="删除确认不存在或已失效,请重新发起") from None
     except delete_queue.NonceReusedError:
-        raise ConflictError(message="该删除确认已使用,请重新发起") from None
+        raise DeleteAlreadyProcessedError() from None
     except delete_queue.NonceExpiredError:
         raise ConflictError(message="该删除确认已过期,请重新发起") from None
     db.commit()

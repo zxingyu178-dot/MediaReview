@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -138,7 +139,22 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
 
 def _install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
-    async def _handle_app_error(_: Request, exc: AppError) -> JSONResponse:
+    async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        image_route = re.fullmatch(r"/api/v1/media/[^/]+/(thumbnail|original)", request.url.path)
+        if image_route:
+            upstream = re.search(r"异常状态 ([0-9]{3})", exc.message)
+            reason = {
+                "Jellyfin 图片接口返回了非图片内容": "non_image_content",
+                "Jellyfin 图片超过允许的大小": "image_too_large",
+                "Jellyfin 图片接口不允许重定向": "redirect_rejected",
+                "无法读取 Jellyfin 图片,请确认服务连接正常": "upstream_connection",
+            }.get(exc.message, "upstream_http" if upstream else exc.code)
+            get_logger("image_proxy").warning(
+                "image_proxy_failed endpoint=%s code=%s status=%s upstream_status=%s reason=%s",
+                image_route.group(1), exc.code, exc.status_code,
+                upstream.group(1) if upstream else "-",
+                reason,
+            )
         return error_response(exc)
 
     @app.exception_handler(StarletteHTTPException)

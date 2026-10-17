@@ -154,6 +154,16 @@ object ReleaseNotesCatalog {
                 "修复部分层级分类无法正常使用的问题",
             ),
         ),
+        ReleaseNote(
+            versionCode = 20,
+            versionName = "2.0.0-alpha13",
+            title = "MediaReview 2.0 Alpha 13",
+            highlights = listOf(
+                "图片加载失败时显示具体状态和排查编号，重试会重新请求预览",
+                "待删除文件大小未知时明确提示，避免误显示预计释放零空间",
+                "增强删除请求防重处理，结果未确认时提示先核对队列",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

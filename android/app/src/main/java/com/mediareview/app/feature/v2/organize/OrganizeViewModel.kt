@@ -152,9 +152,9 @@ class OrganizeViewModel @Inject constructor(
     }
 
     /** 供测试与卡片文案使用（避免外部重复构造）。 */
-    fun summaryText(count: Int, totalBytes: Long): String = when {
+    fun summaryText(count: Int, totalBytes: Long, unknownSizeCount: Int? = null): String = when {
         count <= 0 -> "暂无待删除内容"
-        else -> "$count 项 · 预计释放 ${formatBytes(totalBytes)}"
+        else -> "$count 项 · ${estimatedDeleteBytes(count, totalBytes, unknownSizeCount)}"
     }
 
     /** 重复媒体卡片文案（扫描中优先显示进度）。 */

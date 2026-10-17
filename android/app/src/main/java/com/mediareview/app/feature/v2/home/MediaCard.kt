@@ -35,6 +35,7 @@ import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.mediareview.app.core.network.ThumbnailProfile
 import com.mediareview.app.core.network.thumbnailProfileUrl
+import com.mediareview.app.core.network.imageFailureDescription
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.ui.V2Colors
@@ -105,7 +106,7 @@ fun MediaCard(
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (coverPainter.state is AsyncImagePainter.State.Error) {
-                    CoverPlaceholder()
+                    CoverPlaceholder((coverPainter.state as AsyncImagePainter.State.Error).result.throwable)
                 }
 
                 // 时长胶囊（视频）
@@ -186,7 +187,7 @@ private fun CoverSkeleton() {
 
 /** 封面加载失败统一占位（网络异常 / Server 缺失也不出现黑墙）。 */
 @Composable
-private fun CoverPlaceholder() {
+private fun CoverPlaceholder(error: Throwable) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -201,7 +202,7 @@ private fun CoverPlaceholder() {
                 modifier = Modifier.size(26.dp),
             )
             Text(
-                text = "封面不可用",
+                text = imageFailureDescription(error),
                 style = MaterialTheme.typography.labelSmall,
                 color = MediaTextSecondary.copy(alpha = 0.6f),
             )

@@ -22,6 +22,11 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class OrganizeViewModelTest {
+    @Test fun `未知大小不能显示预计释放0B`() {
+        val vm = OrganizeViewModel(FakeOrganizeRepository())
+        assertTrue(vm.summaryText(1, 0).contains("未知"))
+        assertTrue(vm.summaryText(2, 100, 1).contains("另 1 项大小未知"))
+    }
 
     @get:Rule
     val main = MainDispatcherRule()
@@ -67,7 +72,7 @@ class OrganizeViewModelTest {
 
         val card = vm.state.value.deleteCard
         assertTrue(card is OrganizeCard.Ready)
-        assertEquals("12 项 · 预计释放 1.7 GB", vm.summaryText(12, 1_800_000_000L))
+        assertEquals("12 项 · 预计释放 1.7 GB", vm.summaryText(12, 1_800_000_000L, 0))
         assertEquals(2, repo.deleteSummaryCalls)
         // 其他卡没有被重复请求
         assertEquals(1, repo.duplicateSummaryCalls)

@@ -237,7 +237,7 @@ class DeleteQueueViewModelTest {
         advanceUntilIdle()
 
         assertEquals(DeleteCommitPhase.Idle, vm.ui.value.phase)
-        assertTrue(events.any { it is DeleteQueueEvent.Info && it.text == "删除提交失败，请重试" })
+        assertTrue(events.any { it is DeleteQueueEvent.Info && it.text == "删除结果未确认，请刷新队列核对，勿重复提交" })
         collector.cancel()
     }
 
