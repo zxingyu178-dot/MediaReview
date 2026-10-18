@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 import sqlalchemy as sa
 
 from app.adapters.jellyfin.models import MediaItem
-from app.core.errors import ForbiddenError, MediaNotFoundError, ValidationFailedError
+from app.core.errors import ConflictError, ForbiddenError, MediaNotFoundError, ValidationFailedError
 from app.db.models import BackgroundTask, LibrarySelection, LocalRoot, MediaCacheIndex, utc_now
 from app.services.media_index import upsert_media_items
 
@@ -76,6 +76,46 @@ def local_media_id(root_id: str, relative: str) -> str:
     return "loc_" + hashlib.sha256(key.encode()).hexdigest()[:20]
 
 
+def entity_fingerprint(mid, info):
+    return hashlib.sha256(f"{mid}:{info.st_size}:{info.st_mtime_ns}:{info.st_dev}:{info.st_ino}".encode()).hexdigest()
+
+
+def open_media(session, row):
+    """返回验证后的只读句柄；句柄身份/最终路径复验防止组件检查后的换链。"""
+    root = session.get(LocalRoot, row.library_id)
+    if row.source_type != "local" or not root or not row.is_available:
+        raise MediaNotFoundError("本地媒体不可用，请在电脑端重新扫描")
+    path = safe_path(root, row.media_path or "")
+    handle = None
+    try:
+        handle = path.open("rb")
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or entity_fingerprint(row.media_id, info) != row.fingerprint:
+            raise ConflictError("本地文件已变化，请在电脑端重新扫描来源")
+        if os.name == "nt":
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+            get_final = ctypes.WinDLL("kernel32", use_last_error=True).GetFinalPathNameByHandleW
+            get_final.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+            get_final.restype = wintypes.DWORD
+            buffer = ctypes.create_unicode_buffer(32768)
+            length = get_final(msvcrt.get_osfhandle(handle.fileno()), buffer, len(buffer), 0)
+            if not length or length >= len(buffer):
+                raise SourcePathError()
+            final = buffer.value.removeprefix("\\\\?\\")
+            if os.path.normcase(final) != os.path.normcase(str(path.absolute())):
+                raise SourcePathError()
+        checked = safe_path(root, row.media_path or "")
+        if checked.stat().st_ino != info.st_ino:
+            raise ConflictError("本地文件已变化，请重新扫描")
+        return handle, info
+    except Exception:
+        if handle:
+            handle.close()
+        raise
+
+
 def register_root(session, name: str, raw: str) -> LocalRoot:
     path = validate_root(raw)
     canonical = os.path.normcase(str(path.resolve()))
@@ -115,7 +155,7 @@ def schedule_scan(session, root_id: str) -> BackgroundTask:
 def recover_interrupted_scans(database):
     """独占 Server 启动时重排中断任务；重新扫描可安全覆盖未完成批次。"""
     with database.session() as session:
-        session.execute(sa.update(BackgroundTask).where(BackgroundTask.type == TASK_TYPE,
+        session.execute(sa.update(BackgroundTask).where(BackgroundTask.type.in_((TASK_TYPE, "local_thumbnail")),
             BackgroundTask.status == "running").values(status="pending", started_at=None))
         session.commit()
 
@@ -144,7 +184,11 @@ def _walk(root: Path):
                     if entry.name.casefold() not in SKIP_DIRS:
                         stack.append((Path(entry.path), depth + 1))
                 elif stat.S_ISREG(info.st_mode) and Path(entry.name).suffix.lower() in EXTENSIONS:
-                    yield Path(entry.path), info
+                    path = Path(entry.path)
+                    # Windows DirEntry.stat 缓存的 st_ino/st_dev 为0；独立 lstat 才有句柄可比身份。
+                    full_info = path.lstat()
+                    if _plain(full_info) and stat.S_ISREG(full_info.st_mode):
+                        yield path, full_info
                 else:
                     # 无媒体目录也必须能及时检查取消。
                     yield None, None
@@ -194,7 +238,7 @@ def run_scan(database, task_id):
             if path is not None:
                 relative = path.relative_to(base).as_posix()
                 mid = local_media_id(root_id, relative)
-                fingerprint = hashlib.sha256(f"{mid}:{info.st_size}:{info.st_mtime_ns}".encode()).hexdigest()
+                fingerprint = entity_fingerprint(mid, info)
                 batch.append(MediaItem(media_id=mid, jellyfin_id="local:" + mid,
                     library_id=root_id, source_type="local", name=path.name,
                     media_type=EXTENSIONS[path.suffix.lower()], container=path.suffix[1:].lower(),

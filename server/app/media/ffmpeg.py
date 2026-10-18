@@ -162,6 +162,8 @@ def _resolve_binary(ffmpeg_dir: str, name: str) -> str:
     direct = directory / name if directory else None
     if direct and direct.is_file():
         return str(direct)
+    if direct and direct.with_suffix(".exe").is_file():
+        return str(direct.with_suffix(".exe"))
     found = shutil.which(name)
     if found:
         return found

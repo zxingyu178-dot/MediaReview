@@ -92,6 +92,8 @@ def thumbnail_cache_key(*, media_id: str, fingerprint: str, variant: str) -> str
 
 def media_source_fingerprint(row: Any) -> str:
     """媒体源指纹: 上游内容变化的判定依据(不涉及任何文件路径)。"""
+    if getattr(row, "source_type", "jellyfin") == "local":
+        return str(row.fingerprint)
     modified = getattr(row, "modified_at", None)
     return "|".join(
         (

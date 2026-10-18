@@ -137,7 +137,7 @@ async def get_review_session(
 def _queue_urls(request: Request, media) -> tuple[str | None, str | None]:
     """返回不含 Jellyfin 凭据的 MediaReview 相对图片 URL。"""
     settings = request.app.state.settings.jellyfin
-    if not settings.is_configured() or not media.jellyfin_id:
+    if media.source_type == "jellyfin" and (not settings.is_configured() or not media.jellyfin_id):
         return None, None
     # 阶段 8A.1.1 §6: 与 /media 一致带上 source_version,保证客户端缓存失效逻辑相同
     return (

@@ -421,6 +421,10 @@ async def get_media_thumbnail(
         raise MediaNotFoundError()
 
     cache = _thumbnail_cache(request)
+    if row.source_type == "local":
+        from app.services.native_sources import open_media
+        handle, _info = open_media(db, row)
+        handle.close()
     key = thumbnail_cache_key(
         media_id=row.media_id,
         fingerprint=media_source_fingerprint(row),
@@ -436,16 +440,20 @@ async def get_media_thumbnail(
         headers["X-MediaReview-Cache"] = "HIT"
         return Response(status_code=304, headers=headers)
 
-    result = await cache.get_or_create(
-        key,
-        lambda: client.thumbnail_image(
-            row.jellyfin_id,
-            max_width=selected_profile.width,
-            max_height=selected_profile.height,
-            fill=selected_profile.fill,
-            quality=selected_profile.quality,
-        ),
-    )
+    if row.source_type == "local":
+        from app.services.native_images import get_thumbnail
+        result = await get_thumbnail(request.app.state.database, cache, row, selected_profile, key)
+    else:
+        result = await cache.get_or_create(
+            key,
+            lambda: client.thumbnail_image(
+                row.jellyfin_id,
+                max_width=selected_profile.width,
+                max_height=selected_profile.height,
+                fill=selected_profile.fill,
+                quality=selected_profile.quality,
+            ),
+        )
     cache.prune_locks()
     headers["X-MediaReview-Cache"] = "HIT" if result.hit else "MISS"
     log_perf(
@@ -468,6 +476,7 @@ async def get_media_thumbnail(
 @router.get("/{media_id}/original", response_class=Response)
 async def get_media_original(
     media_id: str,
+    request: Request,
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
     client: JellyfinClient = Depends(jellyfin_client),
@@ -483,6 +492,41 @@ async def get_media_original(
         raise MediaNotFoundError()
     if row.media_type != "image":
         raise ValidationFailedError("仅图片支持原图读取")
+    if row.source_type == "local":
+        import os
+        from starlette.background import BackgroundTask as CloseTask
+        from app.services import native_images
+        from app.services.native_sources import open_media
+        file, info = open_media(db, row)
+        try:
+            with os.fdopen(os.dup(file.fileno()), "rb") as probe:
+                image = native_images.inspect_image(probe, info.st_size)
+                content_type = native_images.FORMATS[image.format]
+                image.close()
+            file.seek(0)
+        except Exception:
+            file.close()
+            raise
+        etag = '"' + row.fingerprint + '"'
+        headers = {"X-Content-Type-Options": "nosniff", "ETag": etag,
+                   "Cache-Control": "private, max-age=0, must-revalidate"}
+        if request.headers.get("if-none-match") == etag:
+            file.close()
+            return Response(status_code=304, headers=headers)
+        headers["Content-Length"] = str(info.st_size)
+        def chunks():
+            try:
+                remaining = info.st_size
+                while remaining:
+                    chunk = file.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            finally:
+                file.close()
+        return StreamingResponse(chunks(), media_type=content_type, headers=headers,
+                                 background=CloseTask(file.close))
     stream: ImageStream = await client.open_original_stream(row.jellyfin_id)
     log_perf("original_opened", start=started, media_id=media_id)
 
