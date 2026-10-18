@@ -63,6 +63,8 @@ class V2MediaMapper @Inject constructor(
             spriteManifestPath = null,
             naturalWidth = summary.width ?: 0,
             naturalHeight = summary.height ?: 0,
+            sourceType = summary.source_type,
+            canDelete = summary.can_delete && summary.source_type == "jellyfin",
         )
         return V2ServerResourceCache.Entry(media = media, coverUrl = coverUrl, originalUrl = originalUrl)
     }

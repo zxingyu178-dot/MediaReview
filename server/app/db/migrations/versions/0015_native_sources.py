@@ -26,8 +26,12 @@ def upgrade():
 
 def downgrade():
     bind = op.get_bind()
-    if bind.scalar(sa.text("SELECT count(*) FROM local_root")) or bind.scalar(sa.text(
-        "SELECT count(*) FROM media_cache_index WHERE source_type != 'jellyfin'")):
+    if any(bind.scalar(sa.text(query)) for query in (
+        "SELECT count(*) FROM local_root",
+        "SELECT count(*) FROM media_cache_index WHERE source_type != 'jellyfin'",
+        "SELECT count(*) FROM library_selection WHERE source_type != 'jellyfin'",
+        "SELECT count(*) FROM local_playback_progress",
+    )):
         raise RuntimeError("存在本地来源数据；请恢复升级前数据库备份，禁止有损降级")
     op.drop_table("local_playback_progress")
     op.drop_table("local_root")

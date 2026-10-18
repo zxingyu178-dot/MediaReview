@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.adapters.jellyfin.client import ImageStream, JellyfinClient, JellyfinError
-from app.adapters.jellyfin.models import MediaType
+from app.adapters.media_source import MediaType, can_delete
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
 from app.core.config import ensure_jellyfin_url_excludes_api_key
@@ -136,9 +136,12 @@ def _summary_from_row(
 ) -> MediaSummary:
     # 文件夹身份与 GET /media/folders 同源;媒体无路径时为 (None, None)
     folder_id, folder_name = media_index.folder_identity_for_path(row.media_path)
+    if row.source_type == "local":
+        cover_url = cover_url or media_thumbnail_url(row.media_id, row_source_version(row))
+        original_url = original_url or media_original_url(row)
     return MediaSummary(
         source_type=row.source_type,
-        can_delete=row.source_type == "jellyfin",
+        can_delete=can_delete(row.source_type),
         media_id=row.media_id,
         name=row.name,
         media_type=row.media_type,
@@ -239,6 +242,7 @@ async def list_media(
     request: Request,
     library_id: str | None = Query(default=None, min_length=1),
     media_type: MediaType | None = Query(default=None),
+    source_type: Literal["jellyfin", "local"] | None = Query(default=None),
     sort_by: SortField = Query(default="name"),
     sort_order: SortOrder = Query(default="asc"),
     page: int = Query(default=1, ge=1),
@@ -266,6 +270,15 @@ async def list_media(
         if not targets:
             raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
 
+    if source_type:
+        import sqlalchemy as sa
+        from app.db.models import LibrarySelection
+        allowed = set(db.scalars(sa.select(LibrarySelection.jellyfin_id).where(
+            LibrarySelection.source_type == source_type)))
+        targets = [target for target in targets if target in allowed]
+        if not targets:
+            return ok(MediaPage(items=[], total=0, page=page, page_size=page_size,
+                sync=MediaSyncSummary(state="idle", stale=False, processed=0, total=0, message="当前来源无媒体")))
     folder_dirname: str | None = None
     folder_condition = None
     if folder_id:

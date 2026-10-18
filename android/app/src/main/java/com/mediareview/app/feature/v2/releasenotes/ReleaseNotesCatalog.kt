@@ -164,6 +164,17 @@ object ReleaseNotesCatalog {
                 "增强删除请求防重处理，结果未确认时提示先核对队列",
             ),
         ),
+        ReleaseNote(
+            versionCode = 21,
+            versionName = "2.0.0-alpha14",
+            title = "MediaReview 2.0 Alpha 14",
+            highlights = listOf(
+                "接入本地只读图片与视频来源；在电脑管理后台登记目录",
+                "媒体墙可按来源筛选，图片、播放与批阅沿用现有流程",
+                "本地视频支持拖动续读和进度保存，本地永久删除已禁用",
+                "本地来源需要电脑端 Server 1.5.0，手机真机验收仍待完成",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -24,6 +24,7 @@ fun GsyNativePlayerWithPendingDelete(
 ) {
     val state by playerViewModel.state.collectAsState()
     val mediaId = state.currentMediaId.orEmpty()
+    val canDelete = vm.mediaById(mediaId)?.canDelete ?: !mediaId.startsWith("loc_")
     val dataMode by vm.dataMode.collectAsState()
     val pendingState by vm.viewerPendingDeleteState.collectAsState()
     val pendingBusy by vm.viewerPendingDeleteBusy.collectAsState()
@@ -49,15 +50,15 @@ fun GsyNativePlayerWithPendingDelete(
             playerViewModel::retry, playerViewModel::reportProgress, onBack,
             onPlaybackStable = playerViewModel::onPlaybackStable,
             onReportLoadedProgress = playerViewModel::reportLoadedProgress,
-            pendingDeleteEnabled = session != null && mediaId.isNotBlank() && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
+            pendingDeleteEnabled = canDelete && session != null && mediaId.isNotBlank() && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
             isPendingDelete = (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(mediaId) == true,
-            pendingDeleteLabel = when (pendingState) {
+            pendingDeleteLabel = if (!canDelete) "本地只读" else when (pendingState) {
                 ViewerPendingDeleteState.Loading -> "正在加载…"
                 is ViewerPendingDeleteState.Error -> "状态未知 · 重试"
                 else -> null
             },
             onTogglePendingDelete = { session?.let { vm.toggleViewerPendingDelete(it, mediaId) } },
-            onRetryPendingDelete = if (pendingState is ViewerPendingDeleteState.Error) {
+            onRetryPendingDelete = if (canDelete && pendingState is ViewerPendingDeleteState.Error) {
                 { session?.let(vm::retryViewerPendingDelete); Unit }
             } else null,
         )

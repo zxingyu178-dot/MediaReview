@@ -530,6 +530,44 @@ class V2ServerMediaRepositoryContractTest {
     }
 
     // ---------- helpers ----------
+    @Test
+    fun `旧服务器本地筛选在HTTP前拒绝并明确版本要求`() = runTest {
+        assertThrows(IllegalStateException::class.java) {
+            kotlinx.coroutines.runBlocking { repository.mediaPage(V2MediaQuery(spec = V2SortSpec(sourceType = "local"))) }
+        }
+        assertTrue(router.requests.isEmpty())
+    }
+    @Test
+    fun `本地来源筛选只读删除与相对播放合同`() = runTest {
+        statusStore.recordCompatible("1.5.0", 2, listOf("native_sources_v1", "native_range_v1", "native_read_only_v1"))
+        val id = "loc_native_test"
+        router.mediaBody = mediaPageJson(1, 1, 50,
+            """{"media_id":"$id","name":"本地样本","media_type":"video","library_id":"local_root","source_type":"local","can_delete":false}""")
+        val page = repository.mediaPage(V2MediaQuery(spec = V2SortSpec(sourceType = "local")))
+        assertEquals("local", router.requests.last().query("source_type"))
+        assertEquals("local", page.items.single().sourceType)
+        assertFalse(page.items.single().canDelete)
+        assertFalse(repository.setPendingDelete(id, true))
+        assertFalse(repository.setPendingDelete("loc_not_cached", true))
+        assertFalse(router.requests.any { it.path?.startsWith("/api/v1/delete-queue/") == true })
+        router.playbackBodies[id] = playbackJson(id, "/api/v1/media/$id/file",
+            mapOf("Authorization" to "Bearer native-test-token"), resumeMs = 1500)
+            .replace("\"title\":", "\"source_type\":\"local\",\"title\":")
+        val playback = repository.resolvePlayback(id)
+        assertEquals("$baseUrl/api/v1/media/$id/file", playback.direct.url)
+        assertNull(playback.fallbackHls)
+        assertEquals(1500L, playback.resumePositionMs)
+        http.newCall(Request.Builder().url(playback.direct.url).apply {
+            playback.direct.headers.forEach { (key, value) -> header(key, value) }
+        }.build()).execute().close()
+        assertEquals("Bearer native-test-token", router.requests.last().getHeader("Authorization"))
+        router.playbackBodies[id] = playbackJson(id, "http://other.test/file",
+            mapOf("Authorization" to "Bearer native-test-token"))
+            .replace("\"title\":", "\"source_type\":\"local\",\"title\":")
+        assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking { repository.resolvePlayback(id) }
+        }
+    }
 
     private fun RecordedRequest.query(name: String): String? = requestUrl?.queryParameter(name)
 

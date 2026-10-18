@@ -107,6 +107,7 @@ data class PlaybackEndpointDto(
 /** 播放信息(GET /media/{media_id}/playback):Direct Play + 唯一一次 HLS 回退。 */
 @Serializable
 data class PlaybackInfoDto(
+    val source_type: String = "jellyfin",
     val media_id: String = "",
     val title: String = "",
     val stream_url: String = "",

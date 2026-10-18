@@ -83,7 +83,9 @@ class V2PlaybackSourceController {
         val current = source ?: return V2PlaybackDecision.Fail(null)
         val next = current.nextStageAfterFailure(stage)
         val endpoint = next?.let { current.endpointFor(it) }
-        if (next == null || endpoint == null) return V2PlaybackDecision.Fail(null)
+        if (next == null || endpoint == null) return V2PlaybackDecision.Fail(
+            if (current.sourceType == "local") "本地视频无法直接播放，请检查格式与编码；当前未启用转码" else null,
+        )
         stage = next
         return V2PlaybackDecision.Play(current.mediaId, next, endpoint)
     }

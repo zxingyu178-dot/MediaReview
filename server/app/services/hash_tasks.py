@@ -86,6 +86,7 @@ def _quick_pass(database: Database, task_id: str) -> None:
                 session.query(MediaCacheIndex)
                 .filter(
                     MediaCacheIndex.media_path.is_not(None),
+                    MediaCacheIndex.source_type == "jellyfin",
                     MediaCacheIndex.quick_hash.is_(None),
                 )
                 .limit(_BATCH)
@@ -158,6 +159,7 @@ def _candidate_sha_missing(session) -> list[MediaCacheIndex]:
         )
         .filter(
             MediaCacheIndex.media_path.is_not(None),
+            MediaCacheIndex.source_type == "jellyfin",
             MediaCacheIndex.sha256.is_(None),
         )
         .limit(_BATCH)

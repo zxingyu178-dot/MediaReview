@@ -162,6 +162,9 @@ class V2ServerMediaRepository internal constructor(
     // ---------- 列表 / 文件夹 ----------
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = call { api, base ->
+        check(query.spec.sourceType != "local" || "native_sources_v1" in statusStore.capabilities.value) {
+            "本地来源需要电脑端 MediaReview Server 1.5.0+，请先升级电脑端"
+        }
         // Stage 8A.1: 收藏状态随 MediaSummary 一起下发,不再先拉取整个收藏列表
         val envelope = api.media(
             libraryId = null,
@@ -174,6 +177,7 @@ class V2ServerMediaRepository internal constructor(
             excludeFavorites = false,
             folderId = query.folderId,
             includeDescendants = query.includeDescendants,
+            sourceType = query.spec.sourceType,
         )
         val page = unwrap(envelope)
         V2MediaPage(
@@ -293,6 +297,10 @@ class V2ServerMediaRepository internal constructor(
      * 只有服务器确认成功才返回 true（§36：失败 UI 不变 + Snackbar）。
      */
     override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = try {
+        if (pending) {
+            val media = resources.media(mediaId)
+            require(!mediaId.startsWith("loc_") && media?.canDelete != false) { "本地来源为只读" }
+        }
         call { api, _ ->
             if (pending) unwrap(api.enqueueDelete(mediaId)) else unwrap(api.dequeueDelete(mediaId))
         }

@@ -10,6 +10,8 @@
 
 实施顺序：9A 来源/迁移/扫描；9B 图片/缩略图；9C 视频 Range/本地进度；9D Android 合流/最终产物。各段定向回归后提交并推送，不操作生产实例。回滚优先恢复升级前数据库备份；有本地数据时禁止直接降级，避免旧版本把本地占位 ID 当作 Jellyfin。
 
+落点：`adapters/media_source.py` 拥有来源中立 `MediaItem/LibrarySource` DTO 和 `MediaSource` 能力策略；Jellyfin 原导入路径保留兼容再导出。`native_sources` 负责发现/文件句柄验证，`native_images` 负责单队列衍生图，`native_playback` 负责 Range，`native_metadata` 负责按需探测，播放进度落既有 SQLite。批阅/收藏沿用索引主键。旧哈希/重复扫描和雪碧图不接收本地相对路径，避免沿旧绝对路径链误读；本轮不做本地重复检测或跨来源合并。服务接口按 source_type 分派，不引入第二套队列、服务或持久化层。
+
 ## 1. 总体结构
 
 ```text

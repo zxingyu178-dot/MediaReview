@@ -358,6 +358,8 @@ class V2ServerReviewSessionRepository internal constructor(
             coverUrl = resources.coverUrl(summary.media_id).orEmpty(),
             favorite = summary.is_favorite,
             seen = seen,
+            sourceType = summary.source_type,
+            canDelete = summary.can_delete && summary.source_type == "jellyfin",
         )
     }
 

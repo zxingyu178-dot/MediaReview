@@ -96,7 +96,7 @@ fun LibraryManagerScreen(
                         color = MediaTextPrimary,
                     )
                     Text(
-                        text = "选择参与媒体墙与批阅的媒体库",
+                        text = "本地目录请在电脑管理后台登记；此处选择参与媒体墙与批阅的来源",
                         style = MaterialTheme.typography.bodySmall,
                         color = MediaTextSecondary,
                     )
@@ -222,7 +222,7 @@ private fun LibraryRow(
             ),
         )
         Text(
-            text = library.name,
+            text = (if (library.sourceType == "local") "[本地只读] " else "[Jellyfin] ") + library.name,
             style = MaterialTheme.typography.titleSmall,
             color = MediaTextPrimary,
             maxLines = 1,

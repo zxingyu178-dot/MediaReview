@@ -196,7 +196,8 @@ data class DuplicateScanState(
 }
 
 /** 媒体库条目（本地编辑草稿的权威来源）。 */
-data class LibrarySelectionItem(val jellyfinId: String, val name: String, val selected: Boolean)
+data class LibrarySelectionItem(val jellyfinId: String, val name: String, val selected: Boolean,
+    val sourceType: String = "jellyfin")
 
 /** 重复分组类型（V2 用户页面只展示 exact / similar；high / candidate 不进入用户界面）。 */
 enum class DuplicateGroupType(val wire: String) {

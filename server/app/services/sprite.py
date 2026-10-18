@@ -106,7 +106,7 @@ def _execute_sprite_generation(
             return
         params = json.loads(task.params or "{}")
         media = media_index.get_cached_media(session, params.get("media_id", ""))
-        if media is None:
+        if media is None or media.source_type != "jellyfin":
             task.status = "failed"
             task.error = "媒体不存在或尚未建立索引"
             task.finished_at = utc_now()

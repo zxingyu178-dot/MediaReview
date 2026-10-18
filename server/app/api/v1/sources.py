@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.v1.auth import require_auth
-from app.core.errors import ForbiddenError
+from app.core.errors import ForbiddenError, ValidationFailedError
 from app.core.responses import ok
 from app.db.models import LocalRoot
 from app.db.session import get_db
@@ -53,7 +53,11 @@ def list_sources(_auth=Depends(require_auth), db: Session = Depends(get_db)):
 
 
 @router.post("/local", status_code=202, dependencies=[Depends(require_local_admin)])
-def register_local(body: RegisterRoot, db: Session = Depends(get_db)):
+def register_local(body: RegisterRoot, request: Request, db: Session = Depends(get_db)):
+    candidate = native_sources.validate_root(body.path).resolve()
+    managed = request.app.state.paths.data_root.resolve()
+    if candidate.is_relative_to(managed) or managed.is_relative_to(candidate):
+        raise ValidationFailedError("媒体来源必须与服务器数据库和缓存目录分开")
     root = native_sources.register_root(db, body.name, body.path)
     task = native_sources.schedule_scan(db, root.root_id)
     return ok({"source": root_view(root), "task": safe_task_view(task)})

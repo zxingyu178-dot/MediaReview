@@ -68,6 +68,9 @@ def make_handler(ffmpeg_dir):
                 task.result = json.dumps({"codec": stream.get("codec_name"), "duration_known": row.duration_ms is not None})
                 task.status, task.progress, task.finished_at = "succeeded", 100, utc_now()
             except Exception:
+                session.refresh(task)
+                if task.status != "running":
+                    return
                 task.status, task.error, task.finished_at = "failed", "local_probe_unavailable", utc_now()
             session.commit()
     return handler

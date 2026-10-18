@@ -33,6 +33,8 @@ data class V2Media(
     val spriteManifestPath: String?, // 雪碧图 manifest json 相对 assets 路径
     val naturalWidth: Int,
     val naturalHeight: Int,
+    val sourceType: String = "jellyfin",
+    val canDelete: Boolean = true,
 ) {
     val isVideo: Boolean get() = type == V2MediaType.VIDEO
     val durationSeconds: Int get() = (durationMs / 1000L).toInt()
@@ -89,6 +91,7 @@ data class V2SortSpec(
     val field: V2SortField = V2SortField.RECENT,
     val order: V2SortOrder = V2SortOrder.DESC,
     val typeFilter: V2TypeFilter = V2TypeFilter.ALL,
+    val sourceType: String? = null,
 )
 
 /**

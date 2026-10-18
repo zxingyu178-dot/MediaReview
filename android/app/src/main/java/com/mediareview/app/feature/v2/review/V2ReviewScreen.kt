@@ -921,7 +921,8 @@ private fun ReviewPagerContent(
                 ReviewActionButton(
                     icon = if (item.mediaId in pendingDeleteIds) Icons.Default.Undo else Icons.Default.DeleteOutline,
                     tint = if (item.mediaId in pendingDeleteIds) MediaDanger else MediaTextPrimary,
-                    label = if (item.mediaId in pendingDeleteIds) "撤销" else "待删除",
+                    label = if (!item.canDelete) "本地只读" else if (item.mediaId in pendingDeleteIds) "撤销" else "待删除",
+                    enabled = item.canDelete,
                     onClick = {
                         if (item.mediaId in pendingDeleteIds) {
                             vm.undoPendingDelete(item.mediaId)
@@ -1112,10 +1113,12 @@ private fun ReviewActionButton(
     tint: Color,
     label: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(
             onClick = onClick,
+            enabled = enabled,
             modifier = Modifier
                 .size(44.dp)
                 .background(V2Colors.CardScrim, CircleShape),

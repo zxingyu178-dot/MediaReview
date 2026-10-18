@@ -66,6 +66,21 @@ def test_oversized_image_rejected_without_decode(indexed_image, monkeypatch):
     assert "像素" in response.json()["error"]["message"]
 
 
+def test_cancelled_thumbnail_error_does_not_override_cancel(indexed_image, app, monkeypatch):
+    client, mid, _photo = indexed_image
+    def cancel_then_fail(*args):
+        with app.state.database.session() as s:
+            s.execute(sa.update(BackgroundTask).where(BackgroundTask.type == native_images.TASK_TYPE,
+                BackgroundTask.status == "running").values(status="cancelled"))
+            s.commit()
+        raise ValueError("fixture failure after cancel")
+    monkeypatch.setattr(native_images, "render_thumbnail", cancel_then_fail)
+    assert client.get(f"/api/v1/media/{mid}/thumbnail").status_code == 503
+    with app.state.database.session() as s:
+        task = s.scalar(sa.select(BackgroundTask).where(BackgroundTask.type == native_images.TASK_TYPE))
+        assert task.status == "cancelled"
+
+
 def test_video_cover_from_disposable_clip(app, tmp_path):
     import subprocess
     from pathlib import Path

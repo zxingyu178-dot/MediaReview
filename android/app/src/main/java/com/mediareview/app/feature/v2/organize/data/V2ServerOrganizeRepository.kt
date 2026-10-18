@@ -327,7 +327,7 @@ class V2ServerOrganizeRepository internal constructor(
             LibrarySelectionItem(
                 jellyfinId = it.jellyfin_id,
                 name = it.name,
-                selected = it.selected,
+                selected = it.selected, sourceType = it.source_type,
             )
         }
     }
@@ -338,7 +338,7 @@ class V2ServerOrganizeRepository internal constructor(
                 LibrarySelectionItem(
                     jellyfinId = it.jellyfin_id,
                     name = it.name,
-                    selected = it.selected,
+                    selected = it.selected, sourceType = it.source_type,
                 )
             }
         }

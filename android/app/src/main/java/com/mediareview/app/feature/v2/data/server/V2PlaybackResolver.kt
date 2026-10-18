@@ -7,6 +7,7 @@ import com.mediareview.app.feature.v2.model.V2PlaybackEndpoint
 import com.mediareview.app.feature.v2.model.V2PlaybackSource
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /**
  * Server 播放信息（`GET /api/v1/media/{id}/playback`）→ [V2PlaybackSource]。
@@ -32,6 +33,9 @@ class V2PlaybackResolver @Inject constructor(
         require(direct != null && direct.url.isNotBlank()) {
             "服务器未返回可直连的播放地址"
         }
+        if (dto.source_type == "local") {
+            require(dto.fallback_hls == null) { "本地来源不支持 Jellyfin 播放回退" }
+        }
         return V2PlaybackSource(
             mediaId = dto.media_id,
             title = dto.title,
@@ -43,6 +47,7 @@ class V2PlaybackResolver @Inject constructor(
             durationMs = dto.duration_ms,
             width = dto.width,
             height = dto.height,
+            sourceType = dto.source_type,
         )
     }
 
@@ -51,14 +56,25 @@ class V2PlaybackResolver @Inject constructor(
         dto: PlaybackInfoDto,
         baseUrl: String,
         serverOnlyHosts: Set<String>,
-    ): V2PlaybackEndpoint = V2PlaybackEndpoint(
-        url = urlResolver.resolve(
-            endpoint.url,
-            baseUrl,
-            dto.stream_url_rewrite_hosts.toSet() + serverOnlyHosts,
-            authoritative = dto.stream_url_authoritative,
-            legacyServerOnlyHeuristics = dto.stream_url_source == "legacy",
-        ),
-        headers = endpoint.headers.filterValues { it.isNotBlank() },
-    )
+    ): V2PlaybackEndpoint {
+        val resolved = V2PlaybackEndpoint(
+            url = urlResolver.resolve(
+                endpoint.url,
+                baseUrl,
+                dto.stream_url_rewrite_hosts.toSet() + serverOnlyHosts,
+                authoritative = dto.stream_url_authoritative,
+                legacyServerOnlyHeuristics = dto.stream_url_source == "legacy",
+            ),
+            headers = endpoint.headers.filterValues { it.isNotBlank() },
+        )
+        if (dto.source_type == "local") {
+            val paired = baseUrl.toHttpUrl()
+            val local = resolved.url.toHttpUrl()
+            require(local.scheme == paired.scheme && local.host == paired.host && local.port == paired.port &&
+                local.encodedPath == "/api/v1/media/${dto.media_id}/file" && local.encodedQuery == null) {
+                "本地播放地址必须属于已配对服务器"
+            }
+        }
+        return resolved
+    }
 }

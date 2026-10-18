@@ -12,6 +12,7 @@ import dataclasses
 import json
 import math
 import shutil
+import sys
 from pathlib import Path
 from typing import Protocol
 
@@ -164,6 +165,11 @@ def _resolve_binary(ffmpeg_dir: str, name: str) -> str:
         return str(direct)
     if direct and direct.with_suffix(".exe").is_file():
         return str(direct.with_suffix(".exe"))
+    if not ffmpeg_dir and getattr(sys, "frozen", False):
+        for directory in (Path(sys.executable).parent, Path(sys.executable).parent.parent):
+            bundled = directory / "ffmpeg" / (name + ".exe")
+            if bundled.is_file():
+                return str(bundled)
     found = shutil.which(name)
     if found:
         return found

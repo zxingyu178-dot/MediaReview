@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 
 import sqlalchemy as sa
 
-from app.adapters.jellyfin.models import MediaItem
+from app.adapters.media_source import MediaItem, can_delete
 from app.core.errors import ConflictError, ForbiddenError, MediaNotFoundError, ValidationFailedError
 from app.db.models import BackgroundTask, LibrarySelection, LocalRoot, MediaCacheIndex, utc_now
 from app.services.media_index import upsert_media_items
@@ -72,7 +72,7 @@ def safe_path(root: LocalRoot, relative: str) -> Path:
 
 
 def local_media_id(root_id: str, relative: str) -> str:
-    key = root_id + "\0" + relative.replace("\\", "/").casefold()
+    key = root_id + "\0" + relative.replace("\\", "/")
     return "loc_" + hashlib.sha256(key.encode()).hexdigest()[:20]
 
 
@@ -122,6 +122,8 @@ def register_root(session, name: str, raw: str) -> LocalRoot:
     existing = session.scalar(sa.select(LocalRoot).where(LocalRoot.root_path == canonical))
     if existing:
         return existing
+    if session.scalar(sa.select(sa.func.count()).select_from(LocalRoot)) >= 64:
+        raise SourcePathError("本地来源已达64个上限")
     # 不允许重叠登记，避免相同文件被多个本地根意外重复呈现。
     for other in session.scalars(sa.select(LocalRoot)):
         old = Path(other.root_path)
@@ -179,10 +181,12 @@ def _walk(root: Path):
                     raise SourcePathError("目录超过单次扫描条目限制")
                 info = entry.stat(follow_symlinks=False)
                 if not _plain(info):
+                    yield None, None
                     continue
                 if stat.S_ISDIR(info.st_mode):
                     if entry.name.casefold() not in SKIP_DIRS:
                         stack.append((Path(entry.path), depth + 1))
+                    yield None, None
                 elif stat.S_ISREG(info.st_mode) and Path(entry.name).suffix.lower() in EXTENSIONS:
                     path = Path(entry.path)
                     # Windows DirEntry.stat 缓存的 st_ino/st_dev 为0；独立 lstat 才有句柄可比身份。
@@ -199,6 +203,10 @@ def _save_batch(database, task_id, root_id, generation, batch):
     with database.session() as session:
         task = session.get(BackgroundTask, task_id)
         if not task or task.status != "running":
+            root = session.get(LocalRoot, root_id)
+            if root and task:
+                root.status = task.status
+                session.commit()
             return None
         root = session.get(LocalRoot, root_id)
         if not root or not root.enabled:
@@ -268,7 +276,7 @@ def run_scan(database, task_id):
             task.status, task.progress, task.finished_at = "succeeded", 100, utc_now()
             task.result = json.dumps({"seen": seen, "changed": changed})
             session.commit()
-    except (OSError, SourcePathError):
+    except Exception:  # 中断/失败均落安全终态，绝不留running孤儿或记录源路径。
         with database.session() as session:
             task = session.get(BackgroundTask, task_id)
             if task.status != "running":
@@ -283,5 +291,5 @@ def run_scan(database, task_id):
 
 
 def require_writable_source(media):
-    if media and media.source_type != "jellyfin":
+    if media and not can_delete(media.source_type):
         raise ForbiddenError("本地来源为只读，禁止永久删除")

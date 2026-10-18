@@ -58,6 +58,7 @@ def test_scan_stable_ids_incremental_and_offline_keeps_favorite(native_db, tmp_p
 
 def test_identity_scoped_by_root_and_reject_unsafe_paths(native_db, tmp_path):
     assert native_sources.local_media_id("one", "a.jpg") != native_sources.local_media_id("two", "a.jpg")
+    assert native_sources.local_media_id("one", "A.jpg") != native_sources.local_media_id("one", "a.jpg")
     for path in ("relative", r"\\host\share", str(tmp_path / "missing")):
         with native_db.session() as s, pytest.raises(native_sources.SourcePathError):
             native_sources.register_root(s, "坏目录", path)
@@ -134,6 +135,18 @@ def test_native_api_no_jellyfin_no_path_leak_or_query_scan(app, tmp_path, monkey
         page = client.get("/api/v1/media").json()
         assert page["data"]["items"][0]["source_type"] == "local"
         assert page["data"]["items"][0]["can_delete"] is False
+        assert client.get("/api/v1/media?source_type=local").json()["data"]["total"] == 1
+        assert client.get("/api/v1/media?source_type=jellyfin").json()["data"]["total"] == 0
+        mid = page["data"]["items"][0]["media_id"]
+        assert client.post(f"/api/v1/delete-queue/{mid}").status_code == 403
+        assert client.post(f"/api/v1/favorites/{mid}").status_code == 200
+        favorite = client.get("/api/v1/favorites").json()["data"][0]["media"]
+        assert favorite["source_type"] == "local" and favorite["cover_url"]
+        session = client.post("/api/v1/review/sessions", json={"source": {"filter": {"media_type": "image"}}})
+        assert session.status_code == 200, session.text
+        sid = session.json()["data"]["session_id"]
+        queue = client.get(f"/api/v1/review/sessions/{sid}/queue").json()["data"]["items"]
+        assert queue[0]["media"]["media_id"] == mid and queue[0]["media"]["cover_url"]
         assert str(source) not in json.dumps(page)
         assert client.post("/api/v1/sources/local", json={"name": "样本", "path": str(source)},
                            headers={"Origin": "https://evil.invalid"}).status_code == 403
@@ -167,3 +180,63 @@ def test_additive_migration_preserves_0014_rows_and_rollback(tmp_path):
         connection.execute("INSERT INTO local_root VALUES ('native-root','样本','test-only',1,'pending',NULL)")
     with pytest.raises(RuntimeError, match="禁止有损降级"):
         command.downgrade(config, "0014")
+
+
+def test_windows_junction_never_followed(native_db, tmp_path):
+    import os
+    import subprocess
+    if os.name != "nt":
+        pytest.skip("Windows junction专项")
+    root, outside = tmp_path / "root", tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (outside / "secret.jpg").write_bytes(b"temporary outside fixture")
+    link = root / "junction"
+    made = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)], capture_output=True)
+    if made.returncode:
+        pytest.skip("当前环境无法创建junction")
+    try:
+        with native_db.session() as s:
+            source = native_sources.register_root(s, "样本", str(root))
+            root_id = source.root_id
+            with pytest.raises(native_sources.SourcePathError):
+                native_sources.safe_path(source, "junction/secret.jpg")
+            with pytest.raises(native_sources.SourcePathError):
+                native_sources.register_root(s, "链接根", str(link))
+            s.commit()
+        assert scan(native_db, root_id).status == "succeeded"
+        with native_db.session() as s:
+            assert s.scalar(sa.select(sa.func.count()).select_from(MediaCacheIndex)) == 0
+    finally:
+        # 只移除本测试创建且确认是reparse的junction本身，绝不递归删除目标。
+        assert link.parent == root and link.lstat().st_file_attributes & 0x400
+        os.rmdir(link)
+    assert (outside / "secret.jpg").exists()
+
+
+def test_cancel_scan_does_not_hide_unseen_media(native_db, tmp_path, monkeypatch):
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "one.jpg").write_bytes(b"one")
+    (root / "two.jpg").write_bytes(b"two")
+    with native_db.session() as s:
+        root_id = native_sources.register_root(s, "样本", str(root)).root_id
+        s.commit()
+    scan(native_db, root_id)
+    (root / "two.jpg").unlink()
+    with native_db.session() as s:
+        task = native_sources.schedule_scan(s, root_id)
+        task.status = "running"
+        task_id = task.task_id
+        s.commit()
+    walk = native_sources._walk
+    def cancel_walk(path):
+        for value in walk(path):
+            with native_db.session() as s:
+                s.get(BackgroundTask, task_id).status = "cancelled"
+                s.commit()
+            yield value
+    monkeypatch.setattr(native_sources, "_walk", cancel_walk)
+    native_sources.run_scan(native_db, task_id)
+    with native_db.session() as s:
+        assert all(r.is_available for r in s.scalars(sa.select(MediaCacheIndex)))

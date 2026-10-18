@@ -224,7 +224,7 @@ function fmtBytes(n) {
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
   return (i ? n.toFixed(1) : n) + " " + units[i];
 }
-const TYPE_NAMES = { media_refresh: "媒体刷新", sprite: "雪碧图", duplicate_scan: "重复扫描", duplicate_hash: "媒体哈希" };
+const TYPE_NAMES = { media_refresh: "媒体刷新", local_scan: "本地来源扫描", local_thumbnail: "本地封面生成", local_probe: "本地视频探测", sprite: "雪碧图", duplicate_scan: "重复扫描", duplicate_hash: "媒体哈希" };
 const STATUS_NAMES = { pending: "等待中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消", paused: "已暂停" };
 function typeName(t) { return TYPE_NAMES[t] || t || "-"; }
 function statusName(s) { return STATUS_NAMES[s] || s || "-"; }
@@ -356,7 +356,7 @@ async function loadLibraries() {
 async function loadLocalRoots() {
   try {
     const rows = (await jget("/api/v1/sources")).data || [];
-    const states = {pending:"等待扫描", available:"可用", offline:"目录离线", scan_failed:"扫描失败"};
+    const states = {pending:"等待扫描", available:"可用", offline:"目录离线", scan_failed:"扫描失败", cancelled:"已取消", paused:"已暂停"};
     $("localRootList").textContent = rows.map(r => r.name + " · " + (states[r.status] || r.status) + " · 只读").join("；") || "尚未登记本地来源";
   } catch (e) { $("localRootList").textContent = e.message; }
 }

@@ -83,6 +83,7 @@ interface MediaReviewApi {
         @Query("exclude_favorites") excludeFavorites: Boolean = false,
         @Query("folder_id") folderId: String? = null,
         @Query("include_descendants") includeDescendants: Boolean = true,
+        @Query("source_type") sourceType: String? = null,
     ): Envelope<MediaPage>
 
     @GET("/api/v1/media/folders")

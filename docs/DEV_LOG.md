@@ -2798,3 +2798,9 @@ Main冻结 SHA256 80cdab2fab23da14f1d3ce5df60b25ca6b179792bb5ec8f922a18b63ef510e
 - 本地视频复用播放合同（相对URL+配对Bearer headers、无HLS回退），独立GET/HEAD读取仅允许本地视频。单Range206/416、条件请求、64KiB分块、最多4并发，验证文件句柄身份；不转发Jellyfin。
 - 本地进度写SQLite；按需ffprobe使用验证过的stdin句柄、数组参数、8秒超时，复用单任务队列，失败不阻塞直读播放，同一指纹不无限重探。
 - 定向测试：未实现时4项失败，完成后原生Range/HEAD/条件/鉴权/替换/进度与旧Jellyfin播放合同14项通过（8.75秒）；补充真实配对Bearer只进headers及撤销立即拒绝、合成MP4实际ffprobe时长/分辨率2项通过（3.21秒）。未测真实手机编解码/HomeLAN，不部署生产。
+
+## 2026-10-18 Stage9D Android合流与交付准备
+- 来源中立DTO/能力策略提取至adapters/media_source.py，旧Jellyfin导入兼容。Android媒体墙来源筛选与本地标识、库管理入口说明，原图/Full/Review复用既有链路；按钮/VM/仓库阻断本地删除，本地播放地址严格限制到已配对origin，失败不进入Jellyfin HLS。
+- 本地图片与批阅/收藏贯通；旧重复/Hash/Sprite明确不接收本地相对路径，本轮不做本地重复检测。扫描跳过真实Windows junction；取消保留未见索引；根目录与自身数据库/缓存必须分离。版本Alpha14/code21、Server1.5.0，Contract2+三项native能力。
+- Server定向验收128通过/1部署版本声明未同步失败（118.28秒）；同步声明后仅原失败项及身份/哈希受影响目标3通过；迁移和取消竞争补验2通过（3.86秒）。不是单轮129全绿。首轮JVM23通过；最终四个相关suite共57通过，Gradle 2m38s。新模块F/E9检查通过；保留既有弃用/AGP warning。
+- 未跑638/488/178全量、设备测试或lint全量；手机不在家，Phone/HomeLAN NOT TESTED。接下来各构建一次正式APK/Server并验证签名、版本与隔离运行；此刻尚未声称正式产物完成，未部署生产。

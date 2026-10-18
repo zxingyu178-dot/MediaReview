@@ -32,6 +32,14 @@ class V2PlaybackSourceControllerTest {
         decision as? V2PlaybackDecision.Play ?: error("期望 Play，实际 $decision")
 
     // ---------- §6 retry 必须真正回 Direct ----------
+    @Test
+    fun `本地播放失败明确提示编码且不进入HLS`() {
+        val token = controller.moveTo("local")
+        controller.onResolved(token, source("local", hlsUrl = null).copy(sourceType = "local"))
+        val failed = controller.onPlaybackFailed(token, "local") as V2PlaybackDecision.Fail
+        assertTrue(failed.message.orEmpty().contains("编码"))
+        assertEquals(V2PlaybackStage.DIRECT, controller.stage)
+    }
 
     @Test
     fun `HLS 回退失败后 retry 从 Direct 重新开始`() {

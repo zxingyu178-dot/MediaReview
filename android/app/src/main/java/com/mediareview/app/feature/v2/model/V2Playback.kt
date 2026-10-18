@@ -31,6 +31,7 @@ data class V2PlaybackSource(
     val durationMs: Long? = null,
     val width: Int? = null,
     val height: Int? = null,
+    val sourceType: String = "jellyfin",
 ) {
     /** 指定阶段的端点；该阶段不存在时返回 null。 */
     fun endpointFor(stage: V2PlaybackStage): V2PlaybackEndpoint? = when (stage) {

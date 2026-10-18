@@ -134,30 +134,8 @@ class JFItemsPage(BaseModel):
 # ---- 统一 DTO(adapter 对外唯一输出) ----
 
 
-class Library(BaseModel):
-    jellyfin_id: str
-    name: str
-    collection_type: str | None = None
-
-
-class MediaItem(BaseModel):
-    source_type: str = "jellyfin"
-    media_id: str
-    jellyfin_id: str
-    name: str
-    media_type: MediaType
-    library_id: str
-    duration_ms: int | None = None
-    size_bytes: int | None = None
-    width: int | None = None
-    height: int | None = None
-    container: str | None = None
-    created_at: datetime | None = None
-    modified_at: datetime | None = None
-    # 服务端内部使用(ffprobe/雪碧图),绝不暴露给客户端
-    media_path: str | None = None
-    # 指纹 = canonical path + size + modified,供缓存失效与文件重扫后重新关联
-    fingerprint: str = ""
+# 历史导入路径保留为兼容再导出；DTO由来源中立模块拥有。
+from app.adapters.media_source import LibrarySource as Library, MediaItem  # noqa: E402,F401
 
 
 def _optional_int(value: Any) -> int | None:

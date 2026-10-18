@@ -283,7 +283,13 @@ class V2HomeViewModel @Inject constructor(
     fun openViewerPendingDelete(): Long = viewerPendingController.open()
     fun closeViewerPendingDelete(session: Long) = viewerPendingController.close(session)
     fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
-    fun toggleViewerPendingDelete(session: Long, mediaId: String) = viewerPendingController.toggle(session, mediaId)
+    fun toggleViewerPendingDelete(session: Long, mediaId: String) {
+        if (mediaId.startsWith("loc_") || repository.mediaById(mediaId)?.canDelete == false) {
+            _viewerPendingDeleteMessages.tryEmit("本地来源为只读，不能加入待删除")
+            return
+        }
+        viewerPendingController.toggle(session, mediaId)
+    }
     fun undoPendingDelete(session: Long, mediaId: String) = viewerPendingController.undo(session, mediaId)
     fun isPendingDeleteSessionCurrent(session: Long): Boolean = viewerPendingController.isCurrentSession(session)
 

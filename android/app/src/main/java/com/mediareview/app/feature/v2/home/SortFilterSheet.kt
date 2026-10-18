@@ -126,6 +126,15 @@ fun SortFilterSheet(
                 modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Md),
             )
 
+            Text("媒体墙来源", color = MediaTextSecondary,
+                modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm))
+            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl)) {
+                listOf(null to "全部", "jellyfin" to "Jellyfin", "local" to "本地只读").forEach { (value, label) ->
+                    OptionChip(text = label, selected = spec.sourceType == value,
+                        onClick = { onChange(spec.copy(sourceType = value)) })
+                    Spacer(modifier = Modifier.size(V2Spacing.Sm))
+                }
+            }
             // 排序字段
             Text(
                 text = "排序字段",

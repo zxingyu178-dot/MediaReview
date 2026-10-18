@@ -145,7 +145,7 @@ fun MediaCard(
             // 标题 + 次信息（紧凑垂直内边距，提升首屏排数）
             Column(modifier = Modifier.padding(horizontal = V2Spacing.Sm, vertical = V2Spacing.Sm)) {
                 Text(
-                    text = media.name,
+                    text = (if (media.sourceType == "local") "[本地只读] " else "") + media.name,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MediaTextPrimary,
                     maxLines = 1,

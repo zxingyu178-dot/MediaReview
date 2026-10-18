@@ -446,6 +446,11 @@ class V2ReviewViewModel @Inject constructor(
 
     /** 加入待删除（§36：服务端确认成功才更新 UI；失败保持原状态 + 提示）。 */
     fun addPendingDelete(mediaId: String) {
+        val item = (_state.value as? V2ReviewUiState.Ready)?.items?.firstOrNull { it.mediaId == mediaId }
+        if (mediaId.startsWith("loc_") || item?.canDelete == false) {
+            _messages.tryEmit(ReviewMessage("本地来源为只读，不能加入待删除"))
+            return
+        }
         viewModelScope.launch {
             if (repository.setPendingDelete(mediaId, true)) {
                 _pendingDeleteIds.value = _pendingDeleteIds.value + mediaId

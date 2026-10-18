@@ -107,6 +107,9 @@ def make_handler(cache, ffmpeg_dir):
                     cache._writes_since_prune = 0
                 task.status, task.progress, task.finished_at = "succeeded", 100, utc_now()
             except Exception as exc:  # 任务必须落失败态；不持久化底层异常/路径。
+                session.refresh(task)
+                if task.status != "running":
+                    return
                 task.status, task.finished_at = "failed", utc_now()
                 # 仅持久化已审查的业务文案，不记录文件路径或 ffmpeg stderr。
                 task.error = exc.message if isinstance(exc, AppError) else "本地图片无法读取或处理超时"
