@@ -2830,3 +2830,13 @@ gradlew.bat :app:assembleRelease --max-workers=1 --offline --console=plain
 python -m PyInstaller packaging/mediareview_server.spec --distpath dist/stage9 --workpath build/pyinstaller --noconfirm
 ```
 原始失败不隐藏：最终Server首轮128通过/1版本声明失败，定向补验关闭；真实EXE第一次任务404定位后修复，探针曾错误区分HTTP头大小写，已修正工具断言，未改Range生产实现。不是单轮全绿；EXE NotSigned与APK签名PASS分别报告。
+
+### 2026-10-18 Stage9 真机诊断：Server 1.5.1 锁竞争修复
+
+手机ADB已连接并确认Alpha14/code21。用户复现媒体缺失/服务器反复离线；正式日志包含paired_device.last_seen_at认证UPDATE及后台任务claim的SQLITE_BUSY。只读索引统计存在4,113条Jellyfin视频，尚无本地源；该数量不能证明真实文件全部被发现或可播放。
+
+临时库先复现：认证写锁跨端点保留、写锁忙时合法请求失败、同步任务claim等待写锁阻塞事件循环。修复认证：先只读校验，在线心跳每分钟最多更新，短事务busy_timeout=0并在端点前提交；锁忙回滚后重新校验token/revoked，归还连接前恢复timeout。任务claim也仅对锁忙立即返回并稍后重试。短审查发现to_thread候选方案存在取消后遗留running任务，最终未采用。Contract2、删除安全和播放器未修改；无需重建APK。
+
+定向测试：`pytest tests/test_auth_concurrency.py tests/test_task_manager.py tests/test_stage7_fix.py tests/test_playback_contract_11.py tests/test_native_playback.py -q -o addopts= --tb=short` 38通过；最终claim方案替换后重跑受影响两个文件5通过；`pytest tests/test_health_contract_8d1.py -q -o addopts= --tb=short` 6通过。相关4个Python文件ruff通过。未跑全量Server/JVM/connected。
+
+Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离真实EXE中保持SQLite写锁，12次健康请求均成功，最慢16ms；进程和临时端口已释放。首次隔离脚本漏设STORAGE数据根，日志权限检查即失败、未启动完成；补齐隔离环境后通过，未改生产配置。证据在`review_meta/stage9/phone-debug/`。正式1.5.1部署和手机实际播放尚待后续验证，不能声称掉线或视频故障已全部修复。

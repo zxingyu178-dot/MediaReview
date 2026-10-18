@@ -13,10 +13,12 @@ handler 签名: `def handler(session: Session, task: BackgroundTask) -> None`
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -89,15 +91,32 @@ class TaskManager:
                 .limit(1)
                 .scalar_subquery()
             )
-            claimed = session.execute(
-                sa.update(BackgroundTask)
-                .where(
-                    BackgroundTask.task_id == candidate,
-                    BackgroundTask.status == "pending",
-                )
-                .values(status="running", started_at=utc_now())
-                .returning(BackgroundTask.task_id, BackgroundTask.type, BackgroundTask.status)
-            ).first()
+            connection = session.connection()
+            busy_timeout = connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one()
+            try:
+                try:
+                    # Poll again later if another writer owns SQLite. Never wait
+                    # five seconds on the event loop or leave a detached claim.
+                    connection.exec_driver_sql("PRAGMA busy_timeout=0")
+                    claimed = session.execute(
+                        sa.update(BackgroundTask)
+                        .where(
+                            BackgroundTask.task_id == candidate,
+                            BackgroundTask.status == "pending",
+                        )
+                        .values(status="running", started_at=utc_now())
+                        .returning(
+                            BackgroundTask.task_id, BackgroundTask.type, BackgroundTask.status
+                        )
+                    ).first()
+                finally:
+                    connection.exec_driver_sql(f"PRAGMA busy_timeout={int(busy_timeout)}")
+            except OperationalError as exc:
+                session.rollback()
+                code = getattr(exc.orig, "sqlite_errorcode", 0) & 0xFF
+                if code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                    return None
+                raise
             if claimed is None:
                 session.rollback()
                 return None

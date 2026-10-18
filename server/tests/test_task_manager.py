@@ -39,3 +39,23 @@ def test_task_loop_survives_transient_tick_errors(tmp_path) -> None:
     failures, successes = asyncio.run(scenario())
     assert failures == 3, "前置:异常确实发生了 3 次"
     assert successes >= 1, "瞬时异常不得杀死后台任务工作循环"
+
+
+def test_busy_claim_does_not_block_event_loop(tmp_path) -> None:
+    async def scenario() -> None:
+        db = Database(tmp_path / "busy-claim.db")
+        db.create_all()
+        manager = TaskManager(db)
+        with db.engine.connect() as writer:
+            writer.exec_driver_sql("UPDATE background_task SET progress=progress")
+            tick = asyncio.create_task(manager._tick())
+            try:
+                # Other async work must run to release the writer while the
+                # polling connection waits. Blocking the loop causes SQLITE_BUSY.
+                await asyncio.sleep(0.03)
+            finally:
+                writer.rollback()
+            await asyncio.wait_for(tick, timeout=2)
+        db.dispose()
+
+    asyncio.run(scenario())

@@ -9,10 +9,15 @@
 
 from __future__ import annotations
 
+import sqlite3
+from datetime import timedelta
+
 from fastapi import Depends, Request
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.errors import UnauthorizedError
+from app.db.models import utc_now
 from app.db.session import get_db
 from app.services import pairing
 
@@ -38,9 +43,32 @@ def require_auth(request: Request, db: Session = Depends(get_db)):
     if not settings.security.pairing_required:
         return None
     token = _extract_bearer(request)
-    device = pairing.authenticate(db, token)
+    device = pairing.authenticate(db, token, touch=False)
     if device is None:
         raise UnauthorizedError()
+    now = utc_now()
+    if device.last_seen_at is None or device.last_seen_at < now - timedelta(minutes=1):
+        # The auth dependency runs before endpoint work. Finish this tiny heartbeat
+        # transaction here, never hold its writer lock across upstream IO/streaming.
+        connection = db.connection()
+        busy_timeout = connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one()
+        try:
+            try:
+                connection.exec_driver_sql("PRAGMA busy_timeout=0")
+                device.last_seen_at = now
+                db.flush()
+            finally:
+                connection.exec_driver_sql(f"PRAGMA busy_timeout={int(busy_timeout)}")
+            db.commit()
+        except OperationalError as exc:
+            db.rollback()
+            code = getattr(exc.orig, "sqlite_errorcode", 0) & 0xFF
+            if code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise
+            # Recheck after rollback; a skipped heartbeat must never bypass revoke.
+            device = pairing.authenticate(db, token, touch=False)
+            if device is None:
+                raise UnauthorizedError() from None
     return device
 
 
