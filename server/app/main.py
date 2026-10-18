@@ -156,6 +156,14 @@ def _install_exception_handlers(app: FastAPI) -> None:
                 "Jellyfin 图片超过允许的大小": "image_too_large",
                 "Jellyfin 图片接口不允许重定向": "redirect_rejected",
                 "无法读取 Jellyfin 图片,请确认服务连接正常": "upstream_connection",
+                "图片像素超过安全解码限制": "local_pixel_limit",
+                "图片超过25 MiB读取限制": "local_image_size_limit",
+                "图片内容无效或像素超过安全限制": "local_image_invalid",
+                "本地文件已变化，请在电脑端重新扫描来源": "local_entity_changed",
+                "本地来源路径无效、不可用或包含链接，请检查电脑端目录": "local_path_rejected",
+                "本地图片无法读取或处理超时": "local_image_decode_or_timeout",
+                "视频封面无法提取，仍可尝试直接播放": "local_video_cover_unavailable",
+                "本地封面仍在后台队列中，请稍后重试": "local_image_pending",
             }.get(exc.message, "upstream_http" if upstream else exc.code)
             get_logger("image_proxy").warning(
                 "image_proxy_failed endpoint=%s code=%s status=%s upstream_status=%s reason=%s",

@@ -46,6 +46,9 @@ def inspect_image(handle, size):
 def render_thumbnail(handle, size, profile):
     image = inspect_image(handle, size)
     try:
+        width, height = image.size
+        if image.getexif().get(274) in (5, 6, 7, 8):
+            width, height = height, width
         # JPEG 先通过 draft 缩小解码；EXIF 在裁剪前校正。
         image.draft("RGB", (profile.width * 2, profile.height * 2))
         oriented = ImageOps.exif_transpose(image)
@@ -60,7 +63,7 @@ def render_thumbnail(handle, size, profile):
         output.close()
         rgb.close()
         oriented.close()
-        return buffer.getvalue(), "image/jpeg"
+        return buffer.getvalue(), "image/jpeg", width, height
     finally:
         image.close()
 
@@ -84,7 +87,8 @@ def make_handler(cache, ffmpeg_dir):
                 file, info = open_media(session, row)
                 with file:
                     if row.media_type == "image":
-                        payload, content_type = render_thumbnail(file, info.st_size, profile)
+                        payload, content_type, width, height = render_thumbnail(file, info.st_size, profile)
+                        row.width, row.height = width, height
                     else:
                         # ffmpeg 仅输出一张有界 JPEG，stdin 为已验证句柄，不再按路径重开源文件。
                         completed = subprocess.run([executor._ffmpeg(), "-v", "error", "-threads", "1",

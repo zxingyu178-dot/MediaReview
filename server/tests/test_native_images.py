@@ -40,6 +40,8 @@ def test_original_and_thumbnail_orientation_cache(indexed_image, app):
     assert thumbnail.status_code == 200, thumbnail.text
     with Image.open(io.BytesIO(thumbnail.content)) as result:
         assert result.height > result.width
+    metadata = client.get(f"/api/v1/media/{mid}").json()["data"]
+    assert (metadata["width"], metadata["height"]) == (20, 40)
     second = client.get(f"/api/v1/media/{mid}/thumbnail?profile=ALBUM")
     assert second.headers["x-mediareview-cache"] == "HIT"
     assert client.get(f"/api/v1/media/{mid}/thumbnail?profile=ALBUM", headers={
@@ -58,12 +60,13 @@ def test_changed_file_refused_before_cached_image_or_original(indexed_image):
         assert response.json()["request_id"]
 
 
-def test_oversized_image_rejected_without_decode(indexed_image, monkeypatch):
+def test_oversized_image_rejected_without_decode(indexed_image, monkeypatch, caplog):
     client, mid, photo = indexed_image
     monkeypatch.setattr(native_images, "MAX_PIXELS", 100)
     response = client.get(f"/api/v1/media/{mid}/thumbnail")
     assert response.status_code == 422
     assert "像素" in response.json()["error"]["message"]
+    assert "local_pixel_limit" in caplog.text
 
 
 def test_cancelled_thumbnail_error_does_not_override_cancel(indexed_image, app, monkeypatch):

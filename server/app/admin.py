@@ -129,6 +129,7 @@ _PAGE = r"""<!DOCTYPE html>
         <h2>媒体库与索引<span class="row"><button class="btn small" id="refreshMediaBtn" type="button">刷新媒体库</button></span></h2>
         <div id="libBox"></div>
         <p class="sub">本地只读来源（仅电脑本机可登记）</p>
+        <p class="status">支持 JPEG/PNG/WEBP 与 MP4/MKV/MOV/WebM；其他格式暂不索引。本地来源只读，永久删除不可执行。</p>
         <label>来源名称 <input id="localRootName" maxlength="256" placeholder="例如：家庭照片"></label>
         <label>电脑目录 <input id="localRootPath" maxlength="1024" placeholder="输入本机绝对目录"></label>
         <button class="btn" id="addLocalRootBtn" type="button">登记并扫描</button>
