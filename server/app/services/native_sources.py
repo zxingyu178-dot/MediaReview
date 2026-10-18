@@ -155,7 +155,7 @@ def schedule_scan(session, root_id: str) -> BackgroundTask:
 def recover_interrupted_scans(database):
     """独占 Server 启动时重排中断任务；重新扫描可安全覆盖未完成批次。"""
     with database.session() as session:
-        session.execute(sa.update(BackgroundTask).where(BackgroundTask.type.in_((TASK_TYPE, "local_thumbnail")),
+        session.execute(sa.update(BackgroundTask).where(BackgroundTask.type.in_((TASK_TYPE, "local_thumbnail", "local_probe")),
             BackgroundTask.status == "running").values(status="pending", started_at=None))
         session.commit()
 

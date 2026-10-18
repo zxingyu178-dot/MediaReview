@@ -565,6 +565,7 @@ class PlaybackInfo(BaseModel):
     - stream_url 为一版兼容字段,恒等于 direct.url;旧客户端可忽略新增字段。
     """
 
+    source_type: str = "jellyfin"
     media_id: str
     title: str
     direct: PlaybackEndpoint
@@ -633,6 +634,25 @@ async def get_playback_info(
         raise MediaNotFoundError()
     if row.media_type != "video":
         raise ValidationFailedError("仅视频支持播放,该媒体非视频类型")
+    if row.source_type == "local":
+        from app.db.models import LocalPlaybackProgress
+        from app.services.native_sources import open_media
+        handle, _info = open_media(db, row)
+        handle.close()
+        url = f"/api/v1/media/{row.media_id}/file"
+        from app.services.native_metadata import schedule
+        schedule(db, row)
+        headers = {}
+        authorization = request.headers.get("authorization")
+        if authorization:
+            headers["Authorization"] = authorization
+        progress = db.get(LocalPlaybackProgress, row.media_id)
+        return ok(PlaybackInfo(source_type="local", media_id=row.media_id, title=row.name,
+            direct=PlaybackEndpoint(url=url, headers=headers), stream_url=url,
+            fallback_hls=None, resume_position_ms=progress.position_ms if progress else 0,
+            stream_url_authoritative=True, message="本地只读直连；使用已配对设备认证，不提供Jellyfin转码",
+            media_type=row.media_type, duration_ms=row.duration_ms, width=row.width,
+            height=row.height, container=row.container))
     jellyfin_settings = request.app.state.settings.jellyfin
     request_host = request.url.hostname or ""
     try:
@@ -697,7 +717,7 @@ async def get_playback_info(
 
 
 class ProgressBody(BaseModel):
-    position_ms: int = Field(default=0, ge=0)
+    position_ms: int = Field(default=0, ge=0, le=9_000_000_000_000_000)
     is_paused: bool = False
 
 
@@ -716,6 +736,11 @@ async def report_progress(
         raise MediaNotFoundError()
     if row.media_type != "video" or not row.jellyfin_id:
         raise ValidationFailedError("仅视频支持进度上报")
+    if row.source_type == "local":
+        from app.db.models import LocalPlaybackProgress
+        position = min(body.position_ms, row.duration_ms) if row.duration_ms else body.position_ms
+        db.merge(LocalPlaybackProgress(media_id=media_id, position_ms=position, updated_at=utc_now()))
+        return ok({"media_id": media_id, "reported": True, "source_type": "local"})
     user_id = request.app.state.settings.jellyfin.user_id
     if not user_id:
         raise ValidationFailedError("尚未确定 Jellyfin 用户,请先完成媒体库配置")
@@ -726,3 +751,12 @@ async def report_progress(
         is_paused=body.is_paused,
     )
     return ok({"media_id": media_id, "reported": True})
+
+
+@router.api_route("/{media_id}/file", methods=["GET", "HEAD"], response_class=Response)
+def native_file(media_id: str, request: Request, _auth=Depends(require_auth), db: Session = Depends(get_db)):
+    from app.services.native_playback import file_response
+    row = media_index.get_cached_media(db, media_id)
+    if row is None or row.source_type != "local" or row.media_type != "video":
+        raise MediaNotFoundError()
+    return file_response(request, db, row)
