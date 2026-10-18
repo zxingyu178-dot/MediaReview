@@ -2844,3 +2844,7 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 后续实机结果：用户明确授权1.5.1，ControlHub停服后完整活动数据/程序保护备份及哈希核验，升级155程序文件并官方启动，health确认1.5.1/Contract2/windows_service。Alpha14/code21未重装。两段Jellyfin H.264/AAC样本各在约5秒窗口Render146，第二段下一窗口Render150、视频Drop0；播放期间生产12次health成功、最慢16ms。拖动后的恢复日志不完整，记为未确认。未验证全库完整性或全部编码；仍见上游封面404，以及后续交互式实例playback_info约7.5秒、目录约11.5秒，不能宣称全部视频问题关闭。用户确认下午手动停服务并打开EXE，继续工作时按原启动授权恢复ControlHub管理；具体结果以service-restored.json为准。未扩大测试、未重建APK，未动真实媒体。
 
 2026-10-19 00:00恢复结果：首个管理员辅助脚本未返回，针对其确切脚本身份终止后使用无交互模式完成；手动Server经路径、启动时间及端口身份验证后关闭，官方ControlHub start成功，SCM Running及health windows_service/AIHome.MediaReview/1.5.1通过。一次性脚本、临时隔离库及手机UI XML已清理，备份/产物/测试证据保留。
+
+### 2026-10-19 用户要求完整体检
+
+未修改生产代码/数据库或库选择。21库逐页Jellyfin元数据与只读SQLite对账确认409个跨库重复Item，单一library_id冲突覆盖导致用户子库101视频、另一库294项在库目录消失；临时库1→0复现，手机从父库正确目录翻页显示全部101。另2项仅上游存在/2项仅缓存存在的差异未判定原因。Release手机播放出帧，但seek后Invalid NAL length再恢复，未称播放全通过。12健康请求全成功max36.8ms，数据库完整性ok/外键0。Server全套一次643通过/4失败/41错误，JVM一次497通过（75 suites）。失败集中在旧打包入口版本声明、0010旧fixture使用0015 ORM和删除摘要旧断言；不篡改断言追求全绿。详情、命令、修复建议和未覆盖范围见docs/STAGE9_HEALTHCHECK.md。未跑会影响用户Release/配对配置的全套connected，未重建产物或部署新版本。
