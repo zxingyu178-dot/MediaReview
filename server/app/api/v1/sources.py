@@ -60,9 +60,13 @@ def register_local(body: RegisterRoot, request: Request, db: Session = Depends(g
         raise ValidationFailedError("媒体来源必须与服务器数据库和缓存目录分开")
     root = native_sources.register_root(db, body.name, body.path)
     task = native_sources.schedule_scan(db, root.root_id)
+    # 实际HTTP响应可早于yield依赖收尾；成功前提交，下一请求立即可见任务。
+    db.commit()
     return ok({"source": root_view(root), "task": safe_task_view(task)})
 
 
 @router.post("/{root_id}/scan", status_code=202, dependencies=[Depends(require_local_admin)])
 def scan_local(root_id: str, db: Session = Depends(get_db)):
-    return ok(safe_task_view(native_sources.schedule_scan(db, root_id)))
+    task = native_sources.schedule_scan(db, root_id)
+    db.commit()
+    return ok(safe_task_view(task))

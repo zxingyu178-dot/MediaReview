@@ -240,3 +240,18 @@ def test_cancel_scan_does_not_hide_unseen_media(native_db, tmp_path, monkeypatch
     native_sources.run_scan(native_db, task_id)
     with native_db.session() as s:
         assert all(r.is_available for r in s.scalars(sa.select(MediaCacheIndex)))
+
+
+def test_registration_success_means_task_visible_to_next_connection(native_db, tmp_path):
+    from types import SimpleNamespace
+    from app.api.v1.sources import RegisterRoot, register_local
+    from app.db.models import LocalRoot
+    folder = tmp_path / "samples"
+    folder.mkdir()
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        paths=SimpleNamespace(data_root=tmp_path / "data"))))
+    with native_db.session() as write_session:
+        response = register_local(RegisterRoot(name="样本", path=str(folder)), request, write_session)
+        with native_db.session() as next_connection:
+            assert next_connection.get(BackgroundTask, response.data["task"]["task_id"]) is not None
+            assert next_connection.get(LocalRoot, response.data["source"]["source_id"]) is not None

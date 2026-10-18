@@ -655,6 +655,7 @@ async def get_playback_info(
         url = f"/api/v1/media/{row.media_id}/file"
         from app.services.native_metadata import schedule
         schedule(db, row)
+        db.commit()
         headers = {}
         authorization = request.headers.get("authorization")
         if authorization:
@@ -753,6 +754,7 @@ async def report_progress(
         from app.db.models import LocalPlaybackProgress
         position = min(body.position_ms, row.duration_ms) if row.duration_ms else body.position_ms
         db.merge(LocalPlaybackProgress(media_id=media_id, position_ms=position, updated_at=utc_now()))
+        db.commit()
         return ok({"media_id": media_id, "reported": True, "source_type": "local"})
     user_id = request.app.state.settings.jellyfin.user_id
     if not user_id:
