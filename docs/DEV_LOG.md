@@ -2840,3 +2840,7 @@ python -m PyInstaller packaging/mediareview_server.spec --distpath dist/stage9 -
 定向测试：`pytest tests/test_auth_concurrency.py tests/test_task_manager.py tests/test_stage7_fix.py tests/test_playback_contract_11.py tests/test_native_playback.py -q -o addopts= --tb=short` 38通过；最终claim方案替换后重跑受影响两个文件5通过；`pytest tests/test_health_contract_8d1.py -q -o addopts= --tb=short` 6通过。相关4个Python文件ruff通过。未跑全量Server/JVM/connected。
 
 Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离真实EXE中保持SQLite写锁，12次健康请求均成功，最慢16ms；进程和临时端口已释放。首次隔离脚本漏设STORAGE数据根，日志权限检查即失败、未启动完成；补齐隔离环境后通过，未改生产配置。证据在`review_meta/stage9/phone-debug/`。正式1.5.1部署和手机实际播放尚待后续验证，不能声称掉线或视频故障已全部修复。
+
+后续实机结果：用户明确授权1.5.1，ControlHub停服后完整活动数据/程序保护备份及哈希核验，升级155程序文件并官方启动，health确认1.5.1/Contract2/windows_service。Alpha14/code21未重装。两段Jellyfin H.264/AAC样本各在约5秒窗口Render146，第二段下一窗口Render150、视频Drop0；播放期间生产12次health成功、最慢16ms。拖动后的恢复日志不完整，记为未确认。未验证全库完整性或全部编码；仍见上游封面404，以及后续交互式实例playback_info约7.5秒、目录约11.5秒，不能宣称全部视频问题关闭。用户确认下午手动停服务并打开EXE，继续工作时按原启动授权恢复ControlHub管理；具体结果以service-restored.json为准。未扩大测试、未重建APK，未动真实媒体。
+
+2026-10-19 00:00恢复结果：首个管理员辅助脚本未返回，针对其确切脚本身份终止后使用无交互模式完成；手动Server经路径、启动时间及端口身份验证后关闭，官方ControlHub start成功，SCM Running及health windows_service/AIHome.MediaReview/1.5.1通过。一次性脚本、临时隔离库及手机UI XML已清理，备份/产物/测试证据保留。

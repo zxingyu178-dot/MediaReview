@@ -1,6 +1,6 @@
 # Stage 9 交付结果（2026-10-18）
 
-状态：**DEPLOYED / READY_FOR_USER_VALIDATION**。开发验收完成后，用户明确授权备份并升级生产到1.5.0；2026-10-18已通过ControlHub完成停服、完整活动数据及程序备份、升级和启动。未读取或改动真实媒体。**Phone/HomeLAN NOT TESTED，不声称 PRODUCTION_READY / REAL_LAN_PASS。**
+状态：**DEPLOYED / LIMITED_PHONE_VALIDATION**。用户分别授权1.5.0及1.5.1备份升级；1.5.1已通过ControlHub停服、备份、升级及启动。Alpha14/code21无需重装。真实手机经现有局域网链路验证了两段Jellyfin视频解码出帧；未移动、修改或删除真实媒体。**仅限两个样本，不声称 PRODUCTION_READY / 全库或全部编码 REAL_LAN_PASS。**
 
 分支：`codex/mediareview-stage9-native-source`，从远端核对后的 `cbf56ba` 开发。9A `f4ae162` → 9B `62f5abf` → 9C `ddd6b00` → 9D `838941d`，收口代码为 **`f1a4ac85c8f95e7bc9a84e615242a3567e363fea`**，均已 push。APK构建于 `838941d`，后续仅改Server，已核对Android输入未变化。
 
@@ -29,4 +29,12 @@ SHA256：APK `4d657cf144c6118b3fb1fa2c7d2b46d52fb63bfe303366a9a663f7e15c09c558`�
 
 实机交付：Alpha14已按用户指令发送到既有QQ收件人，SMTP接受且拒收数为0，实际MIME解码附件字节与上述SHA一致；发送前Defender定向文件扫描完成。生产原实例已核验Server1.5.0/Contract2/13能力、数据库ok及管理页HTTP200，Jellyfin通过ControlHub启动且health HTTP200。升级前活动数据（含配置、配对、SQLite/WAL、缓存及服务文件，既有历史备份不重复复制）、原程序和FFmpeg均有受保护备份并逐文件核验；已安装程序和FFmpeg与发布文件逐文件哈希一致。脱敏回执在 `review_meta/stage9/{email-receipt,production-upgrade-receipt}.json`，没有重跑开发测试或重建产物。
 
-使用顺序：安装邮件中的同签名APK保留数据，在本机后台登记来源并等待扫描完成；手机连接同一局域网。0015回滚须通过ControlHub停服后恢复升级前完整数据及程序备份，不可只换旧EXE。手机只验：深层目录 → 图片及原图 → 视频拖动 → 批阅/文件夹 → 本地永久删除不可执行。真实手机/LAN和异常编码样本留待用户验证；本轮到此，不启动下一阶段。
+使用顺序：安装邮件中的同签名APK保留数据，在本机后台登记来源并等待扫描完成；手机连接同一局域网。0015回滚须通过ControlHub停服后恢复升级前完整数据及程序备份，不可只换旧EXE。深层目录、图片原图、批阅/文件夹、本地永久删除不可执行及异常编码样本仍需进一步手机验收；本轮不启动下一阶段。
+
+1.5.1实机热修复：代码提交 `d704f51` 已push。认证心跳写事务跨请求保留、锁忙等待及任务claim阻塞事件循环，已用临时库重现后修复；数据库结构和Android未改。相关组合38通过，审查后最终claim受影响目标5通过，版本合同6通过；未重跑全量Server/JVM/connected。实际EXE在临时库持有写锁时12次health全成功、最慢16ms。
+
+部署产物 `deploy_handoff/MediaReview_Server_1.5.1_hotfix.zip`，32,577,238字节，SHA256 `e1e74beb3f74d7b8068c86422f36c2d12356f378b513e65fb6208f20a1e39396`。停服保护备份、155个程序文件哈希和启动身份均核验；原有FFmpeg及配置保留。部署与测试原始回执在 `review_meta/stage9/phone-debug/`。
+
+手机证据：两个H.264/AAC视频分别在约5秒窗口输出146帧；第二个后续窗口150帧、视频Drop0。播放期间12次生产health全成功、最慢16ms。拖动触发解码器flush，但后续日志未保留，不能确认拖动恢复。下午服务随后被用户手动切换成交互式实例；继续工作时重新核对，手机仍显示在线1.5.1。2026-10-19 00:00通过路径/启动时间/端口身份检查后关闭该实例，ControlHub启动成功，SCM Running及health windows_service/AIHome.MediaReview再次核验。无程序或配置二次升级。
+
+剩余问题明确保留：全库是否完整尚未对账；部分Jellyfin封面请求上游404；最新播放信息请求曾约7.5秒，目录请求约11.5秒，原因尚未确认。两段成功播放不能证明这些问题全部解决。
