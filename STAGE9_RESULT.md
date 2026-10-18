@@ -1,6 +1,6 @@
 # Stage 9 交付结果（2026-10-18）
 
-状态：**CODE_READY / READY_FOR_USER_VALIDATION**。未部署、停止或重启生产实例；未读取或改动真实媒体。**Phone/HomeLAN NOT TESTED，不声称 PRODUCTION_READY / REAL_LAN_PASS。**
+状态：**DEPLOYED / READY_FOR_USER_VALIDATION**。开发验收完成后，用户明确授权备份并升级生产到1.5.0；2026-10-18已通过ControlHub完成停服、完整活动数据及程序备份、升级和启动。未读取或改动真实媒体。**Phone/HomeLAN NOT TESTED，不声称 PRODUCTION_READY / REAL_LAN_PASS。**
 
 分支：`codex/mediareview-stage9-native-source`，从远端核对后的 `cbf56ba` 开发。9A `f4ae162` → 9B `62f5abf` → 9C `ddd6b00` → 9D `838941d`，收口代码为 **`f1a4ac85c8f95e7bc9a84e615242a3567e363fea`**，均已 push。APK构建于 `838941d`，后续仅改Server，已核对Android输入未变化。
 
@@ -27,4 +27,6 @@ SHA256：APK `4d657cf144c6118b3fb1fa2c7d2b46d52fb63bfe303366a9a663f7e15c09c558`�
 
 边界/剩余项：首版JPEG/PNG/WEBP，25MiB/32MP限制；MP4/MKV/MOV/WebM直读，实际手机编码支持待验，部分需seek的输入可能无法生成封面/探测。最多64根、25万扫描条目、128层；拒绝UNC/链接/junction。无本地重复检测、转码、文件整理或跨来源媒体合并。树状分类按来源隔离；遗留平面目录接口仍按相对目录聚合，同名跨根目录的平面统计可能合并，优先使用树状分类。图片限制与EXIF处理参照Pillow官方[Image](https://pillow.readthedocs.io/en/stable/reference/Image.html)/[ImageOps](https://pillow.readthedocs.io/en/stable/reference/ImageOps.html)接口。
 
-使用顺序：**先按包内说明通过ControlHub停服备份并人工升级1.5.0**，保留配置/数据/配对，再安装同签名APK；在本机后台登记来源。0015回滚须恢复升级前完整数据备份，不可只换旧EXE。手机只验：深层目录 → 图片及原图 → 视频拖动 → 批阅/文件夹 → 本地永久删除不可执行。真实手机/LAN和异常编码样本留待用户验证；本轮到此，不启动下一阶段。
+实机交付：Alpha14已按用户指令发送到既有QQ收件人，SMTP接受且拒收数为0，实际MIME解码附件字节与上述SHA一致；发送前Defender定向文件扫描完成。生产原实例已核验Server1.5.0/Contract2/13能力、数据库ok及管理页HTTP200，Jellyfin通过ControlHub启动且health HTTP200。升级前活动数据（含配置、配对、SQLite/WAL、缓存及服务文件，既有历史备份不重复复制）、原程序和FFmpeg均有受保护备份并逐文件核验；已安装程序和FFmpeg与发布文件逐文件哈希一致。脱敏回执在 `review_meta/stage9/{email-receipt,production-upgrade-receipt}.json`，没有重跑开发测试或重建产物。
+
+使用顺序：安装邮件中的同签名APK保留数据，在本机后台登记来源并等待扫描完成；手机连接同一局域网。0015回滚须通过ControlHub停服后恢复升级前完整数据及程序备份，不可只换旧EXE。手机只验：深层目录 → 图片及原图 → 视频拖动 → 批阅/文件夹 → 本地永久删除不可执行。真实手机/LAN和异常编码样本留待用户验证；本轮到此，不启动下一阶段。
