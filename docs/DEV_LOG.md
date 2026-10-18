@@ -2813,3 +2813,20 @@ Main冻结 SHA256 80cdab2fab23da14f1d3ce5df60b25ca6b179792bb5ec8f922a18b63ef510e
 - 首份EXE health1.5.0/Contract2/native能力通过，但来源登记202后立即GET任务404；同一EXE受控重现确认稍后任务可见。根因为成功响应早于yield依赖事务提交，TestClient会等待依赖收尾而未揭示窗口。
 - 新增独立连接回归先失败；本地来源登记/扫描、本地进度及探测编排改为成功回包前提交，3个受影响目标通过（2.06秒）。另修正一次性冒烟工具对HTTP头大小写的错误断言（Range已返回206及正确16字节）。
 - 仅Server需因该真实缺陷重新打包；APK与Android输入保持不变，不重建APK，不重跑无关测试。EXE无Authenticode签名；APK签名以最终回执为准。
+
+## Stage9 最终交付与实际命令
+- 正式APK仅一次构建，code21/Alpha14、签名PASS，证书与Alpha13一致；EXE初次冒烟发现事务可见性缺陷后仅Server增量重打包，未重复构建APK。最终包内实际EXE严格即时任务查询、原图/两类封面、视频Range/HEAD与进度回读通过，隔离进程退出、测试端口释放；生产未动。
+- Server ZIP 96,986,726字节/162文件，完整文件集合及SHA256核验通过。APK 43,606,606字节。最终回执和原始失败/成功日志保留review_meta/stage9，正式产物及边界见STAGE9_RESULT.md。
+- 已知限制：新层级树按来源隔离；遗留平面目录聚合仍只按相对dirname，跨本地根同名目录可能聚合统计。本轮使用现有层级分类，不扩展遗留平面接口。手机/LAN/全部编码兼容未测。
+
+实际执行的关键命令（cwd分别为server、android；均使用Environment登记JDK17/SDK和项目venv）：
+```text
+python -m pytest tests/test_native_sources.py tests/test_native_images.py tests/test_native_playback.py tests/test_jellyfin_mapper.py tests/test_media_api.py tests/test_playback_contract_11.py tests/test_media_image_proxy_11.py tests/test_delete_nonce_11.py tests/test_delete_receipt_8i.py tests/test_health_contract_8d1.py -q -o addopts= --tb=short --junitxml=../review_meta/stage9/9d-server-targeted.xml
+python -m pytest tests/test_health_contract_8d1.py::test_deployment_scripts_declare_expected_version_and_contract tests/test_native_sources.py::test_identity_scoped_by_root_and_reject_unsafe_paths tests/test_stage7_fix.py::test_hash_handler_marks_unreadable -q -o addopts= --junitxml=../review_meta/stage9/9d-affected-rerun.xml
+python -m pytest tests/test_native_sources.py::test_registration_success_means_task_visible_to_next_connection tests/test_native_sources.py::test_native_api_no_jellyfin_no_path_leak_or_query_scan tests/test_native_playback.py::test_local_progress_no_jellyfin -q -o addopts= --junitxml=../review_meta/stage9/http-visibility-fix.xml
+python -m pytest tests/test_native_images.py -q -o addopts= --junitxml=../review_meta/stage9/9d-image-final.xml
+gradlew.bat :app:testDebugUnitTest --tests 'com.mediareview.app.feature.v2.data.server.V2ServerMediaRepositoryContractTest' --tests 'com.mediareview.app.feature.v2.player.V2PlaybackSourceControllerTest' --tests 'com.mediareview.app.feature.v2.releasenotes.ReleaseNotesContractTest' --tests 'com.mediareview.app.feature.v2.releasenotes.WhatsNewViewModelTest' --max-workers=1 --console=plain
+gradlew.bat :app:assembleRelease --max-workers=1 --offline --console=plain
+python -m PyInstaller packaging/mediareview_server.spec --distpath dist/stage9 --workpath build/pyinstaller --noconfirm
+```
+原始失败不隐藏：最终Server首轮128通过/1版本声明失败，定向补验关闭；真实EXE第一次任务404定位后修复，探针曾错误区分HTTP头大小写，已修正工具断言，未改Range生产实现。不是单轮全绿；EXE NotSigned与APK签名PASS分别报告。
