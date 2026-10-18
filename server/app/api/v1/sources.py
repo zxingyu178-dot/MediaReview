@@ -1,0 +1,64 @@
+"""本地来源登记仅允许电脑回环访问；手机只得到无路径的来源摘要。"""
+import ipaddress
+
+import sqlalchemy as sa
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.api.v1.auth import require_auth
+from app.core.errors import ForbiddenError
+from app.core.responses import ok
+from app.db.models import LocalRoot
+from app.db.session import get_db
+from app.services import native_sources
+from app.services.tasks import safe_task_view
+
+router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+def _loopback(host):
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def require_local_admin(request: Request):
+    if not request.client or not _loopback(request.client.host) or not _loopback(request.url.hostname):
+        raise ForbiddenError("请在电脑本机管理后台登记或扫描本地来源")
+    origin = request.headers.get("origin")
+    if origin and origin != str(request.base_url).rstrip("/"):
+        raise ForbiddenError("禁止跨站修改本地来源")
+    if request.headers.get("sec-fetch-site") == "cross-site":
+        raise ForbiddenError("禁止跨站修改本地来源")
+
+
+class RegisterRoot(BaseModel):
+    name: str = Field(min_length=1, max_length=256)
+    path: str = Field(min_length=1, max_length=1024)
+
+
+def root_view(root):
+    return {"source_id": root.root_id, "source_type": "local", "name": root.name,
+            "status": root.status, "enabled": root.enabled, "can_delete": False,
+            "last_scan_at": root.last_scan_at}
+
+
+@router.get("")
+def list_sources(_auth=Depends(require_auth), db: Session = Depends(get_db)):
+    return ok([root_view(r) for r in db.scalars(sa.select(LocalRoot))])
+
+
+@router.post("/local", status_code=202, dependencies=[Depends(require_local_admin)])
+def register_local(body: RegisterRoot, db: Session = Depends(get_db)):
+    root = native_sources.register_root(db, body.name, body.path)
+    task = native_sources.schedule_scan(db, root.root_id)
+    return ok({"source": root_view(root), "task": safe_task_view(task)})
+
+
+@router.post("/{root_id}/scan", status_code=202, dependencies=[Depends(require_local_admin)])
+def scan_local(root_id: str, db: Session = Depends(get_db)):
+    return ok(safe_task_view(native_sources.schedule_scan(db, root_id)))

@@ -79,6 +79,9 @@ class DeleteReceipt(dict[str, str]):
 
 def enqueue(session: Session, media_id: str, *, size_bytes: int | None = None) -> bool:
     """加入待删除队列。已 committed 的不再入队。返回是否为新增入队。"""
+    from app.db.models import MediaCacheIndex
+    from app.services.native_sources import require_writable_source
+    require_writable_source(session.get(MediaCacheIndex, media_id))
     row = session.get(DeleteQueue, media_id)
     if row is not None:
         return False
@@ -326,6 +329,9 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
         media_path = media.media_path if media else None
         guard_reason: str | None = None
         try:
+            if media and media.source_type != "jellyfin":
+                guard_reason = "local_source_read_only"
+                raise ValueError(guard_reason)
             if media is None or not media_path:
                 guard_reason = "media_identity_unavailable"
                 raise ValueError(guard_reason)

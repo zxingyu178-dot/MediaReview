@@ -153,7 +153,7 @@ def _build_tree(session: Session, targets: tuple[str, ...]) -> Tree:
             while common < min(map(len, paths)) and len({p[common] for p in paths}) == 1:
                 common += 1
         # Retain the last shared display segment (e.g. 欧美), collapse private prefix.
-        cut = max(0, common - 1)
+        cut = 0 if library.startswith("local_") else max(0, common - 1)
         # Drive/UNC anchor names must never become visible for disjoint paths.
         root_id = _id(library, None)
         root = FolderNode(

@@ -37,6 +37,7 @@ from app.db.session import Database
 from app.media.ffmpeg import FfmpegExecutor
 from app.services import discovery, duplicate_scanner, hash_tasks, media_index, sprite
 from app.services.tasks import TaskManager
+from app.services import native_sources
 from app.services.thumbnail_cache import ThumbnailCacheService
 
 logger = get_logger("main")
@@ -76,6 +77,8 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
 
         # 后台任务引擎: 注册雪碧图生成处理器;features.sprites 关闭时跳过
         task_manager = TaskManager(database)
+        native_sources.recover_interrupted_scans(database)
+        task_manager.register(native_sources.TASK_TYPE, native_sources.run_scan)
         task_manager.register(
             media_index.TASK_TYPE_MEDIA_REFRESH,
             media_index.make_media_refresh_handler(settings.jellyfin),

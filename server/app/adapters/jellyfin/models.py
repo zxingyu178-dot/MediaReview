@@ -141,6 +141,7 @@ class Library(BaseModel):
 
 
 class MediaItem(BaseModel):
+    source_type: str = "jellyfin"
     media_id: str
     jellyfin_id: str
     name: str

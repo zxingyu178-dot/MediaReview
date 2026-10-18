@@ -44,6 +44,15 @@ def _jellyfin_manager(request: Request) -> JellyfinClientManager:
     return manager
 
 
+class _UnconfiguredClient:
+    """延迟到实际调用上游时才报错，使本地来源不依赖 Jellyfin 配置。"""
+
+    def __getattr__(self, name):
+        async def unavailable(*args, **kwargs):
+            raise ConfigError("Jellyfin 尚未配置 API Key,请先在管理后台完成配置")
+        return unavailable
+
+
 async def jellyfin_client(request: Request) -> JellyfinClient:
     """共享的长生命周期 Jellyfin 客户端(复用 Keep-Alive 连接池)。
 
@@ -52,7 +61,7 @@ async def jellyfin_client(request: Request) -> JellyfinClient:
     """
     settings: AppConfig = request.app.state.settings
     if not settings.jellyfin.is_configured():
-        raise ConfigError("Jellyfin 尚未配置 API Key,请先在管理后台完成配置")
+        return _UnconfiguredClient()
     return await _jellyfin_manager(request).get(settings.jellyfin)
 
 

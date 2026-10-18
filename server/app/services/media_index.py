@@ -205,6 +205,7 @@ def _sync_local_size(item: MediaItem, allowed_libraries: set[str]) -> MediaItem:
 def _index_payload(item: MediaItem, *, generation: str | None, now: datetime) -> dict:
     return {
         "media_id": item.media_id,
+        "source_type": item.source_type,
         "jellyfin_id": item.jellyfin_id,
         "library_id": item.library_id,
         "name": item.name,
@@ -260,6 +261,7 @@ def upsert_media_items(
         statement = sqlite_insert(MediaCacheIndex).values(batch)
         excluded = statement.excluded
         update_values = {
+            "source_type": excluded.source_type,
             "jellyfin_id": excluded.jellyfin_id,
             "library_id": excluded.library_id,
             "name": excluded.name,
@@ -698,7 +700,7 @@ def schedule_media_refresh(
     session: Session, library_ids: Iterable[str], *, force: bool = False
 ) -> BackgroundTask:
     """幂等编排目标库集合；force 不会绕过已有 pending/running 任务。"""
-    targets = sorted({library_id for library_id in library_ids if library_id})
+    targets = sorted({library_id for library_id in library_ids if library_id and not library_id.startswith("local_")})
     if not targets:
         raise ValueError("媒体刷新至少需要一个媒体库")
     # 清理正常终态之外可能遗留的孤儿 claim；该条件 DELETE 同时取得 SQLite 写锁，

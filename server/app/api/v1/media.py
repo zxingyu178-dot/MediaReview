@@ -45,6 +45,8 @@ SortOrder = Literal["asc", "desc"]
 
 
 class MediaSummary(BaseModel):
+    source_type: str = "jellyfin"
+    can_delete: bool = True
     media_id: str
     name: str
     media_type: MediaType
@@ -135,6 +137,8 @@ def _summary_from_row(
     # 文件夹身份与 GET /media/folders 同源;媒体无路径时为 (None, None)
     folder_id, folder_name = media_index.folder_identity_for_path(row.media_path)
     return MediaSummary(
+        source_type=row.source_type,
+        can_delete=row.source_type == "jellyfin",
         media_id=row.media_id,
         name=row.name,
         media_type=row.media_type,
@@ -154,8 +158,14 @@ def _summary_from_row(
     )
 
 
-def _require_user_id(request: Request) -> str:
+def _require_user_id(request: Request, db: Session | None = None) -> str:
     user_id = request.app.state.settings.jellyfin.user_id
+    if not user_id and db is not None:
+        import sqlalchemy as sa
+        from app.db.models import LibrarySelection
+        if db.scalar(sa.select(LibrarySelection.jellyfin_id).where(
+                LibrarySelection.source_type == "local", LibrarySelection.selected.is_(True)).limit(1)):
+            return ""
     if not user_id:
         raise ValidationFailedError(
             "尚未确定 Jellyfin 用户,请先调用 /api/v1/libraries 完成媒体库配置"
@@ -170,7 +180,7 @@ async def list_folder_tree(
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[list[folder_tree.FolderNode]]:
-    _require_user_id(request)
+    _require_user_id(request, db)
     selected = media_index.selected_library_ids(db)
     targets = [library_id] if library_id else selected
     if not targets:
@@ -190,7 +200,7 @@ async def list_media_folders(
 ) -> Envelope[list[FolderSummary]]:
     """文件夹辅助视图(媒体墙内使用,非独立导航):按父目录聚合当前筛选范围内的媒体。"""
     started = perf_now()
-    _require_user_id(request)
+    _require_user_id(request, db)
     selected = set(media_index.selected_library_ids(db))
     if library_id:
         targets = [library_id]
@@ -245,7 +255,7 @@ async def list_media(
 ) -> Envelope[MediaPage]:
     """立即返回数据库分页；空索引只编排一次后台刷新。"""
     started = perf_now()
-    _require_user_id(request)
+    _require_user_id(request, db)
     selected = set(media_index.selected_library_ids(db))
     if library_id:
         targets = [library_id]
@@ -279,7 +289,9 @@ async def list_media(
 
     available_count = media_index.available_media_count(db, targets)
     if available_count == 0 and auto_refresh_allowed:
-        media_index.schedule_media_refresh(db, targets)
+        jf_targets = [target for target in targets if not target.startswith("local_")]
+        if jf_targets:
+            media_index.schedule_media_refresh(db, jf_targets)
     paged, total = media_index.list_cached_media(
         db,
         library_ids=targets,
@@ -332,15 +344,19 @@ async def refresh_media(
     db: Session = Depends(get_db),
 ) -> Envelope[dict]:
     """编排所选媒体库刷新；同目标集合 pending/running 时返回原任务。"""
-    _require_user_id(request)
+    _require_user_id(request, db)
     selected = media_index.selected_library_ids(db)
     if not selected:
         raise ValidationFailedError("尚未勾选任何媒体库,请先完成媒体库配置")
     targets = selected if body.library_ids is None else sorted(set(body.library_ids))
     if not targets or any(library_id not in set(selected) for library_id in targets):
         raise ValidationFailedError("只能刷新已勾选且存在的媒体库")
-    task = media_index.schedule_media_refresh(db, targets, force=body.force)
-    return ok(task_service.safe_task_view(task))
+    from app.services import native_sources
+    scheduled = [native_sources.schedule_scan(db, target) for target in targets if target.startswith("local_")]
+    jf_targets = [target for target in targets if not target.startswith("local_")]
+    if jf_targets:
+        scheduled.append(media_index.schedule_media_refresh(db, jf_targets, force=body.force))
+    return ok(task_service.safe_task_view(scheduled[0]))
 
 
 @router.get("/{media_id}", response_model=Envelope[MediaSummary])

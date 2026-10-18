@@ -16,11 +16,13 @@ from app.api.v1 import (
     playback_readiness,
     review,
     system,
+    sources,
     tasks,
 )
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(system.router)
+api_router.include_router(sources.router)
 api_router.include_router(playback_readiness.router)
 api_router.include_router(jellyfin.router)
 api_router.include_router(libraries.router)

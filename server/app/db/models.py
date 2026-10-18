@@ -57,10 +57,30 @@ class LibrarySelection(Base):
     __tablename__ = "library_selection"
 
     jellyfin_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(16), default="jellyfin", server_default="jellyfin")
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     collection_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     selected: Mapped[bool] = mapped_column(default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+
+class LocalRoot(Base):
+    """本机管理员登记的只读根；绝对路径永不发送给配对客户端。"""
+
+    __tablename__ = "local_root"
+    root_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    root_path: Mapped[str] = mapped_column(Text, unique=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending")
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class LocalPlaybackProgress(Base):
+    __tablename__ = "local_playback_progress"
+    media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    position_ms: Mapped[int] = mapped_column(BigInteger, default=0)
     updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
 
 
@@ -74,6 +94,7 @@ class MediaCacheIndex(Base):
     __tablename__ = "media_cache_index"
 
     media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(16), default="jellyfin", server_default="jellyfin")
     jellyfin_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     library_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(512), nullable=False)

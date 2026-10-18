@@ -128,6 +128,11 @@ _PAGE = r"""<!DOCTYPE html>
       <section class="card" aria-label="媒体库与索引">
         <h2>媒体库与索引<span class="row"><button class="btn small" id="refreshMediaBtn" type="button">刷新媒体库</button></span></h2>
         <div id="libBox"></div>
+        <p class="sub">本地只读来源（仅电脑本机可登记）</p>
+        <label>来源名称 <input id="localRootName" maxlength="256" placeholder="例如：家庭照片"></label>
+        <label>电脑目录 <input id="localRootPath" maxlength="1024" placeholder="输入本机绝对目录"></label>
+        <button class="btn" id="addLocalRootBtn" type="button">登记并扫描</button>
+        <div id="localRootList" class="status"></div>
         <p class="status" id="refreshMsg" role="status"></p>
       </section>
       <section class="card" aria-label="缓存管理">
@@ -348,6 +353,24 @@ async function loadLibraries() {
     $("saveLibBtn").addEventListener("click", saveSelection);
   } catch (e) { box.innerHTML = "<p class=\"status\">" + esc(e.message) + "</p>"; }
 }
+async function loadLocalRoots() {
+  try {
+    const rows = (await jget("/api/v1/sources")).data || [];
+    const states = {pending:"等待扫描", available:"可用", offline:"目录离线", scan_failed:"扫描失败"};
+    $("localRootList").textContent = rows.map(r => r.name + " · " + (states[r.status] || r.status) + " · 只读").join("；") || "尚未登记本地来源";
+  } catch (e) { $("localRootList").textContent = e.message; }
+}
+async function addLocalRoot() {
+  const button = $("addLocalRootBtn");
+  button.disabled = true;
+  try {
+    await jpost("/api/v1/sources/local", {name:$("localRootName").value.trim(), path:$("localRootPath").value.trim()});
+    $("localRootPath").value = "";
+    toast("只读来源已登记，扫描在后台排队");
+    loadLocalRoots(); loadLibraries(); loadTasks();
+  } catch (e) { toast(e.message, false); }
+  finally { button.disabled = false; }
+}
 function selectedLibs() {
   return Array.from(document.querySelectorAll("#libList input:checked")).map(i => i.dataset.id);
 }
@@ -510,11 +533,14 @@ async function refreshAll() {
   $("lastUpdate").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
 function pollLight() {
+  loadLocalRoots();
   loadDashboard(); loadCache(); loadTasks(); loadErrors(); loadDuplicateStatus();
 }
 
 // ---- 初始化 ----
 renderTokenStatus();
+loadLocalRoots();
+$("addLocalRootBtn").addEventListener("click", addLocalRoot);
 $("refreshBtn").addEventListener("click", refreshAll);
 $("genCodeBtn").addEventListener("click", genCode);
 $("cleanCodesBtn").addEventListener("click", cleanCodes);
