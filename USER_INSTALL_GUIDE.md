@@ -1,4 +1,8 @@
-# Alpha12 离线交付与安装边界
+# 当前修复交付与安装边界
+
+> 2026-10-20：本轮目标 Android Alpha15/code22、Server 1.5.2 / Contract2。实际产物以包内 RELEASE_MANIFEST 和 SHA256 为准；没有本轮生产部署授权。安装同签名 APK 时保留数据；Server 需通过 ControlHub 停服并完整备份后再升级。0016 迁移后，确认已勾选目标库，在后台点“刷新媒体库”，成功后再复核缺失目录。回滚恢复成对的程序与数据备份，不能仅换旧 EXE。下文为 Alpha12 历史说明，不是当前版本/验收清单。
+
+## Alpha12 历史记录
 
 当前发布目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / API Contract `2`。
 

@@ -30,10 +30,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.4.0"
+VERSION = "1.5.2"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha12"
-ANDROID_CODE = 19
+ANDROID_VERSION = "2.0.0-alpha15"
+ANDROID_CODE = 22
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
@@ -46,6 +46,9 @@ REQUIRED_CAPABILITIES = (
     "thumbnail_profiles_v1",
     "review_folder_filter_v1",
     "delete_receipt_v1",
+    "native_sources_v1",
+    "native_range_v1",
+    "native_read_only_v1",
 )
 ALL_SCRIPTS = (
     "install.ps1",
@@ -62,11 +65,11 @@ EVIDENCE = OUT / "stage8i-build-evidence.json"
 
 
 def current_package_name() -> str:
-    return f"MediaReview_Server_{VERSION}_stage8i"
+    return f"MediaReview_Server_{VERSION}_stage9"
 
 
 def current_apk_name() -> str:
-    return f"MediaReview_{ANDROID_VERSION}_stage8i.apk"
+    return f"MediaReview_{ANDROID_VERSION}_stage9.apk"
 
 
 def sha256(path: Path) -> str:

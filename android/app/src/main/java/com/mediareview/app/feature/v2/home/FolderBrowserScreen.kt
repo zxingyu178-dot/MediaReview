@@ -103,7 +103,12 @@ fun FolderBrowserScreen(
                         state.loading && state.items.isEmpty() -> SkeletonCards()
                         state.loading -> Text("加载更多…", color = MediaTextSecondary)
                         state.error != null -> TextButton(onClick = vm::retryFolderPage) { Text("加载失败，点击重试") }
-                        entries.isEmpty() && hint == null -> Text("此目录暂无媒体", color = MediaTextSecondary)
+                        entries.isEmpty() && hint == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("当前目录与筛选范围内暂无媒体", color = MediaTextSecondary)
+                            Text("请检查子文件夹开关、筛选条件和电脑端同步状态", color = MediaTextSecondary,
+                                style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { vm.retryFolders(); vm.retryFolderPage() }) { Text("重新加载") }
+                        }
                         state.hasMore -> TextButton(onClick = vm::nextFolderPage) { Text("加载更多") }
                         state.items.isNotEmpty() -> Text("已加载全部 ${state.total} 项", color = MediaTextSecondary)
                     }

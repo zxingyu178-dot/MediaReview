@@ -161,7 +161,13 @@ class OrganizeViewModel @Inject constructor(
     fun duplicateText(summary: DuplicateSummary): String = when {
         summary.scanStatus == "pending" || summary.scanStatus == "running" ->
             "扫描中 ${summary.scanProgress}%"
-        summary.exactGroups <= 0 && summary.similarGroups <= 0 -> "未发现重复媒体"
+        summary.exactGroups <= 0 && summary.similarGroups <= 0 -> when (summary.scanStatus) {
+            "failed" -> "扫描失败，请重试"
+            "cancelled" -> "扫描已取消"
+            "paused" -> "扫描已暂停"
+            "succeeded" -> "未发现重复媒体"
+            else -> if (summary.lastSuccessfulScanAt != null) "未发现重复媒体" else "尚未扫描"
+        }
         else -> "完全重复 ${summary.exactGroups} 组 · 疑似重复 ${summary.similarGroups} 组"
     }
 

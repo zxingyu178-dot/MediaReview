@@ -13,8 +13,8 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app.db.models import LibrarySelection, MediaCacheIndex
-from app.services.media_index import folder_dirname_for_path
+from app.db.models import LibrarySelection, MediaCacheIndex, MediaLibraryMembership
+from app.services.media_index import folder_dirname_for_path, library_membership_condition
 from app.services.thumbnail_cache import media_source_fingerprint, source_version
 
 
@@ -62,7 +62,7 @@ def _written(connection, cursor, statement, parameters, context, executemany):
     """Catch ORM, Core bulk sync/delete and textual writes, including partial sync."""
     sql = statement.lstrip().lower()
     if sql.startswith(("insert", "update", "delete", "replace")) and any(
-        table in sql for table in ("media_cache_index", "library_selection")
+        table in sql for table in ("media_cache_index", "library_selection", "media_library_membership")
     ):
         connection.info["folder_tree_written"] = True
         _invalidate(connection.engine)
@@ -82,7 +82,7 @@ def _before_session_commit(session):
     # Engine commit notification precedes DBAPI commit. A second invalidation
     # after the real commit closes the reader/writer race in WAL mode.
     changed = any(
-        isinstance(row, (MediaCacheIndex, LibrarySelection))
+        isinstance(row, (MediaCacheIndex, LibrarySelection, MediaLibraryMembership))
         for row in (*session.new, *session.dirty, *session.deleted)
     )
     if changed or session.connection().info.get("folder_tree_written", False):
@@ -115,7 +115,7 @@ def _build_tree(session: Session, targets: tuple[str, ...]) -> Tree:
     rows = session.execute(
         sa.select(
             MediaCacheIndex.media_id,
-            MediaCacheIndex.library_id,
+            sa.func.coalesce(MediaLibraryMembership.library_id, MediaCacheIndex.library_id).label("library_id"),
             MediaCacheIndex.media_path,
             MediaCacheIndex.media_type,
             MediaCacheIndex.created_at,
@@ -124,7 +124,12 @@ def _build_tree(session: Session, targets: tuple[str, ...]) -> Tree:
             MediaCacheIndex.fingerprint,
             MediaCacheIndex.jellyfin_id,
         )
-        .where(MediaCacheIndex.is_available.is_(True), MediaCacheIndex.library_id.in_(targets))
+        .outerjoin(MediaLibraryMembership, MediaLibraryMembership.media_id == MediaCacheIndex.media_id)
+        .where(
+            MediaCacheIndex.is_available.is_(True),
+            sa.func.coalesce(MediaLibraryMembership.library_id, MediaCacheIndex.library_id).in_(targets),
+            sa.or_(MediaLibraryMembership.media_id.is_(None), MediaLibraryMembership.is_available.is_(True)),
+        )
         .order_by(MediaCacheIndex.created_at.desc(), MediaCacheIndex.media_id.asc())
     ).all()
     nodes = []
@@ -258,7 +263,7 @@ def scope_condition(session: Session, library_ids, folder_id: str, *, include_de
     from app.services.media_index import _folder_dirname_expression
 
     library, directories = scope
-    condition = MediaCacheIndex.library_id == library
+    condition = library_membership_condition([library])
     if not include_descendants:
         library, direct_dirs, has_pathless = tree.direct_scopes[folder_id]
         dirname = _folder_dirname_expression()

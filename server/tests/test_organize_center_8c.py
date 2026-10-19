@@ -88,7 +88,7 @@ def test_delete_queue_summary_counts_pending_only(tmp_path: Path, client) -> Non
 
     r = client.get("/api/v1/delete-queue/summary")
     assert r.status_code == 200, r.text
-    assert r.json()["data"] == {"count": 2, "total_bytes": 1004}
+    assert r.json()["data"] == {"count": 2, "total_bytes": 1004, "unknown_size_count": 0}
 
     prep = client.post("/api/v1/delete-queue/commit/prepare").json()["data"]
     commit = client.post("/api/v1/delete-queue/commit", json={"nonce": prep["nonce"]})
@@ -98,7 +98,7 @@ def test_delete_queue_summary_counts_pending_only(tmp_path: Path, client) -> Non
 
     # 成功后: pending 只剩 failed 的 0 条(不计入) —— 摘要与列表口径一致
     summary = client.get("/api/v1/delete-queue/summary").json()["data"]
-    assert summary == {"count": 0, "total_bytes": 0}
+    assert summary == {"count": 0, "total_bytes": 0, "unknown_size_count": 0}
     rows = client.get("/api/v1/delete-queue").json()["data"]
     assert [row["status"] for row in rows] == ["failed"]
 

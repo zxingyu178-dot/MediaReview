@@ -21,7 +21,14 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.db.models import DeleteCommitNonce, DeleteQueue, Favorite, utc_now
+from app.db.models import (
+    DeleteCommitNonce,
+    DeleteQueue,
+    Favorite,
+    MediaCacheIndex,
+    MediaLibraryMembership,
+    utc_now,
+)
 from app.services import audit
 from app.services import media_index as mi
 
@@ -206,7 +213,10 @@ def _deletion_guard(
 
     任何一项不满足即拒绝,禁止仅凭历史 media_path 直接 os.remove。
     """
-    if media.library_id not in mi.selected_library_ids(session):
+    if not session.scalar(sa.select(MediaCacheIndex.media_id).where(
+        MediaCacheIndex.media_id == media.media_id,
+        mi.library_membership_condition(mi.selected_library_ids(session)),
+    )):
         return _GUARD_LIBRARY
 
     try:
@@ -362,6 +372,9 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
         if result in ("success", "missing"):
             row.status = "succeeded"
             if media is not None:
+                session.execute(sa.delete(MediaLibraryMembership).where(
+                    MediaLibraryMembership.media_id == media_id
+                ))
                 session.delete(media)
             fav = session.get(Favorite, media_id)
             if fav is not None:

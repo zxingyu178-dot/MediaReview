@@ -121,7 +121,7 @@ def _representative_queue_select(
     """构造仅含完全重复代表项的有序 SQL，不物化媒体索引。"""
     conditions = [
         MediaCacheIndex.is_available.is_(True),
-        MediaCacheIndex.library_id.in_(library_ids),
+        media_index.library_membership_condition(library_ids),
     ]
     if folder_condition is not None:
         conditions.append(folder_condition)

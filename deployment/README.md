@@ -1,6 +1,6 @@
 # MediaReview 离线发布
 
-> Stage9 当前交付：Android Alpha14/code21、Server1.5.0、Contract2及native来源能力。使用本轮人工部署包内说明；不执行生产安装/重启。本地视频由现有Server只读Range读取，Jellyfin视频仍直连。0015迁移前需停止实例并备份完整数据根；回滚恢复升级前库，不能仅换回旧EXE。以下Stage8I构建/旧产物说明保留作历史参考，不是当前版本清单。
+> Stage9 当前修复目标：Android Alpha15/code22、Server1.5.2、Contract2及native来源能力。实际产物以包内manifest为准，生产升级需单独授权。通过ControlHub停服并备份完整程序和数据后再迁移0016；升级后确认目标库勾选并刷新索引，恢复跨库归属。回滚恢复成对程序/数据备份，不能仅换回旧EXE。本地来源仍只读、Jellyfin视频仍直连。以下Stage8I说明为历史，不是当前版本或验收清单。
 
 当前目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / API Contract `2`。
 

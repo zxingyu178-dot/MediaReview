@@ -175,6 +175,18 @@ object ReleaseNotesCatalog {
                 "本地来源需要电脑端 Server 1.5.0，手机真机验收仍待完成",
             ),
         ),
+        ReleaseNote(
+            versionCode = 22,
+            versionName = "2.0.0-alpha15",
+            title = "MediaReview 2.0 Alpha 15",
+            highlights = listOf(
+                "修正媒体库管理和重复检测页顶部遮挡",
+                "目录诊断默认收起，空页面提供筛选与同步检查提示",
+                "区分待删除内容与失败历史，未扫描不再显示未发现重复",
+                "改善筛选朗读状态和图片大小未知提示",
+                "电脑端更新至 Server 1.5.2 并刷新索引后，可恢复重叠媒体库的目录内容",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

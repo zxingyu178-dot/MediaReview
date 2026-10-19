@@ -27,7 +27,7 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.adapters.jellyfin.client import JellyfinClient
 from app.adapters.jellyfin.mapper import compute_fingerprint
@@ -39,6 +39,7 @@ from app.db.models import (
     Favorite,
     LibrarySelection,
     MediaCacheIndex,
+    MediaLibraryMembership,
     MediaRefreshTarget,
     MediaSyncState,
     utc_now,
@@ -286,6 +287,21 @@ def upsert_media_items(
             set_=update_values,
         )
         session.execute(statement)
+        memberships = [
+            {"media_id": item["media_id"], "library_id": item["library_id"],
+             "is_available": True, "sync_generation": generation}
+            for item in batch if item["source_type"] == "jellyfin"
+        ]
+        # 本地媒体 ID 已包含根身份，继续沿用既有单根扫描/恢复语义。
+        if memberships:
+            membership = sqlite_insert(MediaLibraryMembership).values(memberships)
+            membership_values = {"is_available": True}
+            if generation is not None:
+                membership_values["sync_generation"] = membership.excluded.sync_generation
+            session.execute(membership.on_conflict_do_update(
+                index_elements=[MediaLibraryMembership.media_id, MediaLibraryMembership.library_id],
+                set_=membership_values,
+            ))
         known_sizes = {item["media_id"]: item["size_bytes"] for item in batch
                        if item["size_bytes"] is not None and item["size_bytes"] > 0}
         if known_sizes:
@@ -329,6 +345,22 @@ def _sort_expression(sort_by: str, random_seed: str | None):
     raise ValueError(f"不支持的媒体排序字段: {sort_by}")
 
 
+def library_membership_condition(library_ids: Iterable[str]):
+    """按归属过滤且不重复媒体；兼容尚未经过迁移/同步的旧写入。"""
+    targets = sorted(set(library_ids))
+    legacy = aliased(MediaCacheIndex)
+    member_ids = sa.select(MediaLibraryMembership.media_id).where(
+        MediaLibraryMembership.library_id.in_(targets),
+        MediaLibraryMembership.is_available.is_(True),
+    )
+    legacy_ids = sa.select(legacy.media_id).where(
+        legacy.library_id.in_(targets),
+        ~sa.exists(sa.select(1).where(MediaLibraryMembership.media_id == legacy.media_id)),
+    )
+    # IN 自带集合语义；UNION ALL 避免 SQLite 为内部 ID 合并额外排序。
+    return MediaCacheIndex.media_id.in_(member_ids.union_all(legacy_ids))
+
+
 def _media_filter_conditions(
     *,
     library_ids: Iterable[str],
@@ -339,7 +371,7 @@ def _media_filter_conditions(
     """列表与文件夹视图共用的基础筛选条件。"""
     conditions = [
         MediaCacheIndex.is_available.is_(True),
-        MediaCacheIndex.library_id.in_(sorted(set(library_ids))),
+        library_membership_condition(library_ids),
     ]
     if media_type:
         conditions.append(MediaCacheIndex.media_type == media_type)
@@ -681,7 +713,7 @@ def available_media_count(session: Session, library_ids: Iterable[str]) -> int:
             .select_from(MediaCacheIndex)
             .where(
                 MediaCacheIndex.is_available.is_(True),
-                MediaCacheIndex.library_id.in_(targets),
+                library_membership_condition(targets),
             )
         )
         or 0
@@ -907,14 +939,30 @@ def _commit_refresh_success(
             return False
 
         session.execute(
+            sa.update(MediaLibraryMembership).where(
+                MediaLibraryMembership.library_id.in_(target_list),
+                sa.or_(MediaLibraryMembership.sync_generation.is_(None),
+                       MediaLibraryMembership.sync_generation != generation),
+            ).values(is_available=False)
+        )
+        active_membership = sa.exists(sa.select(1).where(
+            MediaLibraryMembership.media_id == MediaCacheIndex.media_id,
+            MediaLibraryMembership.is_available.is_(True),
+        ))
+        touched_membership = sa.exists(sa.select(1).where(
+            MediaLibraryMembership.media_id == MediaCacheIndex.media_id,
+            MediaLibraryMembership.library_id.in_(target_list),
+        ))
+        session.execute(
             sa.update(MediaCacheIndex)
             .where(
-                MediaCacheIndex.library_id.in_(target_list),
                 MediaCacheIndex.is_available.is_(True),
-                sa.or_(
-                    MediaCacheIndex.sync_generation.is_(None),
-                    MediaCacheIndex.sync_generation != generation,
-                ),
+                ~active_membership,
+                sa.or_(touched_membership, sa.and_(
+                    MediaCacheIndex.library_id.in_(target_list),
+                    sa.or_(MediaCacheIndex.sync_generation.is_(None),
+                           MediaCacheIndex.sync_generation != generation),
+                )),
             )
             .values(is_available=False)
         )

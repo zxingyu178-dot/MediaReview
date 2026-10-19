@@ -58,6 +58,75 @@ def _item(media_id: str, *, library_id: str = "lib-a") -> MediaItem:
     )
 
 
+def test_shared_item_remains_in_both_libraries_without_duplicate_media(tmp_path):
+    database = _database(tmp_path)
+    try:
+        with database.session() as session:
+            key = "e" * 24
+            media_index.upsert_media_items(session, [_item(key, library_id="child")])
+            session.add(models.Favorite(media_id=key))
+            media_index.upsert_media_items(session, [_item(key, library_id="parent")])
+            session.commit()
+            for targets in (["child"], ["parent"], ["child", "parent"]):
+                assert media_index.available_media_count(session, targets) == 1
+                rows, total = media_index.list_cached_media(session, library_ids=targets)
+                assert total == 1
+                assert [row.media_id for row in rows] == [key]
+            assert session.get(models.Favorite, key) is not None
+    finally:
+        database.dispose()
+
+
+def test_refresh_removes_only_target_library_membership(tmp_path):
+    database = _database(tmp_path)
+    try:
+        key = "e" * 24
+        with database.session() as session:
+            media_index.upsert_media_items(session, [_item(key, library_id="child")])
+            media_index.upsert_media_items(session, [_item(key, library_id="parent")])
+            session.commit()
+        task_id = _scheduled_refresh(database, ["parent"])
+        assert media_index._commit_refresh_success(
+            database, task_id, ["parent"], generation="empty-parent", totals={"parent": 0}
+        )
+        with database.session() as session:
+            assert media_index.available_media_count(session, ["parent"]) == 0
+            assert media_index.available_media_count(session, ["child"]) == 1
+            assert session.get(models.MediaCacheIndex, key).is_available is True
+        task_id = _scheduled_refresh(database, ["child"])
+        assert media_index._commit_refresh_success(
+            database, task_id, ["child"], generation="empty-child", totals={"child": 0}
+        )
+        with database.session() as session:
+            assert session.get(models.MediaCacheIndex, key).is_available is False
+    finally:
+        database.dispose()
+
+
+def test_shared_item_uses_independent_refresh_generations_and_cancel_keeps_membership(tmp_path):
+    database = _database(tmp_path)
+    try:
+        key = "e" * 24
+        child_task = _scheduled_refresh(database, ["child"])
+        parent_task = _scheduled_refresh(database, ["parent"])
+        with database.session() as session:
+            media_index.upsert_media_items(session, [_item(key, library_id="child")], generation="child-gen")
+            media_index.upsert_media_items(session, [_item(key, library_id="parent")], generation="parent-gen")
+            session.commit()
+        for library, task, generation in (("child", child_task, "child-gen"), ("parent", parent_task, "parent-gen")):
+            assert media_index._commit_refresh_success(database, task, [library], generation=generation, totals={library: 1})
+        cancel_id = _scheduled_refresh(database, ["child"])
+        with database.session() as session:
+            session.get(models.BackgroundTask, cancel_id).status = "cancelled"
+            session.commit()
+        assert not media_index._commit_refresh_success(database, cancel_id, ["child"], generation="cancelled-gen", totals={"child": 0})
+        with database.session() as session:
+            assert media_index.available_media_count(session, ["child"]) == 1
+            assert media_index.available_media_count(session, ["parent"]) == 1
+    finally:
+        database.dispose()
+
+
 def test_list_cached_media_filters_counts_and_keeps_missing_values_last(tmp_path: Path) -> None:
     database = _database(tmp_path)
     try:

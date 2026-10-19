@@ -41,7 +41,7 @@ fun ImageInfoSheet(
             InfoRow("编号", code)
             InfoRow("文件夹", folderName)
             InfoRow("尺寸", if (width > 0) "${width} × ${height}" else "未知")
-            InfoRow("大小", "${sizeBytes / 1024} KB")
+            InfoRow("大小", if (sizeBytes <= 0) "大小未知" else if (sizeBytes < 1024) "$sizeBytes B" else "${sizeBytes / 1024} KB")
             InfoRow("日期", formatDate(dateMillis))
             InfoRow("收藏", if (isFavorite) "是" else "否")
         }

@@ -94,7 +94,7 @@ def eligible_duplicate_conditions(session: Session, library_ids=None) -> list:
     return [
         MediaCacheIndex.source_type == "jellyfin",
         MediaCacheIndex.is_available.is_(True),
-        MediaCacheIndex.library_id.in_(targets),
+        media_index.library_membership_condition(targets),
     ]
 
 

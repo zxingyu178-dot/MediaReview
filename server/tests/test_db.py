@@ -110,7 +110,7 @@ def test_0010_upgrades_existing_media_without_row_or_user_state_loss(tmp_path: P
 def test_0010_query_indexes_serve_all_deterministic_sorts_on_100k_rows(
     tmp_path: Path,
 ) -> None:
-    """在真实 0009→0010 schema 上验证全部排序、类型分支和硬性能门禁。"""
+    """验证 0010 排序索引在当前 schema 和跨库归属下的正确性与性能。"""
     database_path = tmp_path / "query-plan-0010.db"
     database_url = f"sqlite:///{database_path}"
     root = _server_root()
@@ -119,6 +119,7 @@ def test_0010_query_indexes_serve_all_deterministic_sorts_on_100k_rows(
     config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(config, "0009")
     command.upgrade(config, "0010")
+    command.upgrade(config, "head")
 
     engine = create_engine(database_url)
     with engine.begin() as connection:
@@ -206,9 +207,7 @@ def test_0010_query_indexes_serve_all_deterministic_sorts_on_100k_rows(
                                         f"{library_ids}/{sort_by}/{sort_order}/"
                                         f"type={selected_type}: {detail}"
                                     )
-                                    expected_index_token = (
-                                        "GLOBAL" if len(library_ids) > 1 else "LIBRARY"
-                                    )
+                                    expected_index_token = "GLOBAL"
                                     assert expected_index_token in detail.upper(), (
                                         f"{library_ids} did not use {expected_index_token} index: "
                                         f"{detail}"

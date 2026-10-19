@@ -115,7 +115,8 @@ fun DeleteQueueScreen(
                         text = if (ui.pendingCount > 0) {
                             "${ui.pendingCount} 项 · ${estimatedDeleteBytes(ui.pendingCount, ui.pendingBytes, ui.pendingUnknownSizes)}"
                         } else {
-                            "没有待删除内容"
+                            val failures = ui.entries.count { it.status == "failed" }
+                            if (failures > 0) "待处理 0 项 · 保留 $failures 项失败记录" else "没有待删除内容"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MediaTextSecondary,

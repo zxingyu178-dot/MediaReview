@@ -2,6 +2,8 @@ package com.mediareview.app.feature.v2.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +26,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -128,7 +131,7 @@ fun SortFilterSheet(
 
             Text("媒体墙来源", color = MediaTextSecondary,
                 modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm))
-            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl)) {
+            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl).selectableGroup()) {
                 listOf(null to "全部", "jellyfin" to "Jellyfin", "local" to "本地只读").forEach { (value, label) ->
                     OptionChip(text = label, selected = spec.sourceType == value,
                         onClick = { onChange(spec.copy(sourceType = value)) })
@@ -142,7 +145,7 @@ fun SortFilterSheet(
                 color = MediaTextSecondary,
                 modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm),
             )
-            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl)) {
+            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl).selectableGroup()) {
                 V2SortField.entries.forEach { field ->
                     OptionChip(
                         text = sortFieldLabel(field),
@@ -160,7 +163,7 @@ fun SortFilterSheet(
                 color = MediaTextSecondary,
                 modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm),
             )
-            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl)) {
+            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl).selectableGroup()) {
                 V2SortOrder.entries.forEach { order ->
                     OptionChip(
                         text = sortOrderLabel(order),
@@ -178,7 +181,7 @@ fun SortFilterSheet(
                 color = MediaTextSecondary,
                 modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm),
             )
-            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl)) {
+            Row(modifier = Modifier.padding(horizontal = V2Spacing.Xl).selectableGroup()) {
                 V2TypeFilter.entries.forEach { filter ->
                     OptionChip(
                         text = typeFilterLabel(filter),
@@ -202,7 +205,7 @@ private fun OptionChip(
         modifier = Modifier
             .clip(RoundedCornerShape(V2Radius.Chip))
             .background(if (selected) V2Colors.Accent.copy(alpha = 0.18f) else MediaSurface.copy(alpha = 0.6f))
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = V2Spacing.Lg, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

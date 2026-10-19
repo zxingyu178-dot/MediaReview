@@ -64,6 +64,32 @@ def nodes(client, **params):
     return response.json()["data"]
 
 
+def test_shared_item_has_both_library_roots_and_scoped_pages(tree_api):
+    from app.adapters.jellyfin.models import MediaItem
+    from app.services.media_index import upsert_media_items
+
+    client, database = tree_api
+    with database.session() as db:
+        db.add(LibrarySelection(jellyfin_id="child", name="子库", selected=True))
+        for library in ("child", "lib"):
+            upsert_media_items(db, [MediaItem(media_id="shared", jellyfin_id="jf-shared",
+                library_id=library, name="样本", media_type="video",
+                media_path="D:/Fixture/Folder/sample.mp4", fingerprint="fp")])
+        db.commit()
+    roots = [node for node in nodes(client) if node["parent_id"] is None]
+    assert len(roots) == 2
+    assert all(node["recursive_media_count"] == 1 for node in roots)
+    for root in roots:
+        response = client.get("/api/v1/media", params={"folder_id": root["folder_id"]})
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["total"] == 1
+    with database.session() as db:
+        db.get(LibrarySelection, "lib").selected = False
+        db.commit()
+    assert nodes(client)[0]["library_id"] == "child"
+    assert client.get("/api/v1/media").json()["data"]["total"] == 1
+
+
 @pytest.mark.parametrize("prefix", ["D:/Media/", "C:\\Media\\", "/mnt/media/", "\\\\host\\share\\"])
 def test_hierarchy_privacy_and_ancestor_statistics(tree_api, prefix):
     client, database = tree_api

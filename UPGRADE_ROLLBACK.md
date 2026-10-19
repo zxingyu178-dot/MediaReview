@@ -1,4 +1,10 @@
-# MediaReview Alpha12 / Server1.4.0 升级与回滚边界
+# MediaReview 升级与回滚边界
+
+> 2026-10-20：本轮目标为 Alpha15/code22、Server1.5.2、迁移0016。升级需另获授权，经 ControlHub 停服后备份完整程序与活动数据；回滚必须恢复成对备份，升级后新增状态需另行保留。0016 仅回填现存 Jellyfin 归属，额外活动归属存在时拒绝有损降级。升级后勾选目标库并刷新索引，待同步成功再验收缺失目录。以下 Alpha12/1.4.0 内容为历史边界，不构成本轮部署授权。
+
+本轮一项 Windows PowerShell 的 SCM 查询模拟受执行策略阻断，未计通过；未修改机器策略，不能据此宣称生产升级已验收。
+
+## Alpha12 / Server1.4.0 历史记录
 
 当前发布目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / Contract2。health应包含十项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
 

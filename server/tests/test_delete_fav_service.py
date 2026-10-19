@@ -65,6 +65,33 @@ def test_favorite_add_list_remove(tmp_path: Path) -> None:
     db.dispose()
 
 
+def test_delete_shared_item_uses_selected_membership_and_cleans_relations(tmp_path):
+    import sqlalchemy as sa
+
+    from app.adapters.jellyfin.models import MediaItem
+    from app.db.models import MediaLibraryMembership
+
+    db = _make_db(tmp_path)
+    sample = tmp_path / "discardable.mp4"
+    sample.write_bytes(b"sample")
+    try:
+        with db.session() as session:
+            session.add(LibrarySelection(jellyfin_id="child", name="测试子库", selected=True))
+            for library in ("child", "unselected-parent"):
+                media_index.upsert_media_items(session, [MediaItem(media_id="shared", jellyfin_id="jf-shared",
+                    library_id=library, name="样本", media_type="video", size_bytes=6,
+                    media_path=str(sample), fingerprint="fp")])
+            delete_queue.enqueue(session, "shared", size_bytes=6)
+            session.commit()
+        with db.session() as session:
+            assert delete_queue.commit_all(session)["shared"] == "success"
+            session.commit()
+            assert session.scalar(sa.select(sa.func.count()).select_from(MediaLibraryMembership)) == 0
+        assert not sample.exists()
+    finally:
+        db.dispose()
+
+
 def test_delete_queue_two_step_lifecycle(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
     media_id = "bbb" * 8

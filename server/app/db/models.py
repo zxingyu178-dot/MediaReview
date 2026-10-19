@@ -118,6 +118,20 @@ class MediaCacheIndex(Base):
     synced_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
 
 
+class MediaLibraryMembership(Base):
+    """同一稳定媒体可属于多个库；每库独立记录同步代次与可用性。"""
+
+    __tablename__ = "media_library_membership"
+    media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    library_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sync_generation: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+Index("ix_membership_library_available_media", MediaLibraryMembership.library_id,
+      MediaLibraryMembership.is_available, MediaLibraryMembership.media_id)
+
+
 # 媒体墙的 count/filter/order/page 均在 SQLite 中执行。每种排序同时提供有/无
 # media_type 的索引前缀，并包含稳定 tie-break media_id。
 Index(

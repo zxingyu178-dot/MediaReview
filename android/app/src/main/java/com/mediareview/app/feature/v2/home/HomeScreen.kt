@@ -439,6 +439,9 @@ fun MediaGrid(
                     }
                 } else {
                     Text("暂无媒体", color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    Text("请检查筛选条件、已选媒体库及电脑端同步状态", color = MediaTextSecondary,
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = vm::retryList) { Text("重新加载", color = MediaTextPrimary) }
                 }
             }
         }

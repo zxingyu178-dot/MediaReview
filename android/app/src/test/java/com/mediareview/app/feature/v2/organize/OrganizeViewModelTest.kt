@@ -22,6 +22,13 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class OrganizeViewModelTest {
+    @Test fun `未扫描和扫描失败不能称为未发现重复`() {
+        val vm = OrganizeViewModel(FakeOrganizeRepository())
+        assertEquals("尚未扫描", vm.duplicateText(DuplicateSummary(0, 0, null, null, 0)))
+        assertEquals("扫描失败，请重试", vm.duplicateText(DuplicateSummary(0, 0, "task", "failed", 0)))
+        assertEquals("未发现重复媒体", vm.duplicateText(DuplicateSummary(0, 0, "task", "succeeded", 100)))
+    }
+
     @Test fun `未知大小不能显示预计释放0B`() {
         val vm = OrganizeViewModel(FakeOrganizeRepository())
         assertTrue(vm.summaryText(1, 0).contains("未知"))
