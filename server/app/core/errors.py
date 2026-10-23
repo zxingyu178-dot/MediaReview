@@ -84,12 +84,20 @@ class JellyfinError(AppError):
     default_message = "Jellyfin 服务不可用"
 
 
+class ImageNotFoundError(NotFoundError):
+    """上游明确表示该媒体没有对应图片(404),不属于上游服务故障。"""
+
+    code = "IMAGE_NOT_FOUND"
+    default_message = "媒体图片不存在"
+
+
 __all__ = [
     "AppError",
     "BadRequestError",
     "ConfigError",
     "ConflictError",
     "ForbiddenError",
+    "ImageNotFoundError",
     "JellyfinError",
     "MediaNotFoundError",
     "NotFoundError",

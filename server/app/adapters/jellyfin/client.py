@@ -36,7 +36,7 @@ from app.core.config import (
     ensure_jellyfin_url_excludes_api_key,
     normalize_jellyfin_base_url,
 )
-from app.core.errors import JellyfinError
+from app.core.errors import ImageNotFoundError, JellyfinError
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 # 拉取大列表时的单页上限,防止一次请求过重
@@ -197,6 +197,8 @@ class JellyfinClient:
                     raise JellyfinAuthError()
                 if 300 <= response.status_code < 400:
                     raise JellyfinError("Jellyfin 图片接口不允许重定向")
+                if response.status_code == 404:
+                    raise ImageNotFoundError()
                 if response.status_code >= 400:
                     raise JellyfinError(f"Jellyfin 图片接口返回异常状态 {response.status_code}")
                 content_type = response.headers.get("Content-Type", "").partition(";")[0].strip()
@@ -237,6 +239,8 @@ class JellyfinClient:
                 raise JellyfinAuthError()
             if 300 <= response.status_code < 400:
                 raise JellyfinError("Jellyfin 图片接口不允许重定向")
+            if response.status_code == 404:
+                raise ImageNotFoundError()
             if response.status_code >= 400:
                 raise JellyfinError(f"Jellyfin 图片接口返回异常状态 {response.status_code}")
             content_type = response.headers.get("Content-Type", "").partition(";")[0].strip()

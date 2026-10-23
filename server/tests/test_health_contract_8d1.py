@@ -12,9 +12,13 @@ from fastapi.testclient import TestClient
 from app import SERVER_API_CONTRACT, SERVER_CAPABILITIES, __version__
 
 
-def test_server_version_is_151() -> None:
-    """Stage 9 真机锁竞争修复保持 Contract2 兼容。"""
-    assert __version__ == "1.5.1"
+def test_server_version_matches_declared_release() -> None:
+    """Server 版本只在 deployment/version.ps1 维护,防止 __version__ 与发布声明漂移。"""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent.parent
+    body = (root / "deployment" / "version.ps1").read_text(encoding="utf-8")
+    assert f'$ExpectedServerVersion = "{__version__}"' in body
 
 
 def test_api_contract_is_2() -> None:

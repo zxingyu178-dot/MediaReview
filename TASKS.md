@@ -643,3 +643,11 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] 9B：本地图片/缩略图/视频封面。
 - [x] 9C：认证Range视频/本地进度。
 - [x] 9D：Android合流/只读拦截/正式Alpha14与Server1.5.0人工包；隔离主链路/签名/SHA通过，手机LAN待验，未部署生产。
+
+## 2026-10-23 图片 404 归类与失败诊断（源码修复）
+- [x] 上游图片 404 归类为 `IMAGE_NOT_FOUND`/404，不再统一映射为 502 `JELLYFIN_ERROR`。
+- [x] `image_proxy_failed` 补齐 media_id/profile/upstream_status/elapsed_ms，失败仍不泄露上游响应体与 Server Key。
+- [x] 修正陈旧版本断言：核对 deployment/version.ps1 与 app.__version__ 一致。
+- [x] 受影响定向回归与全量 Server pytest 复跑（真实结果见 docs/DEV_LOG.md 与 review_meta/ops-20261023）。
+- [ ] 图片负缓存、客户端失败占位、慢请求分段打点与结构性优化：待单独评审后实施。
+- [ ] 生产服务恢复（交互式 PID 3916 占用 8766）与 Alpha15 真机验收：待用户管理员操作/连接手机。

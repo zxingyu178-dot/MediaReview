@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from contextvars import ContextVar
 
@@ -35,6 +36,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         incoming = request.headers.get(_HEADER, "")
         request_id = incoming if _VALID_INCOMING.match(incoming) else new_request_id()
+        # 供异常处理器记录耗时(图片失败日志等);只读,不改变响应。
+        request.state.started_at = time.perf_counter()
         token = request_id_var.set(request_id)
         try:
             response = await call_next(request)

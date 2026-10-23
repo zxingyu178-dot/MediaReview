@@ -79,6 +79,8 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
             return httpx.Response(302, headers={"Location": str(request.url)})
         if item_id == "jf-error":
             return httpx.Response(500, json={"error": "upstream-secret-body"})
+        if item_id == "jf-notfound":
+            return httpx.Response(404, json={"error": "upstream-secret-body"})
         if item_id == "jf-text":
             return httpx.Response(
                 200, content=b"not-an-image", headers={"Content-Type": "text/plain"}
@@ -134,6 +136,7 @@ def secure_image_client(data_root) -> Iterator[tuple[TestClient, str, list[httpx
                         ("img-real", "jf-real", "image"),
                         ("img-ok", "jf-ok", "image"),
                         ("img-error", "jf-error", "image"),
+                        ("img-notfound", "jf-notfound", "image"),
                         ("img-text", "jf-text", "image"),
                         ("img-large", "jf-large", "image"),
                         ("img-redirect-cross", "jf-redirect-cross", "image"),
@@ -187,6 +190,25 @@ def test_image_failure_has_correlated_safe_server_diagnostic(secure_image_client
     assert "image_proxy_failed" in log
     assert "image-diagnostic-test" in log
     assert f"reason={reason}" in log
+    assert "upstream-secret-body" not in log
+    assert SERVER_KEY not in log
+
+
+def test_upstream_missing_image_returns_404_with_media_context(secure_image_client):
+    """上游 404(该项没有 Primary 图)是资源不存在,不能冒充上游服务故障。"""
+    client, token, _ = secure_image_client
+    response = client.get(
+        "/api/v1/media/img-notfound/thumbnail?profile=GRID_SMALL",
+        headers={**_auth(token), "X-Request-ID": "image-notfound-test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "IMAGE_NOT_FOUND"
+    log = (client.app.state.paths.logs_dir / "server.log").read_text(encoding="utf-8")
+    assert "image-notfound-test" in log
+    assert "image_proxy_failed endpoint=thumbnail media_id=img-notfound" in log
+    assert "profile=GRID_SMALL" in log
+    assert "upstream_status=404" in log
+    assert "reason=upstream_not_found" in log
     assert "upstream-secret-body" not in log
     assert SERVER_KEY not in log
 

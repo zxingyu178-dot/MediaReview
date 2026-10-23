@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -148,7 +149,9 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
 def _install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
-        image_route = re.fullmatch(r"/api/v1/media/[^/]+/(thumbnail|original)", request.url.path)
+        image_route = re.fullmatch(
+            r"/api/v1/media/([^/]+)/(thumbnail|original)", request.url.path
+        )
         if image_route:
             upstream = re.search(r"异常状态 ([0-9]{3})", exc.message)
             reason = {
@@ -156,6 +159,7 @@ def _install_exception_handlers(app: FastAPI) -> None:
                 "Jellyfin 图片超过允许的大小": "image_too_large",
                 "Jellyfin 图片接口不允许重定向": "redirect_rejected",
                 "无法读取 Jellyfin 图片,请确认服务连接正常": "upstream_connection",
+                "媒体图片不存在": "upstream_not_found",
                 "图片像素超过安全解码限制": "local_pixel_limit",
                 "图片超过25 MiB读取限制": "local_image_size_limit",
                 "图片内容无效或像素超过安全限制": "local_image_invalid",
@@ -165,11 +169,28 @@ def _install_exception_handlers(app: FastAPI) -> None:
                 "视频封面无法提取，仍可尝试直接播放": "local_video_cover_unavailable",
                 "本地封面仍在后台队列中，请稍后重试": "local_image_pending",
             }.get(exc.message, "upstream_http" if upstream else exc.code)
+            started_at = getattr(request.state, "started_at", None)
+            elapsed_ms = (
+                f"{(time.perf_counter() - started_at) * 1000:.1f}" if started_at else "-"
+            )
+            if upstream:
+                upstream_status = upstream.group(1)
+            elif exc.code == "IMAGE_NOT_FOUND":
+                # 上游 404 的 message 是面向用户的中文文案,不含状态码,这里补齐诊断字段。
+                upstream_status = "404"
+            else:
+                upstream_status = "-"
             get_logger("image_proxy").warning(
-                "image_proxy_failed endpoint=%s code=%s status=%s upstream_status=%s reason=%s",
-                image_route.group(1), exc.code, exc.status_code,
-                upstream.group(1) if upstream else "-",
+                "image_proxy_failed endpoint=%s media_id=%s profile=%s code=%s "
+                "status=%s upstream_status=%s reason=%s elapsed_ms=%s",
+                image_route.group(2),
+                image_route.group(1),
+                request.query_params.get("profile", "-"),
+                exc.code,
+                exc.status_code,
+                upstream_status,
                 reason,
+                elapsed_ms,
             )
         return error_response(exc)
 

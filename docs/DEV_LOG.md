@@ -2866,3 +2866,25 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 使用既有 ControlHub lifecycle CLI 停止及启动 mediareview；备份当前有效程序与全部运行数据（不递归复制历史备份及旧暂存程序），备份和安装逐文件校验通过。首轮备份校验中止且未替换程序，恢复旧版服务后调整临时辅助脚本集合处理，再次完整备份成功。独立管理员诊断命令曾被自动审批拒绝，未执行。
 
 正式服务健康三次均为1.5.2/Contract2/windows_service/AIHome.MediaReview，ControlHub状态online；数据库0016、回填56,566条归属。配对19、收藏4、批阅会话1、删除队列38、缓存56,566、库选择21条，升级前后数量一致。私有回执位于review_meta/stage9/production-152-*。未操作真实媒体，未改变服务身份或端口，未重跑全量测试。ADB无设备；Alpha15安装及手机/LAN复核待连接。后台需确认目标库选择后刷新同步，才能恢复历史被覆盖归属。
+
+## 2026-10-23 图片 404 归类与失败诊断修复（Server 源码，未发版）
+
+背景：只读故障调查（review_meta/ops-20261023/image-perf-report.md）确认，Jellyfin 对"没有 Primary 图"的条目返回 404，但 `client._image_request` / `_open_image_stream` 把全部上游错误统一映射为 `JellyfinError`（502 `JELLYFIN_ERROR`）。生产日志 33 条 `image_proxy_failed ... upstream_status=404 status=502` 全是这种误分类；客户端 `ImageFailure` 的 404 文案成为死代码，且失败日志缺少 media_id/profile/耗时，无法定位到具体图片。
+
+改动：
+- 新增 `ImageNotFoundError(NotFoundError)`：`code=IMAGE_NOT_FOUND`、HTTP 404；仅用于上游图片 404，其余 5xx/超时/非图片/重定向仍保持原语义（502 或其他既有错误码）。
+- `JellyfinClient._image_request` 与 `_open_image_stream` 在重定向判定之后、通用 >=400 之前识别 404 并抛该错误。
+- `image_proxy_failed` 日志补齐 `media_id`、`profile`、`upstream_status`（上游 404 显式记 404）与 `elapsed_ms`；耗时取自 `RequestIdMiddleware` 写入的 `request.state.started_at`，只读、不改变响应。
+- 修正陈旧测试 `test_server_version_is_151`（硬编码 1.5.1）：改为 `test_server_version_matches_declared_release`，核对 `deployment/version.ps1` 与 `app.__version__` 一致，避免下次发版再漏改。
+- 新增回归：上游 404 → HTTP 404 + `IMAGE_NOT_FOUND` + 日志含 media_id/profile/reason=upstream_not_found，且不泄露上游响应体与 Server Key。新增错误码属增量分类，API Contract 仍为 2，Android 已有 404 文案，无需改 App。
+
+验证（本机 2026-10-23，未操作真实媒体/生产库）：
+- 改动前全量：690 通过 / 4 失败 / 484.50s。四类失败均已分类：`test_0010_query_indexes...`（并行负载下 1.150s 超过查询耗时门禁，单独重跑通过）、`test_server_version_is_151`（陈旧硬编码）、`test_native_images::test_video_cover_from_disposable_clip` 与 `test_native_playback::test_metadata_probe_disposable_mp4`（本机 ffmpeg 写默认 pytest 临时目录被 Windows 完整性级别拒绝，非产品缺陷）。
+- 受影响定向：`tests/test_media_image_proxy_11.py` 16 通过（含新增用例）；`test_jellyfin_api.py`、`test_media_api.py`、`test_health_contract_8d1.py`、`test_native_images.py` 受影响集合通过；十万条查询门禁与元数据探针单独重跑 2 通过。
+- 改动后全量：**693 通过 / 2 失败 / 422.70s**（共 695 项）。2 项失败仍是上述本机 ffmpeg 完整性级别环境问题（`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），已用项目内可写 basetemp 单独复跑通过；十万条查询门禁与版本断言在本轮通过。不是单轮全绿：2 项环境失败如实保留，未改写断言或跳过。
+- Ruff：本次改动文件通过；`server/app/main.py` 仍有 2 条与 HEAD 相同的既有违规（I001 import 分组、E501 第 87 行），未在本轮扩大修改。
+- Android：未改代码；JVM 基线 75 suites / 498 tests / 0 失败。
+
+环境说明（本机，非产品问题，供后续 Agent 参考）：登记 JDK17、项目 venv 的 python 与 third_party ffmpeg 位于带 Low 完整性标签的目录，在本会话以 Low IL 运行，不能写默认 `C:\Users\...\Temp` 等 Medium 目录。本轮用同版本 JDK 副本（`temp/jdk17copy`）跑 Android JVM，用 uv base python + venv site-packages 跑 Server 测试，并用 `review_meta/ops-20261023/pytest-full` 作为 pytest basetemp（项目目录可写）。未修改 AIHome 工具目录、系统权限或服务。
+
+边界：未改版本号（1.5.2 保持；待后续打包时统一递增）、未改 API Contract（2）、未改 Android、未部署生产、未操作真实媒体或生产数据库。生产 8766 仍由交互式 PID 3916 占用，官方 Windows 服务未恢复（见 review_meta/ops-20261023/service-restore-log.md）。
