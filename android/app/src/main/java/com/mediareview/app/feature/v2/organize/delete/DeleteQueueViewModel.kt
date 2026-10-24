@@ -74,7 +74,7 @@ sealed interface DeleteQueueEvent {
  * Server 侧 error 形如 `file_size_changed` / `file_modified_changed` /
  * `library_not_allowed` / `stat_failed:[Errno ...]`，本地源（native_delete_v1）追加
  * `local_root_disabled` / `local_root_missing` / `path_rejected` /
- * `file_identity_changed` / `file_in_use` / `delete_not_verified`。
+ * `file_identity_changed` / `file_in_use` / `delete_access_denied` / `delete_not_verified`。
  *
  * 只做**前缀 → 固定中文**映射：绝不把原始 Python 异常/堆栈/服务端绝对路径展示给用户
  * （未知码统一回退"删除失败"）。
@@ -91,6 +91,7 @@ internal fun deleteFailureReason(error: String?): String? = when {
     error.startsWith("path_rejected") -> "文件不在允许的媒体库内，已拒绝删除"
     error.startsWith("file_identity_changed") -> "文件身份已变化，请刷新队列后重新标记"
     error.startsWith("file_in_use") -> "文件正在被占用，请稍后重试"
+    error.startsWith("delete_access_denied") -> "没有权限删除该文件"
     error.startsWith("delete_not_verified") -> "删除结果未通过校验，请刷新队列核对"
     else -> "删除失败"
 }

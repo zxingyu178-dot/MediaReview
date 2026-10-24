@@ -293,6 +293,10 @@ class DeleteQueueViewModelTest {
             deleteFailureReason("file_in_use:[WinError 32] D:\\Media\\secret\\b.mp4"),
         )
         assertEquals(
+            "没有权限删除该文件",
+            deleteFailureReason("delete_access_denied:D:\\Media\\secret\\b.mp4"),
+        )
+        assertEquals(
             "删除结果未通过校验，请刷新队列核对",
             deleteFailureReason("delete_not_verified"),
         )
@@ -300,7 +304,8 @@ class DeleteQueueViewModelTest {
         assertEquals("删除失败", deleteFailureReason("some_new_code:D:\\Media\\secret\\c.mp4"))
         listOf(
             "local_root_disabled", "local_root_missing", "path_rejected:D:\\Media\\secret\\a.mp4",
-            "file_identity_changed", "file_in_use:D:\\Media\\secret\\b.mp4", "delete_not_verified",
+            "file_identity_changed", "file_in_use:D:\\Media\\secret\\b.mp4",
+            "delete_access_denied:D:\\Media\\secret\\b.mp4", "delete_not_verified",
             "some_new_code:D:\\Media\\secret\\c.mp4",
         ).forEach { raw ->
             val shown = deleteFailureReason(raw).orEmpty()
