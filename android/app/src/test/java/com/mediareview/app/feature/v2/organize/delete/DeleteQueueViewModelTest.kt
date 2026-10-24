@@ -272,6 +272,42 @@ class DeleteQueueViewModelTest {
         assertNull(deleteFailureReason(""))
     }
 
+    /** Stage 9：本地源两阶段安全删除的新失败码 → 中文，且绝不回显服务端绝对路径。 */
+    @Test
+    fun `本地源删除失败码映射为中文且不泄漏绝对路径`() {
+        assertEquals("本地媒体源已停用，无法删除", deleteFailureReason("local_root_disabled"))
+        assertEquals(
+            "本地媒体源目录不存在或不可访问",
+            deleteFailureReason("local_root_missing"),
+        )
+        assertEquals(
+            "文件不在允许的媒体库内，已拒绝删除",
+            deleteFailureReason("path_rejected:D:\\Media\\secret\\a.mp4"),
+        )
+        assertEquals(
+            "文件身份已变化，请刷新队列后重新标记",
+            deleteFailureReason("file_identity_changed"),
+        )
+        assertEquals(
+            "文件正在被占用，请稍后重试",
+            deleteFailureReason("file_in_use:[WinError 32] D:\\Media\\secret\\b.mp4"),
+        )
+        assertEquals(
+            "删除结果未通过校验，请刷新队列核对",
+            deleteFailureReason("delete_not_verified"),
+        )
+        // 未知码（可能带路径）不得原样展示
+        assertEquals("删除失败", deleteFailureReason("some_new_code:D:\\Media\\secret\\c.mp4"))
+        listOf(
+            "local_root_disabled", "local_root_missing", "path_rejected:D:\\Media\\secret\\a.mp4",
+            "file_identity_changed", "file_in_use:D:\\Media\\secret\\b.mp4", "delete_not_verified",
+            "some_new_code:D:\\Media\\secret\\c.mp4",
+        ).forEach { raw ->
+            val shown = deleteFailureReason(raw).orEmpty()
+            assertFalse("不得展示绝对路径: $shown", shown.contains(":\\"))
+        }
+    }
+
     @Test
     fun `failed 项进入列表时携带服务端原因`() = runTest(main.dispatcher) {
         val repo = FakeOrganizeRepository().apply {

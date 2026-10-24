@@ -13,6 +13,14 @@ package com.mediareview.app.feature.v2.review.data
  */
 interface V2ReviewSessionRepository {
     val supportsFolderScope: Boolean get() = false
+
+    /**
+     * Stage 9：数据源是否支持本地源删除（Server 能力 `native_delete_v1`）。
+     *
+     * 仅用于"不可删除"提示文案是否需要附带"升级电脑端 Server"；
+     * 是否真的可删除**只信任每条媒体下发的 `can_delete`**，这里不参与门禁。
+     */
+    val supportsNativeDelete: Boolean get() = true
     suspend fun prepareSession(): ReviewSessionOpen = enterSession()
     suspend fun createScopedSession(scope: ReviewScope): ReviewSessionOpen =
         if (scope.folderIds.isEmpty()) enterSession(true) else ReviewSessionOpen.Failed("请升级服务器以选择文件夹批阅范围")

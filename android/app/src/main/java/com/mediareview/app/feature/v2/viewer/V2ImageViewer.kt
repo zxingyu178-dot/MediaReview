@@ -224,7 +224,7 @@ fun V2ImageViewer(
                 onTogglePendingDelete = { pendingSession?.let { vm.toggleViewerPendingDelete(it, currentMedia.id) } },
                 modifier = Modifier.align(Alignment.BottomCenter),
                 pendingDeleteEnabled = currentMedia.canDelete && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
-                pendingDeleteLabel = if (!currentMedia.canDelete) "本地只读" else when (pendingState) {
+                pendingDeleteLabel = if (!currentMedia.canDelete) "不可删除" else when (pendingState) {
                     ViewerPendingDeleteState.Loading -> "正在加载…"
                     is ViewerPendingDeleteState.Error -> "状态未知"
                     is ViewerPendingDeleteState.Ready -> null

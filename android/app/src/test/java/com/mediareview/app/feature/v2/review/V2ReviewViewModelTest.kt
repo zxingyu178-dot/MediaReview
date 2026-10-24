@@ -1,6 +1,7 @@
 package com.mediareview.app.feature.v2.review
 
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.PendingDeleteText
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -528,6 +529,52 @@ class V2ReviewViewModelTest {
         assertFalse("失败不得假成功", vm.isPendingDelete("v1"))
     }
 
+    // ---------- Stage 9：本地源可删除，是否可删除只信任服务端 can_delete ----------
+
+    @Test
+    fun `canDelete为false的队列项在本地被拒绝且不发送请求`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 3)
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(
+                total = 1,
+                window = window(count = 1, total = 1, canDelete = false),
+            )
+        }
+        val vm = V2ReviewViewModel(repo, sessions)
+        val messages = collectMessages(vm)
+        vm.enterReview()
+        waitUntil("进入批阅") { vm.state.value is V2ReviewUiState.Ready }
+
+        vm.addPendingDelete("v1")
+
+        waitUntil("必须提示不可删除") { messages.any { it.text == PendingDeleteText.NOT_DELETABLE } }
+        assertTrue("can_delete=false 不得发送入队请求", repo.pendingDeleteCalls.isEmpty())
+        assertFalse(vm.isPendingDelete("v1"))
+    }
+
+    @Test
+    fun `旧Server缺少native_delete_v1时提示升级电脑端`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 3)
+        val sessions = FakeSessions().apply {
+            nativeDeleteSupported = false
+            entryResult = readyOpen(
+                total = 1,
+                window = window(count = 1, total = 1, canDelete = false),
+            )
+        }
+        val vm = V2ReviewViewModel(repo, sessions)
+        val messages = collectMessages(vm)
+        vm.enterReview()
+        waitUntil("进入批阅") { vm.state.value is V2ReviewUiState.Ready }
+
+        vm.addPendingDelete("v1")
+
+        waitUntil("必须提示升级电脑端 Server") {
+            messages.any { it.text == PendingDeleteText.NEED_SERVER_UPGRADE }
+        }
+        assertTrue(repo.pendingDeleteCalls.isEmpty())
+    }
+
     @Test
     fun `收藏失败不改本地状态`() = runTest {
         val repo = FakeMediaRepository(mediaCount = 3)
@@ -814,6 +861,7 @@ class V2ReviewViewModelTest {
         total: Int = count,
         startId: Int = 1,
         favorites: Set<Int> = emptySet(),
+        canDelete: Boolean = true,
     ): ReviewQueueWindow {
         val items = (0 until count).map { offset ->
             val absolute = (firstPage - 1) * 50 + offset
@@ -829,6 +877,7 @@ class V2ReviewViewModelTest {
                 naturalHeight = 1080,
                 coverUrl = "http://host/$id.jpg",
                 favorite = absolute in favorites,
+                canDelete = canDelete,
             )
         }
         return ReviewQueueWindow(
@@ -859,6 +908,8 @@ private class FakeSessions : V2ReviewSessionRepository {
     var nextHandler: (suspend () -> ReviewQueuePageResult?)? = null
     var folderScopeSupported = false
     override val supportsFolderScope: Boolean get() = folderScopeSupported
+    var nativeDeleteSupported = true
+    override val supportsNativeDelete: Boolean get() = nativeDeleteSupported
     val scopedCreates = mutableListOf<com.mediareview.app.feature.v2.review.data.ReviewScope>()
     override suspend fun createScopedSession(scope: com.mediareview.app.feature.v2.review.data.ReviewScope): ReviewSessionOpen {
         scopedCreates += scope

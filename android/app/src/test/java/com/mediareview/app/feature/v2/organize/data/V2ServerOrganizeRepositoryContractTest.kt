@@ -159,6 +159,35 @@ class V2ServerOrganizeRepositoryContractTest {
         assertFalse(router.paths().any { it.startsWith("/api/v1/media/") })
     }
 
+    /**
+     * Stage 9：本地源进入"两阶段安全删除"后，待删除队列里的本地媒体
+     * **直接信任服务端 can_delete**（不再按 source_type 判定），失败原因原样保留供 UI 映射。
+     */
+    @Test
+    fun `本地源队列项直接信任服务端can_delete且保留失败原因`() = runTest {
+        router.queueOverride = """
+            {"success":true,"data":[
+              {"media_id":"loc_1","status":"pending","size_bytes":500,"added_at":"2026-10-24T10:00:00",
+               "media":{"media_id":"loc_1","name":"本地视频","media_type":"video","library_id":"local_root",
+                        "size_bytes":500,"source_type":"local","can_delete":true,
+                        "cover_url":"/api/v1/media/loc_1/thumbnail?v=loc"}},
+              {"media_id":"loc_2","status":"failed","size_bytes":600,
+               "error":"file_in_use:[WinError 32] D:\\secret\\b.mp4",
+               "media":{"media_id":"loc_2","name":"本地视频2","media_type":"video","library_id":"local_root",
+                        "size_bytes":600,"source_type":"local","can_delete":false}}
+            ]}
+        """.trimIndent()
+
+        val entries = repository.loadDeleteQueue()
+
+        assertEquals(2, entries.size)
+        assertTrue("can_delete=true 的本地媒体必须可删除", entries[0].media!!.canDelete)
+        assertEquals("local", entries[0].media!!.sourceType)
+        assertFalse("can_delete=false 的本地媒体不得可删除", entries[1].media!!.canDelete)
+        // 原始失败原因原样保留（中文映射与"不展示绝对路径"由 DeleteQueueViewModel 负责）
+        assertEquals("file_in_use:[WinError 32] D:\\secret\\b.mp4", entries[1].error)
+    }
+
     @Test
     fun `恢复失败上抛且成功不再请求`() = runTest {
         router.restoreStatus = 409

@@ -69,11 +69,15 @@ sealed interface DeleteQueueEvent {
 }
 
 /**
- * 服务端 failed 原因（guard 代码）→ 简短中文（Stage 8C.1 §23）。
+ * 服务端 failed 原因（guard 代码）→ 简短中文（Stage 8C.1 §23；Stage 9 追加本地源失败码）。
  *
  * Server 侧 error 形如 `file_size_changed` / `file_modified_changed` /
- * `library_not_allowed` / `stat_failed:[Errno ...]` —— 只取前缀映射，
- * 绝不把原始 Python 异常/堆栈直接展示给用户。
+ * `library_not_allowed` / `stat_failed:[Errno ...]`，本地源（native_delete_v1）追加
+ * `local_root_disabled` / `local_root_missing` / `path_rejected` /
+ * `file_identity_changed` / `file_in_use` / `delete_not_verified`。
+ *
+ * 只做**前缀 → 固定中文**映射：绝不把原始 Python 异常/堆栈/服务端绝对路径展示给用户
+ * （未知码统一回退"删除失败"）。
  */
 internal fun deleteFailureReason(error: String?): String? = when {
     error.isNullOrBlank() -> null
@@ -81,6 +85,13 @@ internal fun deleteFailureReason(error: String?): String? = when {
     error.startsWith("file_modified_changed") -> "文件已发生变化"
     error.startsWith("library_not_allowed") -> "文件已不在允许的媒体库，无法确认身份"
     error.startsWith("stat_failed") -> "文件访问失败"
+    // Stage 9：本地源两阶段安全删除的失败码（只显示原因，不显示任何路径）
+    error.startsWith("local_root_disabled") -> "本地媒体源已停用，无法删除"
+    error.startsWith("local_root_missing") -> "本地媒体源目录不存在或不可访问"
+    error.startsWith("path_rejected") -> "文件不在允许的媒体库内，已拒绝删除"
+    error.startsWith("file_identity_changed") -> "文件身份已变化，请刷新队列后重新标记"
+    error.startsWith("file_in_use") -> "文件正在被占用，请稍后重试"
+    error.startsWith("delete_not_verified") -> "删除结果未通过校验，请刷新队列核对"
     else -> "删除失败"
 }
 

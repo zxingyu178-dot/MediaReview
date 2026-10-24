@@ -2,6 +2,7 @@ package com.mediareview.app.feature.v2.data.server
 
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.MediaUrlResolver
+import com.mediareview.app.feature.v2.data.PendingDeleteText
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2MediaQuery
 import com.mediareview.app.feature.v2.model.V2SortField
@@ -537,19 +538,67 @@ class V2ServerMediaRepositoryContractTest {
         }
         assertTrue(router.requests.isEmpty())
     }
+
+    /**
+     * Stage 9：本地源是否可删除**只信任服务端下发的 can_delete**。
+     * - 新能力（native_delete_v1）下 can_delete=true → 可入队（真实 POST）；
+     * - can_delete=false（旧 Server 对本地仍下发 false）→ App 本地拒绝，不发请求；
+     * - 不再使用 `loc_` 前缀 / `source_type` 判断。
+     */
     @Test
-    fun `本地来源筛选只读删除与相对播放合同`() = runTest {
-        statusStore.recordCompatible("1.5.0", 2, listOf("native_sources_v1", "native_range_v1", "native_read_only_v1"))
+    fun `本地来源直接信任服务端can_delete_新能力可入队旧能力拒绝`() = runTest {
+        statusStore.recordCompatible(
+            "1.6.0", 3,
+            listOf("native_sources_v1", "native_range_v1", "native_delete_v1"),
+        )
         val id = "loc_native_test"
-        router.mediaBody = mediaPageJson(1, 1, 50,
-            """{"media_id":"$id","name":"本地样本","media_type":"video","library_id":"local_root","source_type":"local","can_delete":false}""")
+        router.mediaBody = localMediaBody(id, canDelete = true)
         val page = repository.mediaPage(V2MediaQuery(spec = V2SortSpec(sourceType = "local")))
         assertEquals("local", router.requests.last().query("source_type"))
-        assertEquals("local", page.items.single().sourceType)
-        assertFalse(page.items.single().canDelete)
+        val media = page.items.single()
+        assertEquals("local", media.sourceType)
+        assertTrue("can_delete=true 时本地媒体可删除", media.canDelete)
+
+        assertTrue("新能力下本地媒体可加入待删除", repository.setPendingDelete(id, true))
+        val enqueue = router.requests.last { it.path == "/api/v1/delete-queue/$id" }
+        assertEquals("POST", enqueue.method)
+
+        // 服务端改为 can_delete=false（旧 Server 语义）→ App 本地拒绝，绝不发入队请求
+        router.mediaBody = localMediaBody(id, canDelete = false)
+        val reloaded = repository.mediaPage(V2MediaQuery(spec = V2SortSpec(sourceType = "local"))).items.single()
+        assertFalse(reloaded.canDelete)
         assertFalse(repository.setPendingDelete(id, true))
-        assertFalse(repository.setPendingDelete("loc_not_cached", true))
-        assertFalse(router.requests.any { it.path?.startsWith("/api/v1/delete-queue/") == true })
+        assertEquals(
+            "can_delete=false 时不得发入队请求",
+            1,
+            router.requests.count { it.path?.startsWith("/api/v1/delete-queue/") == true },
+        )
+    }
+
+    @Test
+    fun `旧Server缺少native_delete_v1时不可删除提示升级电脑端`() {
+        statusStore.recordCompatible(
+            "1.5.0", 2,
+            listOf("native_sources_v1", "native_range_v1", "native_read_only_v1"),
+        )
+        assertFalse(statusStore.supportsNativeDelete)
+        assertEquals(
+            PendingDeleteText.NEED_SERVER_UPGRADE,
+            PendingDeleteText.rejected(statusStore.supportsNativeDelete),
+        )
+
+        statusStore.recordCompatible("1.6.0", 3, listOf("native_sources_v1", "native_delete_v1"))
+        assertTrue(statusStore.supportsNativeDelete)
+        assertEquals(
+            PendingDeleteText.NOT_DELETABLE,
+            PendingDeleteText.rejected(statusStore.supportsNativeDelete),
+        )
+    }
+
+    @Test
+    fun `本地来源相对播放合同`() = runTest {
+        statusStore.recordCompatible("1.5.0", 2, listOf("native_sources_v1", "native_range_v1", "native_read_only_v1"))
+        val id = "loc_native_test"
         router.playbackBodies[id] = playbackJson(id, "/api/v1/media/$id/file",
             mapOf("Authorization" to "Bearer native-test-token"), resumeMs = 1500)
             .replace("\"title\":", "\"source_type\":\"local\",\"title\":")
@@ -568,6 +617,14 @@ class V2ServerMediaRepositoryContractTest {
             kotlinx.coroutines.runBlocking { repository.resolvePlayback(id) }
         }
     }
+
+    /** 本地源媒体页 JSON（source_type=local + 服务端 can_delete）。 */
+    private fun localMediaBody(mediaId: String, canDelete: Boolean): String = mediaPageJson(
+        total = 1,
+        page = 1,
+        pageSize = 50,
+        items = """{"media_id":"$mediaId","name":"本地样本","media_type":"video","library_id":"local_root","source_type":"local","can_delete":$canDelete}""",
+    )
 
     private fun RecordedRequest.query(name: String): String? = requestUrl?.queryParameter(name)
 

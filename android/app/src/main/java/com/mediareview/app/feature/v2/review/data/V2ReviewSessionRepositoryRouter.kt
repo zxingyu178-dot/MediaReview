@@ -26,6 +26,7 @@ class V2ReviewSessionRepositoryRouter @Inject constructor(
         if (modeStore.mode.value == V2DataMode.SERVER) server else demo
 
     override val supportsFolderScope: Boolean get() = active().supportsFolderScope
+    override val supportsNativeDelete: Boolean get() = active().supportsNativeDelete
     override suspend fun prepareSession(): ReviewSessionOpen = active().prepareSession()
     override suspend fun createScopedSession(scope: ReviewScope): ReviewSessionOpen = active().createScopedSession(scope)
 

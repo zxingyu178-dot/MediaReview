@@ -55,6 +55,14 @@ class V2ServerStatusStore @Inject constructor() {
     val capabilities: StateFlow<List<String>> = _capabilities.asStateFlow()
     val supportsFolderTree: Boolean get() = "folder_tree_v1" in _capabilities.value
 
+    /**
+     * Stage 9：服务端是否支持本地源删除。
+     *
+     * 新 Server 声明 `native_delete_v1`，对本地源可下发 `can_delete=true`；
+     * 历史能力名 `native_read_only_v1` 保留但不再代表"本地只读"的产品语义。
+     */
+    val supportsNativeDelete: Boolean get() = "native_delete_v1" in _capabilities.value
+
     fun update(status: V2ServerStatus) {
         _status.value = status
     }

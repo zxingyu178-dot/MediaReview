@@ -9,6 +9,7 @@ import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.core.pairing.normalizeBaseUrl
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.PendingDeleteText
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.V2DataModeStore
@@ -284,8 +285,14 @@ class V2HomeViewModel @Inject constructor(
     fun closeViewerPendingDelete(session: Long) = viewerPendingController.close(session)
     fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
     fun toggleViewerPendingDelete(session: Long, mediaId: String) {
-        if (mediaId.startsWith("loc_") || repository.mediaById(mediaId)?.canDelete == false) {
-            _viewerPendingDeleteMessages.tryEmit("本地来源为只读，不能加入待删除")
+        // Stage 9：是否可删除只信任服务端下发的 can_delete（本地源已可删除，不再有 loc_ 门禁）。
+        if (repository.mediaById(mediaId)?.canDelete == false) {
+            val text = if (isServerMode) {
+                PendingDeleteText.rejected(statusStore.supportsNativeDelete)
+            } else {
+                PendingDeleteText.NOT_DELETABLE
+            }
+            _viewerPendingDeleteMessages.tryEmit(text)
             return
         }
         viewerPendingController.toggle(session, mediaId)
