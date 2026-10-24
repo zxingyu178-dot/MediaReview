@@ -8,7 +8,7 @@
 
 ## 0. 一句话状态
 
-源码已达到 **Server 1.5.2 / Contract 2 / 迁移 0016 + Android 2.0.0-alpha15/code22**，生产机已安装 1.5.2；但**官方 Windows 服务当前 Stopped，8766 由一个来源未确认的交互式实例占用**，Alpha15 **从未上真机**，已发布 1.5.2 **不包含** 10-23 的图片 404 修复（该修复只在源码 `747e704`，已于 2026-10-24 推送到 GitHub）。项目下一阶段的产品方向（是否跳过 Jellyfin、改为纯本地媒体源）**待用户决策**。
+源码已达到 **Server 1.5.2 / Contract 2 / 迁移 0016 + Android 2.0.0-alpha15/code22**，生产机已安装 1.5.2；但**官方 Windows 服务当前 Stopped，8766 由一个来源未确认的交互式实例占用**，Alpha15 **从未上真机**，已发布 1.5.2 **不包含** 10-23 的图片 404 修复（该修复只在源码 `747e704`，已于 2026-10-24 推送到 GitHub）。产品方向已批准为"本地源为主、Jellyfin 可选"，**本地两阶段安全删除已在源码分支 `feature/mediareview-local-only` 实现并验证（未发版）**。
 
 ## 1. 权威版本表（SSOT）
 
@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | Server 版本 | `1.5.2` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py:11-25`；生产 health 与 `RELEASE_MANIFEST.json` 一致 |
+| Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`（新增，本地两阶段删除）、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`；生产 health（1.5.2）与 `RELEASE_MANIFEST.json` 为 13 项，源码未发版 |
 | 数据库迁移 head | `0016_media_library_membership`（0001–0016，缺 0011） | `server/app/db/migrations/versions/`；`review_meta/stage9/repair-exe-proof.json`（`schema=0016`） |
 | Android 版本 | `versionCode 22` / `versionName 2.0.0-alpha15` | `android/app/build.gradle.kts:32-33`；`review_meta/stage9/repair-apk-proof.json` |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
@@ -54,6 +54,9 @@
 | 10-23 改动前全量 pytest | 690 通过 / 4 失败 / 484.50s（失败均已分类） | A（本机） | `review_meta/ops-20261023/server-full-baseline.log` |
 | 10-23 图片代理定向回归 | 16 通过（含新增 404 用例） | A（本机） | `docs/DEV_LOG.md:2883` |
 | Android JVM | 75 suites / 498 tests / 0 失败（10-23 基线；之后未改 Android，未重跑） | C（复用基线） | `review_meta/ops-20261023/`（记录）、DEV_LOG |
+| **10-24 P0/P1 本地删除后 Server 全量** | **709 通过 / 2 失败 / 711 项 / 430.01s**；2 项为本机 ffmpeg 完整性级别环境限制（默认 Temp 不可写），换项目内可写 basetemp 单独复跑 2 通过 | A（本机） | `review_meta/ops-20261024/server-full-p1-fast.log` |
+| **10-24 P0/P1 后 Android 全量 JVM** | **75 suites / 507 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL） | A（本机） | `review_meta/ops-20261024/android-full-p1.log`、`android/app/build/test-results/` |
+| **10-24 新增本地删除安全测试** | 12 类场景（两阶段成功/审计无路径、missing、root 停用/缺失、同尺寸替换、越界/绝对/UNC/目录、跨根、junction、逐条失败、nonce 快照、file_in_use、扩展分类） | A（本机） | `server/tests/test_native_sources.py` |
 | 8I 完整 AVD connected | 第三轮 178/178 通过（2026-10-17） | B | `REVIEW_SUMMARY.md` 历史摘要、`review_meta/stage8i/final-connected-round3` |
 | 9D Alpha14/1.5.0 交付 | APK 签名 PASS；隔离 EXE health 1.5.0/Contract2/13 能力；ZIP 162 文件核验 | B | `review_meta/stage9/delivery-receipt.json` |
 | 1.5.0/1.5.1/1.5.2 生产升级 | 均经授权、停服备份、逐文件核验、health 通过 | A | `STAGE9_RESULT.md`、`review_meta/stage9/production-152-*.json` |
@@ -73,7 +76,7 @@
 | **S1** | Alpha15 未上真机 | ADB 无设备 | 0016 跨库归属、UI 修复、手机/LAN 行为均无新版实机证据 | 装机后按 `USER_LAN_VALIDATION.md` 定向验收 |
 | **S1** | seek 后 `Invalid NAL length` | 根因未确认，未做猜测性修改 | 拖动播放可能中断 | 按 `seek-nal-report.md` 取证后再修 |
 | **S1** | `media_folders` 慢性慢查询 + 5s 台阶 | 已定位，未修 | 目录页 2.6–11.5s；缩略图 53 次 >5s | 先做零风险分段打点，再做结构性优化 |
-| **S2** | 本地源永久删除被双端硬拒绝；本地源无重复检测/无转码 | 设计如此（Stage9 约定） | 用户"删除不想留的视频"需求当前不可行 | 见 §7 产品方向决策 |
+| **S2** | 本地源永久删除：源码已实现两阶段安全删除（未发版）；本地源仍无重复检测/转码 | P0/P1 已开发（分支 `feature/mediareview-local-only`），待发布与真机验证 | 已发布 1.5.2/Alpha15 仍不能删本地媒体，需新版 Server+App | P5 发版 + 真机授权样本验证 |
 | **S2** | 0016 无法恢复历史已被覆盖的跨库归属 | 仅回填现存归属 | 部分子库目录需刷新同步后才恢复 | 升级后确认库勾选并刷新 |
 | **S2** | 本机 2 项 pytest 环境失败 + `server/app/main.py` 2 条既有 ruff 违规 | 环境级 / 既有 | 不阻塞产品，但不能宣称全绿 | 修本机工具目录完整性标签 / 另开小提交清 ruff |
 | **S3** | GitHub 不可达（已于 2026-10-24 恢复） | 已解决：`2dd9ff2..5786f8f` 推送成功 | 远端交接渠道恢复 | 保持每次提交后核对 `git status -sb` |
@@ -94,31 +97,31 @@
 | 10-20 0016 修复 + 1.5.2 发版与生产升级 | 10-20 | `2858d3c`、`2dd9ff2` | Alpha15/code22；Server 1.5.2/0016 | ✅ 发布/升级有回执；Alpha15 未装机 |
 | 10-23 图片 404 归类修复 | 10-23 | `747e704` | 源码修复，未发版 | ◐ 全量 pytest 693/695；未推送 |
 | 10-23 服务恢复尝试 | 10-23 | — | — | ✗ 未恢复（端口冲突、无管理员权限） |
-| 10-24 进度统一 + 跳过 Jellyfin 评估 | 10-24 | 本次文档提交 | — | ✅（只读评估 + 文档） |
+| 10-24 进度统一 + 跳过 Jellyfin 评估 | 10-24 | `5786f8f`、`37e93e2` | — | ✅（只读评估 + 文档统一 + 推送） |
+| 10-24 本地源为主 P0/P1 开发 | 10-24 | `feature/mediareview-local-only`（待推送） | 源码：Server 能力 14（+`native_delete_v1`）/ Android 未升版 | ◐ 源码完成并验证；未发版、未真机 |
 
-## 7. 产品方向：是否跳过 Jellyfin（待用户决策）
+## 7. 产品方向：本地源为主 + 本地安全删除（2026-10-24 已批准，P0/P1 源码完成）
 
-用户真实需求：**同一局域网下用手机看电脑视频，并能审核、删除不想留的视频。**
+用户真实需求：**同一局域网下用手机看电脑视频，并能审核、删除不想留的视频。** 2026-10-24 用户批准按推荐方案开始开发。
 
-评估结论（详见 `review_meta/ops-20261024/jellyfin-skip-assessment.md`）：
+**已确认决策**
+- 方向：**本地源为唯一必需来源，Jellyfin 代码保留、配置可选**（方案 B 产品方向 + C 工程形态）。
+- 本地删除：**不可恢复但全链路安全**（两阶段 + nonce + 二次确认 + 路径链/身份复验 + 审计 + 逐条失败）；可恢复的回收站/延迟删除列为 P2 可选，未做。
+- 删除开关：默认启用（仅对已登记且 enabled 的本地根生效；后续如需可加配置项）。
+- 转码：P3 暂缓，等真机 A/B 实测后再决定 remux 或重编码。
+- 规则：已修订项目 `AGENTS.md` 的 Stage9 约定，允许"两阶段安全删除"。
 
-- **可以跳过 Jellyfin**：不配置 API Key 时 Server 仍可登记本地根、扫描、出封面/原图、认证 Range 播放、记录进度；批阅/收藏/媒体墙/文件夹树已来源中立。
-- **唯一真正阻塞需求的是"本地永久删除"**：当前 Server 能力表、入队、最终提交、Android 仓库与 UI 共 4+ 道门禁都硬拒绝本地删除。
-- 第二大缺口是**无转码/HLS 兜底**：本地只能原盘直读，手机解码不了的编码会播不了（自带 `ffmpeg 7.1.3-Jellyfin`，具备自建 remux/转码的技术条件）。
-- 可选缺口：本地雪碧图、本地重复检测、索引扩展名白名单偏窄。
+**开发分支**：`feature/mediareview-local-only`（从 `37e93e2` 创建），Server 与 Android 并行开发；Lead 已复核并跑全量验证，提交后推送。
 
-推荐路线（方案 B 的产品方向 + 保留 Jellyfin 代码的工程形态）：
+| 阶段 | 内容 | 规模 | 状态 |
+| --- | --- | --- | --- |
+| P0 | 去 Jellyfin 依赖收口（引导/诊断/运维文案、扩展名白名单、MIME） | S，1–2 人日 | **源码完成并验证（未发版）** |
+| P1 | **本地安全永久删除**（Server 能力 `native_delete_v1` + 入队/提交本地分支 + Android 门禁改造 + 测试） | M，3–5 人日 | **源码完成并验证（未发版）** |
+| P2 可选 | 删除可回滚（Windows 回收站或延迟删除 + 撤销窗口） | M，2–4 人日 | 未开始（可选） |
+| P3 | 播放兜底（按需 remux / HLS 转码） | L，7–12 人日 | 待真机 A/B 后决策 |
+| P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 | 未开始 |
 
-| 阶段 | 内容 | 规模 |
-| --- | --- | --- |
-| P0 | 去 Jellyfin 依赖收口（引导/诊断/部署文案、扩展名白名单） | S，1–2 人日 |
-| P1 | **本地安全永久删除**（能力开关 + 复用 nonce/路径链/身份复验/审计/逐条失败 + Android 门禁改造） | M，3–5 人日 |
-| P2（可选） | 删除可回滚（Windows 回收站或延迟删除 + 撤销窗口） | M，2–4 人日 |
-| P3 | 播放兜底（按需 remux / HLS 转码，复用现有 FFmpeg 与单任务队列） | L，7–12 人日 |
-| P4（可选） | 本地雪碧图 / 本地重复检测 / 平面目录修正 | S–M |
-| P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 |
-
-需用户拍板：① 是否授权修改 `AGENTS.md` 的"本地来源永久删除双端拒绝"约定；② 删除是否必须可恢复；③ 是否授权本地视频转码/HLS（`AGENTS.md` 原禁止中间层转发视频流）；④ 本地删除开关默认开还是默认关；⑤ 转码只 remux 还是允许重编码。
+验收标准（P1）：只能经"入队 → prepare nonce → 确认"删除；文件被替换/换链/junction/root 禁用/快照外项全部拒绝且不删；成功项审计可查；失败逐条不中断；**只在临时目录与合成文件上验证，真机删除样本需用户另行授权**。
 
 ## 8. 文档地图（谁代表当前状态）
 
@@ -142,3 +145,4 @@
 | --- | --- | --- |
 | 2026-10-23 | 图片 404 归类 + 失败诊断补齐；修正陈旧版本断言；全量 pytest 693/695 | `747e704`、`docs/DEV_LOG.md:2870-2890` |
 | 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估；GitHub 恢复后推送 `2dd9ff2..5786f8f` | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；`git push` |
+| 2026-10-24 | 本地源为主 P0/P1：新增 `native_delete_v1` 与本地两阶段安全删除、去 Jellyfin 诊断/文案收口、Android 只信任 `can_delete`；Server 全量 709/711（2 项环境）、Android 507/507 | `feature/mediareview-local-only`、`docs/DEV_LOG.md`、`review_meta/ops-20261024/*.log` |

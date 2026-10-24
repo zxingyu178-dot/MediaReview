@@ -10,6 +10,16 @@
 - [x] 已完成（2026-10-24）：GitHub 恢复后推送 `747e704` 与本次文档提交，`git status -sb` 确认与 origin 同步。
 - [ ] 待用户管理员操作：结束占用 8766 的交互式实例，恢复官方 `AIHome.MediaReview` 服务并三次核验 health。
 
+### 2026-10-24 本地源为主 + 本地安全删除（P0/P1，源码完成、未发版）
+- [x] 用户批准推荐方案：本地源为唯一必需来源、Jellyfin 代码保留可配；先做安全删除、转码留待 A/B 实测。
+- [x] 修订项目 `AGENTS.md` Stage9 约定：本地删除改为"两阶段安全删除"（nonce/路径链/身份复验/审计），保留禁止点击即删。
+- [x] 创建开发分支 `feature/mediareview-local-only`（基线 `37e93e2`），Server 与 Android 并行开发。
+- [x] P0：去 Jellyfin 依赖收口（Server 扩展名白名单/MIME/引导诊断/运维面板/admin 文案；Android 文案与能力提示）。
+- [x] P1：本地安全永久删除（`native_delete_v1`、入队/提交本地分支、Android 只信任 `can_delete`、安全测试）。
+- [x] Lead 验证：Server 全量 pytest **709 通过 / 2 失败 / 711 项**（2 项为本机 ffmpeg 环境限制，换 basetemp 单独复跑通过）；Android 全量 JVM **507 tests / 0 失败**；ruff 改动文件通过。
+- [ ] P5（未开始）：Server 1.6.0 / Android alpha16-code23 打包、签名、SHA、发布与回滚说明；同步 `scripts/build_deploy.py` 版本常量与 `REQUIRED_CAPABILITIES`。
+- [ ] 真机验证（需手机/服务恢复）：本地源删除只允许用户授权的一次性隔离样本，禁止真实媒体批量删除。
+
 ## Stage8H：播放器与首页重构（历史）
 
 - [x] Task1：Server文件夹树、认证、路径隐藏及统计，已提交。

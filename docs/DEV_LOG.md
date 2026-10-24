@@ -2905,3 +2905,25 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 
 验证：本轮仅文档与只读审计，未改源码、未跑构建、未改生产/媒体/密钥；GitHub 仍不可达，`747e704` 及本次文档提交均未推送。文档改动需在 commit 前经 `git diff` 复核。
 推送补充（2026-10-24）：GitHub 网络恢复，已成功推送 `2dd9ff2..5786f8f`（含 10-23 的 `747e704` 图片 404 修复与本次统一文档提交）；`git status -sb` 显示与 origin 同步。此前记录的"GitHub 不可达、本地 ahead 1"已解除。
+
+## 2026-10-24 本地源为主 P0/P1：本地两阶段安全删除（Server + Android，未发版）
+
+决策与分支：用户批准"本地源为唯一必需来源、Jellyfin 代码保留可配"，先做安全删除、转码留待真机 A/B。开发分支 `feature/mediareview-local-only`（基线 `37e93e2`），Server 与 Android 并行开发，Lead 复核后提交。
+
+Server（14 个文件）：
+- 能力：新增 `native_delete_v1`（能力 13→14），`native_read_only_v1` 保留为历史兼容名；`SOURCES["local"].can_delete=True`。
+- 删除安全：`native_sources` 新增根/路径/句柄复验（`resolve_deletable_local`：LocalRoot 存在且 enabled、`safe_path` 整链拒绝 UNC/`..`/绝对/链接/junction/reparse/越界、叶必须普通文件、`open_media` 复用指纹与最终路径复验）与稳定失败码映射；`delete_queue` 按 source_type 分派，本地走"解析复验→`_lstat_deletion_path` 整链→归属/尺寸/mtime→`os.remove`→确认不存在"，单条失败不中断，失败码（`local_root_disabled`/`local_root_missing`/`path_rejected`/`file_identity_changed`/`file_in_use`/`delete_not_verified`）写入队列与审计且不含绝对路径。两阶段 nonce 合同、success/missing 回执、deleted_bytes、Jellyfin 路径均不变；删除端点仍 require_auth，目录登记仍仅 loopback。
+- 去 Jellyfin 依赖：扩展名白名单新增视频 m4v/ts/m2ts/avi/wmv/flv/mpg/mpeg 与图片 gif/bmp/tiff；`native_playback` MIME 同步；无 Jellyfin 时引导文案改为"登记本地来源或勾选 Jellyfin 媒体库"；playback-readiness 对本地源返回直读诊断（不探测 Jellyfin）；运维面板未配置 Jellyfin 显示 `local_only` 信息态；admin 后台取消"只读/永久删除不可执行"表述。
+- 测试：`test_native_sources.py` 新增 12 类场景（两阶段成功且审计无绝对路径、missing、root 停用/缺失、同尺寸替换→身份失败、越界/绝对/UNC/目录拒绝、跨根、junction、逐条失败不中断、伪造/快照外 nonce 不删、PermissionError→file_in_use、扩展分类、无 Jellyfin 诊断/文案）；`test_health_contract_8d1.py` 能力 13→14；`test_native_playback.py` 新容器 MIME 断言。
+
+Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
+- 是否可删除只信任服务端下发 `can_delete`，移除 `loc_` 前缀与 `source_type=="jellyfin"` 门禁；能力 `native_delete_v1` 仅用于区分提示（旧 Server → "需要升级电脑端 Server"）。UI 不再显示"本地只读"；删除失败码新增中文映射；二次确认 + nonce 安全流程未改弱。
+- 测试：7 个受影响类 150 tests 通过；全量 JVM 75 suites / 507 tests / 0 失败（基线 498，新增 9）。
+
+验证（本机 2026-10-24，合成/临时文件，未操作真实媒体）：
+- Server 全量：**709 通过 / 2 失败 / 430.01s（711 项）**。2 项为本机已知 ffmpeg 完整性级别环境限制（默认 Temp 不可写：`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），换项目内可写 basetemp 单独复跑 **2 通过**；不是产品缺陷，未改写断言。
+- 定向：native_sources+playback+health+system 45 通过；delete 三件套 44 通过；media_api 29 通过；playback_readiness 19 通过；health+library 14 通过（分轮，非单轮合计）。
+- ruff：本轮改动文件全部通过；仓库另有 27 条既有违规（均在未改动文件），未扩大修改。
+- Android 全量 JVM：507/0，BUILD SUCCESSFUL。
+
+边界与未做：版本仍 1.5.2 / Alpha15（未发版，P5 统一升 Server 1.6.0 / Android alpha16-code23 并同步 build_deploy）；未上真机、未做 androidTest/connected、未用真实文件验证 file_in_use（仅 mock PermissionError）；API Contract 仍为 2；`scripts/build_deploy.py` 的 REQUIRED_CAPABILITIES 尚未加入 `native_delete_v1`（P5 处理）；GitHub 推送与最终提交以实际命令结果为准。
