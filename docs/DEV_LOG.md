@@ -2998,3 +2998,8 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 - Lead 全量：Server **736 通过 / 3 失败 / 739 项 / 409.65s**；3 项为 2 项本机 ffmpeg 完整性环境限制 + 1 项 10 万行性能门禁抖动（单独复跑 1 passed；ffmpeg 两项换可写 basetemp 2 passed）。Android 全量 JVM 结果见下一条。
 - 未 commit/push（Lead 统一提交）；未构建产物；未上真机；未操作真实媒体/服务。
 - Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL；含 pending receipt 展示与旧 Server 兼容用例）。
+
+### 2026-10-25 07:29 状态：Codex 5 小时额度再次用尽，第四轮复审顺延
+- 已完成并推送：`485e2e7`（POSIX 删除状态机）、`48aa26f`（Android pending）、`03083da`（文档），`cfe7ca5..03083da` 已推送到 GitHub。
+- 第四轮定点复审启动时触发 ChatGPT Plus 额度上限（提示 **10:47 复位**），未生成报告；P5 发版继续暂停。
+- 已设 10:48 提醒：额度复位后立即执行第四轮复审；通过则推送/更新状态并进入 P5（Server 1.6.0 / Android alpha16-code23）。

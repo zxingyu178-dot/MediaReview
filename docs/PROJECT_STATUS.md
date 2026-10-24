@@ -191,3 +191,9 @@ P1 发版仍阻断；待第三轮独立复审通过后再评估 P5。提交 `f3f
 验证：Codex 定向四文件 **94 passed**；真实 Windows 专项 5 passed；Android 3 类 36/36；Lead 全量 Server **736/739**（2 项本机 ffmpeg 环境 + 1 项 10 万行性能抖动，三项单独复跑均通过）、Android **511/511**；ruff 通过。
 
 P1 仍待第四轮定点复审通过后发版。
+
+## 13. 当前等待项（2026-10-25 07:29）
+
+- 第三轮修复已提交并推送：`485e2e7`（POSIX disposition + delete_done/delete_pending 状态机）、`48aa26f`（Android pending 展示）、`03083da`（文档）；远端 `cfe7ca5..03083da`。
+- **第四轮 Codex 定点复审因 5 小时额度用尽顺延**（复位 2026-10-25 10:47；Codex CLI 报 usage limit）。P5 发版继续暂停，等复审结论。
+- Lead 全量：Server 736/739（2 项本机 ffmpeg 环境、1 项 10 万行性能抖动，三项单独复跑均通过）；Android 511/511；ruff 改动文件通过。
