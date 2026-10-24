@@ -21,6 +21,7 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError
 from app.db.models import (
     DeleteCommitNonce,
     DeleteQueue,
@@ -88,7 +89,7 @@ def enqueue(session: Session, media_id: str, *, size_bytes: int | None = None) -
     """加入待删除队列。已 committed 的不再入队。返回是否为新增入队。"""
     from app.db.models import MediaCacheIndex
     from app.services.native_sources import require_writable_source
-    require_writable_source(session.get(MediaCacheIndex, media_id))
+    require_writable_source(session, session.get(MediaCacheIndex, media_id))
     row = session.get(DeleteQueue, media_id)
     if row is not None:
         return False
@@ -316,12 +317,52 @@ def commit_all(session: Session) -> DeleteReceipt:
     return _commit_media_ids(session, [row.media_id for row in pending])
 
 
+def _commit_local_media(session: Session, media) -> tuple[str, int]:
+    """本地源单条安全删除；返回 ``(result, deleted_bytes)``。
+
+    顺序：登记根/路径链/句柄身份复验(native_sources) → ``_lstat_deletion_path``
+    再复核整链 → ``_deletion_guard`` 复核归属/尺寸/mtime → ``os.remove`` →
+    ``os.lstat`` 确认已不存在。叶文件已不存在时返回 missing；其余拒绝抛异常，
+    由调用方映射为不含绝对路径的稳定失败码。逐条调用，单条失败不影响其余项。
+    """
+    from app.services.native_sources import LocalFileInUseError, resolve_deletable_local
+
+    path = resolve_deletable_local(session, media, allow_missing=True)
+    if path is None:
+        return "missing", 0
+    media_path = str(path)
+    file_stat = _lstat_deletion_path(media_path)
+    guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)
+    if guard_reason is not None:
+        # stat_failed:* 的 OSError 文本可能含绝对路径，本地源只保留稳定码。
+        if guard_reason.startswith(_GUARD_STAT + ":"):
+            guard_reason = _GUARD_STAT
+        raise ValueError(guard_reason)
+    actual_size = file_stat.st_size
+    try:
+        os.remove(media_path)
+    except FileNotFoundError:
+        return "missing", 0
+    except PermissionError as exc:
+        # Windows 上播放/占用会以共享冲突(PermissionError)拒绝删除。
+        raise LocalFileInUseError() from exc
+    try:
+        os.lstat(media_path)
+    except FileNotFoundError:
+        pass
+    else:
+        raise ValueError("delete_not_verified")
+    return "success", actual_size
+
+
 def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
     """对指定媒体逐项确认删除,返回 {media_id: result}。
 
     result ∈ success(已删除) / missing(文件系统确认不存在,仍清理索引) / failed。
-    删除前重新校验媒体归属与文件身份;文件被替换/修改/不再属于允许库时拒绝删除,
-    并记录审计与失败原因。逐项处理,失败不影响其余项;成功后清理索引、收藏与队列记录。
+    按 ``source_type`` 分派：Jellyfin 保持既有路径；本地源走 ``_commit_local_media``
+    (登记根、路径链与文件身份二次复验)。删除前重新校验媒体归属与文件身份;
+    文件被替换/修改/不再属于允许库时拒绝删除,并记录审计与失败原因。
+    逐项处理,失败不影响其余项;成功后清理索引、收藏与队列记录。
     """
     outcome = DeleteReceipt()
     for media_id in media_ids:
@@ -339,13 +380,14 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
         media_path = media.media_path if media else None
         guard_reason: str | None = None
         try:
-            if media and media.source_type != "jellyfin":
-                guard_reason = "local_source_read_only"
-                raise ValueError(guard_reason)
             if media is None or not media_path:
                 guard_reason = "media_identity_unavailable"
                 raise ValueError(guard_reason)
-            else:
+            if media.source_type == "local":
+                result, actual_size = _commit_local_media(session, media)
+                if result == "success":
+                    outcome.deleted_bytes += actual_size
+            elif media.source_type == "jellyfin":
                 file_stat = _lstat_deletion_path(media_path)
                 guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)
                 if guard_reason is not None:
@@ -360,14 +402,42 @@ def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
                     raise ValueError("delete_not_verified")
                 result = "success"
                 outcome.deleted_bytes += actual_size
+            else:
+                guard_reason = "unsupported_source_type"
+                raise ValueError(guard_reason)
         except FileNotFoundError:
             result = "missing"
-        except (OSError, ValueError) as exc:
+        except AppError as exc:
+            # 本地源删除拒绝(根/路径/身份/占用)：映射为稳定失败码，绝不写绝对路径。
+            from app.services.native_sources import deletion_failure_code
+            code = deletion_failure_code(exc)
+            row.status = "failed"
+            row.error = code
+            guard_reason = code
+            result = "failed"
+        except ValueError as exc:
+            # 删除前 guard/确认失败：detail 保留稳定码(如 file_size_changed、
+            # delete_not_verified)，不写入任何路径或原始 OSError 文本。
             row.status = "failed"
             row.error = str(exc)
+            guard_reason = str(exc)
+            result = "failed"
+        except OSError as exc:
+            row.status = "failed"
+            if media is not None and media.source_type == "local":
+                # 本地源的意外 I/O 错误不把可能含绝对路径的 OSError 文本写入队列/审计。
+                row.error = _GUARD_STAT
+                guard_reason = _GUARD_STAT
+            else:
+                row.error = str(exc)
             result = "failed"
         outcome[media_id] = result
-        detail = result if guard_reason is None else f"{result}:{guard_reason}"
+        if guard_reason is None:
+            detail = result
+        else:
+            # 审计 detail 只保留稳定码；stat_failed 的 OSError 文本可能含绝对路径。
+            reason = _GUARD_STAT if guard_reason.startswith(_GUARD_STAT + ":") else guard_reason
+            detail = f"{result}:{reason}"
         audit.log_action(session, "delete_commit", media_id, detail=detail)
         if result in ("success", "missing"):
             row.status = "succeeded"

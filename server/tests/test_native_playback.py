@@ -95,11 +95,30 @@ def test_paired_bearer_carried_only_in_headers_and_revoked(local_video, app):
     assert client.get(info["direct"]["url"], headers=headers).status_code == 401
 
 
+def test_extended_container_mime_mapping() -> None:
+    """去 Jellyfin 依赖：常见容器必须有明确 MIME，不得回落到 octet-stream。"""
+    from app.services.native_playback import MIME
+
+    expected = {
+        "m4v": "video/mp4",
+        "ts": "video/mp2t",
+        "m2ts": "video/mp2t",
+        "avi": "video/x-msvideo",
+        "wmv": "video/x-ms-wmv",
+        "flv": "video/x-flv",
+        "mpg": "video/mpeg",
+        "mpeg": "video/mpeg",
+    }
+    for container, mime in expected.items():
+        assert MIME.get(container) == mime, container
+
+
 def test_metadata_probe_disposable_mp4(tmp_path):
-    from pathlib import Path
     import subprocess
-    from app.db.session import Database
+    from pathlib import Path
+
     from app.db.models import BackgroundTask
+    from app.db.session import Database
     from app.services import native_metadata
     binaries = Path(__file__).resolve().parents[2] / "third_party/ffmpeg"
     if not (binaries / "ffmpeg.exe").is_file():

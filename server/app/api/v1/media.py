@@ -165,13 +165,15 @@ def _require_user_id(request: Request, db: Session | None = None) -> str:
     user_id = request.app.state.settings.jellyfin.user_id
     if not user_id and db is not None:
         import sqlalchemy as sa
+
         from app.db.models import LibrarySelection
         if db.scalar(sa.select(LibrarySelection.jellyfin_id).where(
-                LibrarySelection.source_type == "local", LibrarySelection.selected.is_(True)).limit(1)):
+                LibrarySelection.source_type == "local",
+                LibrarySelection.selected.is_(True)).limit(1)):
             return ""
     if not user_id:
         raise ValidationFailedError(
-            "尚未确定 Jellyfin 用户,请先调用 /api/v1/libraries 完成媒体库配置"
+            "请先在电脑管理后台登记本地来源，或勾选 Jellyfin 媒体库"
         )
     return user_id
 
@@ -272,13 +274,17 @@ async def list_media(
 
     if source_type:
         import sqlalchemy as sa
+
         from app.db.models import LibrarySelection
         allowed = set(db.scalars(sa.select(LibrarySelection.jellyfin_id).where(
             LibrarySelection.source_type == source_type)))
         targets = [target for target in targets if target in allowed]
         if not targets:
-            return ok(MediaPage(items=[], total=0, page=page, page_size=page_size,
-                sync=MediaSyncSummary(state="idle", stale=False, processed=0, total=0, message="当前来源无媒体")))
+            return ok(MediaPage(
+                items=[], total=0, page=page, page_size=page_size,
+                sync=MediaSyncSummary(state="idle", stale=False, processed=0,
+                                      total=0, message="当前来源无媒体"),
+            ))
     folder_dirname: str | None = None
     folder_condition = None
     if folder_id:
@@ -365,7 +371,8 @@ async def refresh_media(
     if not targets or any(library_id not in set(selected) for library_id in targets):
         raise ValidationFailedError("只能刷新已勾选且存在的媒体库")
     from app.services import native_sources
-    scheduled = [native_sources.schedule_scan(db, target) for target in targets if target.startswith("local_")]
+    scheduled = [native_sources.schedule_scan(db, target)
+                 for target in targets if target.startswith("local_")]
     jf_targets = [target for target in targets if not target.startswith("local_")]
     if jf_targets:
         scheduled.append(media_index.schedule_media_refresh(db, jf_targets, force=body.force))
@@ -507,7 +514,9 @@ async def get_media_original(
         raise ValidationFailedError("仅图片支持原图读取")
     if row.source_type == "local":
         import os
+
         from starlette.background import BackgroundTask as CloseTask
+
         from app.services import native_images
         from app.services.native_sources import open_media
         file, info = open_media(db, row)
@@ -664,7 +673,8 @@ async def get_playback_info(
         return ok(PlaybackInfo(source_type="local", media_id=row.media_id, title=row.name,
             direct=PlaybackEndpoint(url=url, headers=headers), stream_url=url,
             fallback_hls=None, resume_position_ms=progress.position_ms if progress else 0,
-            stream_url_authoritative=True, message="本地只读直连；使用已配对设备认证，不提供Jellyfin转码",
+            stream_url_authoritative=True,
+            message="本地直连；使用已配对设备认证，不提供Jellyfin转码",
             media_type=row.media_type, duration_ms=row.duration_ms, width=row.width,
             height=row.height, container=row.container))
     jellyfin_settings = request.app.state.settings.jellyfin
@@ -753,7 +763,8 @@ async def report_progress(
     if row.source_type == "local":
         from app.db.models import LocalPlaybackProgress
         position = min(body.position_ms, row.duration_ms) if row.duration_ms else body.position_ms
-        db.merge(LocalPlaybackProgress(media_id=media_id, position_ms=position, updated_at=utc_now()))
+        db.merge(LocalPlaybackProgress(
+            media_id=media_id, position_ms=position, updated_at=utc_now()))
         db.commit()
         return ok({"media_id": media_id, "reported": True, "source_type": "local"})
     user_id = request.app.state.settings.jellyfin.user_id
@@ -769,7 +780,9 @@ async def report_progress(
 
 
 @router.api_route("/{media_id}/file", methods=["GET", "HEAD"], response_class=Response)
-def native_file(media_id: str, request: Request, _auth=Depends(require_auth), db: Session = Depends(get_db)):
+def native_file(
+    media_id: str, request: Request, _auth=Depends(require_auth), db: Session = Depends(get_db)
+):
     from app.services.native_playback import file_response
     row = media_index.get_cached_media(db, media_id)
     if row is None or row.source_type != "local" or row.media_type != "video":

@@ -12,7 +12,12 @@ from app.core.errors import AppError
 from app.services.native_sources import open_media
 
 _SLOTS = threading.BoundedSemaphore(4)
-MIME = {"mp4": "video/mp4", "mov": "video/quicktime", "mkv": "video/x-matroska", "webm": "video/webm"}
+MIME = {
+    "mp4": "video/mp4", "mov": "video/quicktime", "mkv": "video/x-matroska",
+    "webm": "video/webm", "m4v": "video/mp4", "ts": "video/mp2t", "m2ts": "video/mp2t",
+    "avi": "video/x-msvideo", "wmv": "video/x-ms-wmv", "flv": "video/x-flv",
+    "mpg": "video/mpeg", "mpeg": "video/mpeg",
+}
 
 
 class StreamBusy(AppError):
@@ -38,12 +43,19 @@ def file_response(request, session, row):
     etag = '"' + row.fingerprint + '"'
     modified = int(info.st_mtime)
     size = info.st_size
-    headers = {"Accept-Ranges": "bytes", "ETag": etag, "Last-Modified": formatdate(modified, usegmt=True),
-               "Cache-Control": "private, max-age=0, must-revalidate", "X-Content-Type-Options": "nosniff"}
+    headers = {
+        "Accept-Ranges": "bytes", "ETag": etag,
+        "Last-Modified": formatdate(modified, usegmt=True),
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "X-Content-Type-Options": "nosniff",
+    }
     mime = MIME.get((row.container or "").lower(), "application/octet-stream")
     incoming = request.headers
     # Precondition在Range之前处理。
-    if incoming.get("if-match") and not (incoming["if-match"] == "*" or etag in [s.strip() for s in incoming["if-match"].split(",")]):
+    if incoming.get("if-match") and not (
+        incoming["if-match"] == "*"
+        or etag in [s.strip() for s in incoming["if-match"].split(",")]
+    ):
         file.close()
         return Response(status_code=412, headers=headers)
     since = _date(incoming.get("if-unmodified-since"))

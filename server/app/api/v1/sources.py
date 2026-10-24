@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.adapters.media_source import can_delete
 from app.api.v1.auth import require_auth
 from app.core.errors import ForbiddenError, ValidationFailedError
 from app.core.responses import ok
@@ -27,7 +28,11 @@ def _loopback(host):
 
 
 def require_local_admin(request: Request):
-    if not request.client or not _loopback(request.client.host) or not _loopback(request.url.hostname):
+    if (
+        not request.client
+        or not _loopback(request.client.host)
+        or not _loopback(request.url.hostname)
+    ):
         raise ForbiddenError("请在电脑本机管理后台登记或扫描本地来源")
     origin = request.headers.get("origin")
     if origin and origin != str(request.base_url).rstrip("/"):
@@ -42,8 +47,9 @@ class RegisterRoot(BaseModel):
 
 
 def root_view(root):
+    # 与媒体/库摘要同源：跟随能力表，本地源自 native_delete_v1 起可两阶段删除。
     return {"source_id": root.root_id, "source_type": "local", "name": root.name,
-            "status": root.status, "enabled": root.enabled, "can_delete": False,
+            "status": root.status, "enabled": root.enabled, "can_delete": can_delete("local"),
             "last_scan_at": root.last_scan_at}
 
 

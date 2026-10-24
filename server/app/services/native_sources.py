@@ -1,4 +1,4 @@
-"""原生只读来源：根身份、路径边界和现有单队列增量扫描。"""
+"""原生本地来源：根身份、路径边界、增量扫描与两阶段安全删除的前置复验。"""
 from __future__ import annotations
 
 import hashlib
@@ -12,13 +12,25 @@ from pathlib import Path, PurePosixPath
 import sqlalchemy as sa
 
 from app.adapters.media_source import MediaItem, can_delete
-from app.core.errors import ConflictError, ForbiddenError, MediaNotFoundError, ValidationFailedError
+from app.core.errors import (
+    AppError,
+    ConflictError,
+    ForbiddenError,
+    MediaNotFoundError,
+    ValidationFailedError,
+)
 from app.db.models import BackgroundTask, LibrarySelection, LocalRoot, MediaCacheIndex, utc_now
 from app.services.media_index import upsert_media_items
 
 TASK_TYPE = "local_scan"
-EXTENSIONS = {".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
-              ".mp4": "video", ".mkv": "video", ".mov": "video", ".webm": "video"}
+# 常见容器白名单：容器分类跟随 media_type，未知扩展名跳过(不猜类型)。
+EXTENSIONS = {
+    ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image",
+    ".gif": "image", ".bmp": "image", ".tiff": "image", ".tif": "image",
+    ".mp4": "video", ".mkv": "video", ".mov": "video", ".webm": "video",
+    ".m4v": "video", ".ts": "video", ".m2ts": "video", ".avi": "video",
+    ".wmv": "video", ".flv": "video", ".mpg": "video", ".mpeg": "video",
+}
 SKIP_DIRS = {"system volume information", "$recycle.bin", "windows", "program files",
              "program files (x86)", "programdata", ".git", ".venv"}
 BATCH_SIZE = 128
@@ -28,6 +40,35 @@ MAX_DEPTH = 128
 
 class SourcePathError(ValidationFailedError):
     default_message = "本地来源路径无效、不可用或包含链接，请检查电脑端目录"
+
+
+class LocalDeleteError(AppError):
+    """本地源永久删除被拒绝；``delete_code`` 是写入队列 error/审计的稳定失败码(不含路径)。"""
+
+    status_code = 403
+    code = "LOCAL_DELETE_REJECTED"
+    delete_code = "path_rejected"
+    default_message = "本地来源删除被拒绝，请检查电脑端目录"
+
+
+class LocalRootMissingError(LocalDeleteError):
+    status_code = 404
+    code = "LOCAL_ROOT_MISSING"
+    delete_code = "local_root_missing"
+    default_message = "本地来源不存在或已被移除，请重新登记本地来源"
+
+
+class LocalRootDisabledError(LocalDeleteError):
+    code = "LOCAL_ROOT_DISABLED"
+    delete_code = "local_root_disabled"
+    default_message = "本地来源已停用，禁止永久删除；请先在电脑管理后台启用该来源"
+
+
+class LocalFileInUseError(LocalDeleteError):
+    status_code = 409
+    code = "LOCAL_FILE_IN_USE"
+    delete_code = "file_in_use"
+    default_message = "文件正在被播放或占用，请关闭后重试"
 
 
 def _plain(st):
@@ -51,8 +92,13 @@ def validate_root(raw: str) -> Path:
     return path
 
 
-def safe_path(root: LocalRoot, relative: str) -> Path:
-    """每次读取重验全部组件；不追随 symlink/junction/reparse。"""
+def safe_path(root: LocalRoot, relative: str, *, allow_missing_leaf: bool = False) -> Path:
+    """每次读取重验全部组件；不追随 symlink/junction/reparse。
+
+    ``allow_missing_leaf`` 仅用于删除阶段复验：当且仅当路径链合法、但叶文件本身
+    已不存在时抛 ``FileNotFoundError``，以保留删除回执的 missing 语义；父级缺失、
+    越界或链接/重解析点一律仍视为路径拒绝。
+    """
     if not root.enabled:
         raise SourcePathError()
     base = validate_root(root.root_path)
@@ -60,15 +106,25 @@ def safe_path(root: LocalRoot, relative: str) -> Path:
     if rel.is_absolute() or not rel.parts or any(x in ("..", ".") or ":" in x for x in rel.parts):
         raise SourcePathError()
     current = base
+    parts = rel.parts
     try:
-        for part in rel.parts:
+        for index, part in enumerate(parts):
             current = current / part
-            if not _plain(current.lstat()):
+            try:
+                info = current.lstat()
+            except FileNotFoundError:
+                if allow_missing_leaf and index == len(parts) - 1:
+                    raise
+                raise SourcePathError() from None
+            if not _plain(info):
                 raise SourcePathError()
         current.resolve().relative_to(base.resolve())
+    except FileNotFoundError:
+        raise
     except (OSError, ValueError):
         raise SourcePathError() from None
     return current
+
 
 
 def local_media_id(root_id: str, relative: str) -> str:
@@ -77,7 +133,8 @@ def local_media_id(root_id: str, relative: str) -> str:
 
 
 def entity_fingerprint(mid, info):
-    return hashlib.sha256(f"{mid}:{info.st_size}:{info.st_mtime_ns}:{info.st_dev}:{info.st_ino}".encode()).hexdigest()
+    key = f"{mid}:{info.st_size}:{info.st_mtime_ns}:{info.st_dev}:{info.st_ino}"
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def open_media(session, row):
@@ -90,7 +147,9 @@ def open_media(session, row):
     try:
         handle = path.open("rb")
         info = os.fstat(handle.fileno())
-        if not stat.S_ISREG(info.st_mode) or entity_fingerprint(row.media_id, info) != row.fingerprint:
+        if not stat.S_ISREG(info.st_mode) or (
+            entity_fingerprint(row.media_id, info) != row.fingerprint
+        ):
             raise ConflictError("本地文件已变化，请在电脑端重新扫描来源")
         if os.name == "nt":
             import ctypes
@@ -142,7 +201,9 @@ def schedule_scan(session, root_id: str) -> BackgroundTask:
     if not session.get(LocalRoot, root_id):
         raise MediaNotFoundError("本地来源不存在")
     # SQLite 的写锁串行化“查找或建立”避免并发重复排队。
-    session.execute(sa.update(LocalRoot).where(LocalRoot.root_id == root_id).values(status="pending"))
+    session.execute(
+        sa.update(LocalRoot).where(LocalRoot.root_id == root_id).values(status="pending")
+    )
     for task in session.scalars(sa.select(BackgroundTask).where(
             BackgroundTask.type == TASK_TYPE, BackgroundTask.status.in_(("pending", "running")))):
         if json.loads(task.params)["root_id"] == root_id:
@@ -157,8 +218,10 @@ def schedule_scan(session, root_id: str) -> BackgroundTask:
 def recover_interrupted_scans(database):
     """独占 Server 启动时重排中断任务；重新扫描可安全覆盖未完成批次。"""
     with database.session() as session:
-        session.execute(sa.update(BackgroundTask).where(BackgroundTask.type.in_((TASK_TYPE, "local_thumbnail", "local_probe")),
-            BackgroundTask.status == "running").values(status="pending", started_at=None))
+        session.execute(sa.update(BackgroundTask).where(
+            BackgroundTask.type.in_((TASK_TYPE, "local_thumbnail", "local_probe")),
+            BackgroundTask.status == "running",
+        ).values(status="pending", started_at=None))
         session.commit()
 
 
@@ -214,7 +277,10 @@ def _save_batch(database, task_id, root_id, generation, batch):
         ids = [item.media_id for item in batch]
         existing = {r.media_id: r for r in session.scalars(sa.select(MediaCacheIndex).where(
             MediaCacheIndex.media_id.in_(ids)))}
-        changed = [i for i in batch if i.media_id not in existing or existing[i.media_id].fingerprint != i.fingerprint]
+        changed = [
+            i for i in batch
+            if i.media_id not in existing or existing[i.media_id].fingerprint != i.fingerprint
+        ]
         upsert_media_items(session, changed, generation=generation)
         if ids:
             session.execute(sa.update(MediaCacheIndex).where(MediaCacheIndex.media_id.in_(ids)).values(
@@ -268,8 +334,10 @@ def run_scan(database, task_id):
             task = session.get(BackgroundTask, task_id)
             if task.status != "running":
                 return
-            session.execute(sa.update(MediaCacheIndex).where(MediaCacheIndex.library_id == root_id,
-                sa.or_(MediaCacheIndex.sync_generation != generation, MediaCacheIndex.sync_generation.is_(None)))
+            session.execute(sa.update(MediaCacheIndex).where(
+                MediaCacheIndex.library_id == root_id,
+                sa.or_(MediaCacheIndex.sync_generation != generation,
+                       MediaCacheIndex.sync_generation.is_(None)))
                 .values(is_available=False))
             root = session.get(LocalRoot, root_id)
             root.status, root.last_scan_at = "available", utc_now()
@@ -281,15 +349,84 @@ def run_scan(database, task_id):
             task = session.get(BackgroundTask, task_id)
             if task.status != "running":
                 return
-            task.status, task.error, task.finished_at = "failed", "local_source_unavailable", utc_now()
+            task.status, task.error, task.finished_at = (
+                "failed", "local_source_unavailable", utc_now()
+            )
             root = session.get(LocalRoot, root_id)
             root.status = "offline" if offline else "scan_failed"
             if offline:
-                session.execute(sa.update(MediaCacheIndex).where(MediaCacheIndex.library_id == root_id)
-                                .values(is_available=False))
+                session.execute(
+                    sa.update(MediaCacheIndex)
+                    .where(MediaCacheIndex.library_id == root_id)
+                    .values(is_available=False))
+
             session.commit()
 
 
-def require_writable_source(media):
-    if media and not can_delete(media.source_type):
-        raise ForbiddenError("本地来源为只读，禁止永久删除")
+def deletion_failure_code(exc: BaseException) -> str:
+    """把本地删除拒绝异常映射为稳定失败码；不返回绝对路径或原始 OSError 文本。"""
+    code = getattr(exc, "delete_code", None)
+    if code:
+        return str(code)
+    if isinstance(exc, SourcePathError):
+        return "path_rejected"
+    if isinstance(exc, ConflictError):
+        return "file_identity_changed"
+    if isinstance(exc, MediaNotFoundError):
+        return "media_identity_unavailable"
+    if isinstance(exc, PermissionError):
+        return "file_in_use"
+    if isinstance(exc, ForbiddenError):
+        return "forbidden"
+    return "delete_failed"
+
+
+def resolve_deletable_local(session, media, *, allow_missing: bool = False) -> Path | None:
+    """本地源永久删除前的完整复验(Jellyfin 走原有路径，不经过这里)。
+
+    校验顺序：登记根存在且 enabled → 相对路径落到根内且整链无链接/重解析点/越界 →
+    叶必须是普通文件 → ``open_media`` 复用既有句柄身份、指纹与最终路径复验。
+
+    返回经复验的绝对路径；``allow_missing=True`` 且叶文件已不存在时返回 ``None``
+    (供 commit 生成 missing 回执)，其余拒绝一律抛带 ``delete_code`` 的 AppError，
+    由删除队列映射为不含路径的稳定失败码。
+    """
+    if media is None or media.source_type != "local" or not media.media_path:
+        raise MediaNotFoundError("本地媒体索引不可用，请重新扫描本地来源")
+    root = session.get(LocalRoot, media.library_id)
+    if root is None:
+        raise LocalRootMissingError()
+    if not root.enabled:
+        raise LocalRootDisabledError()
+    try:
+        path = safe_path(root, media.media_path, allow_missing_leaf=allow_missing)
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise MediaNotFoundError("本地文件不存在，可能已在电脑端被移动或删除") from None
+    except OSError as exc:
+        raise SourcePathError() from exc
+    if not _plain(info) or not stat.S_ISREG(info.st_mode):
+        raise SourcePathError()
+    try:
+        handle, _info = open_media(session, media)
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise MediaNotFoundError("本地文件不存在，可能已在电脑端被移动或删除") from None
+    handle.close()
+    return path
+
+
+def require_writable_source(session, media):
+    """入队前来源校验：Jellyfin 保持原能力判断；本地源要求能解析到当前真实文件。"""
+    if media is None:
+        raise MediaNotFoundError()
+    if not can_delete(media.source_type):
+        raise ForbiddenError("该来源为只读，禁止永久删除")
+    if media.source_type == "local":
+        # 提前拒绝不可删除项(根停用/缺失、路径越界、文件已变化或不存在)，
+        # 避免"入队成功、最终确认才失败"。
+        resolve_deletable_local(session, media)
+

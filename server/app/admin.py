@@ -128,8 +128,8 @@ _PAGE = r"""<!DOCTYPE html>
       <section class="card" aria-label="媒体库与索引">
         <h2>媒体库与索引<span class="row"><button class="btn small" id="refreshMediaBtn" type="button">刷新媒体库</button></span></h2>
         <div id="libBox"></div>
-        <p class="sub">本地只读来源（仅电脑本机可登记）</p>
-        <p class="status">支持 JPEG/PNG/WEBP 与 MP4/MKV/MOV/WebM；其他格式暂不索引。本地来源只读，永久删除不可执行。</p>
+        <p class="sub">本地来源（仅电脑本机可登记）</p>
+        <p class="status">支持 JPEG/PNG/WEBP/GIF/BMP/TIFF 图片与 MP4/MKV/MOV/WebM/M4V/TS/M2TS/AVI/WMV/FLV/MPG/MPEG 视频；其他格式暂不索引。本地来源删除必须先进入待删除队列并再次确认，只允许删除已登记目录内的普通文件。</p>
         <label>来源名称 <input id="localRootName" maxlength="256" placeholder="例如：家庭照片"></label>
         <label>电脑目录 <input id="localRootPath" maxlength="1024" placeholder="输入本机绝对目录"></label>
         <button class="btn" id="addLocalRootBtn" type="button">登记并扫描</button>
@@ -347,7 +347,7 @@ async function loadLibraries() {
   box.innerHTML = "<p class=\"status\">加载中…</p>";
   try {
     const rows = (await jget("/api/v1/libraries")).data || [];
-    if (!rows.length) { box.innerHTML = "<p class=\"status\">暂无媒体库,请先配置 Jellyfin 后再刷新。</p>"; return; }
+    if (!rows.length) { box.innerHTML = "<p class=\"status\">暂无媒体库,请先登记本地来源或配置 Jellyfin 后再刷新。</p>"; return; }
     box.innerHTML = "<ul class=\"libs\" id=\"libList\">" + rows.map(l =>
       "<li><label class=\"check\"><input type=\"checkbox\" data-id=\"" + esc(l.jellyfin_id) + "\"" + (l.selected ? " checked" : "") + "> " + esc(l.name) + "</label></li>"
     ).join("") + "</ul><button class=\"btn primary\" id=\"saveLibBtn\" type=\"button\">保存勾选</button>";
@@ -358,7 +358,7 @@ async function loadLocalRoots() {
   try {
     const rows = (await jget("/api/v1/sources")).data || [];
     const states = {pending:"等待扫描", available:"可用", offline:"目录离线", scan_failed:"扫描失败", cancelled:"已取消", paused:"已暂停"};
-    $("localRootList").textContent = rows.map(r => r.name + " · " + (states[r.status] || r.status) + " · 只读").join("；") || "尚未登记本地来源";
+    $("localRootList").textContent = rows.map(r => r.name + " · " + (states[r.status] || r.status) + (r.can_delete ? " · 可两阶段删除" : " · 只读")).join("；") || "尚未登记本地来源";
   } catch (e) { $("localRootList").textContent = e.message; }
 }
 async function addLocalRoot() {
@@ -367,7 +367,7 @@ async function addLocalRoot() {
   try {
     await jpost("/api/v1/sources/local", {name:$("localRootName").value.trim(), path:$("localRootPath").value.trim()});
     $("localRootPath").value = "";
-    toast("只读来源已登记，扫描在后台排队");
+    toast("本地来源已登记，扫描在后台排队");
     loadLocalRoots(); loadLibraries(); loadTasks();
   } catch (e) { toast(e.message, false); }
   finally { button.disabled = false; }

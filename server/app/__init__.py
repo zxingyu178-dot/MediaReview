@@ -14,7 +14,10 @@ SERVER_API_CONTRACT = 2
 SERVER_CAPABILITIES: tuple[str, ...] = (
     "native_sources_v1",
     "native_range_v1",
+    # legacy: Stage 9 本地源最初为只读，能力名保留做历史兼容；
+    # 本地源删除能力以 native_delete_v1 为准(两阶段 nonce 安全删除)。
     "native_read_only_v1",
+    "native_delete_v1",
     "folder_tree_v1",
     "thumbnail_profiles_v1",
     "review_folder_filter_v1",
