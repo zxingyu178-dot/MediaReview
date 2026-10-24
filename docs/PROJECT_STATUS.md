@@ -164,3 +164,16 @@ Codex `gpt-5.6-sol` 对 `37e93e2..373025b` 做独立安全复审（182,126 token
 **验证**：Server 全量 **721 通过 / 2 失败 / 723 项 / 437.51s**（2 项为本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 通过）；Android 全量 JVM **511 tests / 0 失败**；ruff 改动文件通过。
 
 **P5 发版继续暂停**：待 Codex 额度复位后（2026-10-25 05:44）做**二次独立复审**，通过后提交/推送并进入 P5。当前分支 `feature/mediareview-local-only`。
+
+## 11. 第二轮独立复审（2026-10-25 05:52）
+
+Codex `gpt-5.6-sol` 对修复提交 `373025b..cfe7ca5` 做第二轮复审，报告 `review_meta/codex-review-20261025-round2/round2-review.md`。结论 **BLOCK：C0 / I2 / M2**（C1、I1、I3 判定已关闭）。
+
+| 编号 | 级别 | 问题 | 处置 |
+| --- | --- | --- | --- |
+| I5 | Important | Windows delete-on-close：disposition 成功后若其他 FILE_SHARE_DELETE 句柄未关，文件仍可见；旧实现会落 `failed`，但文件稍后永久消失 | **已修（源码）**：disposition 成功即按 success 收敛，不再用 lstat/CloseHandle 改判；真实第二共享句柄测试 |
+| I6 | Important | 0017 downgrade 未处理 `committing` 行 | **已修（源码）**：存在 committing 时 fail-closed 拒绝降级且不改写；补回滚测试 |
+| M2 | Minor | 非执行快照分支审计失败被静默吞掉 | **已修（源码）**：三类审计并入 claim 同事务，失败整体回滚、nonce 不消费 |
+| M3 | Minor | Win32 ERROR_ACCESS_DENIED(5) 被误报为 file_in_use | **已修（源码）**：5→`delete_access_denied`，32/33→file_in_use；Android 中文映射 |
+
+P1 发版仍阻断；待第三轮独立复审通过后再评估 P5。提交 `f3f2149`/`90498cc`/`cfe7ca5` 已于 2026-10-25 05:46 推送到 GitHub（`373025b..cfe7ca5`）。

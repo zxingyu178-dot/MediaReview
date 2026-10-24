@@ -2960,3 +2960,24 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 - 新增/更新测试：Windows 句柄删除、同尺寸换叶、父目录 junction 竞态（本机 junction 实际创建成功、非 skip）、句柄失败不回退、同 ID 重入队旧 nonce、旧格式快照 fail-closed、缺失/非 pending 审计、删除后审计/索引异常隔离与恢复、0017 回填与索引保留、Android 缺字段/缓存 miss。
 
 边界与未做：未 commit 前的二次独立复审因 Codex 额度耗尽顺延到额度复位（05:44）后；P5 发版（1.6.0/alpha16）继续暂停；未上真机、未跑 connected/androidTest；未操作真实媒体；两次 Codex 子任务报告见 review_meta/codex-fix-20261025/（A3 因额度用尽未写报告，改动与验证以本日志与代码为准）。
+
+## 2026-10-25 第二轮复审修复：I5/I6/M2/M3（源码完成，待第三轮复审）
+
+第二轮 Codex 复审（`review_meta/codex-review-20261025-round2/round2-review.md`）判定 BLOCK：C1/I1/I3 已关闭，I5/I6/M2/M3 未关闭。本轮由 Codex 按复审建议修复（报告 `review_meta/codex-fix-20261025-round2/fix-report.md`）：
+
+- **I5 Windows delete-on-close**：`SetFileInformationByHandle(FileDispositionInfo)` 成功即视为系统接受不可逆删除，**不再**用即时 `lstat` 或 `CloseHandle` 返回值改写为 failed；其他允许 `FILE_SHARE_DELETE` 的句柄未关时按真实字节数 success 收敛并清理元数据。真实 Win32 测试：持有第二共享删除句柄时 receipt=success、元数据清理、关闭前文件对象仍存活、关闭后消失；不允许共享删除的句柄 → `failed:file_in_use` 且文件保留。
+- **I6 0017 downgrade**：检测到 `committing` 行时拒绝降级（明确要求先用 0017 代码恢复并备份），不改写数据库；无 committing 时正常回滚并保留 pending/failed 与 status 索引；补回滚测试。
+- **M2 非执行快照审计**：`queue_entry_missing`/`queue_entry_superseded`/`not_pending` 的审计并入 nonce claim/committing 同一事务；审计失败整体回滚、nonce 不消费、API 返回错误，不再静默丢审计。
+- **M3 错误码**：Win32 32/33 仅映射 `file_in_use`；5（ACCESS_DENIED）映射新稳定码 `delete_access_denied`；Android 增加中文提示"没有权限删除该文件"。
+
+验证（Codex 定向；Lead 全量另记）：
+- 真实 Windows 专项 3 passed；M2/receipt 审计 7 passed；I6 downgrade 2 passed；Android `DeleteQueueViewModelTest` 13/13；ruff 通过。
+- 指定四文件完整单轮 **86 passed / 1 failed**：唯一失败为既有 10 万行查询性能阈值 1.045s（阈值 1.0s），单项复跑 **1 passed**；不称单轮全绿。
+
+边界：未 commit/push（本轮由 Lead 统一提交）；未构建产物；未上真机；未操作真实媒体/服务。P5 仍暂停，待第三轮独立复审。
+
+### 2026-10-25 Lead 全量验证（I5/I6/M2/M3 修复后）
+- Server 全量 pytest：**730 通过 / 2 失败 / 732 项 / 406.98s**；2 项仍为本机 ffmpeg 完整性级别环境限制（`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），换项目内可写 basetemp 单独复跑 **2 passed**；十万行查询性能门禁本轮通过。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL；M3 新增 `delete_access_denied` 映射用例包含在内）。
+- Ruff：本轮改动文件通过。
+- 结论：修复相关测试与全量回归通过（除已分类的 2 项本机环境失败）；是否可发版仍以第三轮独立复审为准。
