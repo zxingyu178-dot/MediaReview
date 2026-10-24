@@ -2927,3 +2927,36 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 - Android 全量 JVM：507/0，BUILD SUCCESSFUL。
 
 边界与未做：版本仍 1.5.2 / Alpha15（未发版，P5 统一升 Server 1.6.0 / Android alpha16-code23 并同步 build_deploy）；未上真机、未做 androidTest/connected、未用真实文件验证 file_in_use（仅 mock PermissionError）；API Contract 仍为 2；`scripts/build_deploy.py` 的 REQUIRED_CAPABILITIES 尚未加入 `native_delete_v1`（P5 处理）；GitHub 推送与最终提交以实际命令结果为准。
+
+## 2026-10-25 Codex 独立安全复审：本地删除发现阻断项（未修复，暂停 P5）
+
+由 Codex（`gpt-5.6-sol`，独立只读审查，182,126 tokens）对 `37e93e2..373025b` 的本地两阶段删除实现做复审，报告：`review_meta/codex-review-20261025/local-delete-review.md`。结论 C1 / I4 / M1，**建议阻断发布**：
+
+- **C1（Critical）**：`open_media` 复验句柄在删除前被关闭，随后仍按字符串路径 `os.remove`，且未把 `_lstat_deletion_path` 的 st_dev/st_ino 与已验证句柄身份绑定。同机并发进程可在检查与删除之间换父目录/叶文件，导致登记根外文件被删除或误删同尺寸替换文件。现有 junction/symlink 测试只覆盖删除前已布置的静态状态，不证明竞态安全。
+- **I1（Important）**：nonce 快照只绑定 `media_id`；prepare 后撤销并重新入队同一媒体，旧 nonce 仍会删除新的队列项（两阶段确认未绑定队列代次）。
+- **I2（Important）**：文件删除与 nonce claim/审计/索引清理不在同一可恢复状态机；`os.remove` 成功后若审计/索引/事务失败或进程崩溃，会出现"文件已删、请求 500、nonce 未消耗、元数据回滚"的分裂，且可能中断整批。
+- **I3（Important）**：Android `can_delete` 缺字段或媒体缓存未命中时 fail-open（`!= false`），应改为显式 true 才放行。
+- **I4（Important）**：安全测试对上述竞态/同 ID 队列代次/删除后事务失败/Android 缺字段与缓存 miss 系统性缺失，现有绿色结果高估边界覆盖。
+- **M1（Minor）**：快照中队列项不存在或非 pending 时直接 continue，无逐条审计。
+
+处置：暂停 P5 发版；先修 C1/I1/I2/I3/M1 并补齐测试，再由 Lead 跑全量与二次复审。此次复审未修改源码、未运行测试、未启停服务。
+
+## 2026-10-25 Codex 修复轮：C1/I1/I2/I3/M1 + 恢复逻辑缺陷（源码完成，待二次复审）
+
+承接上一轮独立复审（C1/I4/M1，阻断发布）。用户要求后续开发尽量交给 Codex，本机 DSH 会话未暴露 `subagent_codex` 工具，故用 `environment\bin\codex.cmd exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.6-sol` 直接委派 Codex CLI（一次性、冷启动；边界清晰、只改指定目录；Lead 复核 diff 并本地跑测试）。本轮 Codex 用量约 70 万+ tokens，于 2026-10-25 02:00 触发 ChatGPT Plus 5 小时额度上限（复位 05:44），后续已无额度执行二次复审。
+
+实现（Codex，Lead 复核）：
+- **C1（句柄绑定删除）**：`native_sources` 新增 `delete_local_media`/`_windows_delete_bound`：先复验根/路径链/指纹/最终路径；Windows 用 `CreateFileW(GENERIC_READ|DELETE, 共享全部, FILE_FLAG_OPEN_REPARSE_POINT)` 二次打开，以 `BY_HANDLE_FILE_INFORMATION`（卷序列+File Index）绑定首次 `fstat` 身份、`GetFinalPathNameByHandleW` 复核根内最终路径，再用同一句柄 `FileDispositionInfo` 删除；句柄删除失败**不回退** `os.remove`（fail-closed）。POSIX 分支严格比对 `lstat` 与 `fstat` 身份后删除并注明残余竞态。新增稳定失败码 `identity_binding_failed`、`delete_not_verified`。
+- **I1（队列代次）**：`DeleteQueue` 增加非空随机 `queue_token`，迁移 `0017`（逐行回填 + 非空约束，保留 status 索引）；nonce 快照保存 `(media_id, queue_token)`；commit 要求 token 与 pending 同时匹配；撤销后同 ID 重新入队会被旧 nonce 判 `failed:queue_entry_superseded` 且不删文件；旧纯 ID 快照 fail-closed。
+- **I2（持久状态机）**：`commit_with_nonce` 先提交 nonce claim + 全部 `committing` 意图；物理删除逐项执行、逐项独立事务写 outcome/审计/元数据清理；意外异常逐项隔离（`internal_error`）不中断整批；新增 `recover_interrupted_deletes` 在 lifespan 启动时收敛遗留 `committing`（文件已不存在→`recovered_deleted` 清理；仍存在→`interrupted_not_deleted`；幂等、不再次删除）。
+- **M1（审计）**：快照缺失/非 pending/代次替换分别写 `skipped:queue_entry_missing`、`failed:not_pending`、`failed:queue_entry_superseded`，不含路径。
+- **Lead 审查发现的恢复缺陷**：`_recovery_observes_missing` 原对本地源用绝对路径检查，但本地 `media_path` 是相对路径，会误判"文件仍存在"；已改为 source-aware（local 走 `LocalRoot + safe_path(allow_missing_leaf)`，jellyfin 走绝对路径），并补本地已删/未删恢复测试。
+- **I3（Android fail-closed）**：wire DTO `can_delete` 改可空；映射仅在 `== true` 时可删；UI 模型默认 false；仓库门禁 `require(media != null && media.canDelete)`；Home/Review/Viewer fail-closed；缺字段/缓存 miss/显式 false 均 0 次入队 POST。
+
+验证（Lead 本机，2026-10-25）：
+- Server 全量 pytest：**721 通过 / 2 失败 / 723 项 / 437.51s**。2 项失败仍是本机 ffmpeg 完整性级别环境限制（`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），换项目内可写 basetemp 单独复跑 **2 通过**；十万行查询性能门禁本轮通过（此前并行负载下曾抖动 1.0–1.3s）。
+- Codex 定向：C1 组 34 passed；I1/I2/M1 删除+迁移组 77 passed（完整指定集 82 passed/1 failed 为上述性能门禁抖动）；恢复修复组 67 passed/1 failed（同一性能门禁）；ruff 改动文件通过。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL）。
+- 新增/更新测试：Windows 句柄删除、同尺寸换叶、父目录 junction 竞态（本机 junction 实际创建成功、非 skip）、句柄失败不回退、同 ID 重入队旧 nonce、旧格式快照 fail-closed、缺失/非 pending 审计、删除后审计/索引异常隔离与恢复、0017 回填与索引保留、Android 缺字段/缓存 miss。
+
+边界与未做：未 commit 前的二次独立复审因 Codex 额度耗尽顺延到额度复位（05:44）后；P5 发版（1.6.0/alpha16）继续暂停；未上真机、未跑 connected/androidTest；未操作真实媒体；两次 Codex 子任务报告见 review_meta/codex-fix-20261025/（A3 因额度用尽未写报告，改动与验证以本日志与代码为准）。

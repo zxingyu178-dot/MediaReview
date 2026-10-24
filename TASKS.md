@@ -671,3 +671,14 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] 受影响定向回归与全量 Server pytest 复跑（真实结果见 docs/DEV_LOG.md 与 review_meta/ops-20261023）。
 - [ ] 图片负缓存、客户端失败占位、慢请求分段打点与结构性优化：待单独评审后实施。
 - [ ] 生产服务恢复（交互式 PID 3916 占用 8766）与 Alpha15 真机验收：待用户管理员操作/连接手机。
+
+## 2026-10-25 Codex 安全复审与阻断修复
+- [x] Codex（gpt-5.6-sol）独立复审本地两阶段删除：C1/I4/M1，建议阻断发布；报告 `review_meta/codex-review-20261025/local-delete-review.md`。
+- [x] 修复 C1：Windows 句柄绑定删除（CreateFileW 二次打开 + 卷序列/File Index 绑定 + 最终路径复核 + FileDispositionInfo；失败不回退路径删除）+ 同尺寸换叶/父目录 junction 确定性竞态测试（本机实际执行，非 skip）。
+- [x] 修复 I1：`DeleteQueue` 队列代次 `queue_token` + 迁移 0017（保留 status 索引）+ nonce 绑定队列代次；撤销后同 ID 重新入队不会被旧 nonce 删除；旧格式快照 fail-closed。
+- [x] 修复 I2：删除持久状态机（先提交 nonce claim + committing，再删文件，再逐项独立事务收敛；启动恢复 committing 项；逐项异常隔离）；Lead 另发现并修复本地源恢复误判（相对路径）。
+- [x] 修复 I3：Android `can_delete` 可空/默认 false，仅显式 true 放行；缺字段、缓存 miss、显式 false 均 0 次入队 POST + 测试。
+- [x] 修复 M1：快照缺失/非 pending/代次替换写稳定审计码（不含路径）。
+- [x] Lead 全量回归：Server 721/723（2 项本机 ffmpeg 环境限制，换 basetemp 单独 2 通过）；Android 511/511；ruff 改动文件通过。
+- [ ] **二次独立复审（Codex）**：等待额度复位（2026-10-25 05:44）后执行；通过后 commit/push。
+- [ ] 通过后评估 P5 发版（Server 1.6.0 / Android alpha16-code23）。

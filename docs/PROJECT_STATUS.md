@@ -116,7 +116,7 @@
 | 阶段 | 内容 | 规模 | 状态 |
 | --- | --- | --- | --- |
 | P0 | 去 Jellyfin 依赖收口（引导/诊断/运维文案、扩展名白名单、MIME） | S，1–2 人日 | **源码完成并验证（未发版）** |
-| P1 | **本地安全永久删除**（Server 能力 `native_delete_v1` + 入队/提交本地分支 + Android 门禁改造 + 测试） | M，3–5 人日 | **源码完成并验证（未发版）** |
+| P1 | **本地安全永久删除**（Server 能力 `native_delete_v1` + 入队/提交本地分支 + Android 门禁改造 + 测试） | M，3–5 人日 | **C1/I1/I2/I3/M1 已修（源码，未提交），待 Codex 二次独立复审后发版** |
 | P2 可选 | 删除可回滚（Windows 回收站或延迟删除 + 撤销窗口） | M，2–4 人日 | 未开始（可选） |
 | P3 | 播放兜底（按需 remux / HLS 转码） | L，7–12 人日 | 待真机 A/B 后决策 |
 | P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 | 未开始 |
@@ -146,3 +146,21 @@
 | 2026-10-23 | 图片 404 归类 + 失败诊断补齐；修正陈旧版本断言；全量 pytest 693/695 | `747e704`、`docs/DEV_LOG.md:2870-2890` |
 | 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估；GitHub 恢复后推送 `2dd9ff2..5786f8f` | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；`git push` |
 | 2026-10-24 | 本地源为主 P0/P1：新增 `native_delete_v1` 与本地两阶段安全删除、去 Jellyfin 诊断/文案收口、Android 只信任 `can_delete`；Server 全量 709/711（2 项环境）、Android 507/507 | `feature/mediareview-local-only`、`docs/DEV_LOG.md`、`review_meta/ops-20261024/*.log` |
+| 2026-10-25 | Codex 复审 C1/I4/M1；完成 C1 句柄绑定删除、I1 队列代次(0017)、I2 状态机+恢复(含 Lead 修复本地恢复误判)、I3 Android fail-closed、M1 审计；Server 721/723（2 环境）、Android 511/511 | `review_meta/codex-review-20261025/`、`review_meta/codex-fix-20261025/`、`docs/DEV_LOG.md` |
+
+## 10. Codex 独立复审（2026-10-25，本地删除阻断项）
+
+Codex `gpt-5.6-sol` 对 `37e93e2..373025b` 做独立安全复审（182,126 tokens），报告 `review_meta/codex-review-20261025/local-delete-review.md`。结论 **C1 / I4 / M1，阻断发布**：
+
+| 项 | 级别 | 摘要 | 处置 |
+| --- | --- | --- | --- |
+| C1 | Critical | 复验句柄关闭后仍按路径 `os.remove`，未绑定 st_dev/st_ino；并发换链可删除登记根外文件或同尺寸替换文件 | **已修（源码，未提交）**：Windows 句柄 disposition 删除 + fail-closed + 确定性竞态测试（本机 junction 实测执行） |
+| I1 | Important | nonce 只绑定 media_id；撤销后同 ID 重新入队会被旧 nonce 删除 | **已修（源码，未提交）**：队列代次 queue_token + 迁移 0017 + nonce 绑定 + 同 ID 回归 |
+| I2 | Important | 文件删除与 nonce/审计/索引事务不原子；删除后失败会"文件已删但请求 500、nonce 未消耗" | **已修（源码，未提交）**：先提交 claim/committing → 逐项独立事务 → 启动恢复 + 逐项异常隔离；另修本地源恢复误判（Lead 发现） |
+| I3 | Important | Android can_delete 缺字段/缓存 miss 时 fail-open | **已修（源码，未提交）**：DTO 可空、仅 `==true` 放行、缓存 miss/缺字段 fail-closed + 测试 |
+| I4 | Important | 安全测试缺竞态/同 ID/删除后事务失败/Android 缺字段用例 | **已补**：竞态/同 ID/旧快照/异常恢复/迁移回填/Android 缺字段与缓存 miss |
+| M1 | Minor | 快照中跳过/非 pending 项无逐条审计 | **已修**：稳定审计码（无路径） |
+
+**验证**：Server 全量 **721 通过 / 2 失败 / 723 项 / 437.51s**（2 项为本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 通过）；Android 全量 JVM **511 tests / 0 失败**；ruff 改动文件通过。
+
+**P5 发版继续暂停**：待 Codex 额度复位后（2026-10-25 05:44）做**二次独立复审**，通过后提交/推送并进入 P5。当前分支 `feature/mediareview-local-only`。
