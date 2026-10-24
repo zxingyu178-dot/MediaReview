@@ -177,3 +177,17 @@ Codex `gpt-5.6-sol` 对修复提交 `373025b..cfe7ca5` 做第二轮复审，报�
 | M3 | Minor | Win32 ERROR_ACCESS_DENIED(5) 被误报为 file_in_use | **已修（源码）**：5→`delete_access_denied`，32/33→file_in_use；Android 中文映射 |
 
 P1 发版仍阻断；待第三轮独立复审通过后再评估 P5。提交 `f3f2149`/`90498cc`/`cfe7ca5` 已于 2026-10-25 05:46 推送到 GitHub（`373025b..cfe7ca5`）。
+
+## 12. 第三轮复审与 I5-A/I5-B 修复（2026-10-25 07:12）
+
+第三轮 Codex 复审（`review_meta/codex-review-20261025-round3/round3-review.md`）判定 **BLOCK**：I6/M2/M3 已关闭，但 I5 与 I2 组合仍存在 "delete-pending 后元数据事务失败先落 failed、文件后消失"（I5-A）与 "CloseHandle 失败被忽略却清理元数据报 success"（I5-B）。
+
+修复（Codex，`review_meta/codex-fix-20261025-round3/fix-report.md`）：
+- Windows 优先 `FILE_DISPOSITION_INFO_EX` + POSIX 语义：disposition 后关闭句柄并以 `lstat` 验证名字消失才算 success；不支持才回退传统 disposition，回退路径只返回 `pending`。
+- 新增持久状态 `delete_done` / `delete_pending` 与 receipt `pending` / `pending_count`；`delete_done` 先独立提交再清理元数据，清理失败保持 `delete_done`（success，恢复补清理并审计）；`delete_pending` 由恢复只观察，名字消失后转 `delete_done`；重复恢复幂等、不再次删除。惰性恢复入口加入 `GET /delete-queue` 与 `prepare`。
+- CloseHandle 失败：POSIX 名字已验证消失仍 success；传统路径保持 pending；不写路径。
+- Android 支持 `Pending` 状态与"删除请求已提交，等待系统完成"，旧 Server（无 pending 字段）兼容。
+
+验证：Codex 定向四文件 **94 passed**；真实 Windows 专项 5 passed；Android 3 类 36/36；Lead 全量 Server **736/739**（2 项本机 ffmpeg 环境 + 1 项 10 万行性能抖动，三项单独复跑均通过）、Android **511/511**；ruff 通过。
+
+P1 仍待第四轮定点复审通过后发版。

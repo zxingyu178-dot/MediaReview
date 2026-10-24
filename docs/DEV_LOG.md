@@ -2981,3 +2981,20 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 - Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL；M3 新增 `delete_access_denied` 映射用例包含在内）。
 - Ruff：本轮改动文件通过。
 - 结论：修复相关测试与全量回归通过（除已分类的 2 项本机环境失败）；是否可发版仍以第三轮独立复审为准。
+
+## 2026-10-25 第三轮复审修复：I5-A / I5-B（POSIX 语义 + 可恢复删除状态）
+
+第三轮 Codex 复审（`review_meta/codex-review-20261025-round3/round3-review.md`）判定 BLOCK：I5-A（delete-pending 后元数据事务失败时仍可能先落 failed、文件后消失）与 I5-B（CloseHandle 失败被忽略却清理元数据并报 success）。Codex 修复（报告 `review_meta/codex-fix-20261025-round3/fix-report.md`）：
+
+- Windows 删除优先使用 `FILE_DISPOSITION_INFO_EX`（`FILE_DISPOSITION_DELETE|FILE_DISPOSITION_POSIX_SEMANTICS`）：disposition 接受后关闭句柄，再以 `lstat` 验证名字已消失才算 `success`；系统不支持（ERROR_NOT_SUPPORTED/INVALID_PARAMETER）才回退传统 `FileDispositionInfo`，传统路径一律返回 `pending`，不提前清理元数据。
+- 新增持久状态 `delete_done`（物理删除已确认、元数据待清理）与 `delete_pending`（已请求、名字未确认消失）；receipt 增加逐项值 `pending` 与 `pending_count`（不计 success/missing/failed）。
+- `delete_done` 先独立提交，再做第二个事务清理索引/收藏/队列与审计；清理失败保持 `delete_done` 返回 success，恢复补清理并写 `metadata_cleanup_recovered`。`delete_pending` 由恢复只观察：仍可见则保持 pending，名字消失后转 `delete_done` 再清理；重复恢复幂等、不再次删除。
+- 启动恢复保留，`GET /delete-queue` 与 `POST /delete-queue/commit/prepare` 增加惰性恢复入口；0017 downgrade 对 `committing/delete_done/delete_pending` 任一存在均 fail-closed。
+- CloseHandle 失败：POSIX 名字已验证消失仍 success；传统路径保持 pending；内部 warning 不含路径。
+- Android：`DeleteOutcomeStatus.Pending` + `pendingCount`，结果面板显示"删除请求已提交，等待系统完成"；旧 Server 无 pending 字段兼容。
+
+验证：
+- Codex 定向：四文件 **94 passed**（单轮）；真实 Windows 专项 5 passed（共享句柄 POSIX 立即消失、POSIX+清理失败恢复、传统回退 pending→恢复、CloseHandle 两种故障分流）；Android 3 类 36/36；ruff 通过。
+- Lead 全量：Server **736 通过 / 3 失败 / 739 项 / 409.65s**；3 项为 2 项本机 ffmpeg 完整性环境限制 + 1 项 10 万行性能门禁抖动（单独复跑 1 passed；ffmpeg 两项换可写 basetemp 2 passed）。Android 全量 JVM 结果见下一条。
+- 未 commit/push（Lead 统一提交）；未构建产物；未上真机；未操作真实媒体/服务。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL；含 pending receipt 展示与旧 Server 兼容用例）。
