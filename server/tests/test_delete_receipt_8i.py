@@ -5,12 +5,13 @@ import sys
 from unittest.mock import patch
 
 import pytest
+import sqlalchemy as sa
 from test_delete_nonce_11 import _enqueue, _make_db, _seed_media
 
 from app.adapters.jellyfin.mapper import map_media_item
 from app.adapters.jellyfin.models import JFItem
-from app.db.models import DeleteQueue, MediaCacheIndex
-from app.services import delete_queue, media_index
+from app.db.models import AuditLog, DeleteCommitNonce, DeleteQueue, MediaCacheIndex
+from app.services import audit, delete_queue, media_index
 
 
 def test_stale_session_cannot_reuse_consumed_nonce(tmp_path):
@@ -52,6 +53,161 @@ def test_second_snapshot_does_not_retry_failed_item_without_requeue(tmp_path):
         assert result == {"guarded": "failed"}
         assert result.deleted_count == result.deleted_bytes == 0
         assert path.exists()
+        assert (
+            s.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == "guarded")
+                .order_by(AuditLog.id.desc())
+            )
+            == "failed:not_pending"
+        )
+    db.dispose()
+
+
+def test_snapshot_missing_queue_entry_is_audited(tmp_path):
+    db = _make_db(tmp_path)
+    path = tmp_path / "withdrawn.mp4"
+    path.write_bytes(b"keep")
+    _seed_media(db, "withdrawn", str(path))
+    _enqueue(db, "withdrawn", 4)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.dequeue(session, "withdrawn") is True
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.commit_with_nonce(session, nonce) == {}
+    with db.session() as session:
+        assert (
+            session.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == "withdrawn")
+                .order_by(AuditLog.id.desc())
+            )
+            == "skipped:queue_entry_missing"
+        )
+    assert path.exists()
+    db.dispose()
+
+
+@pytest.mark.parametrize("failure_point", ["audit", "index_flush"])
+def test_post_remove_failure_isolated_and_recoverable(tmp_path, monkeypatch, failure_point):
+    """文件已删后的意外异常不得回滚成 pending，也不得中断后续项。"""
+    db = _make_db(tmp_path)
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    _seed_media(db, "first", str(first), size=5)
+    _seed_media(db, "second", str(second), size=6)
+    _enqueue(db, "first", 5)
+    _enqueue(db, "second", 6)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    with db.session() as session:
+        if failure_point == "audit":
+            original_log = audit.log_action
+            failed_once = False
+
+            def fail_first_delete_audit(db_session, action, media_id=None, detail=None):
+                nonlocal failed_once
+                if action == "delete_commit" and media_id == "first" and not failed_once:
+                    failed_once = True
+                    raise RuntimeError("injected audit failure")
+                return original_log(db_session, action, media_id, detail)
+
+            monkeypatch.setattr(audit, "log_action", fail_first_delete_audit)
+        else:
+            original_flush = session.flush
+            failed_once = False
+
+            def fail_first_index_flush(*args, **kwargs):
+                nonlocal failed_once
+                deleting_index = any(isinstance(item, MediaCacheIndex) for item in session.deleted)
+                if not failed_once and not first.exists() and deleting_index:
+                    failed_once = True
+                    raise RuntimeError("injected index flush failure")
+                return original_flush(*args, **kwargs)
+
+            monkeypatch.setattr(session, "flush", fail_first_index_flush)
+
+        receipt = delete_queue.commit_with_nonce(session, nonce)
+
+    assert receipt == {"first": "failed", "second": "success"}
+    assert not first.exists() and not second.exists()
+    with db.session() as session:
+        assert session.get(DeleteCommitNonce, nonce).used is True
+        assert session.get(DeleteQueue, "first").status == "committing"
+        assert session.get(DeleteQueue, "second") is None
+        assert session.get(MediaCacheIndex, "first") is not None
+
+    monkeypatch.undo()
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with db.session() as session:
+        assert session.get(DeleteQueue, "first") is None
+        assert session.get(MediaCacheIndex, "first") is None
+        assert (
+            session.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == "first")
+                .order_by(AuditLog.id.desc())
+            )
+            == "recovered_deleted"
+        )
+    db.dispose()
+
+
+def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
+    db = _make_db(tmp_path)
+    deleted = tmp_path / "already-deleted.mp4"
+    present = tmp_path / "still-present.mp4"
+    deleted.write_bytes(b"gone")
+    present.write_bytes(b"stay")
+    _seed_media(db, "gone", str(deleted), size=4)
+    _seed_media(db, "stay", str(present), size=4)
+    _enqueue(db, "gone", 4)
+    _enqueue(db, "stay", 4)
+    with db.session() as session:
+        session.execute(
+            sa.update(DeleteQueue)
+            .values(status="committing")
+            .where(DeleteQueue.media_id.in_(["gone", "stay"]))
+        )
+        session.commit()
+    deleted.unlink()
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with db.session() as session:
+        assert session.get(DeleteQueue, "gone") is None
+        stayed = session.get(DeleteQueue, "stay")
+        assert stayed.status == "failed"
+        assert stayed.error == "interrupted_not_deleted"
+        details = list(
+            session.scalars(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id.in_(["gone", "stay"]))
+                .order_by(AuditLog.id)
+            )
+        )
+        assert details == ["recovered_deleted", "failed:interrupted_not_deleted"]
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with db.session() as session:
+        assert (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id.in_(["gone", "stay"]))
+            )
+            == 2
+        )
+    assert present.read_bytes() == b"stay"
     db.dispose()
 
 

@@ -44,6 +44,43 @@ def test_wal_mode_enabled(client: TestClient) -> None:
     assert str(mode).lower() == "wal"
 
 
+def test_0017_backfills_unique_non_null_queue_tokens(tmp_path: Path) -> None:
+    """0016 现有队列升级后，每一行都有不同且不可为空的队列代次。"""
+    database_path = tmp_path / "pre-0017.db"
+    database_url = f"sqlite:///{database_path}"
+    root = _server_root()
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "app" / "db" / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "0016")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO delete_queue (media_id, status, added_at) VALUES "
+                "('old-a', 'pending', CURRENT_TIMESTAMP), "
+                "('old-b', 'failed', CURRENT_TIMESTAMP)"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "0017")
+    engine = create_engine(database_url)
+    columns = {column["name"]: column for column in inspect(engine).get_columns("delete_queue")}
+    indexes = {index["name"]: index for index in inspect(engine).get_indexes("delete_queue")}
+    with engine.connect() as connection:
+        tokens = (
+            connection.execute(text("SELECT queue_token FROM delete_queue ORDER BY media_id"))
+            .scalars()
+            .all()
+        )
+    assert columns["queue_token"]["nullable"] is False
+    assert indexes["ix_delete_queue_status"]["column_names"] == ["status"]
+    assert len(tokens) == len(set(tokens)) == 2
+    assert all(len(token) == 32 for token in tokens)
+    engine.dispose()
+
+
 def test_utc_now_naive_utc() -> None:
     now = utc_now()
     assert now.tzinfo is None

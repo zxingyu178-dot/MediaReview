@@ -36,11 +36,18 @@ from app.core.responses import Envelope, ErrorBody, error_response
 from app.db.migrate import run_migrations
 from app.db.session import Database
 from app.media.ffmpeg import FfmpegExecutor
-from app.services import discovery, duplicate_scanner, hash_tasks, media_index, sprite
+from app.services import (
+    delete_queue,
+    discovery,
+    duplicate_scanner,
+    hash_tasks,
+    media_index,
+    native_images,
+    native_metadata,
+    native_sources,
+    sprite,
+)
 from app.services.tasks import TaskManager
-from app.services import native_sources
-from app.services import native_images
-from app.services import native_metadata
 from app.services.thumbnail_cache import ThumbnailCacheService
 
 logger = get_logger("main")
@@ -72,6 +79,8 @@ def _build_app(settings: AppConfig, *, run_db_migrations: bool) -> FastAPI:
         app.state.database = database
         if run_db_migrations:
             run_migrations(f"sqlite:///{paths.database_path}")
+        with database.session() as recovery_session:
+            delete_queue.recover_interrupted_deletes(recovery_session)
 
         # Jellyfin 客户端: 进程级唯一,所有请求共享 Keep-Alive 连接池(见 manager 模块说明)
         app.state.jellyfin_manager = JellyfinClientManager()

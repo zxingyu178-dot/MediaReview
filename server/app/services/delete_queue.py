@@ -26,6 +26,7 @@ from app.db.models import (
     DeleteCommitNonce,
     DeleteQueue,
     Favorite,
+    LocalRoot,
     MediaCacheIndex,
     MediaLibraryMembership,
     utc_now,
@@ -65,6 +66,18 @@ class DeleteCommitPrep:
     unknown_size_count: int = 0
 
 
+@dataclass(frozen=True)
+class _SnapshotEntry:
+    media_id: str
+    queue_token: str | None
+
+
+@dataclass(frozen=True)
+class _ClaimResult:
+    entry: _SnapshotEntry
+    action: str
+
+
 class DeleteReceipt(dict[str, str]):
     """保留旧字典调用合同，并携带本次真实删除字节数。"""
 
@@ -89,20 +102,28 @@ def enqueue(session: Session, media_id: str, *, size_bytes: int | None = None) -
     """加入待删除队列。已 committed 的不再入队。返回是否为新增入队。"""
     from app.db.models import MediaCacheIndex
     from app.services.native_sources import require_writable_source
+
     require_writable_source(session, session.get(MediaCacheIndex, media_id))
     row = session.get(DeleteQueue, media_id)
     if row is not None:
         return False
-    session.add(DeleteQueue(media_id=media_id, size_bytes=size_bytes, status="pending"))
+    session.add(
+        DeleteQueue(
+            media_id=media_id,
+            queue_token=secrets.token_hex(16),
+            size_bytes=size_bytes,
+            status="pending",
+        )
+    )
     session.flush()
     audit.log_action(session, "delete_enqueue", media_id)
     return True
 
 
 def dequeue(session: Session, media_id: str) -> bool:
-    """从未确认(pending)队列中撤销。已 committed 的不可撤销。"""
+    """撤销尚未执行的 pending/failed 项；committing 不可撤销。"""
     row = session.get(DeleteQueue, media_id)
-    if row is None or row.status == "committed":
+    if row is None or row.status not in ("pending", "failed"):
         return False
     session.delete(row)
     session.flush()
@@ -150,10 +171,15 @@ def pending_summary(session: Session, *, include_unknown: bool = False) -> tuple
         sa.select(
             sa.func.count(DeleteQueue.media_id),
             sa.func.coalesce(sa.func.sum(DeleteQueue.size_bytes), 0),
-            sa.func.coalesce(sa.func.sum(sa.case(
-                (sa.or_(DeleteQueue.size_bytes.is_(None), DeleteQueue.size_bytes <= 0), 1),
-                else_=0,
-            )), 0),
+            sa.func.coalesce(
+                sa.func.sum(
+                    sa.case(
+                        (sa.or_(DeleteQueue.size_bytes.is_(None), DeleteQueue.size_bytes <= 0), 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
         ).where(DeleteQueue.status == "pending")
     ).one()
     result = (int(count), int(total or 0), int(unknown))
@@ -214,10 +240,12 @@ def _deletion_guard(
 
     任何一项不满足即拒绝,禁止仅凭历史 media_path 直接 os.remove。
     """
-    if not session.scalar(sa.select(MediaCacheIndex.media_id).where(
-        MediaCacheIndex.media_id == media.media_id,
-        mi.library_membership_condition(mi.selected_library_ids(session)),
-    )):
+    if not session.scalar(
+        sa.select(MediaCacheIndex.media_id).where(
+            MediaCacheIndex.media_id == media.media_id,
+            mi.library_membership_condition(mi.selected_library_ids(session)),
+        )
+    ):
         return _GUARD_LIBRARY
 
     try:
@@ -253,6 +281,7 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
         session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
     )
     media_ids = [row.media_id for row in pending]
+    snapshot = [{"media_id": row.media_id, "queue_token": row.queue_token} for row in pending]
     total_bytes = sum(row.size_bytes or 0 for row in pending)
     nonce = secrets.token_hex(16)
     expires_at = utc_now() + timedelta(seconds=NONCE_TTL_SECONDS)
@@ -261,7 +290,7 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
             nonce=nonce,
             expires_at=expires_at,
             used=False,
-            media_ids_json=json.dumps(media_ids),
+            media_ids_json=json.dumps(snapshot),
             total_bytes=total_bytes,
         )
     )
@@ -276,8 +305,33 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
     )
 
 
-def commit_with_nonce(session: Session, nonce: str) -> DeleteReceipt:
-    """使用一次性 nonce 确认并删除其快照内的媒体(逐项 success/missing/failed)。"""
+def _decode_snapshot(raw: str) -> list[_SnapshotEntry]:
+    """读取新旧 nonce 快照；旧格式缺少 token，后续按不匹配 fail-closed。"""
+    result: list[_SnapshotEntry] = []
+    for item in json.loads(raw):
+        if isinstance(item, str):
+            result.append(_SnapshotEntry(media_id=item, queue_token=None))
+        elif isinstance(item, dict):
+            result.append(
+                _SnapshotEntry(
+                    media_id=str(item.get("media_id", "")),
+                    queue_token=(
+                        str(item["queue_token"]) if item.get("queue_token") is not None else None
+                    ),
+                )
+            )
+        elif isinstance(item, list) and item:
+            result.append(
+                _SnapshotEntry(
+                    media_id=str(item[0]),
+                    queue_token=str(item[1]) if len(item) > 1 and item[1] is not None else None,
+                )
+            )
+    return [item for item in result if item.media_id]
+
+
+def _claim_nonce(session: Session, nonce: str) -> list[_ClaimResult]:
+    """原子持久化 nonce claim 与所有仍匹配的 committing 意图。"""
     row = session.get(DeleteCommitNonce, nonce)
     if row is None:
         raise NonceMissingError()
@@ -302,11 +356,50 @@ def commit_with_nonce(session: Session, nonce: str) -> DeleteReceipt:
         if row.used:
             raise NonceReusedError()
         raise NonceExpiredError()
-    session.expire(row, ["used"])
-    snapshot_ids: list[str] = json.loads(row.media_ids_json)
-    outcome = _commit_media_ids(session, snapshot_ids)
-    session.flush()
-    return outcome
+
+    claims: list[_ClaimResult] = []
+    for entry in _decode_snapshot(row.media_ids_json):
+        queued = session.get(DeleteQueue, entry.media_id)
+        if queued is None:
+            claims.append(_ClaimResult(entry=entry, action="queue_entry_missing"))
+        elif entry.queue_token is None or queued.queue_token != entry.queue_token:
+            claims.append(_ClaimResult(entry=entry, action="queue_entry_superseded"))
+        elif queued.status != "pending":
+            claims.append(_ClaimResult(entry=entry, action="not_pending"))
+        else:
+            queued.status = "committing"
+            queued.error = None
+            queued.committed_at = utc_now()
+            claims.append(_ClaimResult(entry=entry, action="process"))
+    # 文件系统操作前必须先耐久化 nonce 单次消费与 deleting intent。
+    session.commit()
+    return claims
+
+
+def commit_with_nonce(session: Session, nonce: str, *, _local_delete_hook=None) -> DeleteReceipt:
+    """使用一次性 nonce 确认并删除其快照内的媒体(逐项 success/missing/failed)。"""
+    claims = _claim_nonce(session, nonce)
+    return _commit_claims(session, claims, _local_delete_hook=_local_delete_hook)
+
+
+def _commit_media_ids(
+    session: Session, media_ids: list[str], *, _local_delete_hook=None
+) -> DeleteReceipt:
+    """兼容内部测试入口：只 claim 当前 pending 代次，再走相同逐项状态机。"""
+    claims: list[_ClaimResult] = []
+    for media_id in media_ids:
+        row = session.get(DeleteQueue, media_id)
+        if row is None:
+            claims.append(_ClaimResult(_SnapshotEntry(media_id, None), "queue_entry_missing"))
+        elif row.status != "pending":
+            claims.append(_ClaimResult(_SnapshotEntry(media_id, row.queue_token), "not_pending"))
+        else:
+            row.status = "committing"
+            row.error = None
+            row.committed_at = utc_now()
+            claims.append(_ClaimResult(_SnapshotEntry(media_id, row.queue_token), "process"))
+    session.commit()
+    return _commit_claims(session, claims, _local_delete_hook=_local_delete_hook)
 
 
 def commit_all(session: Session) -> DeleteReceipt:
@@ -314,18 +407,30 @@ def commit_all(session: Session) -> DeleteReceipt:
     pending = list(
         session.scalars(sa.select(DeleteQueue).where(DeleteQueue.status == "pending")).all()
     )
-    return _commit_media_ids(session, [row.media_id for row in pending])
+    claims: list[_ClaimResult] = []
+    for row in pending:
+        row.status = "committing"
+        row.error = None
+        row.committed_at = utc_now()
+        claims.append(
+            _ClaimResult(
+                entry=_SnapshotEntry(media_id=row.media_id, queue_token=row.queue_token),
+                action="process",
+            )
+        )
+    session.commit()
+    return _commit_claims(session, claims)
 
 
-def _commit_local_media(session: Session, media) -> tuple[str, int]:
+def _commit_local_media(session: Session, media, *, _before_delete_hook=None) -> tuple[str, int]:
     """本地源单条安全删除；返回 ``(result, deleted_bytes)``。
 
     顺序：登记根/路径链/句柄身份复验(native_sources) → ``_lstat_deletion_path``
-    再复核整链 → ``_deletion_guard`` 复核归属/尺寸/mtime → ``os.remove`` →
-    ``os.lstat`` 确认已不存在。叶文件已不存在时返回 missing；其余拒绝抛异常，
-    由调用方映射为不含绝对路径的稳定失败码。逐条调用，单条失败不影响其余项。
+    再复核整链 → ``_deletion_guard`` 复核归属/尺寸/mtime → 平台身份绑定删除 →
+    删除结果复验。叶文件已不存在时返回 missing；其余拒绝抛异常，由调用方映射为
+    不含绝对路径的稳定失败码。逐条调用，单条失败不影响其余项。
     """
-    from app.services.native_sources import LocalFileInUseError, resolve_deletable_local
+    from app.services.native_sources import delete_local_media, resolve_deletable_local
 
     path = resolve_deletable_local(session, media, allow_missing=True)
     if path is None:
@@ -338,14 +443,76 @@ def _commit_local_media(session: Session, media) -> tuple[str, int]:
         if guard_reason.startswith(_GUARD_STAT + ":"):
             guard_reason = _GUARD_STAT
         raise ValueError(guard_reason)
-    actual_size = file_stat.st_size
-    try:
-        os.remove(media_path)
-    except FileNotFoundError:
+    actual_size = delete_local_media(
+        session,
+        media,
+        allow_missing=True,
+        before_identity_binding=_before_delete_hook,
+    )
+    if actual_size is None:
         return "missing", 0
-    except PermissionError as exc:
-        # Windows 上播放/占用会以共享冲突(PermissionError)拒绝删除。
-        raise LocalFileInUseError() from exc
+    return "success", actual_size
+
+
+def _cleanup_deleted_metadata(
+    session: Session, row: DeleteQueue, media: MediaCacheIndex | None
+) -> None:
+    """清理已确认不存在的媒体元数据；调用方负责事务提交。"""
+    media_id = row.media_id
+    row.status = "succeeded"
+    if media is not None:
+        session.execute(
+            sa.delete(MediaLibraryMembership).where(MediaLibraryMembership.media_id == media_id)
+        )
+        session.delete(media)
+    favorite = session.get(Favorite, media_id)
+    if favorite is not None:
+        session.delete(favorite)
+    session.delete(row)
+
+
+def _record_internal_error(session: Session, media_id: str, queue_token: str | None) -> None:
+    """尽力给可恢复的 committing intent 标记稳定错误，不泄露异常详情。"""
+    try:
+        row = session.get(DeleteQueue, media_id)
+        if (
+            row is not None
+            and row.status == "committing"
+            and (queue_token is None or row.queue_token == queue_token)
+        ):
+            row.error = "internal_error"
+            session.commit()
+    except Exception:
+        session.rollback()
+
+
+def _record_snapshot_audit(session: Session, media_id: str, detail: str) -> None:
+    """快照未执行分支也必须逐条审计；异常由该条隔离。"""
+    try:
+        audit.log_action(session, "delete_commit", media_id, detail=detail)
+        session.commit()
+    except Exception:
+        session.rollback()
+
+
+def _delete_one(
+    session: Session, media: MediaCacheIndex, *, _local_delete_hook=None
+) -> tuple[str, int]:
+    """执行单条物理删除，不写数据库 outcome。"""
+    media_path = media.media_path
+    if not media_path:
+        raise ValueError("media_identity_unavailable")
+    if media.source_type == "local":
+        return _commit_local_media(session, media, _before_delete_hook=_local_delete_hook)
+    if media.source_type != "jellyfin":
+        raise ValueError("unsupported_source_type")
+
+    file_stat = _lstat_deletion_path(media_path)
+    guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)
+    if guard_reason is not None:
+        raise ValueError(guard_reason)
+    actual_size = file_stat.st_size
+    os.remove(media_path)
     try:
         os.lstat(media_path)
     except FileNotFoundError:
@@ -355,103 +522,161 @@ def _commit_local_media(session: Session, media) -> tuple[str, int]:
     return "success", actual_size
 
 
-def _commit_media_ids(session: Session, media_ids: list[str]) -> DeleteReceipt:
-    """对指定媒体逐项确认删除,返回 {media_id: result}。
+def _commit_one(
+    session: Session, entry: _SnapshotEntry, *, _local_delete_hook=None
+) -> tuple[str, int]:
+    """处理一条 committing intent，并在独立事务中收敛。"""
+    media_id = entry.media_id
+    row = session.get(DeleteQueue, media_id)
+    if (
+        row is None
+        or row.status != "committing"
+        or entry.queue_token is None
+        or row.queue_token != entry.queue_token
+    ):
+        session.rollback()
+        return "failed", 0
 
-    result ∈ success(已删除) / missing(文件系统确认不存在,仍清理索引) / failed。
-    按 ``source_type`` 分派：Jellyfin 保持既有路径；本地源走 ``_commit_local_media``
-    (登记根、路径链与文件身份二次复验)。删除前重新校验媒体归属与文件身份;
-    文件被替换/修改/不再属于允许库时拒绝删除,并记录审计与失败原因。
-    逐项处理,失败不影响其余项;成功后清理索引、收藏与队列记录。
-    """
+    media = mi.get_cached_media(session, media_id)
+    failure_code: str | None = None
+    try:
+        if media is None:
+            raise ValueError("media_identity_unavailable")
+        result, actual_size = _delete_one(session, media, _local_delete_hook=_local_delete_hook)
+    except FileNotFoundError:
+        result, actual_size = "missing", 0
+    except AppError as exc:
+        from app.services.native_sources import deletion_failure_code
+
+        failure_code = deletion_failure_code(exc)
+        result, actual_size = "failed", 0
+    except ValueError as exc:
+        failure_code = str(exc)
+        if failure_code.startswith(_GUARD_STAT + ":"):
+            failure_code = _GUARD_STAT
+        result, actual_size = "failed", 0
+    except OSError:
+        failure_code = _GUARD_STAT if media and media.source_type == "local" else "delete_failed"
+        result, actual_size = "failed", 0
+    except Exception:
+        session.rollback()
+        _record_internal_error(session, media_id, entry.queue_token)
+        return "failed", 0
+
+    detail = result if failure_code is None else f"{result}:{failure_code}"
+    try:
+        if result == "failed":
+            row.status = "failed"
+            row.error = failure_code
+        else:
+            _cleanup_deleted_metadata(session, row, media)
+        audit.log_action(session, "delete_commit", media_id, detail=detail)
+        session.flush()
+        session.commit()
+    except Exception:
+        # 物理删除不可回滚；保留已提交的 committing intent 供启动恢复。
+        session.rollback()
+        _record_internal_error(session, media_id, entry.queue_token)
+        return "failed", 0
+    return result, actual_size if result == "success" else 0
+
+
+def _commit_claims(
+    session: Session, claims: list[_ClaimResult], *, _local_delete_hook=None
+) -> DeleteReceipt:
+    """逐项执行已持久化 claim；任一异常均不得中断其余项。"""
     outcome = DeleteReceipt()
+    for claim in claims:
+        media_id = claim.entry.media_id
+        if claim.action == "queue_entry_missing":
+            _record_snapshot_audit(session, media_id, "skipped:queue_entry_missing")
+            continue
+        if claim.action == "queue_entry_superseded":
+            outcome[media_id] = "failed"
+            _record_snapshot_audit(session, media_id, "failed:queue_entry_superseded")
+            continue
+        if claim.action == "not_pending":
+            outcome[media_id] = "failed"
+            _record_snapshot_audit(session, media_id, "failed:not_pending")
+            continue
+        try:
+            result, deleted_bytes = _commit_one(
+                session, claim.entry, _local_delete_hook=_local_delete_hook
+            )
+        except Exception:
+            session.rollback()
+            _record_internal_error(session, media_id, claim.entry.queue_token)
+            result, deleted_bytes = "failed", 0
+        outcome[media_id] = result
+        outcome.deleted_bytes += deleted_bytes
+    return outcome
+
+
+def _recovery_observes_missing(
+    session: Session, media: MediaCacheIndex | None
+) -> bool:
+    """恢复只观察文件是否已不存在，绝不再次执行删除。"""
+    if media is None:
+        return False
+
+    if media.source_type == "local":
+        from app.services.native_sources import SourcePathError, safe_path
+
+        root = session.get(LocalRoot, media.library_id)
+        if root is None or not root.enabled:
+            return False
+        try:
+            path = safe_path(root, media.media_path or "", allow_missing_leaf=True)
+            file_stat = path.lstat()
+        except FileNotFoundError:
+            return True
+        except (SourcePathError, OSError):
+            return False
+        if not stat.S_ISREG(file_stat.st_mode):
+            return False
+        return False
+
+    if media.source_type != "jellyfin" or not media.media_path:
+        return False
+    try:
+        _lstat_deletion_path(media.media_path)
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def recover_interrupted_deletes(session: Session) -> None:
+    """收敛进程中断遗留的 committing 行；可重复调用且不会重复审计。"""
+    media_ids = list(
+        session.scalars(
+            sa.select(DeleteQueue.media_id)
+            .where(DeleteQueue.status == "committing")
+            .order_by(DeleteQueue.media_id)
+        )
+    )
+    session.rollback()
     for media_id in media_ids:
         row = session.get(DeleteQueue, media_id)
-        if row is None:
-            # 队列中已无此项(prepare 后被撤销),跳过且不计入结果
+        if row is None or row.status != "committing":
+            session.rollback()
             continue
-        if row.status != "pending":
-            # An older prepared snapshot must never silently retry a failed item.
-            outcome[media_id] = "failed"
-            continue
-        row.status = "committed"
-        row.committed_at = utc_now()
         media = mi.get_cached_media(session, media_id)
-        media_path = media.media_path if media else None
-        guard_reason: str | None = None
-        try:
-            if media is None or not media_path:
-                guard_reason = "media_identity_unavailable"
-                raise ValueError(guard_reason)
-            if media.source_type == "local":
-                result, actual_size = _commit_local_media(session, media)
-                if result == "success":
-                    outcome.deleted_bytes += actual_size
-            elif media.source_type == "jellyfin":
-                file_stat = _lstat_deletion_path(media_path)
-                guard_reason = _deletion_guard(session, media, media_path, file_stat=file_stat)
-                if guard_reason is not None:
-                    raise ValueError(guard_reason)
-                actual_size = file_stat.st_size
-                os.remove(media_path)
-                try:
-                    os.lstat(media_path)
-                except FileNotFoundError:
-                    pass
-                else:
-                    raise ValueError("delete_not_verified")
-                result = "success"
-                outcome.deleted_bytes += actual_size
-            else:
-                guard_reason = "unsupported_source_type"
-                raise ValueError(guard_reason)
-        except FileNotFoundError:
-            result = "missing"
-        except AppError as exc:
-            # 本地源删除拒绝(根/路径/身份/占用)：映射为稳定失败码，绝不写绝对路径。
-            from app.services.native_sources import deletion_failure_code
-            code = deletion_failure_code(exc)
-            row.status = "failed"
-            row.error = code
-            guard_reason = code
-            result = "failed"
-        except ValueError as exc:
-            # 删除前 guard/确认失败：detail 保留稳定码(如 file_size_changed、
-            # delete_not_verified)，不写入任何路径或原始 OSError 文本。
-            row.status = "failed"
-            row.error = str(exc)
-            guard_reason = str(exc)
-            result = "failed"
-        except OSError as exc:
-            row.status = "failed"
-            if media is not None and media.source_type == "local":
-                # 本地源的意外 I/O 错误不把可能含绝对路径的 OSError 文本写入队列/审计。
-                row.error = _GUARD_STAT
-                guard_reason = _GUARD_STAT
-            else:
-                row.error = str(exc)
-            result = "failed"
-        outcome[media_id] = result
-        if guard_reason is None:
-            detail = result
+        if _recovery_observes_missing(session, media):
+            _cleanup_deleted_metadata(session, row, media)
+            audit.log_action(session, "delete_commit", media_id, detail="recovered_deleted")
         else:
-            # 审计 detail 只保留稳定码；stat_failed 的 OSError 文本可能含绝对路径。
-            reason = _GUARD_STAT if guard_reason.startswith(_GUARD_STAT + ":") else guard_reason
-            detail = f"{result}:{reason}"
-        audit.log_action(session, "delete_commit", media_id, detail=detail)
-        if result in ("success", "missing"):
-            row.status = "succeeded"
-            if media is not None:
-                session.execute(sa.delete(MediaLibraryMembership).where(
-                    MediaLibraryMembership.media_id == media_id
-                ))
-                session.delete(media)
-            fav = session.get(Favorite, media_id)
-            if fav is not None:
-                session.delete(fav)
-            session.delete(row)
+            row.status = "failed"
+            row.error = "interrupted_not_deleted"
+            audit.log_action(
+                session,
+                "delete_commit",
+                media_id,
+                detail="failed:interrupted_not_deleted",
+            )
         session.flush()
-    return outcome
+        session.commit()
 
 
 __all__ = [
@@ -467,4 +692,5 @@ __all__ = [
     "list_queue",
     "pending_summary",
     "prepare_commit",
+    "recover_interrupted_deletes",
 ]

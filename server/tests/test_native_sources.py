@@ -5,7 +5,14 @@ import os
 import pytest
 import sqlalchemy as sa
 
-from app.db.models import BackgroundTask, DeleteQueue, Favorite, LocalRoot, MediaCacheIndex
+from app.db.models import (
+    AuditLog,
+    BackgroundTask,
+    DeleteQueue,
+    Favorite,
+    LocalRoot,
+    MediaCacheIndex,
+)
 from app.db.session import Database
 from app.services import audit, delete_queue, native_sources
 
@@ -119,9 +126,11 @@ def _forge_pending(native_db, media_id, size):
             s.commit()
 
 
-def _commit_pending_with_nonce(native_db, nonce):
+def _commit_pending_with_nonce(native_db, nonce, *, local_delete_hook=None):
     with native_db.session() as s:
-        outcome = delete_queue.commit_with_nonce(s, nonce)
+        outcome = delete_queue.commit_with_nonce(
+            s, nonce, _local_delete_hook=local_delete_hook
+        )
         s.commit()
     return outcome
 
@@ -131,6 +140,86 @@ def _commit_pending(native_db):
         nonce = delete_queue.prepare_commit(s).nonce
         s.commit()
     return _commit_pending_with_nonce(native_db, nonce)
+
+
+def test_local_recovery_converges_missing_file_without_deleting_again(native_db, tmp_path):
+    """恢复只观察本地相对路径；已删文件收敛元数据且重复调用幂等。"""
+    from unittest.mock import patch
+
+    root, _root_id = _register_and_scan(native_db, tmp_path, {"gone.jpg": b"gone"})
+    target = root / "gone.jpg"
+    mid, relative_path, size = _indexed(native_db)
+    assert relative_path == "gone.jpg"
+    with native_db.session() as session:
+        session.add(Favorite(media_id=mid))
+        session.add(DeleteQueue(media_id=mid, status="committing", size_bytes=size))
+        session.commit()
+    target.unlink()
+
+    with (
+        patch("app.services.native_sources.delete_local_media") as local_delete,
+        patch("app.services.delete_queue.os.remove") as jellyfin_delete,
+    ):
+        with native_db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        with native_db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        local_delete.assert_not_called()
+        jellyfin_delete.assert_not_called()
+
+    with native_db.session() as session:
+        assert session.get(DeleteQueue, mid) is None
+        assert session.get(MediaCacheIndex, mid) is None
+        assert session.get(Favorite, mid) is None
+        details = list(
+            session.scalars(
+                sa.select(AuditLog.detail).where(
+                    AuditLog.action == "delete_commit",
+                    AuditLog.media_id == mid,
+                )
+            )
+        )
+    assert details == ["recovered_deleted"]
+
+
+def test_local_recovery_keeps_present_file_and_marks_failed(native_db, tmp_path):
+    """本地文件仍存在时恢复 fail-safe，不执行删除也不重复审计。"""
+    from unittest.mock import patch
+
+    root, _root_id = _register_and_scan(native_db, tmp_path, {"stay.jpg": b"stay"})
+    target = root / "stay.jpg"
+    mid, relative_path, size = _indexed(native_db)
+    assert relative_path == "stay.jpg"
+    with native_db.session() as session:
+        session.add(DeleteQueue(media_id=mid, status="committing", size_bytes=size))
+        session.commit()
+
+    with (
+        patch("app.services.native_sources.delete_local_media") as local_delete,
+        patch("app.services.delete_queue.os.remove") as jellyfin_delete,
+    ):
+        with native_db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        with native_db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        local_delete.assert_not_called()
+        jellyfin_delete.assert_not_called()
+
+    assert target.read_bytes() == b"stay"
+    with native_db.session() as session:
+        row = session.get(DeleteQueue, mid)
+        assert row.status == "failed"
+        assert row.error == "interrupted_not_deleted"
+        assert session.get(MediaCacheIndex, mid) is not None
+        details = list(
+            session.scalars(
+                sa.select(AuditLog.detail).where(
+                    AuditLog.action == "delete_commit",
+                    AuditLog.media_id == mid,
+                )
+            )
+        )
+    assert details == ["failed:interrupted_not_deleted"]
 
 
 def test_local_delete_two_phase_success_and_audit_without_path(native_db, tmp_path):
@@ -233,6 +322,97 @@ def test_local_delete_rejects_replaced_file(native_db, tmp_path):
         queued = s.get(DeleteQueue, mid)
         assert queued.status == "failed" and queued.error == "file_identity_changed"
         assert s.get(MediaCacheIndex, mid) is not None
+
+
+def test_local_delete_rejects_same_size_swap_after_identity_check(native_db, tmp_path):
+    """首次句柄复验后发生同尺寸叶替换，实际删除前必须以绑定身份拒绝。"""
+    payload = b"A" * 64
+    root, _ = _register_and_scan(native_db, tmp_path, {"keep.jpg": payload})
+    target, mid = root / "keep.jpg", _indexed(native_db)[0]
+    replacement = tmp_path / "replacement.jpg"
+    replacement.write_bytes(b"B" * len(payload))
+    with native_db.session() as s:
+        delete_queue.enqueue(s, mid, size_bytes=len(payload))
+        nonce = delete_queue.prepare_commit(s).nonce
+        s.commit()
+
+    def swap_leaf():
+        os.replace(replacement, target)
+
+    outcome = _commit_pending_with_nonce(
+        native_db, nonce, local_delete_hook=swap_leaf
+    )
+    assert outcome == {mid: "failed"} and outcome.deleted_bytes == 0
+    assert target.read_bytes() == b"B" * len(payload)
+    with native_db.session() as s:
+        queued = s.get(DeleteQueue, mid)
+        assert queued.status == "failed"
+        assert queued.error == "identity_binding_failed"
+
+
+def test_local_delete_rejects_parent_junction_swap_after_identity_check(
+    native_db, tmp_path
+):
+    """首次身份复验与删除之间换父目录为根外 junction，必须 failed 且不删根外文件。"""
+    if os.name != "nt":
+        pytest.skip("Windows junction 竞态专项")
+    import subprocess
+
+    payload = b"outside-must-survive"
+    root, _ = _register_and_scan(
+        native_db, tmp_path, {"album/victim.jpg": payload}
+    )
+    original_parent = root / "album"
+    parked_parent = root / "album-before-race"
+    outside = tmp_path / "outside-race"
+    outside.mkdir()
+    outside_target = outside / "victim.jpg"
+    outside_target.write_bytes(payload)
+
+    # 先探测当前 token 是否能创建 junction；不能则明确 skip，不伪装覆盖成功。
+    probe = root / "junction-probe"
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(probe), str(outside)],
+        capture_output=True,
+    )
+    if made.returncode:
+        reason = made.stderr.decode(errors="replace").strip() or "mklink /J failed"
+        pytest.skip(f"当前环境无法创建 junction: {reason}")
+    os.rmdir(probe)
+
+    mid = _indexed(native_db)[0]
+    with native_db.session() as s:
+        delete_queue.enqueue(s, mid, size_bytes=len(payload))
+        nonce = delete_queue.prepare_commit(s).nonce
+        s.commit()
+
+    def swap_parent_to_junction():
+        original_parent.rename(parked_parent)
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(original_parent), str(outside)],
+            capture_output=True,
+        )
+        if result.returncode:
+            raise RuntimeError("junction race setup failed")
+
+    try:
+        outcome = _commit_pending_with_nonce(
+            native_db, nonce, local_delete_hook=swap_parent_to_junction
+        )
+        assert outcome == {mid: "failed"} and outcome.deleted_bytes == 0
+        assert outside_target.read_bytes() == payload
+        assert (parked_parent / "victim.jpg").read_bytes() == payload
+        with native_db.session() as s:
+            queued = s.get(DeleteQueue, mid)
+            assert queued.status == "failed"
+            assert queued.error in {"identity_binding_failed", "path_rejected"}
+    finally:
+        if original_parent.exists() and (
+            original_parent.lstat().st_file_attributes & 0x400
+        ):
+            os.rmdir(original_parent)
+        if parked_parent.exists() and not original_parent.exists():
+            parked_parent.rename(original_parent)
 
 
 def test_local_delete_rejects_escape_absolute_and_directory(native_db, tmp_path):
@@ -409,12 +589,47 @@ def test_local_file_in_use_maps_permission_error(native_db, tmp_path):
         delete_queue.enqueue(s, mid, size_bytes=6)
         nonce = delete_queue.prepare_commit(s).nonce
         s.commit()
-    with patch("os.remove", side_effect=PermissionError("sharing violation")):
+    if os.name == "nt":
+        patch_target = "app.services.native_sources._windows_delete_bound"
+        side_effect = native_sources.LocalFileInUseError()
+    else:
+        patch_target = "os.remove"
+        side_effect = PermissionError("sharing violation")
+    with patch(patch_target, side_effect=side_effect):
         assert _commit_pending_with_nonce(native_db, nonce) == {mid: "failed"}
     with native_db.session() as s:
         queued = s.get(DeleteQueue, mid)
         assert queued.status == "failed" and queued.error == "file_in_use"
     assert target.read_bytes() == b"locked"
+
+
+def test_windows_handle_delete_failure_never_falls_back_to_path_remove(
+    native_db, tmp_path
+):
+    """Windows 句柄删除失败必须 fail-closed，禁止回退到字符串路径 os.remove。"""
+    if os.name != "nt":
+        pytest.skip("Windows 句柄删除专项")
+    from unittest.mock import patch
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"keep.jpg": b"keep"})
+    target, mid = root / "keep.jpg", _indexed(native_db)[0]
+    with native_db.session() as s:
+        delete_queue.enqueue(s, mid, size_bytes=4)
+        nonce = delete_queue.prepare_commit(s).nonce
+        s.commit()
+    with (
+        patch(
+            "app.services.native_sources._windows_delete_bound",
+            side_effect=native_sources.LocalDeleteNotVerifiedError(),
+        ),
+        patch("os.remove") as path_remove,
+    ):
+        assert _commit_pending_with_nonce(native_db, nonce) == {mid: "failed"}
+        path_remove.assert_not_called()
+    with native_db.session() as s:
+        queued = s.get(DeleteQueue, mid)
+        assert queued.status == "failed" and queued.error == "delete_not_verified"
+    assert target.read_bytes() == b"keep"
 
 
 def test_local_delete_api_two_phase_receipt(app, tmp_path):

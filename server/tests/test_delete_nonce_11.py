@@ -15,9 +15,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from conftest import client as _client_fixture  # noqa: F401  (仅确保夹具可导入)
 
-from app.db.models import LibrarySelection, MediaCacheIndex
+from app.db.models import (
+    AuditLog,
+    DeleteCommitNonce,
+    DeleteQueue,
+    LibrarySelection,
+    MediaCacheIndex,
+)
 from app.db.session import Database
 from app.services import delete_queue
 
@@ -189,6 +196,79 @@ def test_commit_only_deletes_nonce_snapshot_toctou(tmp_path: Path) -> None:
     assert f2.exists(), "新入队媒体不得被 nonce 删除"
     with db.session() as s:
         assert len(delete_queue.list_queue(s)) == 1
+    db.dispose()
+
+
+def test_old_nonce_cannot_delete_requeued_same_media(tmp_path: Path) -> None:
+    """旧 nonce 必须绑定入队代次，撤销后同 ID 重新入队不能被旧确认删除。"""
+    db = _make_db(tmp_path)
+    path = tmp_path / "requeued.mp4"
+    path.write_bytes(b"keep-until-new-prepare")
+    media_id = "requeue-same-media-id"
+    _seed_media(db, media_id, str(path), size=22)
+    _enqueue(db, media_id, 22)
+
+    with db.session() as session:
+        old_nonce = delete_queue.prepare_commit(session).nonce
+        old_token = session.get(DeleteQueue, media_id).queue_token
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.dequeue(session, media_id) is True
+        assert delete_queue.enqueue(session, media_id, size_bytes=22) is True
+        new_token = session.get(DeleteQueue, media_id).queue_token
+        session.commit()
+    assert new_token != old_token
+
+    with db.session() as session:
+        receipt = delete_queue.commit_with_nonce(session, old_nonce)
+    assert receipt == {media_id: "failed"}
+    assert path.read_bytes() == b"keep-until-new-prepare"
+    with db.session() as session:
+        queued = session.get(DeleteQueue, media_id)
+        assert queued.status == "pending"
+        assert queued.error is None
+        assert session.get(DeleteCommitNonce, old_nonce).used is True
+        assert (
+            session.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == media_id)
+                .order_by(AuditLog.id.desc())
+            )
+            == "failed:queue_entry_superseded"
+        )
+        new_nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.commit_with_nonce(session, new_nonce) == {media_id: "success"}
+    assert not path.exists()
+    db.dispose()
+
+
+def test_legacy_snapshot_without_queue_token_fails_closed(tmp_path: Path) -> None:
+    """0014-0016 的纯 media_id 快照可读取，但不能命中新代次队列项。"""
+    db = _make_db(tmp_path)
+    path = tmp_path / "legacy.mp4"
+    path.write_bytes(b"legacy")
+    media_id = "legacy-snapshot"
+    _seed_media(db, media_id, str(path), size=6)
+    _enqueue(db, media_id, 6)
+    nonce = "legacy" * 5 + "ab"
+    with db.session() as session:
+        session.add(
+            DeleteCommitNonce(
+                nonce=nonce,
+                expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=1),
+                used=False,
+                media_ids_json='["legacy-snapshot"]',
+                total_bytes=6,
+            )
+        )
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.commit_with_nonce(session, nonce) == {media_id: "failed"}
+    assert path.exists()
+    with db.session() as session:
+        assert session.get(DeleteQueue, media_id).status == "pending"
     db.dispose()
 
 

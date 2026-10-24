@@ -6,6 +6,8 @@ import json
 import os
 import stat
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -69,6 +71,27 @@ class LocalFileInUseError(LocalDeleteError):
     code = "LOCAL_FILE_IN_USE"
     delete_code = "file_in_use"
     default_message = "文件正在被播放或占用，请关闭后重试"
+
+
+class LocalIdentityBindingError(LocalDeleteError):
+    status_code = 409
+    code = "LOCAL_IDENTITY_BINDING_FAILED"
+    delete_code = "identity_binding_failed"
+    default_message = "文件身份已变化，已拒绝永久删除；请重新扫描本地来源"
+
+
+class LocalDeleteNotVerifiedError(LocalDeleteError):
+    status_code = 409
+    code = "LOCAL_DELETE_NOT_VERIFIED"
+    delete_code = "delete_not_verified"
+    default_message = "无法确认文件已删除，已停止本次操作"
+
+
+@dataclass(frozen=True)
+class VerifiedLocalDelete:
+    root: LocalRoot
+    path: Path
+    info: os.stat_result
 
 
 def _plain(st):
@@ -381,13 +404,15 @@ def deletion_failure_code(exc: BaseException) -> str:
     return "delete_failed"
 
 
-def resolve_deletable_local(session, media, *, allow_missing: bool = False) -> Path | None:
+def _resolve_deletable_local(
+    session, media, *, allow_missing: bool = False
+) -> VerifiedLocalDelete | None:
     """本地源永久删除前的完整复验(Jellyfin 走原有路径，不经过这里)。
 
     校验顺序：登记根存在且 enabled → 相对路径落到根内且整链无链接/重解析点/越界 →
     叶必须是普通文件 → ``open_media`` 复用既有句柄身份、指纹与最终路径复验。
 
-    返回经复验的绝对路径；``allow_missing=True`` 且叶文件已不存在时返回 ``None``
+    返回经复验的路径及句柄身份；``allow_missing=True`` 且叶文件已不存在时返回 ``None``
     (供 commit 生成 missing 回执)，其余拒绝一律抛带 ``delete_code`` 的 AppError，
     由删除队列映射为不含路径的稳定失败码。
     """
@@ -410,13 +435,213 @@ def resolve_deletable_local(session, media, *, allow_missing: bool = False) -> P
     if not _plain(info) or not stat.S_ISREG(info.st_mode):
         raise SourcePathError()
     try:
-        handle, _info = open_media(session, media)
+        handle, verified_info = open_media(session, media)
     except FileNotFoundError:
         if allow_missing:
             return None
         raise MediaNotFoundError("本地文件不存在，可能已在电脑端被移动或删除") from None
     handle.close()
-    return path
+    return VerifiedLocalDelete(root=root, path=path, info=verified_info)
+
+
+def resolve_deletable_local(session, media, *, allow_missing: bool = False) -> Path | None:
+    """兼容现有调用方：只返回完成身份复验的路径。"""
+    target = _resolve_deletable_local(session, media, allow_missing=allow_missing)
+    return None if target is None else target.path
+
+
+def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
+    """用同一 Windows 句柄完成身份绑定、根边界复验和 disposition 删除。"""
+    import ctypes
+    from ctypes import wintypes
+
+    generic_read = 0x80000000
+    delete_access = 0x00010000
+    share_all = 0x00000001 | 0x00000002 | 0x00000004
+    open_existing = 3
+    open_reparse_point = 0x00200000
+    file_disposition_info = 4
+    error_file_not_found = 2
+    sharing_errors = {5, 32, 33}
+    reparse_attribute = 0x00000400
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    class FileDispositionInformation(ctypes.Structure):
+        _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_info = kernel32.GetFileInformationByHandle
+    get_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(ByHandleFileInformation)]
+    get_info.restype = wintypes.BOOL
+    get_final = kernel32.GetFinalPathNameByHandleW
+    get_final.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+    get_final.restype = wintypes.DWORD
+    set_info = kernel32.SetFileInformationByHandle
+    set_info.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD]
+    set_info.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    handle = create_file(
+        str(target.path),
+        generic_read | delete_access,
+        share_all,
+        None,
+        open_existing,
+        open_reparse_point,
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        error = ctypes.get_last_error()
+        if error == error_file_not_found:
+            raise FileNotFoundError() from None
+        if error in sharing_errors:
+            raise LocalFileInUseError() from None
+        raise LocalIdentityBindingError() from None
+
+    disposition_set = False
+    close_ok = True
+    try:
+        info = ByHandleFileInformation()
+        if not get_info(handle, ctypes.byref(info)):
+            raise LocalIdentityBindingError()
+        if info.dwFileAttributes & reparse_attribute:
+            raise SourcePathError()
+        file_index = (int(info.nFileIndexHigh) << 32) | int(info.nFileIndexLow)
+        identity = (int(info.dwVolumeSerialNumber), file_index)
+        # CPython 3.12 的 Windows st_dev 来自 64-bit VolumeSerialNumber；
+        # BY_HANDLE_FILE_INFORMATION 只公开其低 32 位卷序列号。
+        expected = (int(target.info.st_dev) & 0xFFFFFFFF, int(target.info.st_ino))
+        if identity != expected:
+            raise LocalIdentityBindingError()
+
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_final(handle, buffer, len(buffer), 0)
+        if not length or length >= len(buffer):
+            raise LocalIdentityBindingError()
+        final = buffer.value
+        if final.startswith("\\\\?\\UNC\\"):
+            final = "\\\\" + final[8:]
+        else:
+            final = final.removeprefix("\\\\?\\")
+        final_path = Path(final)
+        # 用登记根的词法绝对路径比较；此处不能 resolve 后跟随刚被换入的 junction。
+        root_path = Path(target.root.root_path).absolute()
+        try:
+            final_path.relative_to(root_path)
+        except ValueError:
+            raise SourcePathError() from None
+        if os.path.normcase(str(final_path)) != os.path.normcase(str(target.path.absolute())):
+            raise SourcePathError()
+
+        disposition = FileDispositionInformation(True)
+        if not set_info(
+            handle,
+            file_disposition_info,
+            ctypes.byref(disposition),
+            ctypes.sizeof(disposition),
+        ):
+            error = ctypes.get_last_error()
+            if error in sharing_errors:
+                raise LocalFileInUseError() from None
+            raise LocalDeleteNotVerifiedError() from None
+        disposition_set = True
+    finally:
+        close_ok = bool(close_handle(handle))
+
+    if not disposition_set or not close_ok:
+        raise LocalDeleteNotVerifiedError()
+    try:
+        os.lstat(target.path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise LocalDeleteNotVerifiedError() from None
+    raise LocalDeleteNotVerifiedError()
+
+
+def _posix_delete_bound(target: VerifiedLocalDelete) -> None:
+    """POSIX 尽力绑定身份后删除；lstat 与 remove 之间仍存在无法消除的残余竞态。"""
+    try:
+        current = os.lstat(target.path)
+    except FileNotFoundError:
+        raise
+    if not _plain(current) or not stat.S_ISREG(current.st_mode):
+        raise SourcePathError()
+    if (current.st_dev, current.st_ino) != (target.info.st_dev, target.info.st_ino):
+        raise LocalIdentityBindingError()
+    try:
+        os.remove(target.path)
+    except PermissionError as exc:
+        raise LocalFileInUseError() from exc
+    try:
+        os.lstat(target.path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise LocalDeleteNotVerifiedError() from None
+    raise LocalDeleteNotVerifiedError()
+
+
+def delete_local_media(
+    session,
+    media,
+    *,
+    allow_missing: bool = False,
+    before_identity_binding: Callable[[], None] | None = None,
+) -> int | None:
+    """复验本地媒体后按身份绑定删除；成功返回真实字节数，missing 返回 None。"""
+    target = _resolve_deletable_local(session, media, allow_missing=allow_missing)
+    if target is None:
+        return None
+    if before_identity_binding is not None:
+        before_identity_binding()
+    try:
+        # hook 后重验路径链，保证父目录换成 junction/reparse 时先 fail-closed。
+        checked = safe_path(
+            target.root, media.media_path or "", allow_missing_leaf=allow_missing
+        )
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    if checked != target.path:
+        raise SourcePathError()
+    try:
+        if os.name == "nt":
+            _windows_delete_bound(target)
+        else:
+            _posix_delete_bound(target)
+    except FileNotFoundError:
+        if allow_missing:
+            return None
+        raise
+    return int(target.info.st_size)
 
 
 def require_writable_source(session, media):
