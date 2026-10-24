@@ -1,4 +1,6 @@
-# Stage8I 审查摘要
+# Stage8I 审查摘要（历史快照）
+
+> **SUPERSEDED（2026-10-24）**：本文件是 Stage8I（Alpha12 / Server 1.4.0）的历史审查摘要，不代表当前版本或状态。当前进度、版本与已知问题见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)；后续 Stage9 与 1.5.2 上线记录见 `docs/STAGE9_RESULT.md`、`docs/STAGE9_REPAIR_RESULT.md`、`docs/DEV_LOG.md`。
 
 阶段：Media UX Polish & Review Reliability。分支 feature/mediareview-v2-stage8i-ux-polish；完整35节规格见 docs/STAGE8I_MEDIA_UX_SPEC.md。实现、最终设备门禁与正式离线产物已核验；最终推送和十二文档Handoff执行结果以旁置交付回执为准。
 

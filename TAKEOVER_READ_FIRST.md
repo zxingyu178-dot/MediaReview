@@ -1,4 +1,8 @@
-# 家庭媒体管家 1.1 — 接管入口
+# 家庭媒体管家 1.1 — 接管入口（历史快照）
+
+> **SUPERSEDED（2026-10-24）**：本文件是 1.1 接管期的历史快照，其中的分支、HEAD、Task 与禁止事项均不代表当前状态。
+> 当前项目版本、生产运行态、验证证据与待办见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)。
+> 当前开发分支为 `codex/mediareview-stage9-native-source`（HEAD `747e704`，本地 ahead 1），生产已升级 Server 1.5.2 / Android Alpha15。
 
 本目录是 MediaReview / “家庭媒体管家” 1.1 的完整 Git 项目。下一位 Agent 开始任何修改前，必须按顺序阅读：
 

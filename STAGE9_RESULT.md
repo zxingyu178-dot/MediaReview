@@ -1,4 +1,6 @@
-# Stage 9 交付结果（2026-10-18）
+# Stage 9 交付结果（2026-10-18）— 历史快照
+
+> **后续状态**：本文件记录 9A–9D（Alpha14/1.5.0/1.5.1）。之后的 0016 多库归属修复、Server 1.5.2 / Alpha15 发版与生产升级见 `docs/STAGE9_REPAIR_RESULT.md`、`docs/DEV_LOG.md`；当前状态见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)。
 
 状态：**DEPLOYED / LIMITED_PHONE_VALIDATION**。用户分别授权1.5.0及1.5.1备份升级；1.5.1已通过ControlHub停服、备份、升级及启动。Alpha14/code21无需重装。真实手机经现有局域网链路验证了两段Jellyfin视频解码出帧；未移动、修改或删除真实媒体。**仅限两个样本，不声称 PRODUCTION_READY / 全库或全部编码 REAL_LAN_PASS。**
 

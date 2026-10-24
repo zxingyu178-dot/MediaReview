@@ -1,4 +1,6 @@
-# MediaReview 生产就绪清单（Stage 8D.2 / 2.0.0-alpha6）
+# MediaReview 生产就绪清单（Stage 8D.2 / 2.0.0-alpha6）— 历史快照
+
+> **SUPERSEDED（2026-10-24）**：本文件记录 Stage8D.2 时期的准备度，版本/生产状态均已过时。当前状态见 [PROJECT_STATUS.md](PROJECT_STATUS.md)；1.5.2 已于 2026-10-20 授权升级到生产。
 
 > 本文件只做**准备度登记**。Stage 8D / 8D.1 均**不自动部署生产**。
 

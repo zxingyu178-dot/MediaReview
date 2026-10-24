@@ -1,4 +1,6 @@
-# Stage9 完整体检（2026-10-19）
+# Stage9 完整体检（2026-10-19）— 历史快照
+
+> **后续状态（2026-10-20 起）**：本文件中的跨库归属缺失已由 0016 修复并随 Server 1.5.2 于 2026-10-20 升级到生产；图片 404→502 已由 `747e704` 在源码修复（**尚未发版**）；seek 后 `Invalid NAL length` 与 `media_folders` 慢性慢查询**仍未关闭**。当前状态见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。
 
 结论：**未通过，已定位目录缺失根因；本轮仅调查和测试，未修复或部署新版本。** 基线分支 `codex/mediareview-stage9-native-source`、提交 `91c0ed3`，Server 1.5.1 / Contract2，手机 Alpha14/code21。ControlHub 的正式 Windows 服务正在运行，数据库迁移为0015。没有修改真实媒体、删除数据、清除手机数据、改变媒体库选择或生产配置。
 

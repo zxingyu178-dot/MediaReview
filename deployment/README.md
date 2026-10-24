@@ -2,15 +2,15 @@
 
 > Stage9 当前修复目标：Android Alpha15/code22、Server1.5.2、Contract2及native来源能力。实际产物以包内manifest为准，生产升级需单独授权。通过ControlHub停服并备份完整程序和数据后再迁移0016；升级后确认目标库勾选并刷新索引，恢复跨库归属。回滚恢复成对程序/数据备份，不能仅换回旧EXE。本地来源仍只读、Jellyfin视频仍直连。以下Stage8I说明为历史，不是当前版本或验收清单。
 
-当前目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / API Contract `2`。
+当前目标：Android `2.0.0-alpha15` / code22；Server `1.5.2` / API Contract `2` / 迁移 `0016`。
 
-本阶段仅准备与核验官方离线产物：`MediaReview_2.0.0-alpha12_stage8i.apk`、`MediaReview_Server_1.4.0_stage8i.zip`。不得执行生产部署、用户手机安装、SCM操作或ControlHub生命周期操作；不得修改真实Jellyfin或用户媒体。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`，该阻塞不禁止获授权的离线构建。
+本文件随 1.5.2 正式离线产物交付：`MediaReview_2.0.0-alpha15_stage9.apk`、`MediaReview_Server_1.5.2_stage9.zip`。2026-10-20 已经用户授权，通过 ControlHub 停服、完整备份、逐文件校验后把生产升级到 Server 1.5.2；自动升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`，后续升级仍须单独授权并按 UPGRADE_ROLLBACK.md 执行。
 
 ## 既有发布入口
 
 沿用 `scripts/build_deploy.py` 的 `--prepare-only` / `--package-verified` 两步入口。按Stage8I规格统一安排最终构建，APK只生成一次，不为文档更新重复构建。构建前后源/产物哈希、Git状态、实际Server二进制隔离health、APK版本与签名、完整文件集合及证据有效期均须通过原门禁；源码或产物变化需重新核验，禁止旧产物或Debug回退。
 
-Server实际health应为 `status=ok`、`version=1.4.0`、`api_contract=2`，包含十项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
+Server实际health应为 `status=ok`、`version=1.5.2`、`api_contract=2`，并包含 13 项能力：`native_sources_v1`、`native_range_v1`、`native_read_only_v1`、`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
 
 完整自动化、签名、隔离二进制与产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`；不等于 `REAL_LAN_PASS` / `PRODUCTION_READY`。
 

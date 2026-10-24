@@ -28,13 +28,19 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 - 收藏（点赞）
 - 待删除队列 → 二次确认 → 最终删除
 - 完全重复检测（full SHA-256）+ 疑似重复独立页面
+- 本机只读本地媒体源（Stage9）：登记电脑目录、扫描/增量索引、封面与原图、认证 Range 播放、本地播放进度
 - 局域网自动发现 + 手动 IP 兜底 + 一次配对码
 - Web 管理后台（操作台）
 - Windows 服务部署（事务式升级/回滚）+ ControlHub 接入（实例身份健康检查）
 
 ## 当前版本
 
-`1.1.0-rc2`（Android versionCode 7；正式 `1.1.0` 待真机验收门通过）
+- Android `2.0.0-alpha15`（versionCode 22）
+- Server `1.5.2` / API Contract `2` / 数据库迁移 `0016`
+- 生产环境已安装 Server 1.5.2（2026-10-20 授权升级）
+
+> **运行态提醒**：官方 Windows 服务 `AIHome.MediaReview` 当前为 Stopped，8766 由来源未确认的交互式实例占用（见 PROJECT_STATUS §3）。
+> **当前完整状态、验证证据、生产运行态与待办，以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为唯一事实源。** 本文只保留项目简介与当前版本摘要。
 
 ## 仓库结构
 
@@ -105,6 +111,8 @@ cp deployment/config.example.json <data_root>/config.json
 - **GitHub 公开仓库是项目唯一主要源码交接渠道**。
 - 流程：任务 → 开发 → `git commit` → `git push` → 真机测试 → 基于 commit / diff 验收并规划下一阶段。
 - 不再单独为验收制作完整源码 ZIP；每阶段仍保留 `TASKS.md` / `docs/DEV_LOG.md` 更新与清晰 commit message。
+
+> **2026-10-24 现状**：GitHub 当前网络不可达，最新提交 `747e704` 仅存在本地（origin ahead 1）；正式产物暂以 `deploy_handoff/` 本地交付。网络恢复后需补推，并以推送结果为准确认远端一致。
 
 ## License
 

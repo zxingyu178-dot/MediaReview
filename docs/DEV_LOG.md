@@ -2888,3 +2888,19 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 环境说明（本机，非产品问题，供后续 Agent 参考）：登记 JDK17、项目 venv 的 python 与 third_party ffmpeg 位于带 Low 完整性标签的目录，在本会话以 Low IL 运行，不能写默认 `C:\Users\...\Temp` 等 Medium 目录。本轮用同版本 JDK 副本（`temp/jdk17copy`）跑 Android JVM，用 uv base python + venv site-packages 跑 Server 测试，并用 `review_meta/ops-20261023/pytest-full` 作为 pytest basetemp（项目目录可写）。未修改 AIHome 工具目录、系统权限或服务。
 
 边界：未改版本号（1.5.2 保持；待后续打包时统一递增）、未改 API Contract（2）、未改 Android、未部署生产、未操作真实媒体或生产数据库。生产 8766 仍由交互式 PID 3916 占用，官方 Windows 服务未恢复（见 review_meta/ops-20261023/service-restore-log.md）。
+
+## 2026-10-24 进度口径统一与"跳过 Jellyfin"可行性评估（仅文档，未改代码）
+
+背景：项目文档长期漂移——README 仍写 1.1.0-rc2/versionCode 7、根 HANDOVER 为 1.1.0、REVIEW_SUMMARY 停在 Stage8I、TASKS 顶部仍标 Stage8H、deployment/README 正文仍写 alpha12/1.4.0（该旧文还被打进 1.5.2 正式交付 ZIP）。本轮以只读审计（review_meta/ops-20261024/progress-audit.md，371 行）为依据统一口径，并完成用户要求的"跳过 Jellyfin"可行性评估（review_meta/ops-20261024/jellyfin-skip-assessment.md，460 行）。
+
+统一动作：
+- 新建 `docs/PROJECT_STATUS.md` 作为唯一活状态源（版本 SSOT、产物 SHA、生产运行态、A–D 级验证矩阵、S0–S3 问题、阶段时间线、文档地图、产品方向决策点）。
+- README 当前版本改为 Alpha15/code22 + Server 1.5.2/Contract2/0016，并链接 PROJECT_STATUS；补充本地源能力与 GitHub 当前不可达说明。
+- TAKEOVER_READ_FIRST、HANDOVER、REVIEW_SUMMARY、docs/ACCEPTANCE、docs/PRODUCTION_READINESS、docs/STAGE9_HEALTHCHECK 加 `SUPERSEDED`/历史头并指向 PROJECT_STATUS。
+- TASKS 顶部改为指向 PROJECT_STATUS，追加 2026-10-24 进度统一与待决策清单。
+- deployment/README 正文从 alpha12/1.4.0/十能力更新为 Alpha15/code22、Server 1.5.2、13 能力，并注明 2026-10-20 已授权升级。
+- 项目 AGENTS.md 增加"进度以 PROJECT_STATUS 为准"入口，并在 Stage9 约定处注明本地删除放开待用户决策。
+
+评估结论（摘要）：可以跳过 Jellyfin——Server 不配置 API Key 仍可登记本地根、扫描、封面/原图、认证 Range 播放、本地进度，批阅/收藏/媒体墙/文件夹树已来源中立；最大缺口是**本地永久删除被 Server 与 Android 双端硬拒绝**，其次是**无转码/HLS 兜底**。推荐"本地源为唯一必需来源、保留 Jellyfin 代码、配置可选"，先做安全删除（M，3–5 人日）再做播放兜底（L，7–12 人日）；需用户授权修改 AGENTS.md 的只读/禁转发约定。
+
+验证：本轮仅文档与只读审计，未改源码、未跑构建、未改生产/媒体/密钥；GitHub 仍不可达，`747e704` 及本次文档提交均未推送。文档改动需在 commit 前经 `git diff` 复核。

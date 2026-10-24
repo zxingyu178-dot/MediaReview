@@ -1,4 +1,6 @@
-# MediaReview 实机功能与 UI 审查（2026-10-19）
+# MediaReview 实机功能与 UI 审查（2026-10-19）— 历史快照
+
+> **后续状态（2026-10-20 起）**：状态栏遮挡、常驻诊断、空态说明、失败历史与"未扫描"摘要、筛选选中语义等已随 `2858d3c` 修复（见 `STAGE9_REPAIR_RESULT.md`）；图片 404→502 已由 `747e704` 在源码修复但**未发版**；seek 后 `Invalid NAL length` 仍未关闭。当前状态见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。
 
 结论：**主要浏览路径可用，但有明确 UI 缺陷和未关闭的功能故障，不能作为完整发布验收通过。** 手机运行既有 Alpha14/code21，正式服务1.5.1/Contract2。使用新登记的android-device-testing进行USB控件操作、截图、界面结构及日志核对；本轮未修改生产代码、安装APK或执行真实删除。
 

@@ -1,6 +1,16 @@
 # MediaReview 任务清单
 
-## Stage8H：播放器与首页重构（当前阶段）
+> **当前状态以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为准。** 本文件是任务与阶段流水；下方 Stage8H/8I/8J/9 等段落均为历史记录，不代表当前进度。
+
+## 2026-10-24 进度统一与产品方向评估
+- [x] 建立 `docs/PROJECT_STATUS.md` 为唯一活状态源；修订 README/TAKEOVER_READ_FIRST/HANDOVER/REVIEW_SUMMARY/ACCEPTANCE/PRODUCTION_READINESS/deployment README 等 S 级口径漂移。
+- [x] 完成"跳过 Jellyfin、纯本地源"可行性评估（`review_meta/ops-20261024/jellyfin-skip-assessment.md`；结论：可行，最大缺口是本地永久删除，其次是无转码兜底）。
+- [ ] **待用户决策**：是否转向"本地源为主"（见 PROJECT_STATUS §7 的 5 个决策点：规则授权/删除可恢复性/转码授权/删除开关默认值/remux 或重编码）。
+- [ ] 待授权：更新 AIHome `registry/projects/mediareview.json` 与 `registry/services/aihome-mediareview.json` 的 notes（按 AIHome 规则，修改 Registry 需明确授权）。
+- [ ] 待网络恢复：push `747e704` 与本次文档提交，并核对远端/工作树一致。
+- [ ] 待用户管理员操作：结束占用 8766 的交互式实例，恢复官方 `AIHome.MediaReview` 服务并三次核验 health。
+
+## Stage8H：播放器与首页重构（历史）
 
 - [x] Task1：Server文件夹树、认证、路径隐藏及统计，已提交。
 - [x] Task2：首页单双列、顶部收起、分类目录与面包屑，已提交。

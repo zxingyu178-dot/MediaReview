@@ -1,4 +1,6 @@
-# MediaReview 1.1.0 部署交接说明
+# MediaReview 1.1.0 部署交接说明（历史快照）
+
+> **SUPERSEDED（2026-10-24）**：本文件只保留 1.1.0 历史交付记录。当前版本、生产状态与验证证据见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)；1.5.2 正式交付自带的 `HANDOVER.md` 在发布包内，以其 `RELEASE_MANIFEST.json` 为准。
 
 > 此文档保留历史 1.1.0 交付记录。当前 Alpha8 RC 的 HANDOVER.md 由
 > scripts/build_deploy.py 从实际 EXE health / APK manifest 生成，版本与 Git HEAD
