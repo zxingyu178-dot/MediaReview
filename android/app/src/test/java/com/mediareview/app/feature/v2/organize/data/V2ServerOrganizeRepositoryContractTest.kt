@@ -210,7 +210,8 @@ class V2ServerOrganizeRepositoryContractTest {
         assertEquals(DeleteOutcomeStatus.Success, outcome["aaa"])
         assertEquals(DeleteOutcomeStatus.Missing, outcome["bbb"])
         assertEquals(DeleteOutcomeStatus.Failed, outcome["ccc"])
-        assertEquals(DeleteOutcomeStatus.Unknown, outcome["ddd"])
+        assertEquals(DeleteOutcomeStatus.Pending, outcome["ddd"])
+        assertEquals(DeleteOutcomeStatus.Unknown, DeleteOutcomeStatus.fromWire("weird"))
         // commit 请求体必须携带同一 nonce
         assertEquals("""{"nonce":"nonce-1"}""", router.lastBody("/api/v1/delete-queue/commit"))
     }
@@ -218,9 +219,9 @@ class V2ServerOrganizeRepositoryContractTest {
     @Test
     fun `新Server真实字节沿仓库保留且旧Server不推算`() = runTest {
         org.junit.Assert.assertNull(repository.commitDelete("old").diskReceipt)
-        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":4321,\"missing_count\":1,\"failed_count\":2"
+        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":4321,\"missing_count\":1,\"failed_count\":1,\"pending_count\":1"
         val response = repository.commitDelete("new")
-        assertEquals(DiskDeletionReceipt(1, 4321L, 1, 2), response.diskReceipt)
+        assertEquals(DiskDeletionReceipt(1, 4321L, 1, 1, 1), response.diskReceipt)
         router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":-1,\"missing_count\":1,\"failed_count\":2"
         org.junit.Assert.assertNull(repository.commitDelete("invalid").diskReceipt)
         router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":0"
@@ -415,7 +416,7 @@ private class OrganizeDispatcher : Dispatcher() {
                 .setResponseCode(409).setHeader("Content-Type", "application/json")
                 .setBody("""{"success":false,"error":{"code":"$commitErrorCode","message":"conflict"}}""")
             path == "/api/v1/delete-queue/commit" -> json(
-                """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"weird"}$receiptFields}}""",
+                """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"pending"}$receiptFields}}""",
             )
             path == "/api/v1/duplicates/summary" -> json(
                 """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"task-9","scan_status":"succeeded","scan_progress":100,"last_successful_scan_at":"2026-10-02T08:00:00"}}""",

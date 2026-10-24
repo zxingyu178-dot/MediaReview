@@ -52,12 +52,15 @@ data class DeleteCommitResult(
     val missingCount: Int,
     val failedCount: Int,
     val failedNames: List<String>,
+    val pendingCount: Int = 0,
     /** success + missing：这些媒体在服务端已消失，需要上层同步刷新并丢弃缓存。 */
     val changedMediaIds: List<String>,
     val diskReceipt: DiskDeletionReceipt? = null,
     val demo: Boolean = false,
 ) {
-    val total: Int get() = successCount + missingCount + failedCount
+    val total: Int get() = successCount + missingCount + failedCount + pendingCount
+    val pendingMessage: String? get() =
+        if (pendingCount > 0) "删除请求已提交，等待系统完成" else null
 }
 
 /** 一次性事件（Snackbar / 上层刷新）。 */
@@ -234,12 +237,15 @@ class DeleteQueueViewModel @Inject constructor(
         _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
     }
 
-    /** 按服务端合同汇总：success 计成功；missing 单列；failed/未知计失败（失败项留队列）。 */
+    /** 按服务端合同汇总：pending 单列等待系统完成，不算成功或失败。 */
     private fun summarize(response: DeleteCommitResponse): DeleteCommitResult {
         val outcome = response.outcome
         val success = outcome.count { (_, status) -> status.successful }
         val missing = outcome.count { (_, status) -> status == DeleteOutcomeStatus.Missing }
-        val failedIds = outcome.filter { (_, status) -> !status.changed }.keys.toList()
+        val pending = outcome.count { (_, status) -> status == DeleteOutcomeStatus.Pending }
+        val failedIds = outcome.filter { (_, status) ->
+            status == DeleteOutcomeStatus.Failed || status == DeleteOutcomeStatus.Unknown
+        }.keys.toList()
         val changed = outcome.filter { (_, status) -> status.changed }.keys.toList()
         val nameById = _ui.value.entries.associate { it.mediaId to (it.media?.name ?: it.mediaId) }
         return DeleteCommitResult(
@@ -247,6 +253,7 @@ class DeleteQueueViewModel @Inject constructor(
             missingCount = missing,
             failedCount = failedIds.size,
             failedNames = failedIds.map { nameById[it] ?: it },
+            pendingCount = pending,
             changedMediaIds = changed,
             diskReceipt = response.diskReceipt,
             demo = response.demo,

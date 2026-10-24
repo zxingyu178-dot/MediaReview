@@ -156,13 +156,14 @@ class DeleteQueueViewModelTest {
     @Test
     fun `同一 nonce 只提交一次且结果逐类汇总`() = runTest(main.dispatcher) {
         val repo = FakeOrganizeRepository().apply {
-            deleteQueueResult = Result.success(listOf(entry("aaa"), entry("bbb"), entry("ccc")))
+            deleteQueueResult = Result.success(listOf(entry("aaa"), entry("bbb"), entry("ccc"), entry("ddd")))
             prepareResult = Result.success(prepare())
             commitResult = Result.success(
                 mapOf(
                     "aaa" to DeleteOutcomeStatus.Success,
                     "bbb" to DeleteOutcomeStatus.Missing,
                     "ccc" to DeleteOutcomeStatus.Failed,
+                    "ddd" to DeleteOutcomeStatus.Pending,
                 ),
             )
         }
@@ -187,6 +188,8 @@ class DeleteQueueViewModelTest {
         assertEquals(1, result.successCount)
         assertEquals(1, result.missingCount)
         assertEquals(1, result.failedCount)
+        assertEquals(1, result.pendingCount)
+        assertEquals("删除请求已提交，等待系统完成", result.pendingMessage)
         assertEquals(listOf("媒体 ccc"), result.failedNames)
         assertEquals(listOf("aaa", "bbb"), result.changedMediaIds)
         // 完成事件携带 success+missing 的媒体（供 V2 刷新与缓存丢弃）

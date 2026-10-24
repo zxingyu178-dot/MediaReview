@@ -226,4 +226,5 @@ data class DiskDeletionReceipt(
     val deletedBytes: Long,
     val missingCount: Int,
     val failedCount: Int,
+    val pendingCount: Int = 0,
 )
