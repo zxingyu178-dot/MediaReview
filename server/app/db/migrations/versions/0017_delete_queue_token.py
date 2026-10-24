@@ -39,12 +39,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     connection = op.get_bind()
-    committing_count = connection.execute(
-        sa.text("SELECT count(*) FROM delete_queue WHERE status = 'committing'")
+    in_flight_count = connection.execute(
+        sa.text(
+            "SELECT count(*) FROM delete_queue "
+            "WHERE status IN ('committing', 'delete_done', 'delete_pending')"
+        )
     ).scalar_one()
-    if committing_count:
+    if in_flight_count:
         raise RuntimeError(
-            "0017 downgrade refused: delete_queue contains committing rows; "
+            "0017 downgrade refused: delete_queue contains recoverable in-flight rows; "
             "请先使用 0017 代码完成恢复并备份数据库"
         )
     with op.batch_alter_table("delete_queue") as batch_op:

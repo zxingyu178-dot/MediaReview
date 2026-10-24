@@ -127,10 +127,15 @@ def _forge_pending(native_db, media_id, size):
             s.commit()
 
 
-def _commit_pending_with_nonce(native_db, nonce, *, local_delete_hook=None):
+def _commit_pending_with_nonce(
+    native_db, nonce, *, local_delete_hook=None, force_legacy_disposition=False
+):
     with native_db.session() as s:
         outcome = delete_queue.commit_with_nonce(
-            s, nonce, _local_delete_hook=local_delete_hook
+            s,
+            nonce,
+            _local_delete_hook=local_delete_hook,
+            _force_legacy_disposition=force_legacy_disposition,
         )
         s.commit()
     return outcome
@@ -656,8 +661,8 @@ def test_local_file_in_use_maps_permission_error(native_db, tmp_path):
     assert target.read_bytes() == b"locked"
 
 
-def test_windows_delete_pending_is_success_and_cleans_metadata(native_db, tmp_path):
-    """允许共享删除的读取句柄仍打开时，disposition accepted 也必须按 success 收敛。"""
+def test_windows_posix_disposition_hides_name_and_cleans_metadata(native_db, tmp_path):
+    """共享读取句柄仍打开时，POSIX disposition 必须让名字立即消失并成功收敛。"""
     if os.name != "nt":
         pytest.skip("Windows delete-pending 专项")
 
@@ -674,6 +679,7 @@ def test_windows_delete_pending_is_success_and_cleans_metadata(native_db, tmp_pa
         receipt = _commit_pending_with_nonce(native_db, nonce)
         assert receipt == {mid: "success"}
         assert receipt.deleted_bytes == len(b"delete-pending")
+        assert not target.exists()
         assert _windows_handle_still_references_file(kernel32, reader)
         with native_db.session() as session:
             assert session.get(DeleteQueue, mid) is None
@@ -689,6 +695,148 @@ def test_windows_delete_pending_is_success_and_cleans_metadata(native_db, tmp_pa
             )
     finally:
         assert kernel32.CloseHandle(reader)
+    assert not target.exists()
+
+
+def test_windows_posix_cleanup_failure_stays_delete_done_and_recovers(
+    native_db, tmp_path, monkeypatch
+):
+    """名字已消失后清理失败仍回 success，并由 delete_done 恢复补齐元数据与审计。"""
+    if os.name != "nt":
+        pytest.skip("Windows POSIX disposition 专项")
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"cleanup.jpg": b"cleanup"})
+    target, mid = root / "cleanup.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        session.add(Favorite(media_id=mid))
+        delete_queue.enqueue(session, mid, size_bytes=7)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    original_log = audit.log_action
+    failed_once = False
+
+    def fail_cleanup_audit(db_session, action, media_id=None, detail=None):
+        nonlocal failed_once
+        if action == "delete_commit" and media_id == mid and not failed_once:
+            failed_once = True
+            raise RuntimeError("injected cleanup audit failure")
+        return original_log(db_session, action, media_id, detail)
+
+    kernel32, reader = _open_windows_read_handle(target, share_delete=True)
+    try:
+        monkeypatch.setattr(audit, "log_action", fail_cleanup_audit)
+        receipt = _commit_pending_with_nonce(native_db, nonce)
+        assert receipt == {mid: "success"}
+        assert not target.exists()
+        with native_db.session() as session:
+            row = session.get(DeleteQueue, mid)
+            assert row.status == "delete_done"
+            assert session.get(MediaCacheIndex, mid) is not None
+            assert session.get(Favorite, mid) is not None
+    finally:
+        assert kernel32.CloseHandle(reader)
+
+    monkeypatch.undo()
+    with native_db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with native_db.session() as session:
+        assert session.get(DeleteQueue, mid) is None
+        assert session.get(MediaCacheIndex, mid) is None
+        assert session.get(Favorite, mid) is None
+        assert session.scalar(
+            sa.select(AuditLog.detail)
+            .where(AuditLog.action == "delete_commit", AuditLog.media_id == mid)
+            .order_by(AuditLog.id.desc())
+        ) == "metadata_cleanup_recovered"
+
+
+def test_windows_legacy_disposition_is_pending_until_last_handle_closes(
+    native_db, tmp_path
+):
+    """传统 disposition 只返回 pending；恢复只观察，最后句柄关闭后才清理。"""
+    if os.name != "nt":
+        pytest.skip("Windows legacy disposition 专项")
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"legacy.jpg": b"legacy"})
+    target, mid = root / "legacy.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        session.add(Favorite(media_id=mid))
+        delete_queue.enqueue(session, mid, size_bytes=6)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    kernel32, reader = _open_windows_read_handle(target, share_delete=True)
+    receipt = _commit_pending_with_nonce(
+        native_db, nonce, force_legacy_disposition=True
+    )
+    assert receipt == {mid: "pending"}
+    assert target.exists()
+    with native_db.session() as session:
+        row = session.get(DeleteQueue, mid)
+        assert row.status == "delete_pending"
+        assert session.get(MediaCacheIndex, mid) is not None
+    with native_db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with native_db.session() as session:
+        assert session.get(DeleteQueue, mid).status == "delete_pending"
+
+    assert kernel32.CloseHandle(reader)
+    assert not target.exists()
+    with native_db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with native_db.session() as session:
+        assert session.get(DeleteQueue, mid) is None
+        assert session.get(MediaCacheIndex, mid) is None
+        assert session.get(Favorite, mid) is None
+        details = list(
+            session.scalars(
+                sa.select(AuditLog.detail).where(
+                    AuditLog.action == "delete_commit", AuditLog.media_id == mid
+                )
+            )
+        )
+        assert details == ["pending", "recovered_deleted"]
+
+
+@pytest.mark.parametrize(
+    ("force_legacy", "expected_receipt", "expected_status"),
+    [(False, "success", None), (True, "pending", "delete_pending")],
+)
+def test_windows_production_close_handle_failure_has_recoverable_semantics(
+    native_db, tmp_path, monkeypatch, force_legacy, expected_receipt, expected_status
+):
+    """生产删除句柄 CloseHandle 报失败：POSIX 名字已消失仍成功，传统路径保持 pending。"""
+    if os.name != "nt":
+        pytest.skip("Windows CloseHandle 故障注入专项")
+
+    name = "close-legacy.jpg" if force_legacy else "close-posix.jpg"
+    root, _ = _register_and_scan(native_db, tmp_path, {name: b"close"})
+    target, mid = root / name, _indexed(native_db)[0]
+    with native_db.session() as session:
+        delete_queue.enqueue(session, mid, size_bytes=5)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    called = False
+
+    def close_but_report_failure(close_handle, handle):
+        nonlocal called
+        called = True
+        assert close_handle(handle)
+        return False
+
+    monkeypatch.setattr(
+        native_sources, "_close_windows_handle", close_but_report_failure, raising=False
+    )
+    receipt = _commit_pending_with_nonce(
+        native_db, nonce, force_legacy_disposition=force_legacy
+    )
+    assert called
+    assert receipt == {mid: expected_receipt}
+    with native_db.session() as session:
+        row = session.get(DeleteQueue, mid)
+        assert (None if row is None else row.status) == expected_status
     assert not target.exists()
 
 

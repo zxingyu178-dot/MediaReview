@@ -118,8 +118,11 @@ def test_0017_downgrade_preserves_pending_failed_rows_and_status_index(tmp_path:
     engine.dispose()
 
 
-def test_0017_downgrade_rejects_committing_without_partial_change(tmp_path: Path) -> None:
-    """存在 committing intent 时降级必须 fail-closed，schema/data/revision 均不变。"""
+@pytest.mark.parametrize("in_flight_status", ["committing", "delete_done", "delete_pending"])
+def test_0017_downgrade_rejects_in_flight_without_partial_change(
+    tmp_path: Path, in_flight_status: str
+) -> None:
+    """存在任一可恢复 intent 时降级必须 fail-closed，schema/data/revision 均不变。"""
     database_path = tmp_path / "blocked-downgrade-0017.db"
     database_url = f"sqlite:///{database_path}"
     root = _server_root()
@@ -132,9 +135,10 @@ def test_0017_downgrade_rejects_committing_without_partial_change(tmp_path: Path
         connection.execute(
             text(
                 "INSERT INTO delete_queue (media_id, status, added_at, queue_token) VALUES "
-                "('in-flight', 'committing', CURRENT_TIMESTAMP, "
+                "('in-flight', :status, CURRENT_TIMESTAMP, "
                 "'cccccccccccccccccccccccccccccccc')"
-            )
+            ),
+            {"status": in_flight_status},
         )
     engine.dispose()
 
@@ -151,7 +155,7 @@ def test_0017_downgrade_rejects_committing_without_partial_change(tmp_path: Path
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     assert "queue_token" in columns
     assert indexes["ix_delete_queue_status"]["column_names"] == ["status"]
-    assert row == ("in-flight", "committing", "cccccccccccccccccccccccccccccccc")
+    assert row == ("in-flight", in_flight_status, "cccccccccccccccccccccccccccccccc")
     assert revision == "0017"
     engine.dispose()
 

@@ -58,7 +58,9 @@ class LibrarySelection(Base):
     __tablename__ = "library_selection"
 
     jellyfin_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    source_type: Mapped[str] = mapped_column(String(16), default="jellyfin", server_default="jellyfin")
+    source_type: Mapped[str] = mapped_column(
+        String(16), default="jellyfin", server_default="jellyfin"
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     collection_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     selected: Mapped[bool] = mapped_column(default=True)
@@ -95,7 +97,9 @@ class MediaCacheIndex(Base):
     __tablename__ = "media_cache_index"
 
     media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
-    source_type: Mapped[str] = mapped_column(String(16), default="jellyfin", server_default="jellyfin")
+    source_type: Mapped[str] = mapped_column(
+        String(16), default="jellyfin", server_default="jellyfin"
+    )
     jellyfin_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     library_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -425,6 +429,8 @@ class DeleteQueue(Base):
 
     - pending:  已在待删除列表中,可撤销
     - committing: nonce 已消费且删除意图已持久化，等待逐项收敛
+    - delete_done: 物理删除已确认，元数据待清理
+    - delete_pending: 删除已请求，等待系统确认名字消失
     - succeeded / failed: commit 执行结果
     """
 
@@ -435,7 +441,7 @@ class DeleteQueue(Base):
         String(32), nullable=False, default=lambda: secrets.token_hex(16)
     )
     size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # pending | committing | succeeded | failed
+    # pending | committing | delete_done | delete_pending | succeeded | failed
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_at: Mapped[datetime] = mapped_column(default=utc_now)

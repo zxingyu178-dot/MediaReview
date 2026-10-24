@@ -236,11 +236,11 @@ def test_post_remove_failure_isolated_and_recoverable(tmp_path, monkeypatch, fai
 
         receipt = delete_queue.commit_with_nonce(session, nonce)
 
-    assert receipt == {"first": "failed", "second": "success"}
+    assert receipt == {"first": "success", "second": "success"}
     assert not first.exists() and not second.exists()
     with db.session() as session:
         assert session.get(DeleteCommitNonce, nonce).used is True
-        assert session.get(DeleteQueue, "first").status == "committing"
+        assert session.get(DeleteQueue, "first").status == "delete_done"
         assert session.get(DeleteQueue, "second") is None
         assert session.get(MediaCacheIndex, "first") is not None
 
@@ -256,7 +256,7 @@ def test_post_remove_failure_isolated_and_recoverable(tmp_path, monkeypatch, fai
                 .where(AuditLog.action == "delete_commit", AuditLog.media_id == "first")
                 .order_by(AuditLog.id.desc())
             )
-            == "recovered_deleted"
+            == "metadata_cleanup_recovered"
         )
     db.dispose()
 
@@ -309,6 +309,15 @@ def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
         )
     assert present.read_bytes() == b"stay"
     db.dispose()
+
+
+def test_delete_receipt_counts_pending_separately():
+    receipt = delete_queue.DeleteReceipt()
+    receipt.update(ok="success", gone="missing", bad="failed", waiting="pending")
+    assert receipt.deleted_count == 1
+    assert receipt.missing_count == 1
+    assert receipt.failed_count == 1
+    assert receipt.pending_count == 1
 
 
 @pytest.mark.parametrize("kind", ["relative", "parent_traversal", "unc", "uri"])
@@ -606,6 +615,7 @@ def test_authenticated_api_nonce_receipt(tmp_path, data_root):
             "deleted_bytes": 16,
             "missing_count": 0,
             "failed_count": 0,
+            "pending_count": 0,
         }
         assert not path.exists()
         assert (

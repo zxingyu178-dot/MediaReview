@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import stat
 import uuid
@@ -38,6 +39,7 @@ SKIP_DIRS = {"system volume information", "$recycle.bin", "windows", "program fi
 BATCH_SIZE = 128
 MAX_ENTRIES = 250_000
 MAX_DEPTH = 128
+logger = logging.getLogger(__name__)
 
 
 class SourcePathError(ValidationFailedError):
@@ -456,7 +458,14 @@ def resolve_deletable_local(session, media, *, allow_missing: bool = False) -> P
     return None if target is None else target.path
 
 
-def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
+def _close_windows_handle(close_handle, handle) -> bool:
+    """单独封装生产 CloseHandle，便于故障注入但仍由同一路径执行。"""
+    return bool(close_handle(handle))
+
+
+def _windows_delete_bound(
+    target: VerifiedLocalDelete, *, force_legacy_disposition: bool = False
+) -> str:
     """用同一 Windows 句柄完成身份绑定、根边界复验和 disposition 删除。"""
     import ctypes
     from ctypes import wintypes
@@ -467,7 +476,11 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
     open_existing = 3
     open_reparse_point = 0x00200000
     file_disposition_info = 4
+    file_disposition_info_ex = 21
+    file_disposition_delete = 0x00000001
+    file_disposition_posix_semantics = 0x00000002
     error_file_not_found = 2
+    unsupported_posix_errors = {50, 87}
     sharing_errors = {32, 33}
     error_access_denied = 5
     reparse_attribute = 0x00000400
@@ -488,6 +501,9 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
 
     class FileDispositionInformation(ctypes.Structure):
         _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
+
+    class FileDispositionInformationEx(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD)]
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
@@ -533,6 +549,8 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
             raise LocalDeleteAccessDeniedError() from None
         raise LocalIdentityBindingError() from None
 
+    disposition_mode: str | None = None
+    close_succeeded = False
     try:
         info = ByHandleFileInformation()
         if not get_info(handle, ctypes.byref(info)):
@@ -566,24 +584,63 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
         if os.path.normcase(str(final_path)) != os.path.normcase(str(target.path.absolute())):
             raise SourcePathError()
 
-        disposition = FileDispositionInformation(True)
-        if not set_info(
-            handle,
-            file_disposition_info,
-            ctypes.byref(disposition),
-            ctypes.sizeof(disposition),
-        ):
-            error = ctypes.get_last_error()
-            if error in sharing_errors:
-                raise LocalFileInUseError() from None
-            if error == error_access_denied:
-                raise LocalDeleteAccessDeniedError() from None
-            raise LocalDeleteNotVerifiedError() from None
+        use_legacy = force_legacy_disposition
+        if not use_legacy:
+            disposition_ex = FileDispositionInformationEx(
+                file_disposition_delete | file_disposition_posix_semantics
+            )
+            if set_info(
+                handle,
+                file_disposition_info_ex,
+                ctypes.byref(disposition_ex),
+                ctypes.sizeof(disposition_ex),
+            ):
+                disposition_mode = "posix"
+            else:
+                error = ctypes.get_last_error()
+                if error in unsupported_posix_errors:
+                    use_legacy = True
+                elif error in sharing_errors:
+                    raise LocalFileInUseError() from None
+                elif error == error_access_denied:
+                    raise LocalDeleteAccessDeniedError() from None
+                else:
+                    raise LocalDeleteNotVerifiedError() from None
+
+        if use_legacy:
+            disposition = FileDispositionInformation(True)
+            if not set_info(
+                handle,
+                file_disposition_info,
+                ctypes.byref(disposition),
+                ctypes.sizeof(disposition),
+            ):
+                error = ctypes.get_last_error()
+                if error in sharing_errors:
+                    raise LocalFileInUseError() from None
+                if error == error_access_denied:
+                    raise LocalDeleteAccessDeniedError() from None
+                raise LocalDeleteNotVerifiedError() from None
+            disposition_mode = "legacy"
     finally:
-        # disposition 成功即表示系统已接受不可逆删除；delete-on-close 可能要等其他
-        # FILE_SHARE_DELETE 句柄关闭才从命名空间消失。CloseHandle 的返回值和即时
-        # lstat 都不能把已接受的删除改写为 failed。
-        close_handle(handle)
+        close_succeeded = _close_windows_handle(close_handle, handle)
+        if not close_succeeded:
+            # 不记录路径/句柄值。POSIX 路径已由 lstat 证明名字消失时仍是 success；
+            # 传统路径或未确认消失的 POSIX 路径保持 pending，交给恢复只观察。
+            logger.warning("本地删除句柄关闭失败；保留已确认或可恢复的删除语义")
+    if disposition_mode is None:
+        raise LocalDeleteNotVerifiedError()
+    if disposition_mode == "legacy":
+        return "pending"
+
+    # POSIX disposition 只有在关闭删除句柄后再由名字复验为不存在，才算物理删除已确认。
+    try:
+        os.lstat(target.path)
+    except FileNotFoundError:
+        return "success"
+    except OSError:
+        return "pending"
+    return "pending"
 
 
 def _posix_delete_bound(target: VerifiedLocalDelete) -> None:
@@ -615,8 +672,9 @@ def delete_local_media(
     *,
     allow_missing: bool = False,
     before_identity_binding: Callable[[], None] | None = None,
-) -> int | None:
-    """复验本地媒体后按身份绑定删除；成功返回真实字节数，missing 返回 None。"""
+    force_legacy_disposition: bool = False,
+) -> tuple[str, int] | None:
+    """复验后按身份绑定删除；返回 ``(success|pending, bytes)``，missing 返回 None。"""
     target = _resolve_deletable_local(session, media, allow_missing=allow_missing)
     if target is None:
         return None
@@ -635,14 +693,17 @@ def delete_local_media(
         raise SourcePathError()
     try:
         if os.name == "nt":
-            _windows_delete_bound(target)
+            result = _windows_delete_bound(
+                target, force_legacy_disposition=force_legacy_disposition
+            )
         else:
             _posix_delete_bound(target)
+            result = "success"
     except FileNotFoundError:
         if allow_missing:
             return None
         raise
-    return int(target.info.st_size)
+    return result, int(target.info.st_size)
 
 
 def require_writable_source(session, media):

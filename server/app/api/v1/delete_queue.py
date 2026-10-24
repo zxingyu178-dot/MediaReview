@@ -41,6 +41,7 @@ class CommitResult(BaseModel):
     deleted_bytes: int = 0
     missing_count: int = 0
     failed_count: int = 0
+    pending_count: int = 0
 
 
 class QueueSummaryView(BaseModel):
@@ -68,6 +69,7 @@ class CommitBody(BaseModel):
 async def list_queue(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[list[dict]]:
+    delete_queue.recover_interrupted_deletes(db)
     result: list[dict] = []
     for row in delete_queue.list_queue(db):
         media = media_index.get_cached_media(db, row.media_id)
@@ -109,6 +111,7 @@ async def queue_summary(
 async def prepare_commit(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[CommitPrepView]:
+    delete_queue.recover_interrupted_deletes(db)
     prep = delete_queue.prepare_commit(db)
     db.commit()
     return ok(
@@ -145,6 +148,7 @@ async def commit(
             deleted_bytes=outcome.deleted_bytes,
             missing_count=outcome.missing_count,
             failed_count=outcome.failed_count,
+            pending_count=outcome.pending_count,
         )
     )
 
