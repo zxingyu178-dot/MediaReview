@@ -91,6 +91,106 @@ def test_snapshot_missing_queue_entry_is_audited(tmp_path):
     db.dispose()
 
 
+@pytest.mark.parametrize(
+    ("branch", "expected_detail", "expected_status"),
+    [
+        ("missing", "skipped:queue_entry_missing", None),
+        ("superseded", "failed:queue_entry_superseded", "pending"),
+        ("not_pending", "failed:not_pending", "failed"),
+    ],
+)
+def test_snapshot_audit_failure_rolls_back_nonce_claim(
+    tmp_path, monkeypatch, branch, expected_detail, expected_status
+):
+    """非执行快照审计与 nonce claim 必须同事务；审计失败不能消费 nonce。"""
+    db = _make_db(tmp_path)
+    path = tmp_path / f"{branch}.mp4"
+    path.write_bytes(b"keep")
+    media_id = f"snapshot-{branch}"
+    _seed_media(db, media_id, str(path), size=4)
+    _enqueue(db, media_id, 4)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        row = session.get(DeleteQueue, media_id)
+        if branch == "missing":
+            session.delete(row)
+        elif branch == "superseded":
+            session.delete(row)
+            session.flush()
+            assert delete_queue.enqueue(session, media_id, size_bytes=4) is True
+        else:
+            row.status = "failed"
+            row.error = "preexisting_failure"
+        session.commit()
+
+    original_log = audit.log_action
+
+    def fail_snapshot_audit(db_session, action, logged_media_id=None, detail=None):
+        if action == "delete_commit" and detail == expected_detail:
+            raise RuntimeError("injected snapshot audit failure")
+        return original_log(db_session, action, logged_media_id, detail)
+
+    monkeypatch.setattr(audit, "log_action", fail_snapshot_audit)
+    with db.session() as session:
+        with pytest.raises(RuntimeError, match="snapshot audit failure"):
+            delete_queue.commit_with_nonce(session, nonce)
+
+    with db.session() as session:
+        assert session.get(DeleteCommitNonce, nonce).used is False
+        queued = session.get(DeleteQueue, media_id)
+        assert (None if queued is None else queued.status) == expected_status
+        assert (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == media_id)
+            )
+            == 0
+        )
+    assert path.read_bytes() == b"keep"
+    db.dispose()
+
+
+def test_snapshot_audit_failure_returns_api_error_without_consuming_nonce(
+    tmp_path, client, monkeypatch
+):
+    """审计写失败必须由 API 返回错误，且不能留下已消费 nonce。"""
+    db = client.app.state.database
+    path = tmp_path / "api-missing.mp4"
+    path.write_bytes(b"keep")
+    media_id = "api-snapshot-missing"
+    _seed_media(db, media_id, str(path), size=4)
+    _enqueue(db, media_id, 4)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.dequeue(session, media_id) is True
+        session.commit()
+
+    original_log = audit.log_action
+
+    def fail_snapshot_audit(db_session, action, logged_media_id=None, detail=None):
+        if detail == "skipped:queue_entry_missing":
+            raise RuntimeError("injected snapshot audit failure")
+        return original_log(db_session, action, logged_media_id, detail)
+
+    monkeypatch.setattr(audit, "log_action", fail_snapshot_audit)
+    transport = client._transport
+    previous_raise = transport.raise_server_exceptions
+    transport.raise_server_exceptions = False
+    try:
+        response = client.post("/api/v1/delete-queue/commit", json={"nonce": nonce})
+    finally:
+        transport.raise_server_exceptions = previous_raise
+    assert response.status_code == 500
+    with db.session() as session:
+        assert session.get(DeleteCommitNonce, nonce).used is False
+    assert path.read_bytes() == b"keep"
+
+
 @pytest.mark.parametrize("failure_point", ["audit", "index_flush"])
 def test_post_remove_failure_isolated_and_recoverable(tmp_path, monkeypatch, failure_point):
     """文件已删后的意外异常不得回滚成 pending，也不得中断后续项。"""

@@ -73,6 +73,12 @@ class LocalFileInUseError(LocalDeleteError):
     default_message = "文件正在被播放或占用，请关闭后重试"
 
 
+class LocalDeleteAccessDeniedError(LocalDeleteError):
+    code = "LOCAL_DELETE_ACCESS_DENIED"
+    delete_code = "delete_access_denied"
+    default_message = "没有权限删除该文件"
+
+
 class LocalIdentityBindingError(LocalDeleteError):
     status_code = 409
     code = "LOCAL_IDENTITY_BINDING_FAILED"
@@ -462,7 +468,8 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
     open_reparse_point = 0x00200000
     file_disposition_info = 4
     error_file_not_found = 2
-    sharing_errors = {5, 32, 33}
+    sharing_errors = {32, 33}
+    error_access_denied = 5
     reparse_attribute = 0x00000400
 
     class ByHandleFileInformation(ctypes.Structure):
@@ -522,10 +529,10 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
             raise FileNotFoundError() from None
         if error in sharing_errors:
             raise LocalFileInUseError() from None
+        if error == error_access_denied:
+            raise LocalDeleteAccessDeniedError() from None
         raise LocalIdentityBindingError() from None
 
-    disposition_set = False
-    close_ok = True
     try:
         info = ByHandleFileInformation()
         if not get_info(handle, ctypes.byref(info)):
@@ -569,20 +576,14 @@ def _windows_delete_bound(target: VerifiedLocalDelete) -> None:
             error = ctypes.get_last_error()
             if error in sharing_errors:
                 raise LocalFileInUseError() from None
+            if error == error_access_denied:
+                raise LocalDeleteAccessDeniedError() from None
             raise LocalDeleteNotVerifiedError() from None
-        disposition_set = True
     finally:
-        close_ok = bool(close_handle(handle))
-
-    if not disposition_set or not close_ok:
-        raise LocalDeleteNotVerifiedError()
-    try:
-        os.lstat(target.path)
-    except FileNotFoundError:
-        return
-    except OSError:
-        raise LocalDeleteNotVerifiedError() from None
-    raise LocalDeleteNotVerifiedError()
+        # disposition 成功即表示系统已接受不可逆删除；delete-on-close 可能要等其他
+        # FILE_SHARE_DELETE 句柄关闭才从命名空间消失。CloseHandle 的返回值和即时
+        # lstat 都不能把已接受的删除改写为 failed。
+        close_handle(handle)
 
 
 def _posix_delete_bound(target: VerifiedLocalDelete) -> None:

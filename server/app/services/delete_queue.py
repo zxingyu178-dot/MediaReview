@@ -371,8 +371,15 @@ def _claim_nonce(session: Session, nonce: str) -> list[_ClaimResult]:
             queued.error = None
             queued.committed_at = utc_now()
             claims.append(_ClaimResult(entry=entry, action="process"))
-    # 文件系统操作前必须先耐久化 nonce 单次消费与 deleting intent。
-    session.commit()
+    # 非执行分支的审计与 nonce 单次消费/committing intent 必须同一事务提交；
+    # 任一审计写入失败时全部回滚，调用方得到错误且 nonce 仍可重试。
+    try:
+        _add_snapshot_audits(session, claims)
+        # 文件系统操作前必须先耐久化 nonce 单次消费与 deleting intent。
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     return claims
 
 
@@ -398,7 +405,12 @@ def _commit_media_ids(
             row.error = None
             row.committed_at = utc_now()
             claims.append(_ClaimResult(_SnapshotEntry(media_id, row.queue_token), "process"))
-    session.commit()
+    try:
+        _add_snapshot_audits(session, claims)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     return _commit_claims(session, claims, _local_delete_hook=_local_delete_hook)
 
 
@@ -486,13 +498,22 @@ def _record_internal_error(session: Session, media_id: str, queue_token: str | N
         session.rollback()
 
 
-def _record_snapshot_audit(session: Session, media_id: str, detail: str) -> None:
-    """快照未执行分支也必须逐条审计；异常由该条隔离。"""
-    try:
-        audit.log_action(session, "delete_commit", media_id, detail=detail)
-        session.commit()
-    except Exception:
-        session.rollback()
+def _add_snapshot_audits(session: Session, claims: list[_ClaimResult]) -> None:
+    """把非执行快照事实加入当前 claim 事务，不在此处独立提交或吞异常。"""
+    detail_by_action = {
+        "queue_entry_missing": "skipped:queue_entry_missing",
+        "queue_entry_superseded": "failed:queue_entry_superseded",
+        "not_pending": "failed:not_pending",
+    }
+    for claim in claims:
+        detail = detail_by_action.get(claim.action)
+        if detail is not None:
+            audit.log_action(
+                session,
+                "delete_commit",
+                claim.entry.media_id,
+                detail=detail,
+            )
 
 
 def _delete_one(
@@ -589,15 +610,12 @@ def _commit_claims(
     for claim in claims:
         media_id = claim.entry.media_id
         if claim.action == "queue_entry_missing":
-            _record_snapshot_audit(session, media_id, "skipped:queue_entry_missing")
             continue
         if claim.action == "queue_entry_superseded":
             outcome[media_id] = "failed"
-            _record_snapshot_audit(session, media_id, "failed:queue_entry_superseded")
             continue
         if claim.action == "not_pending":
             outcome[media_id] = "failed"
-            _record_snapshot_audit(session, media_id, "failed:not_pending")
             continue
         try:
             result, deleted_bytes = _commit_one(

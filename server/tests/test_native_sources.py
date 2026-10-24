@@ -1,6 +1,7 @@
 """本地来源回归：仅使用 pytest 临时文件。"""
 import json
 import os
+import stat
 
 import pytest
 import sqlalchemy as sa
@@ -140,6 +141,58 @@ def _commit_pending(native_db):
         nonce = delete_queue.prepare_commit(s).nonce
         s.commit()
     return _commit_pending_with_nonce(native_db, nonce)
+
+
+def _open_windows_read_handle(path, *, share_delete):
+    """以真实 Win32 共享模式持有读取句柄；调用方负责 CloseHandle。"""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    share_mode = 0x00000001 | 0x00000002
+    if share_delete:
+        share_mode |= 0x00000004
+    handle = create_file(str(path), 0x80000000, share_mode, None, 3, 0, None)
+    assert handle != wintypes.HANDLE(-1).value, ctypes.get_last_error()
+    return kernel32, handle
+
+
+def _windows_handle_still_references_file(kernel32, handle):
+    """delete-pending 期间用既有句柄确认文件对象仍存活。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    get_info = kernel32.GetFileInformationByHandle
+    get_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(ByHandleFileInformation)]
+    get_info.restype = wintypes.BOOL
+    return bool(get_info(handle, ctypes.byref(ByHandleFileInformation())))
 
 
 def test_local_recovery_converges_missing_file_without_deleting_again(native_db, tmp_path):
@@ -601,6 +654,90 @@ def test_local_file_in_use_maps_permission_error(native_db, tmp_path):
         queued = s.get(DeleteQueue, mid)
         assert queued.status == "failed" and queued.error == "file_in_use"
     assert target.read_bytes() == b"locked"
+
+
+def test_windows_delete_pending_is_success_and_cleans_metadata(native_db, tmp_path):
+    """允许共享删除的读取句柄仍打开时，disposition accepted 也必须按 success 收敛。"""
+    if os.name != "nt":
+        pytest.skip("Windows delete-pending 专项")
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"pending.jpg": b"delete-pending"})
+    target, mid = root / "pending.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        session.add(Favorite(media_id=mid))
+        delete_queue.enqueue(session, mid, size_bytes=len(b"delete-pending"))
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    kernel32, reader = _open_windows_read_handle(target, share_delete=True)
+    try:
+        receipt = _commit_pending_with_nonce(native_db, nonce)
+        assert receipt == {mid: "success"}
+        assert receipt.deleted_bytes == len(b"delete-pending")
+        assert _windows_handle_still_references_file(kernel32, reader)
+        with native_db.session() as session:
+            assert session.get(DeleteQueue, mid) is None
+            assert session.get(MediaCacheIndex, mid) is None
+            assert session.get(Favorite, mid) is None
+            assert (
+                session.scalar(
+                    sa.select(AuditLog.detail)
+                    .where(AuditLog.action == "delete_commit", AuditLog.media_id == mid)
+                    .order_by(AuditLog.id.desc())
+                )
+                == "success"
+            )
+    finally:
+        assert kernel32.CloseHandle(reader)
+    assert not target.exists()
+
+
+def test_windows_handle_without_share_delete_fails_file_in_use(native_db, tmp_path):
+    """既有句柄未共享 DELETE 时，真实 disposition 路径必须失败且文件保留。"""
+    if os.name != "nt":
+        pytest.skip("Windows sharing violation 专项")
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"busy.jpg": b"busy"})
+    target, mid = root / "busy.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        delete_queue.enqueue(session, mid, size_bytes=4)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    kernel32, reader = _open_windows_read_handle(target, share_delete=False)
+    try:
+        assert _commit_pending_with_nonce(native_db, nonce) == {mid: "failed"}
+        assert target.read_bytes() == b"busy"
+        with native_db.session() as session:
+            queued = session.get(DeleteQueue, mid)
+            assert queued.status == "failed"
+            assert queued.error == "file_in_use"
+    finally:
+        assert kernel32.CloseHandle(reader)
+    assert target.read_bytes() == b"busy"
+
+
+def test_windows_access_denied_has_stable_delete_code(native_db, tmp_path):
+    """只读属性导致 Win32 error 5 时，不得误报为文件占用。"""
+    if os.name != "nt":
+        pytest.skip("Windows access denied 专项")
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"readonly.jpg": b"readonly"})
+    target, mid = root / "readonly.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        delete_queue.enqueue(session, mid, size_bytes=8)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    target.chmod(stat.S_IREAD)
+    try:
+        assert _commit_pending_with_nonce(native_db, nonce) == {mid: "failed"}
+        with native_db.session() as session:
+            queued = session.get(DeleteQueue, mid)
+            assert queued.status == "failed"
+            assert queued.error == "delete_access_denied"
+    finally:
+        target.chmod(stat.S_IWRITE)
+    assert target.read_bytes() == b"readonly"
 
 
 def test_windows_handle_delete_failure_never_falls_back_to_path_remove(

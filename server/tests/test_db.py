@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -78,6 +79,80 @@ def test_0017_backfills_unique_non_null_queue_tokens(tmp_path: Path) -> None:
     assert indexes["ix_delete_queue_status"]["column_names"] == ["status"]
     assert len(tokens) == len(set(tokens)) == 2
     assert all(len(token) == 32 for token in tokens)
+    engine.dispose()
+
+
+def test_0017_downgrade_preserves_pending_failed_rows_and_status_index(tmp_path: Path) -> None:
+    """无 committing 行时 0017→0016 保留队列数据与 status 索引。"""
+    database_path = tmp_path / "downgrade-0017.db"
+    database_url = f"sqlite:///{database_path}"
+    root = _server_root()
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "app" / "db" / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "0017")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO delete_queue (media_id, status, added_at, queue_token) VALUES "
+                "('pending-row', 'pending', CURRENT_TIMESTAMP, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), "
+                "('failed-row', 'failed', CURRENT_TIMESTAMP, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')"
+            )
+        )
+    engine.dispose()
+
+    command.downgrade(config, "0016")
+    engine = create_engine(database_url)
+    columns = {column["name"] for column in inspect(engine).get_columns("delete_queue")}
+    indexes = {index["name"]: index for index in inspect(engine).get_indexes("delete_queue")}
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT media_id, status FROM delete_queue ORDER BY media_id")
+        ).all()
+        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    assert "queue_token" not in columns
+    assert indexes["ix_delete_queue_status"]["column_names"] == ["status"]
+    assert rows == [("failed-row", "failed"), ("pending-row", "pending")]
+    assert revision == "0016"
+    engine.dispose()
+
+
+def test_0017_downgrade_rejects_committing_without_partial_change(tmp_path: Path) -> None:
+    """存在 committing intent 时降级必须 fail-closed，schema/data/revision 均不变。"""
+    database_path = tmp_path / "blocked-downgrade-0017.db"
+    database_url = f"sqlite:///{database_path}"
+    root = _server_root()
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "app" / "db" / "migrations"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "0017")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO delete_queue (media_id, status, added_at, queue_token) VALUES "
+                "('in-flight', 'committing', CURRENT_TIMESTAMP, "
+                "'cccccccccccccccccccccccccccccccc')"
+            )
+        )
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match="0017.*恢复.*备份"):
+        command.downgrade(config, "0016")
+
+    engine = create_engine(database_url)
+    columns = {column["name"] for column in inspect(engine).get_columns("delete_queue")}
+    indexes = {index["name"]: index for index in inspect(engine).get_indexes("delete_queue")}
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT media_id, status, queue_token FROM delete_queue")
+        ).one()
+        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    assert "queue_token" in columns
+    assert indexes["ix_delete_queue_status"]["column_names"] == ["status"]
+    assert row == ("in-flight", "committing", "cccccccccccccccccccccccccccccccc")
+    assert revision == "0017"
     engine.dispose()
 
 
