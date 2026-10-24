@@ -369,7 +369,7 @@ class V2ServerReviewSessionRepository internal constructor(
             seen = seen,
             sourceType = summary.source_type,
             // Stage 9：直接信任服务端 can_delete（本地源可删除；旧 Server 仍下发 false 即拒绝）
-            canDelete = summary.can_delete,
+            canDelete = summary.can_delete == true,
         )
     }
 

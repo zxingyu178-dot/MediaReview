@@ -34,7 +34,7 @@ data class V2Media(
     val naturalWidth: Int,
     val naturalHeight: Int,
     val sourceType: String = "jellyfin",
-    val canDelete: Boolean = true,
+    val canDelete: Boolean = false,
 ) {
     val isVideo: Boolean get() = type == V2MediaType.VIDEO
     val durationSeconds: Int get() = (durationMs / 1000L).toInt()

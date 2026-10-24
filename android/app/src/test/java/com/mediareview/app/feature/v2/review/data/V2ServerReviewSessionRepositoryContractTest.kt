@@ -765,6 +765,17 @@ class V2ServerReviewSessionRepositoryContractTest {
     }
 
     @Test
+    fun `旧Server省略can_delete时队列项不可删除`() = runTest {
+        router.latestStatus = 404
+        router.sessionTotal = 1
+        router.extraMediaFields = ",\"source_type\": \"local\""
+
+        val ready = repository.enterSession() as ReviewSessionOpen.Ready
+
+        assertFalse("未明确下发 can_delete=true 时队列项必须不可删除", ready.window.items.single().canDelete)
+    }
+
+    @Test
     fun `本地删除能力来自服务端capabilities`() {
         assertFalse("默认旧 Server 无 native_delete_v1", repository.supportsNativeDelete)
         statusStore.recordCompatible("1.6.0", 3, listOf("native_sources_v1", "native_delete_v1"))

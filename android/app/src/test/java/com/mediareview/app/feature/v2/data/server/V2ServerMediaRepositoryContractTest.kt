@@ -316,6 +316,14 @@ class V2ServerMediaRepositoryContractTest {
 
     @Test
     fun `加入与撤销待删除只有服务器确认才返回true`() = runTest {
+        router.mediaBody = mediaPageJson(
+            total = 2,
+            page = 1,
+            pageSize = 50,
+            items = """{"media_id":"m1","name":"视频1","media_type":"video","library_id":"lib","can_delete":true},{"media_id":"m2","name":"视频2","media_type":"video","library_id":"lib","can_delete":true}""",
+        )
+        repository.mediaPage(V2MediaQuery())
+
         assertTrue(repository.setPendingDelete("m1", true))
         assertTrue(repository.setPendingDelete("m1", false))
         val enqueue = router.requests.first { it.path == "/api/v1/delete-queue/m1" && it.method == "POST" }
@@ -572,6 +580,50 @@ class V2ServerMediaRepositoryContractTest {
             "can_delete=false 时不得发入队请求",
             1,
             router.requests.count { it.path?.startsWith("/api/v1/delete-queue/") == true },
+        )
+    }
+
+    @Test
+    fun `响应省略can_delete时拒绝入队且不发送POST`() = runTest {
+        statusStore.recordCompatible(
+            "1.6.0", 3,
+            listOf("native_sources_v1", "native_range_v1", "native_delete_v1"),
+        )
+        val id = "loc_missing_can_delete"
+        router.mediaBody = mediaPageJson(
+            total = 1,
+            page = 1,
+            pageSize = 50,
+            items = """{"media_id":"$id","name":"本地样本","media_type":"video","library_id":"local_root","source_type":"local"}""",
+        )
+
+        val media = repository.mediaPage(V2MediaQuery(spec = V2SortSpec(sourceType = "local"))).items.single()
+
+        assertFalse("未明确下发 can_delete=true 时 UI 必须不可删除", media.canDelete)
+        assertFalse(repository.setPendingDelete(id, true))
+        assertEquals(
+            "省略 can_delete 时不得发送入队 POST",
+            0,
+            router.requests.count {
+                it.method == "POST" && it.path?.startsWith("/api/v1/delete-queue/") == true
+            },
+        )
+    }
+
+    @Test
+    fun `共享资源缓存未命中时拒绝入队且不发送POST`() = runTest {
+        statusStore.recordCompatible(
+            "1.6.0", 3,
+            listOf("native_sources_v1", "native_range_v1", "native_delete_v1"),
+        )
+
+        assertFalse(repository.setPendingDelete("missing-media", true))
+        assertEquals(
+            "缓存 miss 时不得发送入队 POST",
+            0,
+            router.requests.count {
+                it.method == "POST" && it.path?.startsWith("/api/v1/delete-queue/") == true
+            },
         )
     }
 

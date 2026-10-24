@@ -286,7 +286,8 @@ class V2HomeViewModel @Inject constructor(
     fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
     fun toggleViewerPendingDelete(session: Long, mediaId: String) {
         // Stage 9：是否可删除只信任服务端下发的 can_delete（本地源已可删除，不再有 loc_ 门禁）。
-        if (repository.mediaById(mediaId)?.canDelete == false) {
+        val media = repository.mediaById(mediaId)
+        if (media == null || !media.canDelete) {
             val text = if (isServerMode) {
                 PendingDeleteText.rejected(statusStore.supportsNativeDelete)
             } else {

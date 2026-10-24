@@ -449,7 +449,7 @@ class V2ReviewViewModel @Inject constructor(
     fun addPendingDelete(mediaId: String) {
         val item = (_state.value as? V2ReviewUiState.Ready)?.items?.firstOrNull { it.mediaId == mediaId }
         // Stage 9：是否可删除只信任服务端下发的 can_delete（本地源已支持两阶段安全删除）。
-        if (item?.canDelete == false) {
+        if (item == null || !item.canDelete) {
             _messages.tryEmit(
                 ReviewMessage(PendingDeleteText.rejected(sessions.supportsNativeDelete)),
             )

@@ -38,7 +38,7 @@ fun ImageViewerBottomBar(
     onInfo: () -> Unit,
     onTogglePendingDelete: () -> Unit,
     modifier: Modifier = Modifier,
-    pendingDeleteEnabled: Boolean = true,
+    pendingDeleteEnabled: Boolean = false,
     pendingDeleteLabel: String? = null,
 ) {
     Row(

@@ -303,7 +303,7 @@ class V2ServerMediaRepository internal constructor(
     override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = try {
         if (pending) {
             val media = resources.media(mediaId)
-            require(media?.canDelete != false) {
+            require(media != null && media.canDelete) {
                 PendingDeleteText.rejected(statusStore.supportsNativeDelete)
             }
         }

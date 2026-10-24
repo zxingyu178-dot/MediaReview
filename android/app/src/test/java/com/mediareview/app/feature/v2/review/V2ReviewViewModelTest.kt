@@ -576,6 +576,26 @@ class V2ReviewViewModelTest {
     }
 
     @Test
+    fun `批阅状态找不到媒体时拒绝入队并提示不可删除`() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 3)
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 1, window = window(count = 1, total = 1))
+        }
+        val vm = V2ReviewViewModel(repo, sessions)
+        val messages = collectMessages(vm)
+        vm.enterReview()
+        waitUntil("进入批阅") { vm.state.value is V2ReviewUiState.Ready }
+
+        vm.addPendingDelete("missing-media")
+
+        waitUntil("必须提示不可删除") {
+            messages.any { it.text == PendingDeleteText.NOT_DELETABLE }
+        }
+        assertTrue("找不到队列项时不得发送入队请求", repo.pendingDeleteCalls.isEmpty())
+        assertFalse(vm.isPendingDelete("missing-media"))
+    }
+
+    @Test
     fun `收藏失败不改本地状态`() = runTest {
         val repo = FakeMediaRepository(mediaCount = 3)
         val sessions = FakeSessions().apply { entryResult = readyOpen(total = 3) }
