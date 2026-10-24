@@ -7,7 +7,7 @@
 - [x] 完成"跳过 Jellyfin、纯本地源"可行性评估（`review_meta/ops-20261024/jellyfin-skip-assessment.md`；结论：可行，最大缺口是本地永久删除，其次是无转码兜底）。
 - [ ] **待用户决策**：是否转向"本地源为主"（见 PROJECT_STATUS §7 的 5 个决策点：规则授权/删除可恢复性/转码授权/删除开关默认值/remux 或重编码）。
 - [ ] 待授权：更新 AIHome `registry/projects/mediareview.json` 与 `registry/services/aihome-mediareview.json` 的 notes（按 AIHome 规则，修改 Registry 需明确授权）。
-- [ ] 待网络恢复：push `747e704` 与本次文档提交，并核对远端/工作树一致。
+- [x] 已完成（2026-10-24）：GitHub 恢复后推送 `747e704` 与本次文档提交，`git status -sb` 确认与 origin 同步。
 - [ ] 待用户管理员操作：结束占用 8766 的交互式实例，恢复官方 `AIHome.MediaReview` 服务并三次核验 health。
 
 ## Stage8H：播放器与首页重构（历史）

@@ -1,14 +1,14 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
 > 更新时间：2026-10-24 19:00 (+08:00)
-> 分支：`codex/mediareview-stage9-native-source` ｜ HEAD：`747e704`（本地，未推送；origin tip `2dd9ff2`，ahead 1）
-> 工作树：干净（tracked 无改动）｜ GitHub：当前网络不可达（连接被重置）
+> 分支：`codex/mediareview-stage9-native-source` ｜ 与 `origin` 同步（2026-10-24 已成功推送；以 `git log -1` / `git status -sb` 为准）
+> 工作树：干净（tracked 无改动）｜ GitHub：2026-10-24 网络恢复，已推送 `2dd9ff2..5786f8f`（含 `747e704` 与本次统一文档）
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
 ## 0. 一句话状态
 
-源码已达到 **Server 1.5.2 / Contract 2 / 迁移 0016 + Android 2.0.0-alpha15/code22**，生产机已安装 1.5.2；但**官方 Windows 服务当前 Stopped，8766 由一个来源未确认的交互式实例占用**，Alpha15 **从未上真机**，已发布 1.5.2 **不包含** 10-23 的图片 404 修复（该修复只在本地源码 `747e704`），GitHub 推送仍被网络阻断。项目下一阶段的产品方向（是否跳过 Jellyfin、改为纯本地媒体源）**待用户决策**。
+源码已达到 **Server 1.5.2 / Contract 2 / 迁移 0016 + Android 2.0.0-alpha15/code22**，生产机已安装 1.5.2；但**官方 Windows 服务当前 Stopped，8766 由一个来源未确认的交互式实例占用**，Alpha15 **从未上真机**，已发布 1.5.2 **不包含** 10-23 的图片 404 修复（该修复只在源码 `747e704`，已于 2026-10-24 推送到 GitHub）。项目下一阶段的产品方向（是否跳过 Jellyfin、改为纯本地媒体源）**待用户决策**。
 
 ## 1. 权威版本表（SSOT）
 
@@ -62,7 +62,7 @@
 | seek 后 `Invalid NAL length` | **未复现、未修复**（证据仅来自 Alpha14/code21） | D | `review_meta/ops-20261023/seek-nal-report.md` |
 | `media_folders` 慢性慢查询 | **已定位、未修复**（56k 行基线 2.6–3.1s，峰值 11.5s；0 目录仍 3.8s） | A（调查） | `review_meta/ops-20261023/image-perf-report.md` |
 | 图片 404→502 修复 | 源码已修（`747e704`），**未发版、未进生产** | 部分 | `docs/DEV_LOG.md:2870-2890` |
-| GitHub 推送 | **失败**（连接重置），本地 ahead 1 | D | 本文头部 |
+| GitHub 推送 | **2026-10-24 已成功推送**（`2dd9ff2..5786f8f`，含 `747e704` 与统一文档提交） | A（远端） | `git push` 输出、`git status -sb` |
 
 ## 5. 已知问题（按严重度）
 
@@ -76,7 +76,7 @@
 | **S2** | 本地源永久删除被双端硬拒绝；本地源无重复检测/无转码 | 设计如此（Stage9 约定） | 用户"删除不想留的视频"需求当前不可行 | 见 §7 产品方向决策 |
 | **S2** | 0016 无法恢复历史已被覆盖的跨库归属 | 仅回填现存归属 | 部分子库目录需刷新同步后才恢复 | 升级后确认库勾选并刷新 |
 | **S2** | 本机 2 项 pytest 环境失败 + `server/app/main.py` 2 条既有 ruff 违规 | 环境级 / 既有 | 不阻塞产品，但不能宣称全绿 | 修本机工具目录完整性标签 / 另开小提交清 ruff |
-| **S3** | GitHub 不可达，`747e704` 未推送 | ahead 1 | 远端交接渠道中断 | 网络恢复后 push 并核对 |
+| **S3** | GitHub 不可达（已于 2026-10-24 恢复） | 已解决：`2dd9ff2..5786f8f` 推送成功 | 远端交接渠道恢复 | 保持每次提交后核对 `git status -sb` |
 | **S3** | 文档/registry 口径漂移 | 本次已统一 S 级（见 §8） | 交接误判 | 保持本文件更新 |
 
 ## 6. 阶段时间线（索引）
@@ -141,4 +141,4 @@
 | 日期 | 变更 | 证据 |
 | --- | --- | --- |
 | 2026-10-23 | 图片 404 归类 + 失败诊断补齐；修正陈旧版本断言；全量 pytest 693/695 | `747e704`、`docs/DEV_LOG.md:2870-2890` |
-| 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估 | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；本次提交 |
+| 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估；GitHub 恢复后推送 `2dd9ff2..5786f8f` | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；`git push` |
