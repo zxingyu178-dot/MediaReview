@@ -3075,3 +3075,10 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 环境诊断：首次 Server 复跑误用 `uv python find` 在 `server` 目录返回的 `.venv` 重定向解释器，出现 5 项临时 SQLite/path 失败；改用 `.venv/pyvenv.cfg` 登记的 uv 基础 Python 后同一指定集 79/79 通过，未改产品代码或放宽断言。
 - 边界：**产物未构建**；未 commit/push；未启停服务或部署生产；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
 - Lead 全量（P5 版本 1.6.0/alpha16-code23）：Server **745 通过 / 2 失败 / 747 项 / 372.05s**（2 项本机 ffmpeg 环境限制，换可写 basetemp 单独复跑通过）；Android 全量 JVM **75 suites / 511 tests / 0 失败**；版本三处与 Android BuildConfig 一致。
+
+### 2026-10-25 P5 产物构建与核验（本地执行）
+- `scripts/build_deploy.py --prepare-only`：全新 PyInstaller EXE + release 签名 APK 构建，EXE health、APK manifest 与签名 PASS，构建证据写入。
+- `--package-verified`：发布包生成并通过 139 项 SHA256 完整性校验。
+- 产物：`deploy_handoff/MediaReview_Server_1.6.0_stage9.zip`（133,242,411 bytes，sha256 04be46db…）、`deploy_handoff/MediaReview_2.0.0-alpha16_stage9.apk`（43,606,606 bytes，sha256 42d188cb…）、EXE sha256 2a9f5cfe…，`git_head=ced2f07`；manifest：Server 1.6.0 / Contract 2 / 14 能力（含 `native_delete_v1`）/ Android 2.0.0-alpha16 code23 / APK signature PASS。
+- 真实部署：**NOT PERFORMED**；家庭 LAN/真机：**NOT TESTED**；生产实例未启停、未升级。
+- 第九轮 Codex 定点复审结论 **PASS_WITH_MINOR**（唯一 Minor M8-T 为其他 NTSTATUS/API 失败分支的测试覆盖缺口，无已知生产分类错误）。

@@ -207,3 +207,19 @@ P1 仍待第四轮定点复审通过后发版。
 - 第六轮修复提交 `5aa367a`（Jellyfin 恢复父链/身份证据收紧）本地领先 origin 1；push 因 GitHub 网络暂时失败，待重试。
 - 第七轮 Codex 定点复审因 5 小时额度用尽顺延（复位 15:49；Codex CLI 报 usage limit）。P5 发版继续暂停。
 - Lead 全量：Server 743/745（2 项本机 ffmpeg 环境，单独复跑通过）；Android 511/511；ruff 改动文件通过。
+
+## 15. P5 发版产物（2026-10-25 17:32）
+
+第九轮 Codex 复审结论 **PASS_WITH_MINOR**（C0/I0/M1，M8-T 为测试覆盖缺口，不阻断）。P5 源码与产物已完成：
+
+| 项 | 值 |
+| --- | --- |
+| Server | 1.6.0 / API Contract 2 / 迁移 0017 / 14 能力（含 `native_delete_v1`） |
+| Android | 2.0.0-alpha16 / code 23 / `com.mediareview.app` |
+| 构建 HEAD | `ced2f07`（build 与源码同 HEAD；工作区 clean） |
+| Server ZIP | `deploy_handoff/MediaReview_Server_1.6.0_stage9.zip`，133,242,411 bytes，SHA256 `04be46db617d4f238e485055e339aaf500cfb4f05172940a30e367ef69bdffdf` |
+| APK | `deploy_handoff/MediaReview_2.0.0-alpha16_stage9.apk`，43,606,606 bytes，SHA256 `42d188cb37b4b45c3bcedacc8ef5b8670ae61844b78e066d8b477a40be3b1dfa`，signature PASS |
+| EXE | SHA256 `2a9f5cfe45f98b8c24bf644245dcef29fcb85240703206c59d3e495feb73064d` |
+| 部署/真机 | **部署 NOT PERFORMED；家庭 LAN/真机 NOT TESTED**（需用户管理员停服备份、连接手机验收） |
+
+升级/回滚边界见 `deploy_handoff/MediaReview_Server_1.6.0_stage9/UPGRADE_ROLLBACK.md`：0017 在存在 `committing`/`delete_done`/`delete_pending` 行时降级 fail-closed；Windows 本地删除最低 Windows 10 1709（POSIX 语义）。
