@@ -3098,3 +3098,8 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 
 验证：Codex 全量 JVM：P1 75 suites/513 tests、P2 77 suites/522 tests、P3 78 suites/529 tests，均 0 失败；androidTest 编译通过；Lead 独立 `--rerun-tasks` 全量 P1 513/0、P3 结果见后续条目。视觉走查（模拟器 + demo 数据）：首页、相册分节网格、图片查看器、批阅模式截图见 `review_meta/ui-refactor-20261025/shots/`。
 未做：P4 打磨（动画/无障碍/性能/空态全覆盖/长按多选）与真机验收；未改 Server/API/Repository/删除安全语义；未新增第三方依赖。
+
+### 2026-10-26 01:10 UI P4 暂停（Codex 额度用尽）
+- P4（打磨：沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉、空/错/载态、无障碍、性能）实现到一半时 ChatGPT Plus 5 小时额度用尽，提示 **04:33 复位**。
+- 为保持仓库可构建，已回退 P4 半成品的全部 `android/` 改动（未 commit）；当前 Android 树为 P3 提交 `3abc77b`（529 tests 全绿，Lead 独立 rerun 通过）。
+- 已设 04:34 提醒：额度复位后重新执行 P4（prompt 已备 `review_meta/ui-refactor-20261025/phase4-prompt.txt`），完成后再做全量测试、截图走查与提交。

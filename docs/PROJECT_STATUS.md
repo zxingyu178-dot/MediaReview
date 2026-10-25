@@ -237,3 +237,17 @@ P1 仍待第四轮定点复审通过后发版。
 
 模拟器（MediaReview_Test，demo 数据）截图：`review_meta/ui-refactor-20261025/shots/`（home、album、imgviewer、review）。
 未做：真机/家庭 LAN 验收、长按多选批量、P5 版本与 APK 发布。
+
+## 17. Jellyfin 库接入与扫描（2026-10-26）
+
+用户反馈“更新了库但不知道成功没”，账号 moviehub 已确认（仅本机 Jellyfin 使用）。排查结果与处置：
+
+- 根因：Jellyfin 同时存在「视频合集（混合）」库（指向整个 `D:\视频合集`）和 19 个分类库（各自指向子目录）；Jellyfin 报 `Found duplicate path`，分类库因路径重复全部 0 项，扫描长时间卡在 ~63%。
+- 处置（用户确认“删混合库，保留 19 个分类库”）：取消卡住的扫描 → 删除混合库（仅 Jellyfin 索引，未动文件）→ 触发全库刷新。当前 19 个分类库已开始正常索引。
+- 进度：截至 2026-10-26 01:10，19 库合计约 **35,300 项**（`图片集` 31,863、`工作文件` 1,667、`高颜值素人泄密150套合集` 1,221 等），扫描仍在运行（~96%，照片多且部分图片损坏导致 TagLib 报错被记录并跳过）。监控日志：`temp/jellyfin_scan_monitor.log`。
+- 后续：扫描完成后在 MediaReview App 的库选择里勾选需要的分类库并同步即可；本次未改 Server、未改 Jellyfin 媒体文件。
+
+## 18. Android UI 重构状态（2026-10-26 01:10）
+
+- P1 `be3c92d`、P2 `66ca2f9`、P3 `3abc77b` 已提交（本地 ahead 2，GitHub 网络不稳定待推送）；P4 打磨因 Codex 额度用尽于 04:33 复位后继续。
+- 截图走查：`review_meta/ui-refactor-20261025/shots/`（home/album/imgviewer/review，模拟器 MediaReview_Test + demo 数据）。
