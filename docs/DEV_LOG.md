@@ -3033,3 +3033,18 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 
 验证：Codex 定向四文件 **97 passed / 0 failed**（TDD 先 4 failed）；ruff 通过。Lead 全量：Server **740 通过 / 2 失败 / 742 项 / 438.36s**（2 项本机 ffmpeg 环境限制，换可写 basetemp 单独复跑 2 passed）；Android 全量 JVM 见下一条；未 commit/push（Lead 统一提交）。
 - Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL，无 Android 改动，复用上次编译产物）。
+
+## 2026-10-25 第六轮复审修复：Jellyfin 恢复证据收紧（I7-R6A / I7-R6B）
+
+第六轮 Codex 复审（`review_meta/codex-review-20261025-round6/round6-review.md`）BLOCK：
+- **I7-R6A**：Jellyfin 恢复把任意父级/卷的 FileNotFoundError 当叶 MISSING，可能把不可达介质上的未删文件当已删收敛；
+- **I7-R6B**：Jellyfin 缺 size/mtime 身份证据时仍判 SAME_ORIGINAL_PRESENT，可把替代对象误写为原文件仍在。
+
+Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）：
+- 新增只读 `_lstat_recovery_path`：先按既有绝对/无 `..`/拒绝 UNC 与逐段拒绝链接/reparse 校验，逐级 lstat 卷根与全部父目录；父链任一不可观察 → UNKNOWN；仅父链全部可观察后叶缺失 → MISSING；叶 OSError/ValueError → UNKNOWN。
+- Jellyfin 身份证据矩阵：size 已知不一致或 mtime 已知超 ±3s → REPLACED；两项任一缺失 → UNKNOWN；两项均存在且匹配才 SAME_ORIGINAL_PRESENT。
+- 测试：父目录改名/不可达 → 保持 committing 且不清理；size=None / mtime=None → UNKNOWN 保持 committing；既有缺失/替换/同文件/幂等用例补全身份依据。
+- 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 不变。
+
+验证：Codex 四文件定向通过（详见 fix-report）；Lead 全量结果见下一条。未 commit/push（Lead 统一提交）。
+- Lead 全量：Server **743 通过 / 2 失败 / 745 项 / 419.28s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次全量 511/511）；ruff 改动文件通过。

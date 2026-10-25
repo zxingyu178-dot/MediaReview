@@ -2,6 +2,7 @@
 
 import os
 import sys
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -269,6 +270,11 @@ def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
     present.write_bytes(b"stay")
     _seed_media(db, "gone", str(deleted), size=4)
     _seed_media(db, "stay", str(present), size=4)
+    with db.session() as session:
+        session.get(MediaCacheIndex, "stay").modified_at = datetime.fromtimestamp(
+            present.stat().st_mtime, UTC
+        ).replace(tzinfo=None)
+        session.commit()
     _enqueue(db, "gone", 4)
     _enqueue(db, "stay", 4)
     with db.session() as session:
@@ -311,6 +317,78 @@ def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
     db.dispose()
 
 
+def test_recover_jellyfin_unreachable_parent_keeps_committing(tmp_path):
+    """父链不可达不能被误认成叶文件已删除。"""
+    db = _make_db(tmp_path)
+    parent = tmp_path / "mounted-library"
+    parent.mkdir()
+    target = parent / "movie.mp4"
+    target.write_bytes(b"stay")
+    _seed_media(db, "unreachable-parent", str(target), size=4)
+    _enqueue(db, "unreachable-parent", 4)
+    with db.session() as session:
+        row = session.get(DeleteQueue, "unreachable-parent")
+        row.status = "committing"
+        session.commit()
+
+    parent.rename(tmp_path / "mounted-library-offline")
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+
+    with db.session() as session:
+        row = session.get(DeleteQueue, "unreachable-parent")
+        assert row is not None
+        assert row.status == "committing"
+        assert session.get(MediaCacheIndex, "unreachable-parent") is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "unreachable-parent",
+            )
+        ) == 0
+    db.dispose()
+
+
+@pytest.mark.parametrize("missing_evidence", ["size_bytes", "modified_at"])
+def test_recover_jellyfin_missing_identity_evidence_keeps_committing(
+    tmp_path, missing_evidence
+):
+    """size/mtime 任一缺失时只能保留 UNKNOWN，不能积极判定原文件仍在。"""
+    db = _make_db(tmp_path)
+    target = tmp_path / f"missing-{missing_evidence}.mp4"
+    target.write_bytes(b"stay")
+    media_id = f"missing-{missing_evidence}"
+    _seed_media(db, media_id, str(target), size=4)
+    _enqueue(db, media_id, 4)
+    with db.session() as session:
+        media = session.get(MediaCacheIndex, media_id)
+        media.modified_at = datetime.fromtimestamp(target.stat().st_mtime, UTC).replace(
+            tzinfo=None
+        )
+        setattr(media, missing_evidence, None)
+        row = session.get(DeleteQueue, media_id)
+        row.status = "committing"
+        session.commit()
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+
+    with db.session() as session:
+        row = session.get(DeleteQueue, media_id)
+        assert row is not None
+        assert row.status == "committing"
+        assert session.get(MediaCacheIndex, media_id) is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "delete_commit", AuditLog.media_id == media_id)
+        ) == 0
+    assert target.read_bytes() == b"stay"
+    db.dispose()
+
+
 def test_recover_jellyfin_replacement_cleans_metadata_without_deleting_file(tmp_path):
     """Jellyfin 绝对路径身份变化时只收敛旧行，不删除当前文件。"""
     db = _make_db(tmp_path)
@@ -319,6 +397,9 @@ def test_recover_jellyfin_replacement_cleans_metadata_without_deleting_file(tmp_
     _seed_media(db, "jellyfin-rebuilt", str(target), size=4)
     _enqueue(db, "jellyfin-rebuilt", 4)
     with db.session() as session:
+        session.get(MediaCacheIndex, "jellyfin-rebuilt").modified_at = datetime.fromtimestamp(
+            target.stat().st_mtime, UTC
+        ).replace(tzinfo=None)
         row = session.get(DeleteQueue, "jellyfin-rebuilt")
         row.status = "committing"
         session.commit()

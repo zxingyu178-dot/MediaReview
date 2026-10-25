@@ -202,21 +202,49 @@ _GUARD_MTIME = "file_modified_changed"
 _GUARD_STAT = "stat_failed"
 
 
-def _lstat_deletion_path(media_path: str) -> os.stat_result:
-    """检查整条路径链，避免跟随叶链接或父目录 junction 删除目标文件。"""
+class _RecoveryPathUnavailableError(OSError):
+    """恢复观察时卷根或父链不可见，不能据此证明叶文件缺失。"""
+
+
+def _validated_deletion_path(media_path: str) -> Path:
     path = Path(media_path)
     if not path.is_absolute() or ".." in path.parts or media_path.startswith(("\\\\", "//")):
         raise ValueError(f"{_GUARD_STAT}:unsafe_path")
+    return path
+
+
+def _lstat_deletion_component(component: Path) -> os.stat_result:
+    info = os.lstat(component)
+    if stat.S_ISLNK(info.st_mode) or (
+        getattr(info, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    ):
+        raise ValueError(f"{_GUARD_STAT}:link_or_reparse_point")
+    return info
+
+
+def _lstat_deletion_path(media_path: str) -> os.stat_result:
+    """检查整条路径链，避免跟随叶链接或父目录 junction 删除目标文件。"""
+    path = _validated_deletion_path(media_path)
     leaf_stat: os.stat_result | None = None
     for component in [*reversed(path.parents), path]:
-        info = os.lstat(component)
-        if stat.S_ISLNK(info.st_mode) or (
-            getattr(info, "st_file_attributes", 0)
-            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-        ):
-            raise ValueError(f"{_GUARD_STAT}:link_or_reparse_point")
-        leaf_stat = info
+        leaf_stat = _lstat_deletion_component(component)
     assert leaf_stat is not None
+    if not stat.S_ISREG(leaf_stat.st_mode):
+        raise ValueError(f"{_GUARD_STAT}:not_a_regular_file")
+    return leaf_stat
+
+
+def _lstat_recovery_path(media_path: str) -> os.stat_result:
+    """先确认父链可观察，再单独 lstat 叶，以区分父链不可见与叶缺失。"""
+    path = _validated_deletion_path(media_path)
+    try:
+        for component in reversed(path.parents):
+            _lstat_deletion_component(component)
+    except OSError as exc:
+        raise _RecoveryPathUnavailableError from exc
+
+    leaf_stat = _lstat_deletion_component(path)
     if not stat.S_ISREG(leaf_stat.st_mode):
         raise ValueError(f"{_GUARD_STAT}:not_a_regular_file")
     return leaf_stat
@@ -762,7 +790,7 @@ def _observe_recovery_state(
     if media.source_type != "jellyfin" or not media.media_path:
         return _RecoveryObservation.UNKNOWN
     try:
-        file_stat = _lstat_deletion_path(media.media_path)
+        file_stat = _lstat_recovery_path(media.media_path)
     except FileNotFoundError:
         return _RecoveryObservation.MISSING
     except (OSError, ValueError):
@@ -775,6 +803,8 @@ def _observe_recovery_state(
         actual_ms = int(file_stat.st_mtime * 1000)
         if abs(actual_ms - stored_mtime_ms) > 3000:
             return _RecoveryObservation.REPLACED_OR_ORIGINAL_GONE
+    if media.size_bytes is None or stored_mtime_ms is None:
+        return _RecoveryObservation.UNKNOWN
     return _RecoveryObservation.SAME_ORIGINAL_PRESENT
 
 
