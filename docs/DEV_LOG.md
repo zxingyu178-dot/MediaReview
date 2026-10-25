@@ -3082,3 +3082,8 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 产物：`deploy_handoff/MediaReview_Server_1.6.0_stage9.zip`（133,242,411 bytes，sha256 04be46db…）、`deploy_handoff/MediaReview_2.0.0-alpha16_stage9.apk`（43,606,606 bytes，sha256 42d188cb…）、EXE sha256 2a9f5cfe…，`git_head=ced2f07`；manifest：Server 1.6.0 / Contract 2 / 14 能力（含 `native_delete_v1`）/ Android 2.0.0-alpha16 code23 / APK signature PASS。
 - 真实部署：**NOT PERFORMED**；家庭 LAN/真机：**NOT TESTED**；生产实例未启停、未升级。
 - 第九轮 Codex 定点复审结论 **PASS_WITH_MINOR**（唯一 Minor M8-T 为其他 NTSTATUS/API 失败分支的测试覆盖缺口，无已知生产分类错误）。
+
+### 2026-10-25 APK 邮件交付（用户确认后执行）
+- 用户确认收件地址后，直接将 `MediaReview_2.0.0-alpha16_stage9.apk` 作为附件发送到已配置的 QQ 邮箱（输出掩码 `305***@qq.com`，未记录完整地址与任何凭据）。
+- 发送器：一次性脚本（全局 temp），复用 Hermes `send_mail.get_config()` 加载 SMTP 配置；APK 使用 `application/vnd.android.package-archive` MIME，附件字节与 SHA-256 取自同一份实际发送数据，任何附件/拒收失败均非零退出、不发送。
+- 交付证据：`SMTP accepted`；`SEND_OK attachment=MediaReview_2.0.0-alpha16_stage9.apk bytes=43606606 sha256=42d188cb37b4b45c3bcedacc8ef5b8670ae61844b78e066d8b477a40be3b1dfa`，无拒收收件人。
