@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -55,6 +56,10 @@ import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.feature.v2.model.V2SortSpec
 import com.mediareview.app.feature.v2.model.V2TypeFilter
 import com.mediareview.app.feature.v2.viewer.state.AlbumLoadStatus
+import com.mediareview.app.feature.v2.ui.components.EmptyState
+import com.mediareview.app.feature.v2.ui.components.ErrorState
+import com.mediareview.app.feature.v2.ui.components.LoadingSkeleton
+import com.mediareview.app.feature.v2.ui.components.SectionHeader
 import com.mediareview.app.feature.v2.ui.V2Colors
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
@@ -65,9 +70,9 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
- * 相册内部页（纯照片，阶段 8B §12 真实分页）。
+ * 相册内部页（阶段 8B §12 真实分页）。
  * - 顶部：返回 + 相册名 + "XX 张照片" + ⋮（选择封面）
- * - 双列图片网格（IMAGE ONLY，不受首页过滤状态污染）：第一页 50 张，
+ * - 按日期分节的紧凑图片网格（IMAGE ONLY，不受首页过滤状态污染）：第一页 50 张，
  *   滚动接近底部自动加载下一页 —— **超过 200 张的相册不再被截断**
  * - 点击照片 → Viewer（携带已加载窗口及分页上下文，接近尾部续页，不拉全量）
  * - ⋮ → 选择封面：当前封面 ✓ 标记，点照片设为封面并保存 DataStore
@@ -160,39 +165,41 @@ fun AlbumScreen(
         }
 
         if (window == null || window.status == AlbumLoadStatus.Loading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                SkeletonCards(aspectRatio = 1f)
-            }
+            LoadingSkeleton(Modifier.fillMaxSize(), showIcon = true)
             return@Column
         }
 
         if (window.status == AlbumLoadStatus.Error) {
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center) {
-                Text("相册加载失败", color = MediaTextSecondary)
-                TextButton(onClick = { session?.let(vm::retryAlbum) }) { Text("重新加载") }
-            }
+            ErrorState("相册加载失败", { session?.let(vm::retryAlbum) }, Modifier.fillMaxSize())
             return@Column
         }
 
         if (window.status == AlbumLoadStatus.Empty) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("暂无照片", color = MediaTextSecondary)
-            }
+            EmptyState("暂无照片", "这个相册还没有可浏览的图片", Modifier.fillMaxSize())
             return@Column
         }
 
-        // 双列图片网格（选择封面模式下点击设为封面；普通模式点击进 Viewer）
+        // 日期分节紧凑网格（选择封面模式下点击设为封面；普通模式点击进 Viewer）
         val gridState = rememberLazyGridState()
-        WindowCoverPrefetch(images.map(vm::coverUri), gridState, squareCovers = true)
+        val gridEntries = remember(images) { buildAlbumGridEntries(images) }
+        val prefetchIndex = remember(gridEntries) { { gridIndex: Int -> mediaIndexAtOrAfter(gridEntries, gridIndex) } }
+        WindowCoverPrefetch(images.map(vm::coverUri), gridState, squareCovers = true,
+            visibleIndexToMediaIndex = prefetchIndex)
         LaunchedEffect(gridState, session, images) {
-            window.anchor?.let { gridState.scrollToItem(it.indexIn(images.map { media -> media.id }), it.offset) }
+            window.anchor?.let { anchor ->
+                val gridIndex = gridEntries.indexOfFirst { it is AlbumGridEntry.Media && it.value.id == anchor.mediaId }
+                if (gridIndex >= 0) gridState.scrollToItem(gridIndex, anchor.offset)
+            }
             snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
-                .collect { (index, offset) -> session?.let { token -> images.getOrNull(index)?.let { vm.updateAlbumAnchor(token, HomeGridAnchor(it.id, offset)) } } }
+                .collect { (index, offset) ->
+                    val visible = gridEntries.drop(index).filterIsInstance<AlbumGridEntry.Media>().firstOrNull()?.value
+                    session?.let { token -> visible?.let { vm.updateAlbumAnchor(token, HomeGridAnchor(it.id, offset)) } }
+                }
         }
-        LaunchedEffect(gridState, session, images.size, total, selectingCover) {
+        LaunchedEffect(gridState, session, images.size, total, selectingCover, gridEntries) {
             snapshotFlow {
-                gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                val key = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.key
+                images.indexOfLast { it.id == key }
             }
                 .distinctUntilChanged()
                 .collect { lastVisible ->
@@ -203,27 +210,40 @@ fun AlbumScreen(
         }
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(3),
             modifier = Modifier.weight(1f).testTag("album_grid"),
-            contentPadding = PaddingValues(start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl),
-            horizontalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-            verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
+            contentPadding = PaddingValues(horizontal = 3.dp, vertical = V2Spacing.Sm),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            items(images, key = { it.id }) { media ->
-                AlbumImageCell(
-                    media = media,
-                    coverUri = vm.coverUri(media),
-                    isCover = media.id == coverId,
-                    selectingCover = selectingCover,
-                    onClick = {
-                        if (selectingCover) {
-                            vm.setAlbumCover(albumId, media.id)
-                            selectingCover = false
-                        } else {
-                            onOpenImage(media, images, total, window.loadedPage, spec)
-                        }
-                    },
-                )
+            items(
+                items = gridEntries,
+                key = { entry -> when (entry) {
+                    is AlbumGridEntry.Header -> "day_${entry.key}"
+                    is AlbumGridEntry.Media -> entry.value.id
+                } },
+                span = { entry -> if (entry is AlbumGridEntry.Header) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
+            ) { entry ->
+                when (entry) {
+                    is AlbumGridEntry.Header -> SectionHeader(entry.title, Modifier.padding(horizontal = V2Spacing.Md))
+                    is AlbumGridEntry.Media -> {
+                        val media = entry.value
+                        AlbumImageCell(
+                            media = media,
+                            coverUri = vm.coverUri(media),
+                            isCover = media.id == coverId,
+                            selectingCover = selectingCover,
+                            onClick = {
+                                if (selectingCover) {
+                                    vm.setAlbumCover(albumId, media.id)
+                                    selectingCover = false
+                                } else {
+                                    onOpenImage(media, images, total, window.loadedPage, spec)
+                                }
+                            },
+                        )
+                    }
+                }
             }
         }
         if (window.loadingMore) {
@@ -294,6 +314,18 @@ private fun AlbumImageCell(
                         color = if (isCover) V2Colors.Accent else MediaTextSecondary.copy(alpha = 0.4f),
                         shape = RoundedCornerShape(V2Radius.Card),
                     ),
+            )
+        }
+        if (media.isVideo) {
+            Text(
+                text = formatDuration(media.durationMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MediaTextPrimary,
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(5.dp)
+                    .clip(RoundedCornerShape(V2Radius.Chip))
+                    .background(V2Colors.TimeCapsule)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
     }

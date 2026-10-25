@@ -40,7 +40,7 @@ class AlbumExperienceUiTest {
         compose.onNodeWithText("相册加载失败").assertIsDisplayed()
         compose.onNodeWithText("暂无照片").assertDoesNotExist()
         repo.pageFailure = false
-        compose.onNodeWithText("重新加载").performClick()
+        compose.onNodeWithText("重试").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("album_grid").fetchSemanticsNodes().isNotEmpty() }
     }
     @Test fun explicitTotalZeroShowsEmpty() {
@@ -63,6 +63,7 @@ class AlbumExperienceUiTest {
         val repo = repo(); val vm = vm(repo); repo.failPage2 = true
         compose.setContent { AlbumScreen(vm, "album", {}, { _, _, _, _, _ -> }) }
         compose.onNodeWithTag("album_grid").performScrollToIndex(49)
+        compose.onNodeWithText("日期未知").assertExists()
         compose.onNodeWithText("加载更多失败 · 重试").assertIsDisplayed()
         compose.onNodeWithText("120 张照片").assertIsDisplayed()
         repo.failPage2 = false

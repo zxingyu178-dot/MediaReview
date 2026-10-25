@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.animation.core.animateOffsetAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -93,8 +95,10 @@ fun ZoomableImage(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var gestureActive by remember { mutableStateOf(false) }
     val scaleRef = rememberUpdatedState(scale)
-    val offsetRef = rememberUpdatedState(offset)
+    val animatedOffset by animateOffsetAsState(offset, spring(dampingRatio = 0.72f, stiffness = 520f), label = "image_rebound")
+    val offsetRef = rememberUpdatedState(if (gestureActive) offset else animatedOffset)
 
     // 封面(媒体墙已缓存)作为渐进加载的第一帧: 进入 Viewer 立即有内容,不黑屏
     val context = LocalContext.current
@@ -167,6 +171,7 @@ fun ZoomableImage(
                         val pressed = event.changes.filter { it.pressed }
                         when {
                             pressed.size >= 2 -> {
+                                gestureActive = true
                                 multiTouch = true
                                 val c0 = pressed[0].position
                                 val c1 = pressed[1].position
@@ -194,8 +199,9 @@ fun ZoomableImage(
                                 // scale>1（或曾双指）时单指拖动图片；scale==1 时不消费，交给 Pager
                                 if (multiTouch || scale > 1f) {
                                     if (change.positionChanged()) {
+                                        gestureActive = true
                                         offset += change.positionChange()
-                                        offset = ZoomMath.clampOffset(offset, viewport, imageSize, scale)
+                                        offset = ZoomMath.resistOffset(offset, viewport, imageSize, scale)
                                         change.consume()
                                     }
                                 }
@@ -203,6 +209,8 @@ fun ZoomableImage(
                         }
                         if (event.changes.none { it.pressed }) break
                     }
+                    offset = ZoomMath.clampOffset(offset, viewport, imageSize, scale)
+                    gestureActive = false
                 }
             }
             .pointerInput(previewUri, fullUri) {

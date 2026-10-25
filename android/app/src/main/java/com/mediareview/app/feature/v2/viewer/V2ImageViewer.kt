@@ -4,7 +4,15 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
@@ -24,9 +32,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -45,6 +57,7 @@ import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import coil.imageLoader
 import coil.request.SuccessResult
 import com.mediareview.app.core.network.ImageRequestLifetime
+import kotlinx.coroutines.launch
 
 /**
  * V2 图片查看器（画册体验）：
@@ -144,6 +157,24 @@ fun V2ImageViewer(
 
     var showInfo by remember { mutableStateOf(false) }
     var currentScale by remember { mutableFloatStateOf(1f) }
+    var viewerHeight by remember { mutableFloatStateOf(1f) }
+    var draggingToDismiss by remember { mutableStateOf(false) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val dismissOffset = remember { Animatable(0f) }
+    val enterProgress = remember { Animatable(0f) }
+    val gestureScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { enterProgress.animateTo(1f, tween(180)) }
+    var exitRequested by remember { mutableStateOf(false) }
+    val requestExit: () -> Unit = {
+        if (!exitRequested) {
+            exitRequested = true
+            gestureScope.launch {
+                enterProgress.animateTo(0f, tween(150))
+                onBack()
+            }
+        }
+    }
+    BackHandler(onBack = requestExit)
 
     LaunchedEffect(pagerState.currentPage, ids.size) {
         viewerState.updateCurrentIndex(pagerState.currentPage)
@@ -177,6 +208,63 @@ fun V2ImageViewer(
     }
 
     Box(modifier = modifier.fillMaxSize().background(MediaImmersiveBackground)) {
+        Box(
+            Modifier.fillMaxSize()
+                .onSizeChanged { viewerHeight = it.height.toFloat().coerceAtLeast(1f) }
+                .graphicsLayer {
+                    val visibleOffset = if (draggingToDismiss) dragY else dismissOffset.value
+                    val dismissProgress = ViewerGesturePolicy.dismissProgress(visibleOffset, viewerHeight)
+                    translationY = visibleOffset
+                    val shrink = 1f - dismissProgress * 0.08f
+                    scaleX = shrink
+                    scaleY = shrink
+                    alpha = enterProgress.value * (1f - dismissProgress * 0.18f)
+                    val enterScale = 0.985f + enterProgress.value * 0.015f
+                    scaleX *= enterScale
+                    scaleY *= enterScale
+                }
+                .pointerInput(currentScale, viewerHeight) {
+                    detectVerticalDragGestures(
+                        onDragStart = {
+                            if (currentScale <= 1.001f) {
+                                draggingToDismiss = true
+                                dragY = 0f
+                            }
+                        },
+                        onVerticalDrag = { change, amount ->
+                            if (draggingToDismiss) {
+                                val next = (dragY + amount).coerceAtLeast(0f)
+                                if (next != dragY) change.consume()
+                                dragY = next
+                            }
+                        },
+                        onDragCancel = {
+                            val start = dragY
+                            draggingToDismiss = false
+                            gestureScope.launch {
+                                dismissOffset.snapTo(start)
+                                dismissOffset.animateTo(0f, spring())
+                            }
+                            dragY = 0f
+                        },
+                        onDragEnd = {
+                            val start = dragY
+                            val close = ViewerGesturePolicy.shouldDismiss(currentScale, start, 0f, viewerHeight)
+                            draggingToDismiss = false
+                            gestureScope.launch {
+                                dismissOffset.snapTo(start)
+                                if (close) {
+                                    dismissOffset.animateTo(viewerHeight, tween(180))
+                                    onBack()
+                                } else {
+                                    dismissOffset.animateTo(0f, spring(dampingRatio = 0.72f, stiffness = 480f))
+                                }
+                            }
+                            dragY = 0f
+                        },
+                    )
+                },
+        ) {
         CompositionLocalProvider(LocalOriginalImageSession provides OriginalImageSession(sourceNamespace, originalLifetime) { url ->
             if (url == currentOriginal) originalReadyKey = originalImageCacheKey(sourceNamespace, url)
         }) {
@@ -204,27 +292,44 @@ fun V2ImageViewer(
         }
         }
 
-        if (viewerState.uiVisible) {
+        AnimatedVisibility(
+            visible = viewerState.uiVisible,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            val currentPending = currentMedia?.let { media ->
+                (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(media.id) == true
+            } == true
             ImageViewerTopBar(
                 name = currentMedia?.name ?: "图片",
-                code = currentMedia?.code.orEmpty(),
-                currentIndex = pagerState.currentPage,
-                total = ids.size,
-                onBack = onBack,
-                modifier = Modifier.align(Alignment.TopCenter),
+                onBack = requestExit,
+                onInfo = { showInfo = true },
+                onToggleFavorite = { currentMedia?.let { vm.setFavorite(it.id, !it.isFavorite) } },
+                onTogglePendingDelete = { currentMedia?.let { media -> pendingSession?.let { vm.toggleViewerPendingDelete(it, media.id) } } },
+                isFavorite = currentMedia?.isFavorite == true,
+                isPendingDelete = currentPending,
+                pendingDeleteEnabled = currentMedia?.canDelete == true && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
             )
         }
 
-        if (viewerState.uiVisible && currentMedia != null) {
+        AnimatedVisibility(
+            visible = viewerState.uiVisible && currentMedia != null,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val media = currentMedia ?: return@AnimatedVisibility
             ImageViewerBottomBar(
-                isFavorite = currentMedia.isFavorite,
-                isPendingDelete = (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(currentMedia.id) == true,
-                onToggleFavorite = { vm.setFavorite(currentMedia.id, !currentMedia.isFavorite) },
+                currentIndex = pagerState.currentPage,
+                total = ids.size,
+                isFavorite = media.isFavorite,
+                isPendingDelete = (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(media.id) == true,
+                onToggleFavorite = { vm.setFavorite(media.id, !media.isFavorite) },
                 onInfo = { showInfo = true },
-                onTogglePendingDelete = { pendingSession?.let { vm.toggleViewerPendingDelete(it, currentMedia.id) } },
-                modifier = Modifier.align(Alignment.BottomCenter),
-                pendingDeleteEnabled = currentMedia.canDelete && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
-                pendingDeleteLabel = if (!currentMedia.canDelete) "不可删除" else when (pendingState) {
+                onTogglePendingDelete = { pendingSession?.let { vm.toggleViewerPendingDelete(it, media.id) } },
+                pendingDeleteEnabled = media.canDelete && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
+                pendingDeleteLabel = if (!media.canDelete) "不可删除" else when (pendingState) {
                     ViewerPendingDeleteState.Loading -> "正在加载…"
                     is ViewerPendingDeleteState.Error -> "状态未知"
                     is ViewerPendingDeleteState.Ready -> null
@@ -246,6 +351,7 @@ fun V2ImageViewer(
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 145.dp))
+        }
     }
 
     if (showInfo && currentMedia != null) {
@@ -258,6 +364,9 @@ fun V2ImageViewer(
             sizeBytes = currentMedia.sizeBytes,
             dateMillis = currentMedia.dateMillis,
             isFavorite = currentMedia.isFavorite,
+            sourceType = currentMedia.sourceType,
+            relativePath = safeViewerRelativePath(currentMedia.assetPath, currentMedia.assetPath),
+            isPendingDelete = (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(currentMedia.id) == true,
             onDismiss = { showInfo = false },
         )
     }

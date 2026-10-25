@@ -48,6 +48,15 @@ object ZoomMath {
         )
     }
 
+    /** 拖动时允许少量越界阻尼；手势结束后再回到 [clampOffset] 的硬边界。 */
+    fun resistOffset(offset: Offset, viewport: Size, image: Size, scale: Float): Offset {
+        val hard = clampOffset(offset, viewport, image, scale)
+        return Offset(
+            x = hard.x + (offset.x - hard.x) * 0.22f,
+            y = hard.y + (offset.y - hard.y) * 0.22f,
+        )
+    }
+
     /**
      * 以层中心 [origin] 为 TransformOrigin、焦点 [focal] 放大 [k] 倍（k = 新scale/旧scale）。
      * 与 graphicsLayer(transformOrigin = TransformOrigin(0.5f, 0.5f)) 的坐标模型一致：

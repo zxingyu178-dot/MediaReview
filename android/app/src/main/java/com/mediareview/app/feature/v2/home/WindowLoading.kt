@@ -42,6 +42,7 @@ internal fun WindowCoverPrefetch(
     albumCovers: Boolean = false,
     squareCovers: Boolean = false,
     leadingItemCount: Int = 0,
+    visibleIndexToMediaIndex: ((Int) -> Int)? = null,
 ) {
     val context = LocalContext.current
     LaunchedEffect(urls, grid, mode, albumCovers, squareCovers, leadingItemCount) {
@@ -54,7 +55,10 @@ internal fun WindowCoverPrefetch(
             }
         }
         warm(0)
-        if (grid != null) snapshotFlow { (grid.firstVisibleItemIndex - leadingItemCount).coerceAtLeast(0) }
+        if (grid != null) snapshotFlow {
+            visibleIndexToMediaIndex?.invoke(grid.firstVisibleItemIndex)
+                ?: (grid.firstVisibleItemIndex - leadingItemCount).coerceAtLeast(0)
+        }
             .distinctUntilChanged().collectLatest { warm(it) }
     }
 }

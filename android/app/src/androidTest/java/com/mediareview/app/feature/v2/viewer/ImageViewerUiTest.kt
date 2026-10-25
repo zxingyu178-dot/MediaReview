@@ -79,6 +79,7 @@ class ImageViewerUiTest {
         val vm = newVm()
         setViewer(vm)
         compose.onNodeWithTag("viewer_back").assertExists()
+        compose.onNodeWithTag("viewer_more").assertExists()
         compose.onNodeWithTag("viewer_count").assertExists()
         compose.onNodeWithTag("viewer_favorite").assertExists()
         compose.onNodeWithTag("viewer_info").assertExists()
@@ -93,6 +94,9 @@ class ImageViewerUiTest {
         setViewer(vm)
         compose.onNodeWithTag("viewer_info").performClick()
         compose.onNodeWithText("编号").assertIsDisplayed()
+        compose.onNodeWithText("来源").assertIsDisplayed()
+        compose.onNodeWithText("相对路径").assertIsDisplayed()
+        compose.onNodeWithText("待删除").assertIsDisplayed()
         Espresso.pressBack()
         compose.onNodeWithText("编号").assertDoesNotExist()
     }

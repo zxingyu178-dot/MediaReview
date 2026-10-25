@@ -101,4 +101,13 @@ class ZoomMathTest {
         assertTrue(size.width > 0f)
         assertEquals(1080f, size.width, 0.001f)
     }
+
+    @Test fun `边界外拖动保留阻尼并可回弹到硬边界`() {
+        val viewport = Size(1000f, 1000f)
+        val image = Size(1000f, 1000f)
+        val resisted = ZoomMath.resistOffset(Offset(800f, 0f), viewport, image, 2f)
+        assertTrue(resisted.x > 500f)
+        assertTrue(resisted.x < 800f)
+        assertEquals(500f, ZoomMath.clampOffset(resisted, viewport, image, 2f).x, 0.001f)
+    }
 }
