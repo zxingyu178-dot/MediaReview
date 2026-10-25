@@ -311,13 +311,13 @@ def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
     db.dispose()
 
 
-def test_delete_receipt_counts_pending_separately():
+def test_delete_receipt_contract_only_has_stable_terminal_outcomes():
     receipt = delete_queue.DeleteReceipt()
-    receipt.update(ok="success", gone="missing", bad="failed", waiting="pending")
+    receipt.update(ok="success", gone="missing", bad="failed")
     assert receipt.deleted_count == 1
     assert receipt.missing_count == 1
     assert receipt.failed_count == 1
-    assert receipt.pending_count == 1
+    assert not hasattr(receipt, "pending_count")
 
 
 @pytest.mark.parametrize("kind", ["relative", "parent_traversal", "unc", "uri"])
@@ -615,7 +615,6 @@ def test_authenticated_api_nonce_receipt(tmp_path, data_root):
             "deleted_bytes": 16,
             "missing_count": 0,
             "failed_count": 0,
-            "pending_count": 0,
         }
         assert not path.exists()
         assert (

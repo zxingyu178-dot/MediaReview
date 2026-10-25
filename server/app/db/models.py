@@ -430,7 +430,7 @@ class DeleteQueue(Base):
     - pending:  已在待删除列表中,可撤销
     - committing: nonce 已消费且删除意图已持久化，等待逐项收敛
     - delete_done: 物理删除已确认，元数据待清理
-    - delete_pending: 删除已请求，等待系统确认名字消失
+    - delete_pending: 旧版本兼容读取；新版本不再创建
     - succeeded / failed: commit 执行结果
     """
 

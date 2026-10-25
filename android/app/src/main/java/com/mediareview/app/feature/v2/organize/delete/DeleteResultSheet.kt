@@ -68,13 +68,6 @@ fun DeleteResultSheet(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MediaTextSecondary,
             )
-            result.pendingMessage?.let { message ->
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MediaTextSecondary,
-                )
-            }
             if (result.failedCount > 0) {
                 result.failedNames.take(MAX_FAILED_NAMES).forEach { name ->
                     Text(

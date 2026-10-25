@@ -95,6 +95,13 @@ class LocalDeleteNotVerifiedError(LocalDeleteError):
     default_message = "无法确认文件已删除，已停止本次操作"
 
 
+class LocalDeleteNotSupportedError(LocalDeleteError):
+    status_code = 409
+    code = "LOCAL_DELETE_NOT_SUPPORTED"
+    delete_code = "delete_not_supported"
+    default_message = "当前 Windows 版本不支持安全本地删除，请升级系统或使用电脑端删除"
+
+
 @dataclass(frozen=True)
 class VerifiedLocalDelete:
     root: LocalRoot
@@ -464,7 +471,7 @@ def _close_windows_handle(close_handle, handle) -> bool:
 
 
 def _windows_delete_bound(
-    target: VerifiedLocalDelete, *, force_legacy_disposition: bool = False
+    target: VerifiedLocalDelete, *, force_posix_unsupported: bool = False
 ) -> str:
     """用同一 Windows 句柄完成身份绑定、根边界复验和 disposition 删除。"""
     import ctypes
@@ -475,7 +482,6 @@ def _windows_delete_bound(
     share_all = 0x00000001 | 0x00000002 | 0x00000004
     open_existing = 3
     open_reparse_point = 0x00200000
-    file_disposition_info = 4
     file_disposition_info_ex = 21
     file_disposition_delete = 0x00000001
     file_disposition_posix_semantics = 0x00000002
@@ -498,9 +504,6 @@ def _windows_delete_bound(
             ("nFileIndexHigh", wintypes.DWORD),
             ("nFileIndexLow", wintypes.DWORD),
         ]
-
-    class FileDispositionInformation(ctypes.Structure):
-        _fields_ = [("DeleteFile", wintypes.BOOLEAN)]
 
     class FileDispositionInformationEx(ctypes.Structure):
         _fields_ = [("Flags", wintypes.DWORD)]
@@ -549,7 +552,6 @@ def _windows_delete_bound(
             raise LocalDeleteAccessDeniedError() from None
         raise LocalIdentityBindingError() from None
 
-    disposition_mode: str | None = None
     close_succeeded = False
     try:
         info = ByHandleFileInformation()
@@ -584,54 +586,31 @@ def _windows_delete_bound(
         if os.path.normcase(str(final_path)) != os.path.normcase(str(target.path.absolute())):
             raise SourcePathError()
 
-        use_legacy = force_legacy_disposition
-        if not use_legacy:
-            disposition_ex = FileDispositionInformationEx(
-                file_disposition_delete | file_disposition_posix_semantics
-            )
-            if set_info(
+        disposition_ex = FileDispositionInformationEx(
+            file_disposition_delete | file_disposition_posix_semantics
+        )
+        disposition_set = False if force_posix_unsupported else bool(
+            set_info(
                 handle,
                 file_disposition_info_ex,
                 ctypes.byref(disposition_ex),
                 ctypes.sizeof(disposition_ex),
-            ):
-                disposition_mode = "posix"
-            else:
-                error = ctypes.get_last_error()
-                if error in unsupported_posix_errors:
-                    use_legacy = True
-                elif error in sharing_errors:
-                    raise LocalFileInUseError() from None
-                elif error == error_access_denied:
-                    raise LocalDeleteAccessDeniedError() from None
-                else:
-                    raise LocalDeleteNotVerifiedError() from None
-
-        if use_legacy:
-            disposition = FileDispositionInformation(True)
-            if not set_info(
-                handle,
-                file_disposition_info,
-                ctypes.byref(disposition),
-                ctypes.sizeof(disposition),
-            ):
-                error = ctypes.get_last_error()
-                if error in sharing_errors:
-                    raise LocalFileInUseError() from None
-                if error == error_access_denied:
-                    raise LocalDeleteAccessDeniedError() from None
-                raise LocalDeleteNotVerifiedError() from None
-            disposition_mode = "legacy"
+            )
+        )
+        if not disposition_set:
+            error = 50 if force_posix_unsupported else ctypes.get_last_error()
+            if error in unsupported_posix_errors:
+                raise LocalDeleteNotSupportedError() from None
+            if error in sharing_errors:
+                raise LocalFileInUseError() from None
+            if error == error_access_denied:
+                raise LocalDeleteAccessDeniedError() from None
+            raise LocalDeleteNotSupportedError() from None
     finally:
         close_succeeded = _close_windows_handle(close_handle, handle)
         if not close_succeeded:
-            # 不记录路径/句柄值。POSIX 路径已由 lstat 证明名字消失时仍是 success；
-            # 传统路径或未确认消失的 POSIX 路径保持 pending，交给恢复只观察。
+            # 不记录路径/句柄值；最终结果仍只由关闭后的名字复验决定。
             logger.warning("本地删除句柄关闭失败；保留已确认或可恢复的删除语义")
-    if disposition_mode is None:
-        raise LocalDeleteNotVerifiedError()
-    if disposition_mode == "legacy":
-        return "pending"
 
     # POSIX disposition 只有在关闭删除句柄后再由名字复验为不存在，才算物理删除已确认。
     try:
@@ -639,8 +618,8 @@ def _windows_delete_bound(
     except FileNotFoundError:
         return "success"
     except OSError:
-        return "pending"
-    return "pending"
+        raise LocalDeleteNotVerifiedError() from None
+    raise LocalDeleteNotVerifiedError()
 
 
 def _posix_delete_bound(target: VerifiedLocalDelete) -> None:
@@ -672,9 +651,9 @@ def delete_local_media(
     *,
     allow_missing: bool = False,
     before_identity_binding: Callable[[], None] | None = None,
-    force_legacy_disposition: bool = False,
+    force_posix_unsupported: bool = False,
 ) -> tuple[str, int] | None:
-    """复验后按身份绑定删除；返回 ``(success|pending, bytes)``，missing 返回 None。"""
+    """复验后按身份绑定删除；返回 ``(success, bytes)``，missing 返回 None。"""
     target = _resolve_deletable_local(session, media, allow_missing=allow_missing)
     if target is None:
         return None
@@ -694,7 +673,7 @@ def delete_local_media(
     try:
         if os.name == "nt":
             result = _windows_delete_bound(
-                target, force_legacy_disposition=force_legacy_disposition
+                target, force_posix_unsupported=force_posix_unsupported
             )
         else:
             _posix_delete_bound(target)

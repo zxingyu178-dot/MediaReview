@@ -215,26 +215,22 @@ class V2ServerOrganizeRepository internal constructor(
                 throw error
             }
             val outcome = dto.outcome.mapValues { (_, value) -> DeleteOutcomeStatus.fromWire(value) }
-            val pendingCount = dto.pending_count
-                ?: if (outcome.none { it.value == DeleteOutcomeStatus.Pending }) 0 else null
             val receipt = if (
                 dto.deleted_count != null && dto.deleted_bytes != null &&
-                dto.missing_count != null && dto.failed_count != null && pendingCount != null &&
+                dto.missing_count != null && dto.failed_count != null &&
                 dto.deleted_count >= 0 && dto.deleted_bytes >= 0 &&
-                dto.missing_count >= 0 && dto.failed_count >= 0 && pendingCount >= 0 &&
+                dto.missing_count >= 0 && dto.failed_count >= 0 &&
                 dto.deleted_count == outcome.count { it.value == DeleteOutcomeStatus.Success } &&
                 dto.missing_count == outcome.count { it.value == DeleteOutcomeStatus.Missing } &&
                 dto.failed_count == outcome.count {
                     it.value == DeleteOutcomeStatus.Failed || it.value == DeleteOutcomeStatus.Unknown
                 } &&
-                pendingCount == outcome.count { it.value == DeleteOutcomeStatus.Pending } &&
                 (dto.deleted_count > 0 || dto.deleted_bytes == 0L)
             ) DiskDeletionReceipt(
                 dto.deleted_count,
                 dto.deleted_bytes,
                 dto.missing_count,
                 dto.failed_count,
-                pendingCount,
             )
             else null
             DeleteCommitResponse(outcome, receipt)

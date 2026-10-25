@@ -41,7 +41,6 @@ class CommitResult(BaseModel):
     deleted_bytes: int = 0
     missing_count: int = 0
     failed_count: int = 0
-    pending_count: int = 0
 
 
 class QueueSummaryView(BaseModel):
@@ -148,7 +147,6 @@ async def commit(
             deleted_bytes=outcome.deleted_bytes,
             missing_count=outcome.missing_count,
             failed_count=outcome.failed_count,
-            pending_count=outcome.pending_count,
         )
     )
 

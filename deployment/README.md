@@ -4,6 +4,10 @@
 
 当前目标：Android `2.0.0-alpha15` / code22；Server `1.5.2` / API Contract `2` / 迁移 `0016`。
 
+> **本地安全删除最低系统要求**：Windows 10 版本 1709 或更高版本。Server 只使用
+> `FILE_DISPOSITION_INFO_EX` 的 POSIX 删除语义，不会回退到传统 delete-on-close。
+> 不支持该能力时删除会在文件发生任何变化前失败，并提示改用升级后的 Windows 或电脑端删除。
+
 本文件随 1.5.2 正式离线产物交付：`MediaReview_2.0.0-alpha15_stage9.apk`、`MediaReview_Server_1.5.2_stage9.zip`。2026-10-20 已经用户授权，通过 ControlHub 停服、完整备份、逐文件校验后把生产升级到 Server 1.5.2；自动升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`，后续升级仍须单独授权并按 UPGRADE_ROLLBACK.md 执行。
 
 ## 既有发布入口

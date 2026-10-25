@@ -128,14 +128,14 @@ def _forge_pending(native_db, media_id, size):
 
 
 def _commit_pending_with_nonce(
-    native_db, nonce, *, local_delete_hook=None, force_legacy_disposition=False
+    native_db, nonce, *, local_delete_hook=None, force_posix_unsupported=False
 ):
     with native_db.session() as s:
         outcome = delete_queue.commit_with_nonce(
             s,
             nonce,
             _local_delete_hook=local_delete_hook,
-            _force_legacy_disposition=force_legacy_disposition,
+            _force_posix_unsupported=force_posix_unsupported,
         )
         s.commit()
     return outcome
@@ -751,38 +751,55 @@ def test_windows_posix_cleanup_failure_stays_delete_done_and_recovers(
         ) == "metadata_cleanup_recovered"
 
 
-def test_windows_legacy_disposition_is_pending_until_last_handle_closes(
-    native_db, tmp_path
+def test_windows_posix_state_flush_failure_returns_success_and_recovers(
+    native_db, tmp_path, monkeypatch
 ):
-    """传统 disposition 只返回 pending；恢复只观察，最后句柄关闭后才清理。"""
+    """名字已消失后首次状态 flush 失败仍回 success，并从 committing 恢复。"""
     if os.name != "nt":
-        pytest.skip("Windows legacy disposition 专项")
+        pytest.skip("Windows POSIX disposition 专项")
 
-    root, _ = _register_and_scan(native_db, tmp_path, {"legacy.jpg": b"legacy"})
-    target, mid = root / "legacy.jpg", _indexed(native_db)[0]
+    root, _ = _register_and_scan(native_db, tmp_path, {"persist.jpg": b"persist"})
+    target, mid = root / "persist.jpg", _indexed(native_db)[0]
     with native_db.session() as session:
         session.add(Favorite(media_id=mid))
-        delete_queue.enqueue(session, mid, size_bytes=6)
+        delete_queue.enqueue(session, mid, size_bytes=7)
         nonce = delete_queue.prepare_commit(session).nonce
         session.commit()
 
-    kernel32, reader = _open_windows_read_handle(target, share_delete=True)
-    receipt = _commit_pending_with_nonce(
-        native_db, nonce, force_legacy_disposition=True
-    )
-    assert receipt == {mid: "pending"}
-    assert target.exists()
-    with native_db.session() as session:
-        row = session.get(DeleteQueue, mid)
-        assert row.status == "delete_pending"
-        assert session.get(MediaCacheIndex, mid) is not None
-    with native_db.session() as session:
-        delete_queue.recover_interrupted_deletes(session)
-    with native_db.session() as session:
-        assert session.get(DeleteQueue, mid).status == "delete_pending"
+    original_persist = delete_queue._persist_delete_state
+    failed_once = False
 
-    assert kernel32.CloseHandle(reader)
-    assert not target.exists()
+    def fail_first_delete_done_flush(session, row, *, status, audit_detail=None):
+        nonlocal failed_once
+        if status == "delete_done" and not failed_once:
+            failed_once = True
+            row.status = status
+            row.error = None
+            session.flush()
+            raise RuntimeError("injected first delete_done commit failure")
+        return original_persist(
+            session, row, status=status, audit_detail=audit_detail
+        )
+
+    kernel32, reader = _open_windows_read_handle(target, share_delete=True)
+    try:
+        monkeypatch.setattr(
+            delete_queue, "_persist_delete_state", fail_first_delete_done_flush
+        )
+        receipt = _commit_pending_with_nonce(native_db, nonce)
+        assert receipt == {mid: "success"}
+        assert receipt.deleted_bytes == 7
+        assert not target.exists()
+        assert _windows_handle_still_references_file(kernel32, reader)
+        with native_db.session() as session:
+            row = session.get(DeleteQueue, mid)
+            assert row.status == "committing"
+            assert session.get(MediaCacheIndex, mid) is not None
+            assert session.get(Favorite, mid) is not None
+    finally:
+        assert kernel32.CloseHandle(reader)
+
+    monkeypatch.undo()
     with native_db.session() as session:
         delete_queue.recover_interrupted_deletes(session)
     with native_db.session() as session:
@@ -796,21 +813,17 @@ def test_windows_legacy_disposition_is_pending_until_last_handle_closes(
                 )
             )
         )
-        assert details == ["pending", "recovered_deleted"]
+        assert details == ["recovered_deleted"]
 
 
-@pytest.mark.parametrize(
-    ("force_legacy", "expected_receipt", "expected_status"),
-    [(False, "success", None), (True, "pending", "delete_pending")],
-)
 def test_windows_production_close_handle_failure_has_recoverable_semantics(
-    native_db, tmp_path, monkeypatch, force_legacy, expected_receipt, expected_status
+    native_db, tmp_path, monkeypatch
 ):
-    """生产删除句柄 CloseHandle 报失败：POSIX 名字已消失仍成功，传统路径保持 pending。"""
+    """受控 CloseHandle false 仅在真实关闭且名字已验证消失后仍判 success。"""
     if os.name != "nt":
         pytest.skip("Windows CloseHandle 故障注入专项")
 
-    name = "close-legacy.jpg" if force_legacy else "close-posix.jpg"
+    name = "close-posix.jpg"
     root, _ = _register_and_scan(native_db, tmp_path, {name: b"close"})
     target, mid = root / name, _indexed(native_db)[0]
     with native_db.session() as session:
@@ -824,20 +837,42 @@ def test_windows_production_close_handle_failure_has_recoverable_semantics(
         nonlocal called
         called = True
         assert close_handle(handle)
+        assert not target.exists()
         return False
 
     monkeypatch.setattr(
         native_sources, "_close_windows_handle", close_but_report_failure, raising=False
     )
-    receipt = _commit_pending_with_nonce(
-        native_db, nonce, force_legacy_disposition=force_legacy
-    )
+    receipt = _commit_pending_with_nonce(native_db, nonce)
     assert called
-    assert receipt == {mid: expected_receipt}
+    assert receipt == {mid: "success"}
     with native_db.session() as session:
-        row = session.get(DeleteQueue, mid)
-        assert (None if row is None else row.status) == expected_status
+        assert session.get(DeleteQueue, mid) is None
     assert not target.exists()
+
+
+def test_windows_posix_unsupported_fails_closed_without_deleting(native_db, tmp_path):
+    """POSIX disposition 不受支持时返回稳定失败码，文件与元数据保持原样。"""
+    if os.name != "nt":
+        pytest.skip("Windows POSIX disposition 专项")
+
+    root, _ = _register_and_scan(native_db, tmp_path, {"unsupported.jpg": b"keep"})
+    target, mid = root / "unsupported.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        delete_queue.enqueue(session, mid, size_bytes=4)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    receipt = _commit_pending_with_nonce(
+        native_db, nonce, force_posix_unsupported=True
+    )
+    assert receipt == {mid: "failed"}
+    assert target.read_bytes() == b"keep"
+    with native_db.session() as session:
+        queued = session.get(DeleteQueue, mid)
+        assert queued.status == "failed"
+        assert queued.error == "delete_not_supported"
+        assert session.get(MediaCacheIndex, mid) is not None
 
 
 def test_windows_handle_without_share_delete_fails_file_in_use(native_db, tmp_path):

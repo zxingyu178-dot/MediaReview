@@ -52,15 +52,12 @@ data class DeleteCommitResult(
     val missingCount: Int,
     val failedCount: Int,
     val failedNames: List<String>,
-    val pendingCount: Int = 0,
     /** success + missing：这些媒体在服务端已消失，需要上层同步刷新并丢弃缓存。 */
     val changedMediaIds: List<String>,
     val diskReceipt: DiskDeletionReceipt? = null,
     val demo: Boolean = false,
 ) {
-    val total: Int get() = successCount + missingCount + failedCount + pendingCount
-    val pendingMessage: String? get() =
-        if (pendingCount > 0) "删除请求已提交，等待系统完成" else null
+    val total: Int get() = successCount + missingCount + failedCount
 }
 
 /** 一次性事件（Snackbar / 上层刷新）。 */
@@ -77,7 +74,8 @@ sealed interface DeleteQueueEvent {
  * Server 侧 error 形如 `file_size_changed` / `file_modified_changed` /
  * `library_not_allowed` / `stat_failed:[Errno ...]`，本地源（native_delete_v1）追加
  * `local_root_disabled` / `local_root_missing` / `path_rejected` /
- * `file_identity_changed` / `file_in_use` / `delete_access_denied` / `delete_not_verified`。
+ * `file_identity_changed` / `file_in_use` / `delete_access_denied` /
+ * `delete_not_supported` / `delete_not_verified`。
  *
  * 只做**前缀 → 固定中文**映射：绝不把原始 Python 异常/堆栈/服务端绝对路径展示给用户
  * （未知码统一回退"删除失败"）。
@@ -95,6 +93,8 @@ internal fun deleteFailureReason(error: String?): String? = when {
     error.startsWith("file_identity_changed") -> "文件身份已变化，请刷新队列后重新标记"
     error.startsWith("file_in_use") -> "文件正在被占用，请稍后重试"
     error.startsWith("delete_access_denied") -> "没有权限删除该文件"
+    error.startsWith("delete_not_supported") ->
+        "当前 Windows 版本不支持安全本地删除，请升级系统或使用电脑端删除"
     error.startsWith("delete_not_verified") -> "删除结果未通过校验，请刷新队列核对"
     else -> "删除失败"
 }
@@ -237,12 +237,11 @@ class DeleteQueueViewModel @Inject constructor(
         _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
     }
 
-    /** 按服务端合同汇总：pending 单列等待系统完成，不算成功或失败。 */
+    /** 按服务端稳定三值合同汇总。 */
     private fun summarize(response: DeleteCommitResponse): DeleteCommitResult {
         val outcome = response.outcome
         val success = outcome.count { (_, status) -> status.successful }
         val missing = outcome.count { (_, status) -> status == DeleteOutcomeStatus.Missing }
-        val pending = outcome.count { (_, status) -> status == DeleteOutcomeStatus.Pending }
         val failedIds = outcome.filter { (_, status) ->
             status == DeleteOutcomeStatus.Failed || status == DeleteOutcomeStatus.Unknown
         }.keys.toList()
@@ -253,7 +252,6 @@ class DeleteQueueViewModel @Inject constructor(
             missingCount = missing,
             failedCount = failedIds.size,
             failedNames = failedIds.map { nameById[it] ?: it },
-            pendingCount = pending,
             changedMediaIds = changed,
             diskReceipt = response.diskReceipt,
             demo = response.demo,

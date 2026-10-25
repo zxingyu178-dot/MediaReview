@@ -3003,3 +3003,20 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 - 已完成并推送：`485e2e7`（POSIX 删除状态机）、`48aa26f`（Android pending）、`03083da`（文档），`cfe7ca5..03083da` 已推送到 GitHub。
 - 第四轮定点复审启动时触发 ChatGPT Plus 额度上限（提示 **10:47 复位**），未生成报告；P5 发版继续暂停。
 - 已设 10:48 提醒：额度复位后立即执行第四轮复审；通过则推送/更新状态并进入 P5（Server 1.6.0 / Android alpha16-code23）。
+
+## 2026-10-25 第四轮复审修复：POSIX-only 删除与 receipt 收敛（I7/I8/M4）
+
+第四轮 Codex 复审（`review_meta/codex-review-20261025-round4/round4-review.md`）BLOCK：I7（disposition 已接受后首次状态持久化失败仍可能返回 failed 并被恢复过早终结）与 I8（新增 pending 枚举对旧 Android 不兼容；新 App 面板标题误报"删除完成"）。Lead 决定简化语义并交由 Codex 实施（报告 `review_meta/codex-fix-20261025-round4/fix-report.md`）：
+
+- **POSIX-only**：Windows 本地删除只使用 `FILE_DISPOSITION_INFO_EX=21` + `FILE_DISPOSITION_DELETE|FILE_DISPOSITION_POSIX_SEMANTICS`；移除传统 disposition 回退与 legacy 入口。系统不支持时在任何删除前 fail-closed：稳定码 `delete_not_supported`（中文提示升级系统/使用电脑端删除），文件、索引、队列保持不变。最低系统要求 Windows 10 1709，已写入 deployment/README 与 USER_INSTALL_GUIDE。
+- **I7**：POSIX disposition 后关闭句柄并以 `lstat` 确认名字消失；若首次 `delete_done` 持久化 flush/commit 失败，不再返回 failed——保留已耐久提交的 `committing` 行并返回 success（物理删除已验证），恢复在启动/惰性入口看到 `committing+名字缺失` 后转 `delete_done`、补元数据清理与 `recovered_deleted` 审计。`committing+名字仍存在` 仍为 failed（POSIX 下表示 disposition 未生效）。
+- **I8**：服务端 receipt 恢复为 `success/missing/failed` 三值，移除 `pending`/`pending_count`；Android DTO/仓库/ViewModel/结果面板回退 pending 语义，旧客户端完全兼容；结果面板不再出现"删除完成+等待系统完成"矛盾。
+- `delete_pending` 仅保留历史数据读取与 0017 downgrade 拦截，新代码不再创建。
+
+验证（Codex 定向）：Server 五文件 **101 passed / 0 failed**；Android 三类 36/36；ruff 通过。Lead 全量结果见后续条目。未 commit/push（Lead 统一提交）；未构建产物；未上真机。
+
+### 2026-10-25 Lead 全量验证（第四轮修复后）
+- Server 全量 pytest：**737 通过 / 2 失败 / 739 项 / 424.85s**；2 项为本机 ffmpeg 完整性级别环境限制，换可写 basetemp 单独复跑 **2 passed**；十万行查询性能门禁通过。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL）。
+- Ruff：改动文件通过。
+- 结论：本轮修复相关与全量回归通过（除已分类 2 项本机环境失败）；发版仍以第五轮独立复审通过为前提。

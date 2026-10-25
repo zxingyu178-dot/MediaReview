@@ -307,7 +307,6 @@ data class CommitResultDto(
     val deleted_bytes: Long? = null,
     val missing_count: Int? = null,
     val failed_count: Int? = null,
-    val pending_count: Int? = null,
 )
 
 /** 最终删除预备信息(POST /delete-queue/commit/prepare):一次性 nonce + 队列快照摘要。 */
@@ -387,18 +386,16 @@ data class CommitRequest(
 /**
  * 最终删除单项结果的服务端合同解析。
  *
- * Server 返回 `success`/`missing`/`failed`/`pending`：
+ * Server 返回 `success`/`missing`/`failed`：
  * - success:文件已真实删除,计成功且推进下游内容;
  * - missing:文件本就不存在(幂等清理),推进下游内容但不计删除成功;
  * - failed :删除失败,不推进下游内容。
- * - pending:删除请求已提交但系统尚未确认名字消失，不推进下游内容且不算失败。
  * 任何其他值一律按 [Unknown] 处理(fail-closed:不推进、不计成功)。
  */
 enum class DeleteOutcomeStatus(val changed: Boolean, val successful: Boolean) {
     Success(changed = true, successful = true),
     Missing(changed = true, successful = false),
     Failed(changed = false, successful = false),
-    Pending(changed = false, successful = false),
     Unknown(changed = false, successful = false),
     ;
 
@@ -407,7 +404,6 @@ enum class DeleteOutcomeStatus(val changed: Boolean, val successful: Boolean) {
             "success" -> Success
             "missing" -> Missing
             "failed" -> Failed
-            "pending" -> Pending
             else -> Unknown
         }
     }

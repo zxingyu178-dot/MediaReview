@@ -99,11 +99,6 @@ class DeleteReceipt(dict[str, str]):
     def failed_count(self) -> int:
         return sum(value == "failed" for value in self.values())
 
-    @property
-    def pending_count(self) -> int:
-        return sum(value == "pending" for value in self.values())
-
-
 def enqueue(session: Session, media_id: str, *, size_bytes: int | None = None) -> bool:
     """加入待删除队列。已 committed 的不再入队。返回是否为新增入队。"""
     from app.db.models import MediaCacheIndex
@@ -394,15 +389,15 @@ def commit_with_nonce(
     nonce: str,
     *,
     _local_delete_hook=None,
-    _force_legacy_disposition: bool = False,
+    _force_posix_unsupported: bool = False,
 ) -> DeleteReceipt:
-    """使用 nonce 删除快照媒体，逐项返回 success/missing/failed/pending。"""
+    """使用 nonce 删除快照媒体，逐项返回 success/missing/failed。"""
     claims = _claim_nonce(session, nonce)
     return _commit_claims(
         session,
         claims,
         _local_delete_hook=_local_delete_hook,
-        _force_legacy_disposition=_force_legacy_disposition,
+        _force_posix_unsupported=_force_posix_unsupported,
     )
 
 
@@ -456,7 +451,7 @@ def _commit_local_media(
     media,
     *,
     _before_delete_hook=None,
-    _force_legacy_disposition: bool = False,
+    _force_posix_unsupported: bool = False,
 ) -> tuple[str, int]:
     """本地源单条安全删除；返回 ``(result, deleted_bytes)``。
 
@@ -483,7 +478,7 @@ def _commit_local_media(
         media,
         allow_missing=True,
         before_identity_binding=_before_delete_hook,
-        force_legacy_disposition=_force_legacy_disposition,
+        force_posix_unsupported=_force_posix_unsupported,
     )
     if deletion is None:
         return "missing", 0
@@ -580,7 +575,7 @@ def _delete_one(
     media: MediaCacheIndex,
     *,
     _local_delete_hook=None,
-    _force_legacy_disposition: bool = False,
+    _force_posix_unsupported: bool = False,
 ) -> tuple[str, int]:
     """执行单条物理删除，不写数据库 outcome。"""
     media_path = media.media_path
@@ -591,7 +586,7 @@ def _delete_one(
             session,
             media,
             _before_delete_hook=_local_delete_hook,
-            _force_legacy_disposition=_force_legacy_disposition,
+            _force_posix_unsupported=_force_posix_unsupported,
         )
     if media.source_type != "jellyfin":
         raise ValueError("unsupported_source_type")
@@ -616,7 +611,7 @@ def _commit_one(
     entry: _SnapshotEntry,
     *,
     _local_delete_hook=None,
-    _force_legacy_disposition: bool = False,
+    _force_posix_unsupported: bool = False,
 ) -> tuple[str, int]:
     """处理一条 committing intent，并在独立事务中收敛。"""
     media_id = entry.media_id
@@ -639,7 +634,7 @@ def _commit_one(
             session,
             media,
             _local_delete_hook=_local_delete_hook,
-            _force_legacy_disposition=_force_legacy_disposition,
+            _force_posix_unsupported=_force_posix_unsupported,
         )
     except FileNotFoundError:
         result, actual_size = "missing", 0
@@ -670,21 +665,14 @@ def _commit_one(
             session.flush()
             session.commit()
             return result, 0
-        if result == "pending":
-            _persist_delete_state(
-                session,
-                row,
-                status="delete_pending",
-                audit_detail="pending",
-            )
-            return result, 0
-
         # 文件名已确认消失。先独立提交 delete_done，再尝试不可回滚的元数据清理。
         _persist_delete_state(session, row, status="delete_done")
     except Exception:
         session.rollback()
-        _record_internal_error(session, media_id, entry.queue_token)
-        return "failed", 0
+        # POSIX 名字已由物理删除路径确认消失；SQLite 仍保留已耐久提交的
+        # committing intent，下一次恢复会转 delete_done 并补清理/审计。
+        logger.warning("已确认物理删除，但删除状态未持久化；保留 committing 等待恢复")
+        return result, actual_size if result == "success" else 0
 
     try:
         row = session.get(DeleteQueue, media_id)
@@ -705,7 +693,7 @@ def _commit_claims(
     claims: list[_ClaimResult],
     *,
     _local_delete_hook=None,
-    _force_legacy_disposition: bool = False,
+    _force_posix_unsupported: bool = False,
 ) -> DeleteReceipt:
     """逐项执行已持久化 claim；任一异常均不得中断其余项。"""
     outcome = DeleteReceipt()
@@ -724,7 +712,7 @@ def _commit_claims(
                 session,
                 claim.entry,
                 _local_delete_hook=_local_delete_hook,
-                _force_legacy_disposition=_force_legacy_disposition,
+                _force_posix_unsupported=_force_posix_unsupported,
             )
         except Exception:
             session.rollback()
