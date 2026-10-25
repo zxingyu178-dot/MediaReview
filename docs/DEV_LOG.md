@@ -3087,3 +3087,14 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 用户确认收件地址后，直接将 `MediaReview_2.0.0-alpha16_stage9.apk` 作为附件发送到已配置的 QQ 邮箱（输出掩码 `305***@qq.com`，未记录完整地址与任何凭据）。
 - 发送器：一次性脚本（全局 temp），复用 Hermes `send_mail.get_config()` 加载 SMTP 配置；APK 使用 `application/vnd.android.package-archive` MIME，附件字节与 SHA-256 取自同一份实际发送数据，任何附件/拒收失败均非零退出、不发送。
 - 交付证据：`SMTP accepted`；`SEND_OK attachment=MediaReview_2.0.0-alpha16_stage9.apk bytes=43606606 sha256=42d188cb37b4b45c3bcedacc8ef5b8670ae61844b78e066d8b477a40be3b1dfa`，无拒收收件人。
+
+## 2026-10-26 Android UI 大规模重构（P1–P3，Codex 实现 + Lead 规划/验收）
+
+用户确认方向：Google Photos 式相册体验 + 文件夹分类；批阅优先“视觉极简、进度与导航、更好的预览”。需求基线与阶段计划：`docs/UI_REFACTOR_PLAN.md`。
+
+- **P1（be3c92d）**：设计 token 与公共组件（MediaThumb/FolderTile/SectionHeader/EmptyState/ErrorState/LoadingSkeleton/TopBar/FilterChipRow）；首页顶栏收敛为“媒体库 + 搜索 + 更多”（排序/筛选/单双列/数据源/浏览文件夹进入菜单）；分类 chips 与无边框网格；目录页折叠顶栏 + 横滑面包屑 + 范围菜单；搜索全屏化；保留分页/预取/锚点/数据源语义。
+- **P2（66ca2f9）**：相册按日期分节紧凑网格 + 网格索引映射；沉浸式查看器（纯黑 edge-to-edge、单击切控件、横滑翻页、双击/双指缩放、缩放后拖动、1x 下滑关闭、弹簧回弹、淡入淡出、±1 原图预取）；顶/底栏与信息弹层重做（绝对路径拒绝展示）；视频时长角标。
+- **P3（3abc77b）**：批阅模式极简顶栏（第 N/共 M、已批/剩余、2dp 进度条、恢复提示）+ 底部固定五项动作（上一项/保留/待删除/撤销/下一项）；左右滑切换、上滑保留、下滑待删除（仅 canDelete 为真）、撤销只对服务端确认项生效；更多菜单含倍速/收藏/播放器/信息/范围/快进一屏；保留单 GSY Surface、P0/P1 预取与会话恢复语义。
+
+验证：Codex 全量 JVM：P1 75 suites/513 tests、P2 77 suites/522 tests、P3 78 suites/529 tests，均 0 失败；androidTest 编译通过；Lead 独立 `--rerun-tasks` 全量 P1 513/0、P3 结果见后续条目。视觉走查（模拟器 + demo 数据）：首页、相册分节网格、图片查看器、批阅模式截图见 `review_meta/ui-refactor-20261025/shots/`。
+未做：P4 打磨（动画/无障碍/性能/空态全覆盖/长按多选）与真机验收；未改 Server/API/Repository/删除安全语义；未新增第三方依赖。

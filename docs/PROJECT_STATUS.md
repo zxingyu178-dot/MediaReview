@@ -223,3 +223,17 @@ P1 仍待第四轮定点复审通过后发版。
 | 部署/真机 | **部署 NOT PERFORMED；家庭 LAN/真机 NOT TESTED**（需用户管理员停服备份、连接手机验收） |
 
 升级/回滚边界见 `deploy_handoff/MediaReview_Server_1.6.0_stage9/UPGRADE_ROLLBACK.md`：0017 在存在 `committing`/`delete_done`/`delete_pending` 行时降级 fail-closed；Windows 本地删除最低 Windows 10 1709（POSIX 语义）。
+
+## 16. Android UI 大规模重构（2026-10-26，P1–P4）
+
+用户确认方向：**Google Photos 式相册体验 + 文件夹分类**；批阅优先“视觉极简、进度与导航、更好的预览”。需求基线 `docs/UI_REFACTOR_PLAN.md`，Codex 实现、Lead 规划/复核/模拟器走查。
+
+| 阶段 | 提交 | 内容 | 验证 |
+| --- | --- | --- | --- |
+| P1 | `be3c92d` | 设计 token + 公共组件；首页顶栏收敛/更多菜单/无边框网格；目录折叠顶栏+横滑面包屑；搜索全屏化 | 513 tests / 0 fail；Lead rerun 通过 |
+| P2 | `66ca2f9` | 相册按日期分节网格；沉浸式查看器（缩放/翻页/下滑关闭/动画/±1 预取）；顶底栏与信息层重做 | 522 tests / 0 fail |
+| P3 | `3abc77b` | 批阅极简顶栏+进度、底部五项动作、左右滑切换、上下滑决策、撤销、快进一屏 | 529 tests / 0 fail；Lead rerun 通过 |
+| P4 | 待提交 | 打磨：沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍与性能 | 待验证 |
+
+模拟器（MediaReview_Test，demo 数据）截图：`review_meta/ui-refactor-20261025/shots/`（home、album、imgviewer、review）。
+未做：真机/家庭 LAN 验收、长按多选批量、P5 版本与 APK 发布。
