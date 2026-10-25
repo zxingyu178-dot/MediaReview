@@ -87,6 +87,7 @@ class Stage8IReviewScopeHttpTest {
         compose.waitUntil(10_000) { vm.state.value is V2ReviewUiState.Ready }
         val old = vm.state.value as V2ReviewUiState.Ready
         Assert.assertEquals(0, live.reviewCreates.size)
+        compose.onNodeWithTag("review_more").performClick()
         compose.onNodeWithTag("review_scope_reselect").performClick()
         compose.waitUntil(10_000) { !vm.scopeSheet.value.loading && vm.scopeSheet.value.folders.size == 4 }
         compose.waitUntil(10_000) {
@@ -106,6 +107,7 @@ class Stage8IReviewScopeHttpTest {
         Assert.assertEquals(old.sessionId, cancelled.sessionId)
         Assert.assertEquals(old.items.map { it.mediaId }, cancelled.items.map { it.mediaId })
         Assert.assertEquals(0, live.reviewCreates.size)
+        compose.onNodeWithTag("review_more").performClick()
         compose.onNodeWithTag("review_scope_reselect").performClick()
         compose.waitUntil(10_000) { !vm.scopeSheet.value.loading }
         compose.onNodeWithTag("review_scope_folder_ft_root").performTouchInput { click() }
@@ -156,6 +158,7 @@ class Stage8IReviewScopeHttpTest {
     @Test fun acceptedCreationQueueFailureRetriesCanonicalSessionWithoutSecondPost() {
         launch()
         compose.waitUntil(10_000) { vm.state.value is V2ReviewUiState.Ready }
+        compose.onNodeWithTag("review_more").performClick()
         compose.onNodeWithTag("review_scope_reselect").performClick()
         compose.waitUntil(10_000) { !vm.scopeSheet.value.loading }
         compose.onNodeWithTag("review_scope_start").performClick()

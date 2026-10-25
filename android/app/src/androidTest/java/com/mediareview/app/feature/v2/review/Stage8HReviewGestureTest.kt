@@ -213,7 +213,7 @@ class Stage8HReviewGestureTest {
         compose.onNodeWithContentDescription("更多").performClick()
         compose.onNodeWithText("1.5×").performClick()
         compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f && kernel { it.isPlaying } }
-        body().performTouchInput { swipeUp() }
+        body().performTouchInput { swipeLeft() }
         compose.waitUntil(60_000) {
             page() == 1 && fixture!!.videos.any { it.mediaId == "second" && it.authenticated } &&
                 kernel { it.isPlaying && (it.player.mediaPlayer as IjkExo2MediaPlayer).dataSource.endsWith("/video/second.mp4") }
@@ -254,27 +254,27 @@ class Stage8HReviewGestureTest {
         compose.waitUntil(10_000) { position() > baseline + 300 }
     }
 
-    @Test fun loadingNextEndpointStillAllowsVerticalReturnToPreviousItem() {
+    @Test fun loadingNextEndpointStillAllowsHorizontalReturnToPreviousItem() {
         launch(blockSecond = true)
-        body().performTouchInput { swipeUp() }
+        body().performTouchInput { swipeLeft() }
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Loading }
         Assert.assertFalse(kernel { it.isPlaying })
-        body().performTouchInput { swipeDown() }
+        body().performTouchInput { swipeRight() }
         compose.waitUntil(5_000) { page() == 0 }
         fixture!!.releaseSecondPlayback()
         compose.waitUntil(60_000) { kernel { it.isPlaying && it.currentPosition > 500 } }
         Assert.assertFalse("跳过Loading项不得启动其流", fixture!!.videos.any { it.mediaId == "second" })
     }
 
-    @Test fun failedNextEndpointStillAllowsVerticalReturnToPreviousItem() {
+    @Test fun failedNextEndpointStillAllowsHorizontalReturnToPreviousItem() {
         launch(blockSecond = true)
-        body().performTouchInput { swipeUp() }
+        body().performTouchInput { swipeLeft() }
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Loading && fixture!!.secondPlaybackRequested.count == 0L }
         // Deliver an actual endpoint HTTP failure, not a 20s socket stall that marks Server Offline.
         fixture!!.failSecondPlayback()
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Failed }
         Assert.assertFalse(kernel { it.isPlaying })
-        body().performTouchInput { swipeDown() }
+        body().performTouchInput { swipeRight() }
         compose.waitUntil(5_000) { page() == 0 }
         compose.waitUntil(60_000) { kernel { it.isPlaying && it.currentPosition > 500 } }
         Assert.assertFalse(fixture!!.videos.any { it.mediaId == "second" })

@@ -3,7 +3,7 @@ package com.mediareview.app.feature.v2.review
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.mediareview.app.HiltTestActivity
 import com.mediareview.app.feature.v2.data.AlbumCoverStore
@@ -34,7 +34,7 @@ class ServerReviewPlaybackTest {
         compose.setContent { MediaReviewTheme { V2ReviewScreen(vm, {}, {}) } }
     }
 
-    @Test fun server批阅上滑后第二个真实Source持续播放且认证正确() {
+    @Test fun server批阅左滑后第二个真实Source持续播放且认证正确() {
         val live = RealHttpPlaybackFixture().also { fixture = it }
         val vm = V2ReviewViewModel(live.repository, live.sessions)
         launch(vm)
@@ -46,8 +46,8 @@ class ServerReviewPlaybackTest {
                 live.videos.any { it.url == ready.endpoint.url }
         }
         assertTrue("第一项必须实际请求 MP4", live.videos.any { it.mediaId == "first" && it.authenticated })
-        compose.onRoot().performTouchInput { swipeUp(durationMillis = 500) }
-        // 不直接调用 VM 换页，必须由生产 VerticalPager 手势触发。
+        compose.onRoot().performTouchInput { swipeLeft(durationMillis = 500) }
+        // 不直接调用 VM 换页，必须由生产 HorizontalPager 手势触发。
         compose.waitUntil(30_000) {
             (vm.state.value as? V2ReviewUiState.Ready)?.absoluteCurrentIndex == 1 &&
                 live.videos.any { it.mediaId == "second" && it.authenticated }
