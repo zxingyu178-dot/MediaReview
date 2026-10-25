@@ -197,3 +197,9 @@ P1 仍待第四轮定点复审通过后发版。
 - 第三轮修复已提交并推送：`485e2e7`（POSIX disposition + delete_done/delete_pending 状态机）、`48aa26f`（Android pending 展示）、`03083da`（文档）；远端 `cfe7ca5..03083da`。
 - **第四轮 Codex 定点复审因 5 小时额度用尽顺延**（复位 2026-10-25 10:47；Codex CLI 报 usage limit）。P5 发版继续暂停，等复审结论。
 - Lead 全量：Server 736/739（2 项本机 ffmpeg 环境、1 项 10 万行性能抖动，三项单独复跑均通过）；Android 511/511；ruff 改动文件通过。
+
+## 14. 当前等待项（2026-10-25 12:45）
+
+- 第六轮修复提交 `5aa367a`（Jellyfin 恢复父链/身份证据收紧）本地领先 origin 1；push 因 GitHub 网络暂时失败，待重试。
+- 第七轮 Codex 定点复审因 5 小时额度用尽顺延（复位 15:49；Codex CLI 报 usage limit）。P5 发版继续暂停。
+- Lead 全量：Server 743/745（2 项本机 ffmpeg 环境，单独复跑通过）；Android 511/511；ruff 改动文件通过。

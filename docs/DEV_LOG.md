@@ -3048,3 +3048,8 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 
 验证：Codex 四文件定向通过（详见 fix-report）；Lead 全量结果见下一条。未 commit/push（Lead 统一提交）。
 - Lead 全量：Server **743 通过 / 2 失败 / 745 项 / 419.28s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次全量 511/511）；ruff 改动文件通过。
+
+### 2026-10-25 12:45 状态：Codex 额度再次用尽，第七轮复审顺延
+- 第六轮复审修复（I7-R6A/I7-R6B）已提交 `5aa367a`；Lead 全量 Server **743/745**（2 项本机 ffmpeg 环境，单独复跑 2 passed）、Android 无改动（上次 511/511）。
+- 第七轮 Codex 定点复审启动后触发额度上限（提示 **15:49 复位**），未生成报告；P5 发版继续暂停。
+- 已设 15:50 提醒：复位后立即重试 push、执行第七轮复审；通过则进入 P5（1.6.0/alpha16 版本、构建、打包、SHA）。
