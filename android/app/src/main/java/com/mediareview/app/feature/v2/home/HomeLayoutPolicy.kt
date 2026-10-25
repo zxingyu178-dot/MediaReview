@@ -8,6 +8,40 @@ enum class HomeDisplayMode(val columns: Int) {
     }
 }
 
+enum class HomeOverflowAction(val label: String) {
+    SORT_FILTER("排序与筛选"),
+    TOGGLE_LAYOUT(""),
+    DATA_SOURCE("数据源"),
+    BROWSE_FOLDERS("浏览文件夹"),
+}
+
+data class HomeOverflowItem(val action: HomeOverflowAction, val label: String)
+
+fun homeOverflowActions(mode: HomeDisplayMode): List<HomeOverflowItem> = listOf(
+    HomeOverflowItem(HomeOverflowAction.SORT_FILTER, HomeOverflowAction.SORT_FILTER.label),
+    HomeOverflowItem(
+        HomeOverflowAction.TOGGLE_LAYOUT,
+        if (mode == HomeDisplayMode.TWO_COLUMN) "切换为单列" else "切换为双列",
+    ),
+    HomeOverflowItem(HomeOverflowAction.DATA_SOURCE, HomeOverflowAction.DATA_SOURCE.label),
+    HomeOverflowItem(HomeOverflowAction.BROWSE_FOLDERS, HomeOverflowAction.BROWSE_FOLDERS.label),
+)
+
+sealed interface FolderBackTarget {
+    data class Parent(val folderId: String?) : FolderBackTarget
+    data object Exit : FolderBackTarget
+}
+
+fun folderBackTarget(
+    folderId: String?,
+    parents: Map<String, String?>,
+    implicitRootId: String?,
+): FolderBackTarget {
+    if (folderId == null) return FolderBackTarget.Exit
+    val parent = parents[folderId]
+    return FolderBackTarget.Parent(parent?.takeUnless { it == implicitRootId })
+}
+
 data class HomeGridAnchor(val mediaId: String, val offset: Int) {
     fun indexIn(ids: List<String>): Int = ids.indexOf(mediaId).coerceAtLeast(0)
 }

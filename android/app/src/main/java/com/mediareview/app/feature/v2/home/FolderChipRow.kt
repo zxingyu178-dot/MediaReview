@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -87,14 +88,16 @@ private fun Chip(
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(V2Radius.Chip))
-            .background(if (selected) V2Colors.Accent else MediaSurfaceRaised)
+            .background(if (selected) V2Colors.Accent.copy(alpha = 0.18f) else MediaSurfaceRaised.copy(alpha = 0.7f))
             .clickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = 48.dp)
             .padding(horizontal = V2Spacing.Lg, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MediaBackground else MediaTextPrimary,
+            color = if (selected) V2Colors.Accent else MediaTextSecondary,
         )
     }
 }

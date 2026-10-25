@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeLayoutPolicyTest {
+    @Test fun overflowActionsKeepAllExistingHomeControlsReachable() {
+        assertEquals(
+            listOf("排序与筛选", "切换为单列", "数据源", "浏览文件夹"),
+            homeOverflowActions(HomeDisplayMode.TWO_COLUMN).map { it.label },
+        )
+        assertEquals("切换为双列", homeOverflowActions(HomeDisplayMode.ONE_COLUMN)[1].label)
+    }
+
+    @Test fun folderBackMovesToParentBeforeLeavingBrowser() {
+        val parents = mapOf("root" to null, "movies" to "root", "action" to "movies")
+        assertEquals(FolderBackTarget.Parent("movies"), folderBackTarget("action", parents, null))
+        assertEquals(FolderBackTarget.Parent(null), folderBackTarget("root", parents, "root"))
+        assertEquals(FolderBackTarget.Exit, folderBackTarget(null, parents, "root"))
+    }
+
     @Test fun layoutAnchorFollowsMediaIdentityAfterReorder() {
         val anchor = HomeGridAnchor("m42", 73)
         assertEquals(1, anchor.indexIn(listOf("m1", "m42", "m2")))

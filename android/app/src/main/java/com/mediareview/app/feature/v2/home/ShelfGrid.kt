@@ -37,6 +37,7 @@ import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import com.mediareview.app.feature.v2.ui.components.EmptyState
 
 /**
  * 书架 = 照片相册（Stage 5）。
@@ -51,6 +52,10 @@ fun ShelfGrid(
     onOpenAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (albums.isEmpty()) {
+        EmptyState("暂无相册", "有图片的文件夹会显示在这里", modifier.fillMaxSize())
+        return
+    }
     WindowCoverPrefetch(albums.map { it.coverUrl ?: coverFor(it.coverImageId.orEmpty()).orEmpty() }, albumCovers = true)
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -58,8 +63,8 @@ fun ShelfGrid(
         contentPadding = PaddingValues(
             start = V2Spacing.Lg, end = V2Spacing.Lg, top = V2Spacing.Sm, bottom = V2Spacing.Xl,
         ),
-        horizontalArrangement = Arrangement.spacedBy(V2Spacing.Xl),
-        verticalArrangement = Arrangement.spacedBy(V2Spacing.Xl),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(V2Spacing.Lg),
     ) {
         items(albums, key = { it.id }) { album ->
             AlbumBookCard(
@@ -87,14 +92,13 @@ private fun AlbumBookCard(
             .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 书封面：3:4，单图 + 右侧书脊 + 轻层叠阴影
+        // Google Photos 式相册入口：大封面、弱装饰、信息紧贴内容。
         Box(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f)
-                    .shadow(elevation = 6.dp, shape = RoundedCornerShape(8.dp))
-                    .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp, topEnd = 4.dp, bottomEnd = 4.dp))
+                    .aspectRatio(4f / 3f)
+                    .clip(RoundedCornerShape(6.dp))
                     .background(MediaSurfaceRaised),
             ) {
                 if (coverUri != null) {
@@ -102,7 +106,7 @@ private fun AlbumBookCard(
                     val request = ImageRequest.Builder(LocalContext.current)
                         .data(com.mediareview.app.core.network.thumbnailProfileUrl(coverUri, com.mediareview.app.core.network.ThumbnailProfile.ALBUM))
                         .crossfade(false)
-                        .size(320, 427)
+                        .size(320, 240)
                         .build()
                     SubcomposeAsyncImage(
                         model = request,
@@ -111,22 +115,6 @@ private fun AlbumBookCard(
                         modifier = Modifier.fillMaxSize().testTag("album_cover_${album.id}"),
                     )
                 }
-                // 右侧书脊渐变
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxSize()
-                        .width(14.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    androidx.compose.ui.graphics.Color.Transparent,
-                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.12f),
-                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.28f),
-                                ),
-                            ),
-                        ),
-                )
             }
         }
 

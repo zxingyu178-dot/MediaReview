@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -48,6 +49,9 @@ import com.mediareview.app.feature.v2.ui.V2Spacing
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
+import com.mediareview.app.feature.v2.ui.components.EmptyState
+import com.mediareview.app.feature.v2.ui.components.ErrorState
+import com.mediareview.app.feature.v2.ui.components.LoadingSkeleton
 
 /**
  * 搜索结果面板：顶部搜索框统一由 HomeScreen 维护（本组件不再有第二个输入框）。
@@ -59,6 +63,7 @@ fun SearchPanel(
     onOpenMedia: (V2Media, List<V2Media>) -> Unit,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
+    pendingDeleteIds: Set<String> = emptySet(),
 ) {
     val state by vm.searchState.collectAsState()
     val list = state.items
@@ -99,34 +104,12 @@ fun SearchPanel(
         }
 
         if (query.isBlank()) {
-            if (history.isEmpty()) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.History,
-                        contentDescription = null,
-                        tint = MediaTextSecondary,
-                        modifier = Modifier.size(40.dp),
-                    )
-                    Text(
-                        text = "输入关键词搜索",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MediaTextSecondary,
-                        modifier = Modifier.padding(top = V2Spacing.Md),
-                    )
-                }
-            }
+            if (history.isEmpty()) EmptyState("搜索媒体", "输入文件名或目录关键词", Modifier.fillMaxSize())
         } else if (list.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    when {
-                        state.loadingFirstPage -> CircularProgressIndicator()
-                        state.error != null -> {
-                            Text("搜索失败", color = MediaTextSecondary)
-                            TextButton(onClick = vm::retrySearch) { Text("重试") }
-                        }
-                        else -> Text("没有找到匹配内容", color = MediaTextSecondary)
-                    }
-                }
+            when {
+                state.loadingFirstPage -> LoadingSkeleton(Modifier.fillMaxSize())
+                state.error != null -> ErrorState(state.error ?: "搜索失败", vm::retrySearch, Modifier.fillMaxSize())
+                else -> EmptyState("没有找到匹配内容", "换个关键词试试", Modifier.fillMaxSize())
             }
         } else {
             // 独立的已加载搜索窗口。
@@ -134,15 +117,16 @@ fun SearchPanel(
                 state = gridState,
                 columns = GridCells.Fixed(2),
                 modifier = Modifier.fillMaxSize().testTag("search_grid"),
-                contentPadding = PaddingValues(top = V2Spacing.Sm, bottom = V2Spacing.Xl),
-                horizontalArrangement = Arrangement.spacedBy(V2Spacing.Md),
-                verticalArrangement = Arrangement.spacedBy(V2Spacing.Md),
+                contentPadding = PaddingValues(top = V2Spacing.Xs, bottom = V2Spacing.Xl),
+                horizontalArrangement = Arrangement.spacedBy(V2Spacing.Xs),
+                verticalArrangement = Arrangement.spacedBy(V2Spacing.Sm),
             ) {
                 items(list, key = { it.id }) { media ->
                     MediaCard(
                         media = media,
                         coverUri = vm.coverUri(media),
                         onClick = { onOpenMedia(media, list) },
+                        pendingDelete = media.id in pendingDeleteIds,
                     )
                 }
                 if (state.loadingMore || state.error != null) {
@@ -169,6 +153,7 @@ private fun HistoryChip(
             .clip(RoundedCornerShape(V2Radius.Chip))
             .background(MediaSurfaceRaised)
             .clickable(onClick = onClick)
+            .sizeIn(minHeight = 48.dp)
             .padding(horizontal = V2Spacing.Lg, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.mediareview.app.ui.theme.MediaBackground
 
-val HOME_EXPANDED_HEADER_HEIGHT = 248.dp
+val HOME_EXPANDED_HEADER_HEIGHT = 216.dp
 val HOME_COMPACT_HEADER_HEIGHT = 56.dp
 
 /** 内容边距从不跟随折叠状态改变；两个顶部层始终存在，只改变位移。 */
@@ -63,7 +63,7 @@ fun <T> AnchoredMediaGrid(
     displayMode: HomeDisplayMode,
     gridState: LazyGridState,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(16.dp),
+    contentPadding: PaddingValues = PaddingValues(4.dp),
     footer: @Composable () -> Unit = {},
     itemContent: @Composable (T) -> Unit,
 ) {
@@ -84,8 +84,8 @@ fun <T> AnchoredMediaGrid(
         columns = GridCells.Fixed(displayMode.columns),
         modifier = modifier.fillMaxSize().testTag("home_grid"),
         contentPadding = contentPadding,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(list, key = keyOf) { itemContent(it) }
         item(span = { GridItemSpan(maxLineSpan) }) { footer() }

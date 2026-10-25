@@ -6,6 +6,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 val MediaTypography = Typography(
+    displaySmall = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 32.sp,
+        lineHeight = 38.sp,
+    ),
     headlineMedium = androidx.compose.ui.text.TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
@@ -18,6 +24,12 @@ val MediaTypography = Typography(
         fontSize = 20.sp,
         lineHeight = 28.sp,
     ),
+    titleMedium = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+    ),
     bodyLarge = androidx.compose.ui.text.TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
@@ -29,5 +41,11 @@ val MediaTypography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
         lineHeight = 20.sp,
+    ),
+    bodySmall = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
     ),
 )
