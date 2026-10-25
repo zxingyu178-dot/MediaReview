@@ -1,6 +1,8 @@
 # MediaReview 升级与回滚边界
 
-> 2026-10-20：本轮目标为 Alpha15/code22、Server1.5.2、迁移0016。升级需另获授权，经 ControlHub 停服后备份完整程序与活动数据；回滚必须恢复成对备份，升级后新增状态需另行保留。0016 仅回填现存 Jellyfin 归属，额外活动归属存在时拒绝有损降级。升级后勾选目标库并刷新索引，待同步成功再验收缺失目录。以下 Alpha12/1.4.0 内容为历史边界，不构成本轮部署授权。
+> 2026-10-25：P5 源码目标为 Alpha16/code23、Server 1.6.0、Contract2、迁移 0017。**产物未构建，未授权部署或回滚**。后续若获准升级，必须经 ControlHub 停服并备份完整程序与活动数据；回滚必须恢复成对备份。0017 含 `delete_queue.queue_token`；存在 `committing` / `delete_done` / `delete_pending` 可恢复行时降级 fail-closed，必须先使用 0017 代码完成恢复并备份。Windows 本地删除最低要求 Windows 10 1709，仅使用 POSIX 语义；不支持时 `delete_not_supported` 且文件不变。以下 Alpha12/1.4.0 内容为历史边界，不构成本轮部署授权。
+
+> 下述 SCM 查询模拟结果是 2026-10-20 Server 1.5.2 发版历史，不是 1.6.0 的当前验证结果。
 
 本轮一项 Windows PowerShell 的 SCM 查询模拟受执行策略阻断，未计通过；未修改机器策略，不能据此宣称生产升级已验收。
 
