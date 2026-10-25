@@ -1,4 +1,4 @@
-"""待删除队列服务: 入队(未删) -> 确认(commit 后才真实删除)。
+﻿"""待删除队列服务: 入队(未删) -> 确认(commit 后才真实删除)。
 
 遵循 AGENTS.md: 删除必须两步(先入待删除,commit 才永久删除),禁止点击即删。
 删除目标为 media_cache_index 持久化的真实文件路径;删除成功后再清理索引/收藏。
@@ -261,6 +261,7 @@ def _windows_recovery_file_info(
     media_path: str,
     *,
     after_parent_validation: Callable[[], None] | None = None,
+    _ntstatus_override: int | None = None,
 ) -> _WindowsRecoveryFileInfo:
     """绑定父目录句柄并相对观察叶，避免路径父链与叶观察间的 TOCTOU。"""
     import ctypes
@@ -279,7 +280,6 @@ def _windows_recovery_file_info(
     nt_file_open_reparse_point = 0x00200000
     obj_case_insensitive = 0x00000040
     status_object_name_not_found = 0xC0000034
-    status_object_path_not_found = 0xC000003A
     reparse_attribute = 0x00000400
     directory_attribute = 0x00000010
     windows_epoch_ticks = 116_444_736_000_000_000
@@ -424,7 +424,13 @@ def _windows_recovery_file_info(
             0,
         )
         unsigned_status = int(status) & 0xFFFFFFFF
-        if unsigned_status in {status_object_name_not_found, status_object_path_not_found}:
+        if _ntstatus_override is not None:
+            # 测试注入：仅用于验证失败分支的 fail-closed 分类，不改变生产调用路径。
+            status = ctypes.c_long(_ntstatus_override).value
+            unsigned_status = int(status) & 0xFFFFFFFF
+        if unsigned_status == status_object_name_not_found:
+            # 绑定父句柄下只认 object name not found 为叶缺失证据；
+            # path not found 及其他非成功状态一律不可判定。
             raise FileNotFoundError() from None
         if status < 0:
             raise _RecoveryPathUnavailableError()
@@ -962,6 +968,7 @@ def _observe_recovery_state(
     media: MediaCacheIndex | None,
     *,
     _jellyfin_observation_hook: Callable[[], None] | None = None,
+    _jellyfin_ntstatus_override: int | None = None,
 ) -> _RecoveryObservation:
     """只读观察原对象是否仍在；不确定与身份替换必须分开。"""
     if media is None:
@@ -995,6 +1002,7 @@ def _observe_recovery_state(
             file_info = _windows_recovery_file_info(
                 media.media_path,
                 after_parent_validation=_jellyfin_observation_hook,
+                _ntstatus_override=_jellyfin_ntstatus_override,
             )
             actual_size = file_info.size
             actual_mtime_ms = file_info.mtime_ms
@@ -1022,6 +1030,7 @@ def recover_interrupted_deletes(
     session: Session,
     *,
     _jellyfin_observation_hook: Callable[[], None] | None = None,
+    _jellyfin_ntstatus_override: int | None = None,
 ) -> None:
     """只观察并收敛可恢复删除状态；绝不再次执行物理删除。"""
     recoverable = list(
@@ -1048,6 +1057,7 @@ def recover_interrupted_deletes(
                 session,
                 media,
                 _jellyfin_observation_hook=_jellyfin_observation_hook,
+                _jellyfin_ntstatus_override=_jellyfin_ntstatus_override,
             )
             if observation is _RecoveryObservation.UNKNOWN:
                 session.rollback()
@@ -1112,3 +1122,5 @@ __all__ = [
     "prepare_commit",
     "recover_interrupted_deletes",
 ]
+
+

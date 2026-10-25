@@ -3063,3 +3063,4 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 测试：真实目录改名 hook（父目录验证后、相对打开前把父目录改名）断言不会误判 MISSING、不清理元数据；Lead 将断言收紧为 `status=failed`/`error=interrupted_not_deleted`（文件仍在移走后的目录中，属积极证明同文件仍在），该用例单独复跑通过。
 - 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 与 Local 四态观察不变。
 - Lead 全量：Server **744 通过 / 2 失败 / 746 项 / 405.66s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次 511/511）；ruff 改动文件通过；第七轮 TOCTOU 用例收紧后单独复跑通过。
+- Lead 全量（I7-R8A 修复后）：Server **745 通过 / 2 失败 / 747 项 / 350.47s**（2 项本机 ffmpeg 环境，换可写 basetemp 单独复跑 2 passed）；ruff 改动文件通过。新增 `STATUS_OBJECT_PATH_NOT_FOUND` 注入用例断言保持 committing、索引保留、无终态审计。

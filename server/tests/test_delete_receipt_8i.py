@@ -795,3 +795,50 @@ def test_authenticated_api_nonce_receipt(tmp_path, data_root):
             == 409
         )
 
+
+
+def test_recover_jellyfin_object_path_not_found_is_unknown(tmp_path):
+    """STATUS_OBJECT_PATH_NOT_FOUND 不是叶缺失证据；必须保持 committing 等待重试。"""
+    if os.name != "nt":
+        pytest.skip("仅 Windows 句柄相对观察适用")
+
+    db = _make_db(tmp_path)
+    parent = tmp_path / "mounted-library-path-nf"
+    parent.mkdir()
+    target = parent / "movie.mp4"
+    target.write_bytes(b"stay")
+    _seed_media(db, "path-not-found", str(target), size=4)
+    _enqueue(db, "path-not-found", 4)
+    with db.session() as session:
+        media = session.get(MediaCacheIndex, "path-not-found")
+        media.modified_at = datetime.fromtimestamp(target.stat().st_mtime, UTC).replace(
+            tzinfo=None
+        )
+        row = session.get(DeleteQueue, "path-not-found")
+        row.status = "committing"
+        session.commit()
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(
+            session, _jellyfin_ntstatus_override=0xC000003A
+        )
+
+    assert target.read_bytes() == b"stay"
+    with db.session() as session:
+        row = session.get(DeleteQueue, "path-not-found")
+        assert row is not None
+        assert row.status == "committing"
+        assert row.error is None
+        assert session.get(MediaCacheIndex, "path-not-found") is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "path-not-found",
+                AuditLog.detail.in_(
+                    ["recovered_deleted", "recovered_original_gone"]
+                ),
+            )
+        ) == 0
+    db.dispose()
