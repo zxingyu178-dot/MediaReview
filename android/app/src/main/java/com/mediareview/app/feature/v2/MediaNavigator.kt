@@ -63,3 +63,21 @@ object MediaNavigator {
         currentRoute == ROUTE_HOME || currentRoute == ROUTE_REVIEW ||
             currentRoute == ROUTE_FAVORITES || currentRoute == ROUTE_ORGANIZE
 }
+
+/** 批阅虽然是一级入口，但进入内容后与图片查看器一样使用沉浸式全屏。 */
+fun shouldShowBottomNavigation(currentRoute: String?): Boolean =
+    MediaNavigator.isTabRoute(currentRoute) && currentRoute != MediaNavigator.ROUTE_REVIEW
+
+enum class BottomNavigationExitMode { ANIMATED, IMMEDIATE }
+
+/**
+ * Review owns a native GSY Surface. Its viewport must be final when the Surface is first
+ * composed: retaining the bottom bar during an exit animation changes Scaffold innerPadding
+ * after attachment and can leave the video renderer black. Other routes keep the P4 motion.
+ */
+fun bottomNavigationExitMode(currentRoute: String?): BottomNavigationExitMode =
+    if (currentRoute == MediaNavigator.ROUTE_REVIEW) {
+        BottomNavigationExitMode.IMMEDIATE
+    } else {
+        BottomNavigationExitMode.ANIMATED
+    }

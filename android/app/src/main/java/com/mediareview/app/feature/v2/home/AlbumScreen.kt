@@ -46,6 +46,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import coil.request.ImageRequest
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -265,17 +268,28 @@ private fun AlbumImageCell(
     selectingCover: Boolean,
     onClick: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val imageUrl = remember(coverUri) {
+        com.mediareview.app.core.network.thumbnailProfileUrl(coverUri, com.mediareview.app.core.network.ThumbnailProfile.GRID_SMALL)
+    }
+    val request = remember(context, imageUrl) {
+        ImageRequest.Builder(context).data(imageUrl).crossfade(false).size(256, 144)
+            .memoryCacheKey("album-cell:$imageUrl").build()
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
             .clip(RoundedCornerShape(V2Radius.Card))
             .background(MediaSurfaceRaised)
-            .clickable(onClick = onClick),
+            .semantics {
+                contentDescription = "${media.name}，图片${if (isCover) "，当前相册封面" else ""}"
+            }
+            .clickable(role = Role.Button, onClick = onClick),
     ) {
         SubcomposeAsyncImage(
-            model = ImageRequest.Builder(LocalContext.current).data(com.mediareview.app.core.network.thumbnailProfileUrl(coverUri, com.mediareview.app.core.network.ThumbnailProfile.GRID_SMALL)).crossfade(false).size(256, 144).build(),
-            contentDescription = media.name,
+            model = request,
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )

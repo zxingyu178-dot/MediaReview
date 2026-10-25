@@ -166,10 +166,10 @@ private fun BreadcrumbRow(
         horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AssistChip(onClick = onRoot, label = { Text("分类") })
+        AssistChip(onClick = onRoot, label = { Text("分类") }, modifier = Modifier.heightIn(min = 48.dp))
         crumbs.forEach { node ->
             Text("›", color = MediaTextSecondary)
-            AssistChip(onClick = { onCrumb(node.id) }, label = { Text(node.name) })
+            AssistChip(onClick = { onCrumb(node.id) }, label = { Text(node.name) }, modifier = Modifier.heightIn(min = 48.dp))
         }
     }
 }

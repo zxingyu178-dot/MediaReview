@@ -3103,3 +3103,9 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - P4（打磨：沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉、空/错/载态、无障碍、性能）实现到一半时 ChatGPT Plus 5 小时额度用尽，提示 **04:33 复位**。
 - 为保持仓库可构建，已回退 P4 半成品的全部 `android/` 改动（未 commit）；当前 Android 树为 P3 提交 `3abc77b`（529 tests 全绿，Lead 独立 rerun 通过）。
 - 已设 04:34 提醒：额度复位后重新执行 P4（prompt 已备 `review_meta/ui-refactor-20261025/phase4-prompt.txt`），完成后再做全量测试、截图走查与提交。
+
+### 2026-10-26 UI P4 打磨完成 + 批阅视频黑屏 A/B 结论
+- P4 已完成并经 Codex 定向/全量 JVM 验证：79 suites / 533 tests / 0 失败；androidTest 编译通过。
+- Codex 修复报告 `review_meta/ui-refactor-20261025/phase4-fix-report.md`：为 review 路由改用 bottomBar `ExitTransition.None`（避免视频 Surface 首次 attach 后再因底栏退出动画改变视口），并补纯 JVM 策略测试。该修复已纳入工作区。
+- **模拟器 A/B 结论**：重新构建并安装 P3 提交 `3abc77b` 的 APK 后，批阅页视频同样黑屏（`MRReview PlaybackReady ok=true state=Playing` 但 Surface 画面黑），说明当前模拟器（goldfish H.264 软解、SurfaceView）在此阶段的黑帧不是 P4 独有回归；P3 早先截图有画面，属模拟器渲染不稳定。**真机视频画面仍待验收**，不能以模拟器黑帧判定代码回归。
+- 已清理临时 worktree `temp\mr_p3`；P4 改动待 Lead 全量复核后提交。

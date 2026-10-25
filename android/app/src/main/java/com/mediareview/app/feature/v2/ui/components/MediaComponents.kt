@@ -15,18 +15,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
@@ -36,7 +44,9 @@ import com.mediareview.app.core.network.ThumbnailProfile
 import com.mediareview.app.core.network.imageFailureDescription
 import com.mediareview.app.core.network.thumbnailProfileUrl
 import com.mediareview.app.feature.v2.home.HomeDisplayMode
+import com.mediareview.app.feature.v2.home.MediaTitlePresentation
 import com.mediareview.app.feature.v2.home.formatDuration
+import com.mediareview.app.feature.v2.home.mediaTitlePresentation
 import com.mediareview.app.feature.v2.model.V2FolderNode
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.ui.theme.*
@@ -62,7 +72,19 @@ fun MediaThumb(
             .build()
     }
     val painter = rememberAsyncImagePainter(request, contentScale = ContentScale.Crop)
-    Column(modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    val talkBackLabel = remember(media.id, media.name, media.isVideo, media.durationMs, media.isFavorite, pendingDelete) {
+        buildString {
+            append(media.name)
+            append(if (media.isVideo) "，视频，时长${formatDuration(media.durationMs)}" else "，图片")
+            if (pendingDelete) append("，已加入待删除")
+            if (media.isFavorite) append("，已收藏")
+        }
+    }
+    Column(
+        modifier.fillMaxWidth()
+            .semantics { contentDescription = talkBackLabel }
+            .clickable(role = Role.Button, onClick = onClick),
+    ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(MediaRadii.XSmall))
@@ -84,7 +106,7 @@ fun MediaThumb(
                 }
                 is AsyncImagePainter.State.Success -> Image(
                     painter = painter,
-                    contentDescription = media.name,
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -121,15 +143,32 @@ fun MediaThumb(
                     modifier = Modifier.align(Alignment.TopEnd).padding(MediaSpacing.Small).size(18.dp),
                 )
             }
+            if (mediaTitlePresentation(media.isVideo) == MediaTitlePresentation.IMAGE_OVERLAY) {
+                Box(
+                    Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.64f))))
+                        .padding(start = MediaSpacing.Small, end = MediaSpacing.Small, top = 22.dp, bottom = 6.dp),
+                ) {
+                    Text(
+                        media.name,
+                        color = MediaOnImmersive.copy(alpha = 0.86f),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
-        Text(
-            media.name,
-            modifier = Modifier.padding(top = MediaSpacing.XSmall, start = 2.dp, end = 2.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MediaTextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (mediaTitlePresentation(media.isVideo) == MediaTitlePresentation.VIDEO_LABEL) {
+            Text(
+                media.name,
+                modifier = Modifier.padding(top = MediaSpacing.XSmall, start = 2.dp, end = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MediaTextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (displayMode == HomeDisplayMode.ONE_COLUMN) {
             Text(
                 listOf(media.folderName, if (media.isVideo) "视频" else "图片").filter(String::isNotBlank).joinToString(" · "),
@@ -150,7 +189,11 @@ fun FolderTile(
     displayMode: HomeDisplayMode = HomeDisplayMode.TWO_COLUMN,
 ) {
     val profile = if (displayMode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
-    Column(modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    Column(
+        modifier.fillMaxWidth()
+            .semantics { contentDescription = "${node.name}，文件夹，${node.recursiveMediaCount} 项" }
+            .clickable(role = Role.Button, onClick = onClick),
+    ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(MediaRadii.Small)).background(MediaSurfaceRaised),
@@ -160,12 +203,16 @@ fun FolderTile(
                 Icon(Icons.Default.Folder, "${node.name}文件夹", tint = MediaTextSecondary,
                     modifier = Modifier.size(42.dp).align(Alignment.Center))
             } else {
-                val request = ImageRequest.Builder(LocalContext.current)
-                    .data(thumbnailProfileUrl(cover, profile)).size(profile.width, profile.height).crossfade(false).build()
+                val context = LocalContext.current
+                val request = remember(context, cover, profile) {
+                    val data = thumbnailProfileUrl(cover, profile)
+                    ImageRequest.Builder(context).data(data).size(profile.width, profile.height)
+                        .memoryCacheKey("folder:$data:${profile.name}").crossfade(false).build()
+                }
                 val painter = rememberAsyncImagePainter(request, contentScale = ContentScale.Crop)
                 when (painter.state) {
                     is AsyncImagePainter.State.Success -> Image(
-                        painter, "${node.name}封面", Modifier.fillMaxSize().testTag("folder_cover_${node.id}"),
+                        painter, null, Modifier.fillMaxSize().testTag("folder_cover_${node.id}"),
                         contentScale = ContentScale.Crop,
                     )
                     is AsyncImagePainter.State.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -226,7 +273,34 @@ fun ErrorState(
     message: String,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-) = StateMessage("加载失败", message, modifier, Icons.Default.BrokenImage, "重试", onRetry)
+) {
+    val kind = remember(message) { classifyUiError(message) }
+    val title = when (kind) {
+        UiErrorKind.NETWORK -> "网络连接失败"
+        UiErrorKind.SOURCE -> "媒体源不可用"
+        UiErrorKind.PERMISSION -> "没有访问权限"
+        UiErrorKind.UNKNOWN -> "加载失败"
+    }
+    val icon = when (kind) {
+        UiErrorKind.NETWORK -> Icons.Default.CloudOff
+        UiErrorKind.SOURCE -> Icons.Default.Storage
+        UiErrorKind.PERMISSION -> Icons.Default.Lock
+        UiErrorKind.UNKNOWN -> Icons.Default.BrokenImage
+    }
+    StateMessage(title, message, modifier, icon, "重试", onRetry)
+}
+
+enum class UiErrorKind { NETWORK, SOURCE, PERMISSION, UNKNOWN }
+
+fun classifyUiError(message: String): UiErrorKind {
+    val normalized = message.lowercase()
+    return when {
+        listOf("网络", "连接", "超时", "timeout", "offline", "socket", "dns").any(normalized::contains) -> UiErrorKind.NETWORK
+        listOf("权限", "未授权", "forbidden", "unauthorized", "permission", "401", "403").any(normalized::contains) -> UiErrorKind.PERMISSION
+        listOf("媒体源", "数据源", "媒体库", "source", "library", "jellyfin").any(normalized::contains) -> UiErrorKind.SOURCE
+        else -> UiErrorKind.UNKNOWN
+    }
+}
 
 @Composable
 private fun StateMessage(
@@ -244,7 +318,10 @@ private fun StateMessage(
             modifier = Modifier.padding(top = MediaSpacing.Regular))
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MediaTextSecondary,
             modifier = Modifier.padding(top = MediaSpacing.XSmall))
-        if (actionLabel != null && onAction != null) TextButton(onClick = onAction) { Text(actionLabel) }
+        if (actionLabel != null && onAction != null) TextButton(
+            onClick = onAction,
+            modifier = Modifier.heightIn(min = MediaDimensions.MinimumTouchTarget),
+        ) { Text(actionLabel) }
     }
 }
 

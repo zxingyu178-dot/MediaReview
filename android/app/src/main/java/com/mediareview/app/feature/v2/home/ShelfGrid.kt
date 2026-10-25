@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +30,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.model.V2Album
@@ -38,6 +42,7 @@ import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 import com.mediareview.app.feature.v2.ui.components.EmptyState
+import com.mediareview.app.feature.v2.ui.components.ErrorState
 
 /**
  * 书架 = 照片相册（Stage 5）。
@@ -51,9 +56,12 @@ fun ShelfGrid(
     coverFor: (String) -> String?,
     onOpenAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
+    error: String? = null,
+    onRetry: () -> Unit = {},
 ) {
     if (albums.isEmpty()) {
-        EmptyState("暂无相册", "有图片的文件夹会显示在这里", modifier.fillMaxSize())
+        if (error != null) ErrorState(error, onRetry, modifier.fillMaxSize())
+        else EmptyState("暂无相册", "有图片的文件夹会显示在这里", modifier.fillMaxSize())
         return
     }
     WindowCoverPrefetch(albums.map { it.coverUrl ?: coverFor(it.coverImageId.orEmpty()).orEmpty() }, albumCovers = true)
@@ -89,7 +97,8 @@ private fun AlbumBookCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(V2Radius.Card))
-            .clickable(onClick = onClick),
+            .semantics { contentDescription = "${album.name}，相册，${album.imageCount} 张" }
+            .clickable(role = Role.Button, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Google Photos 式相册入口：大封面、弱装饰、信息紧贴内容。
@@ -103,14 +112,18 @@ private fun AlbumBookCard(
             ) {
                 if (coverUri != null) {
                     // 书封请求与窗口预取使用同一ALBUM URL和尺寸。
-                    val request = ImageRequest.Builder(LocalContext.current)
-                        .data(com.mediareview.app.core.network.thumbnailProfileUrl(coverUri, com.mediareview.app.core.network.ThumbnailProfile.ALBUM))
-                        .crossfade(false)
-                        .size(320, 240)
-                        .build()
+                    val context = LocalContext.current
+                    val request = remember(context, coverUri) {
+                        val data = com.mediareview.app.core.network.thumbnailProfileUrl(
+                            coverUri,
+                            com.mediareview.app.core.network.ThumbnailProfile.ALBUM,
+                        )
+                        ImageRequest.Builder(context).data(data).crossfade(false).size(320, 240)
+                            .memoryCacheKey("album-book:$data").build()
+                    }
                     SubcomposeAsyncImage(
                         model = request,
-                        contentDescription = album.name,
+                        contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize().testTag("album_cover_${album.id}"),
                     )

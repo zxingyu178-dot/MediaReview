@@ -76,6 +76,7 @@ fun SortFilterRow(
             .clip(RoundedCornerShape(V2Radius.Button))
             .background(MediaSurface.copy(alpha = 0.6f))
             .clickable(onClick = onClick)
+            .sizeIn(minHeight = 48.dp)
             .padding(horizontal = V2Spacing.Lg, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -51,6 +51,9 @@ class ReviewUiPolicyTest {
         assertEquals(14, fastForwardIndex(4, 30))
         assertEquals(29, fastForwardIndex(25, 30))
         assertEquals(0, fastForwardIndex(0, 0))
+        assertEquals("已快进到第 15 / 共 30", fastForwardHint(4, 30))
+        assertEquals("已到最后一项（第 30 / 共 30）", fastForwardHint(25, 30))
+        assertNull(fastForwardHint(0, 0))
     }
 
     @Test fun `resume hint only appears after restored progress`() {

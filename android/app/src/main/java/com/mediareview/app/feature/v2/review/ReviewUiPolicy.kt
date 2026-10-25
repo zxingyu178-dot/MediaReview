@@ -50,6 +50,14 @@ fun fastForwardIndex(currentIndex: Int, itemCount: Int, screenSize: Int = 10): I
     return (currentIndex + screenSize.coerceAtLeast(1)).coerceIn(0, itemCount - 1)
 }
 
+fun fastForwardHint(currentIndex: Int, itemCount: Int, screenSize: Int = 10): String? {
+    if (itemCount <= 0) return null
+    val target = fastForwardIndex(currentIndex, itemCount, screenSize)
+    val position = target + 1
+    return if (target == itemCount - 1) "已到最后一项（第 $position / 共 $itemCount）"
+    else "已快进到第 $position / 共 $itemCount"
+}
+
 fun reviewResumeHint(absoluteIndex: Int, totalCount: Int): String? =
     if (absoluteIndex > 0 && totalCount > absoluteIndex) "已恢复到第 ${absoluteIndex + 1} 项" else null
 

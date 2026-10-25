@@ -251,3 +251,16 @@ P1 仍待第四轮定点复审通过后发版。
 
 - P1 `be3c92d`、P2 `66ca2f9`、P3 `3abc77b` 已提交（本地 ahead 2，GitHub 网络不稳定待推送）；P4 打磨因 Codex 额度用尽于 04:33 复位后继续。
 - 截图走查：`review_meta/ui-refactor-20261025/shots/`（home/album/imgviewer/review，模拟器 MediaReview_Test + demo 数据）。
+
+## 19. Jellyfin 扫描完成与限制（2026-10-26 01:06）
+
+- 扫描于 2026-10-26 01:05:46 完成（Completed），19 个分类库合计 **36,161 项**；监控日志 `temp/jellyfin_scan_monitor.log`。
+- 库结构：19 个分类库（`图片集` 32,724、`工作文件` 1,667、`高颜值素人泄密150套合集` 1,221 等）。`D:\视频合集` 下仍有 5 个文件夹未建库：`BeautyBox`(55 文件)、`JX`(92)、`CS`(13)、`Maniacccccc`(79)、`大神胖哥迷玩`(407)；需要可再添加。
+- 已知限制：部分含超大视频的库入库数远少于文件数（如 `12345` 131 个 mp4 → 1 项，`3165260528` 288 → 2 项）。Jellyfin 日志显示 ffmpeg 抽帧/探测超时（10s），大文件/异常封装会被跳过或延迟；这是 Jellyfin 媒体探测限制，不是扫描失败。
+- 建议：MediaReview 优先使用**本地源**直接读取 `D:\视频合集`（不经 Jellyfin 探测）；Jellyfin 侧如需完整索引，可后续调大 ffprobe/ffmpeg 超时或改用兼容封装。
+- 未修改任何媒体文件；未改动 Server/API。
+
+## 20. Android UI P4 状态（2026-10-26 05:05）
+
+- P4 打磨（沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍、性能）已完成，Codex 测试 79 suites / 533 tests / 0 失败；Lead 正在做 `--rerun-tasks` 全量复核后提交。
+- 批阅视频黑屏在 P3 基线 APK 上同样复现（模拟器 goldfish/软解限制），不作为 P4 回归；真机视频画面待验收。

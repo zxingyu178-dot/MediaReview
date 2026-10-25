@@ -8,6 +8,11 @@ enum class HomeDisplayMode(val columns: Int) {
     }
 }
 
+enum class MediaTitlePresentation { IMAGE_OVERLAY, VIDEO_LABEL }
+
+fun mediaTitlePresentation(isVideo: Boolean): MediaTitlePresentation =
+    if (isVideo) MediaTitlePresentation.VIDEO_LABEL else MediaTitlePresentation.IMAGE_OVERLAY
+
 enum class HomeOverflowAction(val label: String) {
     SORT_FILTER("排序与筛选"),
     TOGGLE_LAYOUT(""),

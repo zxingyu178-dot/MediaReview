@@ -90,6 +90,9 @@ import com.mediareview.app.feature.v2.player.V2PlaybackUiState
 import com.mediareview.app.feature.v2.player.native.state.awaitPlayerHostReady
 import com.mediareview.app.feature.v2.review.data.ReviewQueueItemUi
 import com.mediareview.app.feature.v2.ui.V2Colors
+import com.mediareview.app.feature.v2.ui.components.EmptyState
+import com.mediareview.app.feature.v2.ui.components.ErrorState
+import com.mediareview.app.feature.v2.ui.components.LoadingSkeleton
 import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaTextPrimary
@@ -168,6 +171,7 @@ fun V2ReviewScreen(
     val scopeSheet by vm.scopeSheet.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+    val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(Unit) { vm.enterReview() }
 
@@ -180,7 +184,10 @@ fun V2ReviewScreen(
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
-                message.undoMediaId?.let { vm.undoPendingDelete(it) }
+                message.undoMediaId?.let {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    vm.undoPendingDelete(it)
+                }
             }
         }
     }
@@ -460,7 +467,7 @@ private fun ReviewPagerContent(
     fun keepCurrent() {
         val page = pagerState.settledPage
         if (page !in items.indices) return
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         feedback = "已标记保留"
         vm.markSeen(page)
         if (canGoNext(page, items.size)) navigateTo(page + 1)
@@ -472,7 +479,7 @@ private fun ReviewPagerContent(
             vm.addPendingDelete(item.mediaId)
             return
         }
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         feedback = "已标记待删除 · 可撤销"
         lastDeleteMediaId = item.mediaId
         vm.addPendingDelete(item.mediaId)
@@ -926,6 +933,11 @@ private fun ReviewPagerContent(
                 seenCount = state.seenCount,
                 remainingCount = state.remainingCount,
             )
+            val animatedProgress by animateFloatAsState(
+                targetValue = progress.fraction,
+                animationSpec = tween(250),
+                label = "reviewProgress",
+            )
             Column(
                 Modifier.align(Alignment.Center).padding(horizontal = 64.dp).testTag("review_progress"),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -933,7 +945,7 @@ private fun ReviewPagerContent(
                 Text(progress.positionLabel, color = MediaTextPrimary, style = MaterialTheme.typography.labelLarge)
                 Text(progress.summaryLabel, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
                 LinearProgressIndicator(
-                    progress = { progress.fraction },
+                    progress = { animatedProgress },
                     modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 1.dp),
                     color = V2Colors.Accent,
                     trackColor = Color.White.copy(alpha = 0.18f),
@@ -1015,7 +1027,12 @@ private fun ReviewPagerContent(
                     label = "撤销",
                     enabled = undoId != null,
                     tag = "review_undo",
-                    onClick = { undoId?.let(vm::undoPendingDelete) },
+                    onClick = {
+                        undoId?.let {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            vm.undoPendingDelete(it)
+                        }
+                    },
                 )
                 ReviewActionButton(
                     icon = Icons.Default.NavigateNext,
@@ -1038,7 +1055,10 @@ private fun ReviewPagerContent(
                         onClick = {
                             moreSheet = false
                             closeSheetAndResume()
-                            navigateTo(fastForwardIndex(pagerState.settledPage, items.size))
+                            val currentIndex = pagerState.settledPage
+                            val targetIndex = fastForwardIndex(currentIndex, items.size)
+                            feedback = fastForwardHint(currentIndex, items.size)
+                            navigateTo(targetIndex)
                         },
                     )
                     MoreSheetItem(
@@ -1325,6 +1345,7 @@ private fun InfoSheetRow(label: String, value: String) {
 @Composable
 private fun ReviewLoadingPage(onBack: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        LoadingSkeleton(Modifier.fillMaxSize())
         IconButton(
             onClick = onBack,
             modifier = Modifier
@@ -1368,42 +1389,7 @@ private fun ReviewErrorPage(
                 tint = MediaTextPrimary,
             )
         }
-        Column(
-            modifier = Modifier.padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = Icons.Default.ErrorOutline,
-                contentDescription = null,
-                tint = MediaDanger,
-                modifier = Modifier.size(44.dp),
-            )
-            Text(
-                text = "无法恢复批阅",
-                style = MaterialTheme.typography.titleMedium,
-                color = MediaTextPrimary,
-                modifier = Modifier.padding(top = 14.dp),
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MediaTextSecondary,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = V2Colors.Accent,
-                onClick = onRetry,
-                modifier = Modifier.padding(top = 18.dp),
-            ) {
-                Text(
-                    text = "重新尝试",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
-                )
-            }
-        }
+        ErrorState(message = message, onRetry = onRetry, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -1433,7 +1419,15 @@ private fun ReviewCompletePage(
                 tint = MediaTextPrimary,
             )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (emptyQueue) {
+            EmptyState(
+                title = "没有待批阅的视频",
+                message = "全部视频都已批阅完成",
+                modifier = Modifier.fillMaxSize(),
+                actionLabel = "重新选择范围",
+                onAction = onRestart,
+            )
+        } else Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = null,

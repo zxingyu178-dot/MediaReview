@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
@@ -37,12 +39,15 @@ import com.mediareview.app.feature.v2.ui.components.TopBar
 import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteState
 import com.mediareview.app.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 const val PREFETCH_DISTANCE_ITEMS = 16
 
 fun shouldLoadNextPage(lastVisible: Int, itemCount: Int, hasMore: Boolean, loading: Boolean): Boolean =
     hasMore && !loading && itemCount > 0 && lastVisible >= itemCount - PREFETCH_DISTANCE_ITEMS
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     vm: V2HomeViewModel,
@@ -55,6 +60,7 @@ fun HomeScreen(
 ) {
     val folders by vm.folders.collectAsState()
     val albums by vm.albums.collectAsState()
+    val albumError by vm.albumError.collectAsState()
     val list by vm.currentList.collectAsState()
     val sortSpec by vm.sortSpec.collectAsState()
     val displayMode by vm.displayMode.collectAsState()
@@ -67,6 +73,8 @@ fun HomeScreen(
     val searchGridState = rememberLazyGridState()
     var positionedSearchQuery by rememberSaveable { mutableStateOf(vm.searchQuery) }
     var showSortSheet by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    val refreshScope = rememberCoroutineScope()
 
     WindowCoverPrefetch(albums.map {
         it.coverUrl ?: vm.mediaById(it.coverImageId.orEmpty())?.let(vm::coverUri).orEmpty()
@@ -131,8 +139,9 @@ fun HomeScreen(
                     if (vm.isServerMode) RuntimeDiagnosis(vm)
                     categoryHint?.let {
                         Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = MediaSpacing.Medium)
-                                .testTag("home_category_hint").clickable(onClick = vm::retryFolders))
+                            modifier = Modifier.heightIn(min = MediaDimensions.MinimumTouchTarget)
+                                .testTag("home_category_hint").clickable(onClick = vm::retryFolders)
+                                .padding(horizontal = MediaSpacing.Medium))
                     }
                 }
             },
@@ -152,19 +161,33 @@ fun HomeScreen(
                 )
             },
         ) { inset ->
-            when (vm.currentTab) {
-                V2HomeTab.MEDIA -> MediaGrid(
-                    list, vm, onOpenMedia, gridState = homeGridState, displayMode = displayMode,
-                    pendingDeleteIds = pendingIds,
-                    contentPadding = PaddingValues(
-                        start = MediaSpacing.XSmall, end = MediaSpacing.XSmall,
-                        top = inset.calculateTopPadding(), bottom = MediaSpacing.Large,
-                    ),
-                )
-                V2HomeTab.SHELF -> ShelfGrid(
-                    albums, coverFor = { id -> vm.mediaById(id)?.let(vm::coverUri) },
-                    onOpenAlbum = onOpenAlbum, modifier = Modifier.padding(top = inset.calculateTopPadding()),
-                )
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = {
+                    refreshing = true
+                    if (vm.currentTab == V2HomeTab.MEDIA) vm.retryList() else vm.refreshAlbums()
+                    refreshScope.launch {
+                        delay(700L)
+                        refreshing = false
+                    }
+                },
+                modifier = Modifier.fillMaxSize().testTag("home_pull_refresh"),
+            ) {
+                when (vm.currentTab) {
+                    V2HomeTab.MEDIA -> MediaGrid(
+                        list, vm, onOpenMedia, gridState = homeGridState, displayMode = displayMode,
+                        pendingDeleteIds = pendingIds,
+                        contentPadding = PaddingValues(
+                            start = MediaSpacing.XSmall, end = MediaSpacing.XSmall,
+                            top = inset.calculateTopPadding(), bottom = MediaSpacing.Large,
+                        ),
+                    )
+                    V2HomeTab.SHELF -> ShelfGrid(
+                        albums, coverFor = { id -> vm.mediaById(id)?.let(vm::coverUri) },
+                        onOpenAlbum = onOpenAlbum, modifier = Modifier.padding(top = inset.calculateTopPadding()),
+                        error = albumError, onRetry = vm::refreshAlbums,
+                    )
+                }
             }
         }
     }
@@ -237,9 +260,30 @@ fun SearchBar(
 
 @Composable
 private fun ModeTabRow(current: V2HomeTab, onSelect: (V2HomeTab) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
+    Row(
+        modifier = modifier
+            .background(MediaSurfaceRaised, MaterialTheme.shapes.large)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
         listOf(V2HomeTab.MEDIA to "全部媒体", V2HomeTab.SHELF to "相册").forEach { (tab, label) ->
-            FilterChip(selected = current == tab, onClick = { onSelect(tab) }, label = { Text(label) })
+            val selectedTab = current == tab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = MediaDimensions.MinimumTouchTarget)
+                    .background(if (selectedTab) MediaAccent else androidx.compose.ui.graphics.Color.Transparent, MaterialTheme.shapes.medium)
+                    .clickable { onSelect(tab) }
+                    .semantics { selected = selectedTab }
+                    .testTag("home_segment_${tab.name.lowercase()}"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selectedTab) MediaOnImmersive else MediaTextSecondary,
+                )
+            }
         }
     }
 }

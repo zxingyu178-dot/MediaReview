@@ -41,4 +41,9 @@ class HomeLayoutPolicyTest {
         assertEquals(HomeDisplayMode.TWO_COLUMN, HomeDisplayMode.fromStored("invalid"))
         HomeDisplayMode.entries.forEach { assertEquals(it, HomeDisplayMode.fromStored(it.name)) }
     }
+
+    @Test fun mediaTitlePresentationKeepsVideoMetadataAndSoftensImageNames() {
+        assertEquals(MediaTitlePresentation.IMAGE_OVERLAY, mediaTitlePresentation(isVideo = false))
+        assertEquals(MediaTitlePresentation.VIDEO_LABEL, mediaTitlePresentation(isVideo = true))
+    }
 }

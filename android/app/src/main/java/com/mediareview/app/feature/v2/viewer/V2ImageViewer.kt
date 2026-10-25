@@ -53,6 +53,10 @@ import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerContext
 import com.mediareview.app.feature.v2.viewer.state.ImageViewerState
 import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteState
+import com.mediareview.app.feature.v2.viewer.state.AlbumLoadStatus
+import com.mediareview.app.feature.v2.ui.components.EmptyState
+import com.mediareview.app.feature.v2.ui.components.ErrorState
+import com.mediareview.app.feature.v2.ui.components.LoadingSkeleton
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import coil.imageLoader
 import coil.request.SuccessResult
@@ -268,7 +272,7 @@ fun V2ImageViewer(
         CompositionLocalProvider(LocalOriginalImageSession provides OriginalImageSession(sourceNamespace, originalLifetime) { url ->
             if (url == currentOriginal) originalReadyKey = originalImageCacheKey(sourceNamespace, url)
         }) {
-        HorizontalPager(
+        if (ids.isNotEmpty()) HorizontalPager(
             state = pagerState,
             userScrollEnabled = currentScale <= 1.01f,
             modifier = Modifier.fillMaxSize().testTag("viewer_pager"),
@@ -289,6 +293,17 @@ fun V2ImageViewer(
                     onScaleChange = { if (page == pagerState.currentPage) currentScale = it },
                 )
             }
+        }
+        else when {
+            albumSession == null -> EmptyState("图片不可用", "这张图片已不在当前媒体窗口中", Modifier.fillMaxSize())
+            albumWindow == null || albumWindow?.status == AlbumLoadStatus.Loading -> LoadingSkeleton(Modifier.fillMaxSize(), showIcon = true)
+            albumWindow?.status == AlbumLoadStatus.Error -> ErrorState(
+                message = "相册内容加载失败",
+                onRetry = { albumSession?.let(vm::retryAlbumViewer) },
+                modifier = Modifier.fillMaxSize(),
+            )
+            albumWindow?.status == AlbumLoadStatus.Empty -> EmptyState("暂无图片", "当前查看窗口没有可显示的图片", Modifier.fillMaxSize())
+            else -> EmptyState("图片不可用", "这张图片已不在当前媒体窗口中", Modifier.fillMaxSize())
         }
         }
 

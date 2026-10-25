@@ -1,6 +1,13 @@
 package com.mediareview.app.feature.v2
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +78,7 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
  * 一级 Tab：home / review / favorites / organize；
  * 全局详情：folder/{folderId} / album/{albumId} / player/{mediaId} / viewer/{mediaId}。
  *
- * - Root Scaffold 提供 bottomBar（仅 Tab route 显示），innerPadding 下发给 Tab 内容，
+ * - Root Scaffold 提供 bottomBar（普通 Tab route 显示，沉浸批阅隐藏），innerPadding 下发给 Tab 内容，
  *   内容区域天然结束在 BottomNav 上方，最后一行不再被遮挡；
  * - Player / Viewer / Album 不显示底部导航，Back 返回原 Tab（收藏→Viewer→Back→收藏）；
  * - 所有 Tab 内容共享该 NavController，统一经 MediaNavigator 路由。
@@ -85,11 +92,12 @@ fun V2MainScreen(
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-    val showBottomBar = MediaNavigator.isTabRoute(currentRoute)
+    val showBottomBar = shouldShowBottomNavigation(currentRoute)
     // 全局提示可能跨路由排队；详情页也必须为真实底部操作区留出净空。
     val snackbarBottomClearance = when (currentRoute) {
         MediaNavigator.ROUTE_PLAYER -> 160.dp
         MediaNavigator.ROUTE_VIEWER -> 145.dp
+        MediaNavigator.ROUTE_REVIEW -> 112.dp
         else -> 0.dp
     }
     val dataMode by vm.dataMode.collectAsState()
@@ -113,7 +121,18 @@ fun V2MainScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar, Modifier.padding(bottom = snackbarBottomClearance)) },
         bottomBar = {
-            if (showBottomBar) {
+            AnimatedVisibility(
+                visible = showBottomBar,
+                enter = fadeIn(tween(150)) + slideInVertically(tween(200)) { it / 2 },
+                // Review contains a native Surface. Collapse its Scaffold inset in the same
+                // composition that creates the route so the player never receives a second,
+                // post-attach viewport size. Other destinations retain the P4 exit motion.
+                exit = when (bottomNavigationExitMode(currentRoute)) {
+                    BottomNavigationExitMode.IMMEDIATE -> ExitTransition.None
+                    BottomNavigationExitMode.ANIMATED ->
+                        fadeOut(tween(120)) + slideOutVertically(tween(180)) { it / 2 }
+                },
+            ) {
                 V2BottomNavBar(
                     current = currentTab(currentRoute),
                     onSelect = { tab ->
