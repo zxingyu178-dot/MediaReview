@@ -17,6 +17,7 @@ import secrets
 import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -78,6 +79,13 @@ class _SnapshotEntry:
 class _ClaimResult:
     entry: _SnapshotEntry
     action: str
+
+
+class _RecoveryObservation(Enum):
+    MISSING = "missing"
+    SAME_ORIGINAL_PRESENT = "same_original_present"
+    REPLACED_OR_ORIGINAL_GONE = "replaced_or_original_gone"
+    UNKNOWN = "unknown"
 
 
 class DeleteReceipt(dict[str, str]):
@@ -723,39 +731,51 @@ def _commit_claims(
     return outcome
 
 
-def _recovery_observes_missing(
+def _observe_recovery_state(
     session: Session, media: MediaCacheIndex | None
-) -> bool:
-    """恢复只观察文件是否已不存在，绝不再次执行删除。"""
+) -> _RecoveryObservation:
+    """只读观察原对象是否仍在；不确定与身份替换必须分开。"""
     if media is None:
-        return False
+        return _RecoveryObservation.UNKNOWN
 
     if media.source_type == "local":
-        from app.services.native_sources import SourcePathError, safe_path
+        from app.core.errors import ConflictError
+        from app.services.native_sources import SourcePathError, open_media, safe_path
 
         root = session.get(LocalRoot, media.library_id)
         if root is None or not root.enabled:
-            return False
+            return _RecoveryObservation.UNKNOWN
         try:
-            path = safe_path(root, media.media_path or "", allow_missing_leaf=True)
-            file_stat = path.lstat()
+            safe_path(root, media.media_path or "", allow_missing_leaf=True)
+            handle, _file_stat = open_media(session, media)
         except FileNotFoundError:
-            return True
+            return _RecoveryObservation.MISSING
+        except ConflictError:
+            return _RecoveryObservation.REPLACED_OR_ORIGINAL_GONE
         except (SourcePathError, OSError):
-            return False
-        if not stat.S_ISREG(file_stat.st_mode):
-            return False
-        return False
+            return _RecoveryObservation.UNKNOWN
+        except AppError:
+            return _RecoveryObservation.UNKNOWN
+        handle.close()
+        return _RecoveryObservation.SAME_ORIGINAL_PRESENT
 
     if media.source_type != "jellyfin" or not media.media_path:
-        return False
+        return _RecoveryObservation.UNKNOWN
     try:
-        _lstat_deletion_path(media.media_path)
+        file_stat = _lstat_deletion_path(media.media_path)
     except FileNotFoundError:
-        return True
+        return _RecoveryObservation.MISSING
     except (OSError, ValueError):
-        return False
-    return False
+        return _RecoveryObservation.UNKNOWN
+
+    if media.size_bytes is not None and file_stat.st_size != media.size_bytes:
+        return _RecoveryObservation.REPLACED_OR_ORIGINAL_GONE
+    stored_mtime_ms = _mtime_ms(media)
+    if stored_mtime_ms is not None:
+        actual_ms = int(file_stat.st_mtime * 1000)
+        if abs(actual_ms - stored_mtime_ms) > 3000:
+            return _RecoveryObservation.REPLACED_OR_ORIGINAL_GONE
+    return _RecoveryObservation.SAME_ORIGINAL_PRESENT
 
 
 def recover_interrupted_deletes(session: Session) -> None:
@@ -776,29 +796,35 @@ def recover_interrupted_deletes(session: Session) -> None:
             session.rollback()
             continue
         media = mi.get_cached_media(session, media_id)
-        missing = _recovery_observes_missing(session, media)
-
-        if row.status == "delete_pending" and not missing:
-            session.rollback()
-            continue
-        if row.status == "committing" and not missing:
-            row.status = "failed"
-            row.error = "interrupted_not_deleted"
-            audit.log_action(
-                session,
-                "delete_commit",
-                media_id,
-                detail="failed:interrupted_not_deleted",
+        if row.status == "delete_done":
+            observation = None
+            audit_detail = "metadata_cleanup_recovered"
+        else:
+            observation = _observe_recovery_state(session, media)
+            if observation is _RecoveryObservation.UNKNOWN:
+                session.rollback()
+                logger.warning("删除恢复观察结果不确定；保留原状态等待重试")
+                continue
+            if observation is _RecoveryObservation.SAME_ORIGINAL_PRESENT:
+                if row.status == "committing":
+                    row.status = "failed"
+                    row.error = "interrupted_not_deleted"
+                    audit.log_action(
+                        session,
+                        "delete_commit",
+                        media_id,
+                        detail="failed:interrupted_not_deleted",
+                    )
+                    session.flush()
+                    session.commit()
+                else:
+                    session.rollback()
+                continue
+            audit_detail = (
+                "recovered_deleted"
+                if observation is _RecoveryObservation.MISSING
+                else "recovered_original_gone"
             )
-            session.flush()
-            session.commit()
-            continue
-
-        audit_detail = (
-            "metadata_cleanup_recovered"
-            if row.status == "delete_done"
-            else "recovered_deleted"
-        )
         if row.status != "delete_done":
             try:
                 _persist_delete_state(session, row, status="delete_done")

@@ -280,6 +280,80 @@ def test_local_recovery_keeps_present_file_and_marks_failed(native_db, tmp_path)
     assert details == ["failed:interrupted_not_deleted"]
 
 
+def test_local_recovery_keeps_committing_when_safe_path_is_unknown(
+    native_db, tmp_path, monkeypatch, caplog
+):
+    """路径复验异常是不确定态：不得把既有 committing 终结为 failed。"""
+    root, _root_id = _register_and_scan(native_db, tmp_path, {"unknown.jpg": b"stay"})
+    target = root / "unknown.jpg"
+    mid, _relative_path, size = _indexed(native_db)
+    with native_db.session() as session:
+        session.add(DeleteQueue(media_id=mid, status="committing", size_bytes=size))
+        session.commit()
+
+    def reject_safe_path(*_args, **_kwargs):
+        raise native_sources.SourcePathError()
+
+    monkeypatch.setattr(native_sources, "safe_path", reject_safe_path)
+    with native_db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+
+    assert target.read_bytes() == b"stay"
+    with native_db.session() as session:
+        row = session.get(DeleteQueue, mid)
+        assert row.status == "committing"
+        assert row.error is None
+        assert session.get(MediaCacheIndex, mid) is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "delete_commit", AuditLog.media_id == mid)
+        ) == 0
+    assert any("观察结果不确定" in record.message for record in caplog.records)
+    assert all(str(target) not in record.message for record in caplog.records)
+
+
+def test_local_recovery_treats_replacement_as_original_gone_without_deleting_it(
+    native_db, tmp_path
+):
+    """同名新对象不能反证原删除失败；恢复只清理旧元数据，不删除新对象。"""
+    from unittest.mock import patch
+
+    root, _root_id = _register_and_scan(native_db, tmp_path, {"rebuilt.jpg": b"old!"})
+    target = root / "rebuilt.jpg"
+    mid, _relative_path, size = _indexed(native_db)
+    with native_db.session() as session:
+        session.add(Favorite(media_id=mid))
+        session.add(DeleteQueue(media_id=mid, status="committing", size_bytes=size))
+        session.commit()
+
+    replacement = tmp_path / "replacement.jpg"
+    replacement.write_bytes(b"new!")
+    os.replace(replacement, target)
+    future = target.stat().st_mtime + 3600
+    os.utime(target, (future, future))
+
+    with (
+        patch("app.services.native_sources.delete_local_media") as local_delete,
+        patch("app.services.delete_queue.os.remove") as jellyfin_delete,
+    ):
+        with native_db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        local_delete.assert_not_called()
+        jellyfin_delete.assert_not_called()
+
+    assert target.read_bytes() == b"new!"
+    with native_db.session() as session:
+        assert session.get(DeleteQueue, mid) is None
+        assert session.get(MediaCacheIndex, mid) is None
+        assert session.get(Favorite, mid) is None
+        assert session.scalar(
+            sa.select(AuditLog.detail)
+            .where(AuditLog.action == "delete_commit", AuditLog.media_id == mid)
+            .order_by(AuditLog.id.desc())
+        ) == "recovered_original_gone"
+
+
 def test_local_delete_two_phase_success_and_audit_without_path(native_db, tmp_path):
     """两阶段成功删除：入队不删、nonce 快照才删；审计 detail 不含绝对路径。"""
     payload = b"temporary-delete-bytes"
@@ -758,7 +832,7 @@ def test_windows_posix_state_flush_failure_returns_success_and_recovers(
     if os.name != "nt":
         pytest.skip("Windows POSIX disposition 专项")
 
-    root, _ = _register_and_scan(native_db, tmp_path, {"persist.jpg": b"persist"})
+    root, root_id = _register_and_scan(native_db, tmp_path, {"persist.jpg": b"persist"})
     target, mid = root / "persist.jpg", _indexed(native_db)[0]
     with native_db.session() as session:
         session.add(Favorite(media_id=mid))
@@ -800,6 +874,21 @@ def test_windows_posix_state_flush_failure_returns_success_and_recovers(
         assert kernel32.CloseHandle(reader)
 
     monkeypatch.undo()
+    with native_db.session() as session:
+        session.get(LocalRoot, root_id).enabled = False
+        session.commit()
+    with native_db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with native_db.session() as session:
+        row = session.get(DeleteQueue, mid)
+        assert row.status == "committing"
+        assert row.error is None
+        assert session.get(MediaCacheIndex, mid) is not None
+        assert session.get(Favorite, mid) is not None
+
+    with native_db.session() as session:
+        session.get(LocalRoot, root_id).enabled = True
+        session.commit()
     with native_db.session() as session:
         delete_queue.recover_interrupted_deletes(session)
     with native_db.session() as session:

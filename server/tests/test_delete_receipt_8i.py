@@ -311,6 +311,39 @@ def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
     db.dispose()
 
 
+def test_recover_jellyfin_replacement_cleans_metadata_without_deleting_file(tmp_path):
+    """Jellyfin 绝对路径身份变化时只收敛旧行，不删除当前文件。"""
+    db = _make_db(tmp_path)
+    target = tmp_path / "jellyfin-rebuilt.mp4"
+    target.write_bytes(b"old!")
+    _seed_media(db, "jellyfin-rebuilt", str(target), size=4)
+    _enqueue(db, "jellyfin-rebuilt", 4)
+    with db.session() as session:
+        row = session.get(DeleteQueue, "jellyfin-rebuilt")
+        row.status = "committing"
+        session.commit()
+
+    target.write_bytes(b"replacement")
+    with patch("app.services.delete_queue.os.remove") as remove:
+        with db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        remove.assert_not_called()
+
+    assert target.read_bytes() == b"replacement"
+    with db.session() as session:
+        assert session.get(DeleteQueue, "jellyfin-rebuilt") is None
+        assert session.get(MediaCacheIndex, "jellyfin-rebuilt") is None
+        assert session.scalar(
+            sa.select(AuditLog.detail)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "jellyfin-rebuilt",
+            )
+            .order_by(AuditLog.id.desc())
+        ) == "recovered_original_gone"
+    db.dispose()
+
+
 def test_delete_receipt_contract_only_has_stable_terminal_outcomes():
     receipt = delete_queue.DeleteReceipt()
     receipt.update(ok="success", gone="missing", bad="failed")

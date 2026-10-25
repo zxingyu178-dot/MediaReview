@@ -3020,3 +3020,16 @@ Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
 - Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL）。
 - Ruff：改动文件通过。
 - 结论：本轮修复相关与全量回归通过（除已分类 2 项本机环境失败）；发版仍以第五轮独立复审通过为前提。
+
+## 2026-10-25 第五轮复审修复：I7-R 四态恢复观察
+
+第五轮 Codex 复审（`review_meta/codex-review-20261025-round5/round5-review.md`）BLOCK：I7-R——恢复把"未观察到名字缺失"当成"原文件仍存在"，会把已返回 success、DB 仍为 committing 的行终结为 failed。Codex 按 Lead 批准方案实现四态只读观察（报告 `review_meta/codex-fix-20261025-round5/fix-report.md`）：
+
+- 新增 `_RecoveryObservation`：`MISSING` / `SAME_ORIGINAL_PRESENT` / `REPLACED_OR_ORIGINAL_GONE` / `UNKNOWN`。
+  - local：根缺失/停用 → UNKNOWN；叶缺失 → MISSING；safe_path/IO 异常 → UNKNOWN；叶存在时用 `open_media` 只读句柄身份复验：成功且指纹匹配 → SAME_ORIGINAL_PRESENT，身份不匹配（ConflictError）→ REPLACED_OR_ORIGINAL_GONE。
+  - jellyfin：绝对路径 lstat：缺失 → MISSING；异常 → UNKNOWN；存在时按 size + mtime±3s 判断同一对象。
+- 恢复策略：MISSING 或 REPLACED → 先耐久化 `delete_done`，再清理旧元数据并写 `recovered_deleted` / `recovered_original_gone`（不含路径），**不删除任何现有文件**；SAME_ORIGINAL_PRESENT 才把 committing 终结为 failed:interrupted_not_deleted；UNKNOWN 保留 committing 等待下次恢复（幂等）。
+- 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 不变；未新增状态/表/迁移。
+
+验证：Codex 定向四文件 **97 passed / 0 failed**（TDD 先 4 failed）；ruff 通过。Lead 全量：Server **740 通过 / 2 失败 / 742 项 / 438.36s**（2 项本机 ffmpeg 环境限制，换可写 basetemp 单独复跑 2 passed）；Android 全量 JVM 见下一条；未 commit/push（Lead 统一提交）。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL，无 Android 改动，复用上次编译产物）。
