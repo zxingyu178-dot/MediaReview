@@ -1,4 +1,4 @@
-"""Stage8I: 尺寸回填与真实删除回执；全部使用隔离文件/数据库。"""
+﻿"""Stage8I: 尺寸回填与真实删除回执；全部使用隔离文件/数据库。"""
 
 import os
 import sys
@@ -346,6 +346,63 @@ def test_recover_jellyfin_unreachable_parent_keeps_committing(tmp_path):
             .where(
                 AuditLog.action == "delete_commit",
                 AuditLog.media_id == "unreachable-parent",
+            )
+        ) == 0
+    db.dispose()
+
+
+def test_recover_jellyfin_parent_rename_after_validation_never_reports_missing(tmp_path):
+    """父目录验证后被改名时，句柄相对观察仍不能把原文件误报为缺失。"""
+    if os.name != "nt":
+        pytest.skip("仅 Windows 句柄相对观察适用")
+
+    db = _make_db(tmp_path)
+    parent = tmp_path / "mounted-library"
+    parked_parent = tmp_path / "mounted-library-offline"
+    parent.mkdir()
+    target = parent / "movie.mp4"
+    target.write_bytes(b"stay")
+    _seed_media(db, "renamed-parent", str(target), size=4)
+    _enqueue(db, "renamed-parent", 4)
+    with db.session() as session:
+        media = session.get(MediaCacheIndex, "renamed-parent")
+        media.modified_at = datetime.fromtimestamp(target.stat().st_mtime, UTC).replace(
+            tzinfo=None
+        )
+        row = session.get(DeleteQueue, "renamed-parent")
+        row.status = "committing"
+        session.commit()
+
+    hook_called = False
+
+    def rename_parent_after_validation():
+        nonlocal hook_called
+        parent.rename(parked_parent)
+        hook_called = True
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(
+            session,
+            _jellyfin_observation_hook=rename_parent_after_validation,
+        )
+
+    assert hook_called
+    assert (parked_parent / "movie.mp4").read_bytes() == b"stay"
+    with db.session() as session:
+        row = session.get(DeleteQueue, "renamed-parent")
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error == "interrupted_not_deleted"
+        assert session.get(MediaCacheIndex, "renamed-parent") is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "renamed-parent",
+                AuditLog.detail.in_(
+                    ["recovered_deleted", "recovered_original_gone"]
+                ),
             )
         ) == 0
     db.dispose()
@@ -737,3 +794,4 @@ def test_authenticated_api_nonce_receipt(tmp_path, data_root):
             ).status_code
             == 409
         )
+

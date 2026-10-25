@@ -3053,3 +3053,13 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 第六轮复审修复（I7-R6A/I7-R6B）已提交 `5aa367a`；Lead 全量 Server **743/745**（2 项本机 ffmpeg 环境，单独复跑 2 passed）、Android 无改动（上次 511/511）。
 - 第七轮 Codex 定点复审启动后触发额度上限（提示 **15:49 复位**），未生成报告；P5 发版继续暂停。
 - 已设 15:50 提醒：复位后立即重试 push、执行第七轮复审；通过则进入 P5（1.6.0/alpha16 版本、构建、打包、SHA）。
+
+## 2026-10-25 第七轮复审修复：Jellyfin 句柄相对观察（关闭父链/叶 TOCTOU）
+
+第七轮 Codex 复审（进程在写报告前提前结束，日志 `review_meta/codex-review-20261025-round7/round7-review.log`）结论：I7-R6B 已关闭，I7-R6A 仍有父链检查与叶检查之间的 TOCTOU——父目录在两次检查间被移走时，叶路径 lstat 会误判 MISSING，而文件仍在被移走的目录中。Codex 实现（报告因进程提前结束未落盘，改动与验证由 Lead 接管）：
+
+- 新增 `_windows_recovery_file_info`：Jellyfin 恢复在 Windows 上先打开叶的父目录句柄（`FILE_FLAG_BACKUP_SEMANTICS|OPEN_REPARSE_POINT`），用 `GetFileInformationByHandle` 的卷序列+File Index 与打开前 `lstat` 的父目录身份比较；一致后再用 `NtCreateFile(RootDirectory=父句柄, ObjectName=叶)` 相对打开叶（`FILE_OPEN_REPARSE_POINT`）。叶缺失 → MISSING；成功 → 用句柄信息 size/mtime 与 DB 证据比较；其他错误/证据不足 → UNKNOWN。路径字符串不再参与叶存在性判定。
+- 恢复四态与收敛策略不变：MISSING→delete_done+`recovered_deleted`；REPLACED→delete_done+`recovered_original_gone`（不删除现有文件）；SAME→仅 committing 写 failed:interrupted_not_deleted；UNKNOWN→保留 committing。
+- 测试：真实目录改名 hook（父目录验证后、相对打开前把父目录改名）断言不会误判 MISSING、不清理元数据；Lead 将断言收紧为 `status=failed`/`error=interrupted_not_deleted`（文件仍在移走后的目录中，属积极证明同文件仍在），该用例单独复跑通过。
+- 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 与 Local 四态观察不变。
+- Lead 全量：Server **744 通过 / 2 失败 / 746 项 / 405.66s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次 511/511）；ruff 改动文件通过；第七轮 TOCTOU 用例收紧后单独复跑通过。

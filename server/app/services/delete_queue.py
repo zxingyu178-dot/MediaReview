@@ -15,6 +15,7 @@ import logging
 import os
 import secrets
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -206,6 +207,12 @@ class _RecoveryPathUnavailableError(OSError):
     """恢复观察时卷根或父链不可见，不能据此证明叶文件缺失。"""
 
 
+@dataclass(frozen=True)
+class _WindowsRecoveryFileInfo:
+    size: int
+    mtime_ms: int
+
+
 def _validated_deletion_path(media_path: str) -> Path:
     path = Path(media_path)
     if not path.is_absolute() or ".." in path.parts or media_path.startswith(("\\\\", "//")):
@@ -248,6 +255,197 @@ def _lstat_recovery_path(media_path: str) -> os.stat_result:
     if not stat.S_ISREG(leaf_stat.st_mode):
         raise ValueError(f"{_GUARD_STAT}:not_a_regular_file")
     return leaf_stat
+
+
+def _windows_recovery_file_info(
+    media_path: str,
+    *,
+    after_parent_validation: Callable[[], None] | None = None,
+) -> _WindowsRecoveryFileInfo:
+    """绑定父目录句柄并相对观察叶，避免路径父链与叶观察间的 TOCTOU。"""
+    import ctypes
+    from ctypes import wintypes
+
+    file_list_directory = 0x00000001
+    file_traverse = 0x00000020
+    file_read_attributes = 0x00000080
+    synchronize = 0x00100000
+    share_all = 0x00000001 | 0x00000002 | 0x00000004
+    open_existing = 3
+    backup_semantics = 0x02000000
+    win32_open_reparse_point = 0x00200000
+    nt_file_open = 1
+    nt_file_non_directory_file = 0x00000040
+    nt_file_open_reparse_point = 0x00200000
+    obj_case_insensitive = 0x00000040
+    status_object_name_not_found = 0xC0000034
+    status_object_path_not_found = 0xC000003A
+    reparse_attribute = 0x00000400
+    directory_attribute = 0x00000010
+    windows_epoch_ticks = 116_444_736_000_000_000
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    class UnicodeString(ctypes.Structure):
+        _fields_ = [
+            ("Length", wintypes.USHORT),
+            ("MaximumLength", wintypes.USHORT),
+            ("Buffer", wintypes.LPWSTR),
+        ]
+
+    class ObjectAttributes(ctypes.Structure):
+        _fields_ = [
+            ("Length", wintypes.ULONG),
+            ("RootDirectory", wintypes.HANDLE),
+            ("ObjectName", ctypes.POINTER(UnicodeString)),
+            ("Attributes", wintypes.ULONG),
+            ("SecurityDescriptor", wintypes.LPVOID),
+            ("SecurityQualityOfService", wintypes.LPVOID),
+        ]
+
+    class IoStatusBlock(ctypes.Structure):
+        _fields_ = [("StatusOrPointer", wintypes.LPVOID), ("Information", ctypes.c_size_t)]
+
+    path = _validated_deletion_path(media_path)
+    try:
+        parent_stat: os.stat_result | None = None
+        for component in reversed(path.parents):
+            parent_stat = _lstat_deletion_component(component)
+    except OSError as exc:
+        raise _RecoveryPathUnavailableError from exc
+    if parent_stat is None or not stat.S_ISDIR(parent_stat.st_mode):
+        raise _RecoveryPathUnavailableError()
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_info = kernel32.GetFileInformationByHandle
+    get_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(ByHandleFileInformation)]
+    get_info.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    nt_create_file = ntdll.NtCreateFile
+    nt_create_file.argtypes = [
+        ctypes.POINTER(wintypes.HANDLE),
+        wintypes.DWORD,
+        ctypes.POINTER(ObjectAttributes),
+        ctypes.POINTER(IoStatusBlock),
+        wintypes.LPVOID,
+        wintypes.ULONG,
+        wintypes.ULONG,
+        wintypes.ULONG,
+        wintypes.ULONG,
+        wintypes.LPVOID,
+        wintypes.ULONG,
+    ]
+    nt_create_file.restype = wintypes.LONG
+
+    invalid_handle = wintypes.HANDLE(-1).value
+    parent_handle = create_file(
+        str(path.parent),
+        file_list_directory | file_traverse | synchronize,
+        share_all,
+        None,
+        open_existing,
+        backup_semantics | win32_open_reparse_point,
+        None,
+    )
+    if parent_handle == invalid_handle:
+        raise _RecoveryPathUnavailableError()
+
+    leaf_handle = wintypes.HANDLE()
+    try:
+        parent_info = ByHandleFileInformation()
+        if not get_info(parent_handle, ctypes.byref(parent_info)):
+            raise _RecoveryPathUnavailableError()
+        parent_identity = (
+            int(parent_info.dwVolumeSerialNumber),
+            (int(parent_info.nFileIndexHigh) << 32) | int(parent_info.nFileIndexLow),
+        )
+        expected_parent_identity = (
+            int(parent_stat.st_dev) & 0xFFFFFFFF,
+            int(parent_stat.st_ino),
+        )
+        if parent_identity != expected_parent_identity:
+            raise _RecoveryPathUnavailableError()
+
+        if after_parent_validation is not None:
+            after_parent_validation()
+
+        leaf_buffer = ctypes.create_unicode_buffer(path.name)
+        leaf_name = UnicodeString(
+            len(path.name) * ctypes.sizeof(ctypes.c_wchar),
+            ctypes.sizeof(leaf_buffer),
+            ctypes.cast(leaf_buffer, wintypes.LPWSTR),
+        )
+        object_attributes = ObjectAttributes(
+            ctypes.sizeof(ObjectAttributes),
+            parent_handle,
+            ctypes.pointer(leaf_name),
+            obj_case_insensitive,
+            None,
+            None,
+        )
+        io_status = IoStatusBlock()
+        status = nt_create_file(
+            ctypes.byref(leaf_handle),
+            file_read_attributes | synchronize,
+            ctypes.byref(object_attributes),
+            ctypes.byref(io_status),
+            None,
+            0,
+            share_all,
+            nt_file_open,
+            nt_file_non_directory_file | nt_file_open_reparse_point,
+            None,
+            0,
+        )
+        unsigned_status = int(status) & 0xFFFFFFFF
+        if unsigned_status in {status_object_name_not_found, status_object_path_not_found}:
+            raise FileNotFoundError() from None
+        if status < 0:
+            raise _RecoveryPathUnavailableError()
+
+        leaf_info = ByHandleFileInformation()
+        if not get_info(leaf_handle, ctypes.byref(leaf_info)):
+            raise _RecoveryPathUnavailableError()
+        if leaf_info.dwFileAttributes & (reparse_attribute | directory_attribute):
+            raise ValueError(f"{_GUARD_STAT}:link_reparse_or_directory")
+        size = (int(leaf_info.nFileSizeHigh) << 32) | int(leaf_info.nFileSizeLow)
+        mtime_ticks = (int(leaf_info.ftLastWriteTime.dwHighDateTime) << 32) | int(
+            leaf_info.ftLastWriteTime.dwLowDateTime
+        )
+        return _WindowsRecoveryFileInfo(
+            size=size,
+            mtime_ms=(mtime_ticks - windows_epoch_ticks) // 10_000,
+        )
+    finally:
+        if leaf_handle.value not in (None, invalid_handle):
+            close_handle(leaf_handle)
+        close_handle(parent_handle)
 
 
 def _mtime_ms(media) -> int | None:
@@ -760,7 +958,10 @@ def _commit_claims(
 
 
 def _observe_recovery_state(
-    session: Session, media: MediaCacheIndex | None
+    session: Session,
+    media: MediaCacheIndex | None,
+    *,
+    _jellyfin_observation_hook: Callable[[], None] | None = None,
 ) -> _RecoveryObservation:
     """只读观察原对象是否仍在；不确定与身份替换必须分开。"""
     if media is None:
@@ -790,25 +991,38 @@ def _observe_recovery_state(
     if media.source_type != "jellyfin" or not media.media_path:
         return _RecoveryObservation.UNKNOWN
     try:
-        file_stat = _lstat_recovery_path(media.media_path)
+        if os.name == "nt":
+            file_info = _windows_recovery_file_info(
+                media.media_path,
+                after_parent_validation=_jellyfin_observation_hook,
+            )
+            actual_size = file_info.size
+            actual_mtime_ms = file_info.mtime_ms
+        else:
+            file_stat = _lstat_recovery_path(media.media_path)
+            actual_size = file_stat.st_size
+            actual_mtime_ms = int(file_stat.st_mtime * 1000)
     except FileNotFoundError:
         return _RecoveryObservation.MISSING
     except (OSError, ValueError):
         return _RecoveryObservation.UNKNOWN
 
-    if media.size_bytes is not None and file_stat.st_size != media.size_bytes:
+    if media.size_bytes is not None and actual_size != media.size_bytes:
         return _RecoveryObservation.REPLACED_OR_ORIGINAL_GONE
     stored_mtime_ms = _mtime_ms(media)
     if stored_mtime_ms is not None:
-        actual_ms = int(file_stat.st_mtime * 1000)
-        if abs(actual_ms - stored_mtime_ms) > 3000:
+        if abs(actual_mtime_ms - stored_mtime_ms) > 3000:
             return _RecoveryObservation.REPLACED_OR_ORIGINAL_GONE
     if media.size_bytes is None or stored_mtime_ms is None:
         return _RecoveryObservation.UNKNOWN
     return _RecoveryObservation.SAME_ORIGINAL_PRESENT
 
 
-def recover_interrupted_deletes(session: Session) -> None:
+def recover_interrupted_deletes(
+    session: Session,
+    *,
+    _jellyfin_observation_hook: Callable[[], None] | None = None,
+) -> None:
     """只观察并收敛可恢复删除状态；绝不再次执行物理删除。"""
     recoverable = list(
         session.execute(
@@ -830,7 +1044,11 @@ def recover_interrupted_deletes(session: Session) -> None:
             observation = None
             audit_detail = "metadata_cleanup_recovered"
         else:
-            observation = _observe_recovery_state(session, media)
+            observation = _observe_recovery_state(
+                session,
+                media,
+                _jellyfin_observation_hook=_jellyfin_observation_hook,
+            )
             if observation is _RecoveryObservation.UNKNOWN:
                 session.rollback()
                 logger.warning("删除恢复观察结果不确定；保留原状态等待重试")
