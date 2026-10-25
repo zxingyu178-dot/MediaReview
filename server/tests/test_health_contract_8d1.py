@@ -18,6 +18,7 @@ def test_server_version_matches_declared_release() -> None:
 
     root = Path(__file__).resolve().parent.parent.parent
     body = (root / "deployment" / "version.ps1").read_text(encoding="utf-8")
+    assert __version__ == "1.6.0"
     assert f'$ExpectedServerVersion = "{__version__}"' in body
 
 

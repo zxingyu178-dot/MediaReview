@@ -3064,3 +3064,14 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 与 Local 四态观察不变。
 - Lead 全量：Server **744 通过 / 2 失败 / 746 项 / 405.66s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次 511/511）；ruff 改动文件通过；第七轮 TOCTOU 用例收紧后单独复跑通过。
 - Lead 全量（I7-R8A 修复后）：Server **745 通过 / 2 失败 / 747 项 / 350.47s**（2 项本机 ffmpeg 环境，换可写 basetemp 单独复跑 2 passed）；ruff 改动文件通过。新增 `STATUS_OBJECT_PATH_NOT_FOUND` 注入用例断言保持 committing、索引保留、无终态审计。
+
+## 2026-10-25 P5 发版准备（源码层）
+
+- Server 版本三处统一由 1.5.2 升至 1.6.0，API Contract 保持 2；`scripts/build_deploy.py` 同步 Server 1.6.0、Android `2.0.0-alpha16`/code23，`REQUIRED_CAPABILITIES` 由 13 项增至 14 项并加入 `native_delete_v1`。
+- Android 升至 Alpha16/code23，新增中文 Release Notes：本地源两阶段安全删除、Windows POSIX-only 语义与不支持时 fail-closed、仅显式 `can_delete` 可删，并明确未完成真实手机/家庭 LAN 验收。
+- 发布文档（含 `UPGRADE_ROLLBACK.md`）同步到 1.6.0 / Alpha16-code23 / Contract2 / 14 能力 / 0017 / Windows 10 1709+；保留已发布 1.5.2/Alpha15 产物与生产安装版的历史事实；源码自动化测试证据标为 T，不冒充实机/生产验收。
+- TDD RED：Server 版本/部署合同 2 failed / 29 passed；Android ReleaseNotes 1 failed / 15 passed，均只因旧版本声明失败。
+- 最终定向验证：Server 指定四文件 **79 passed / 0 failed / 0 skipped**（uv 基础 CPython 3.12 + 项目 venv site-packages）；Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，`BUILD SUCCESSFUL`；失败码文案收紧后又单独复跑 ReleaseNotes **16 tests / 0 failures**。Server 有 1 条既有 Starlette/httpx 弃用警告；Android 有既有 AGP compileSdk 与 Compose 图标弃用警告。
+- 环境诊断：首次 Server 复跑误用 `uv python find` 在 `server` 目录返回的 `.venv` 重定向解释器，出现 5 项临时 SQLite/path 失败；改用 `.venv/pyvenv.cfg` 登记的 uv 基础 Python 后同一指定集 79/79 通过，未改产品代码或放宽断言。
+- 边界：**产物未构建**；未 commit/push；未启停服务或部署生产；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
+- Lead 全量（P5 版本 1.6.0/alpha16-code23）：Server **745 通过 / 2 失败 / 747 项 / 372.05s**（2 项本机 ffmpeg 环境限制，换可写 basetemp 单独复跑通过）；Android 全量 JVM **75 suites / 511 tests / 0 失败**；版本三处与 Android BuildConfig 一致。

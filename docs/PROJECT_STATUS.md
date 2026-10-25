@@ -1,28 +1,30 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-24 19:00 (+08:00)
-> 分支：`codex/mediareview-stage9-native-source` ｜ 与 `origin` 同步（2026-10-24 已成功推送；以 `git log -1` / `git status -sb` 为准）
-> 工作树：干净（tracked 无改动）｜ GitHub：2026-10-24 网络恢复，已推送 `2dd9ff2..5786f8f`（含 `747e704` 与本次统一文档）
+> 更新时间：2026-10-25（P5 源码发版准备）
+> 分支：`feature/mediareview-local-only` ｜ 本轮起点 HEAD `5e6c634`（第七轮复审通过后）
+> 工作树：P5 源码/测试/文档改动未提交；按任务要求不 commit/push
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
 ## 0. 一句话状态
 
-源码已达到 **Server 1.5.2 / Contract 2 / 迁移 0016 + Android 2.0.0-alpha15/code22**，生产机已安装 1.5.2；但**官方 Windows 服务当前 Stopped，8766 由一个来源未确认的交互式实例占用**，Alpha15 **从未上真机**，已发布 1.5.2 **不包含** 10-23 的图片 404 修复（该修复只在源码 `747e704`，已于 2026-10-24 推送到 GitHub）。产品方向已批准为"本地源为主、Jellyfin 可选"，**本地两阶段安全删除已在源码分支 `feature/mediareview-local-only` 实现并验证（未发版）**。
+第七轮复审后已进入 P5 源码发版准备：当前源码声明 **Server 1.6.0 / Contract 2 / 迁移 0017 + Android 2.0.0-alpha16/code23**，Server 共 14 项能力（含 `native_delete_v1`）。**1.6.0 Server ZIP 与 Alpha16 APK 未构建**，未部署生产、未上真机、未做家庭 LAN 验收。生产安装版仍为 1.5.2；本轮不重新验证或改变其运行态。
 
 ## 1. 权威版本表（SSOT）
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本 | `1.5.2` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
+| Server 版本（源码目标） | `1.6.0` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`（新增，本地两阶段删除）、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`；生产 health（1.5.2）与 `RELEASE_MANIFEST.json` 为 13 项，源码未发版 |
-| 数据库迁移 head | `0016_media_library_membership`（0001–0016，缺 0011） | `server/app/db/migrations/versions/`；`review_meta/stage9/repair-exe-proof.json`（`schema=0016`） |
-| Android 版本 | `versionCode 22` / `versionName 2.0.0-alpha15` | `android/app/build.gradle.kts:32-33`；`review_meta/stage9/repair-apk-proof.json` |
+| Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产 1.5.2 仍为 13 项 |
+| 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
+| Android 版本（源码目标） | `versionCode 23` / `versionName 2.0.0-alpha16` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
 | 生产已装版本 | `1.5.2` | `C:\Program Files\MediaReviewServer\VERSION.txt` |
 
-## 2. 正式产物（2026-10-24 实测哈希，与清单一致）
+## 2. 产物状态
+
+**P5 新产物：未构建。** 当前不存在经本轮确认的 Server 1.6.0 ZIP 或 Alpha16/code23 APK，下表仅为历史已发布的 1.5.2 / Alpha15 产物：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |
@@ -46,17 +48,18 @@
 
 > 风险：交互式实例不是官方生命周期对象，无自启、不受 ControlHub 管理；历史记录中它已换过一次 PID（3916 → 3896），来源仍未确认（见 `review_meta/ops-20261023/service-restore-log.md`）。
 
-## 4. 验证矩阵（证据级别：A 实机/生产｜B 构建/隔离｜C 文档自述｜D 未执行）
+## 4. 验证矩阵（证据级别：A 实机/生产｜B 构建/隔离｜T 源码自动化测试｜C 文档自述｜D 未执行）
 
 | 项目 | 结果 | 级别 | 证据 |
 | --- | --- | --- | --- |
-| 10-23 Server 全量 pytest（含 404 修复） | **693 通过 / 2 失败 / 695 项 / 422.70s**；2 项为本机 ffmpeg 完整性级别环境问题，换可写 basetemp 单独复跑通过 | A（本机） | `review_meta/ops-20261023/server-full-green2.log`、`docs/DEV_LOG.md:2881-2885` |
-| 10-23 改动前全量 pytest | 690 通过 / 4 失败 / 484.50s（失败均已分类） | A（本机） | `review_meta/ops-20261023/server-full-baseline.log` |
-| 10-23 图片代理定向回归 | 16 通过（含新增 404 用例） | A（本机） | `docs/DEV_LOG.md:2883` |
+| 10-23 Server 全量 pytest（含 404 修复） | **693 通过 / 2 失败 / 695 项 / 422.70s**；2 项为本机 ffmpeg 完整性级别环境问题，换可写 basetemp 单独复跑通过 | T | `review_meta/ops-20261023/server-full-green2.log`、`docs/DEV_LOG.md:2881-2885` |
+| 10-23 改动前全量 pytest | 690 通过 / 4 失败 / 484.50s（失败均已分类） | T | `review_meta/ops-20261023/server-full-baseline.log` |
+| 10-23 图片代理定向回归 | 16 通过（含新增 404 用例） | T | `docs/DEV_LOG.md:2883` |
 | Android JVM | 75 suites / 498 tests / 0 失败（10-23 基线；之后未改 Android，未重跑） | C（复用基线） | `review_meta/ops-20261023/`（记录）、DEV_LOG |
-| **10-24 P0/P1 本地删除后 Server 全量** | **709 通过 / 2 失败 / 711 项 / 430.01s**；2 项为本机 ffmpeg 完整性级别环境限制（默认 Temp 不可写），换项目内可写 basetemp 单独复跑 2 通过 | A（本机） | `review_meta/ops-20261024/server-full-p1-fast.log` |
-| **10-24 P0/P1 后 Android 全量 JVM** | **75 suites / 507 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL） | A（本机） | `review_meta/ops-20261024/android-full-p1.log`、`android/app/build/test-results/` |
-| **10-24 新增本地删除安全测试** | 12 类场景（两阶段成功/审计无路径、missing、root 停用/缺失、同尺寸替换、越界/绝对/UNC/目录、跨根、junction、逐条失败、nonce 快照、file_in_use、扩展分类） | A（本机） | `server/tests/test_native_sources.py` |
+| **10-24 P0/P1 本地删除后 Server 全量** | **709 通过 / 2 失败 / 711 项 / 430.01s**；2 项为本机 ffmpeg 完整性级别环境限制（默认 Temp 不可写），换项目内可写 basetemp 单独复跑 2 通过 | T | `review_meta/ops-20261024/server-full-p1-fast.log` |
+| **10-24 P0/P1 后 Android 全量 JVM** | **75 suites / 507 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL） | T | `review_meta/ops-20261024/android-full-p1.log`、`android/app/build/test-results/` |
+| **10-24 新增本地删除安全测试** | 12 类场景（两阶段成功/审计无路径、missing、root 停用/缺失、同尺寸替换、越界/绝对/UNC/目录、跨根、junction、逐条失败、nonce 快照、file_in_use、扩展分类） | T | `server/tests/test_native_sources.py` |
+| **10-25 P5 发版准备定向验证** | Server 指定四文件 **79 passed / 0 failed / 0 skipped**；Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，BUILD SUCCESSFUL | T | `review_meta/codex-review-20261025-round7/p5-report.md` |
 | 8I 完整 AVD connected | 第三轮 178/178 通过（2026-10-17） | B | `REVIEW_SUMMARY.md` 历史摘要、`review_meta/stage8i/final-connected-round3` |
 | 9D Alpha14/1.5.0 交付 | APK 签名 PASS；隔离 EXE health 1.5.0/Contract2/13 能力；ZIP 162 文件核验 | B | `review_meta/stage9/delivery-receipt.json` |
 | 1.5.0/1.5.1/1.5.2 生产升级 | 均经授权、停服备份、逐文件核验、health 通过 | A | `STAGE9_RESULT.md`、`review_meta/stage9/production-152-*.json` |
@@ -71,12 +74,12 @@
 
 | 级别 | 问题 | 状态 | 影响 | 下一步 |
 | --- | --- | --- | --- | --- |
-| **S0** | 已发布 1.5.2 不含 `747e704` 404 修复 | 产物 `git_head=2858d3c` | 缺封面仍报 502，客户端 404 文案仍是死代码 | 决策是否重新打包 1.5.3 |
+| **S0** | 已发布 1.5.2 不含 `747e704` 404 修复 | 产物 `git_head=2858d3c`；P5 源码已包含该修复 | 现有产物缺封面仍报 502 | 后续获准时构建并验证 1.6.0 / Alpha16 产物 |
 | **S0** | 官方服务 Stopped，8766 被来源未确认的 interactive 实例占用 | PID 3896（10-23 曾为 3916） | 无自启、ControlHub 不可管理、重启后手机不可达 | 管理员结束占用进程 → ControlHub 启动 → 3 次 health 核验 |
-| **S1** | Alpha15 未上真机 | ADB 无设备 | 0016 跨库归属、UI 修复、手机/LAN 行为均无新版实机证据 | 装机后按 `USER_LAN_VALIDATION.md` 定向验收 |
+| **S1** | Alpha16 产物未构建，未上真机 | 本轮仅源码准备 | 0017、本地 POSIX-only 删除与手机/LAN 行为均无新版实机证据 | 另行获准构建/安装后按 `USER_LAN_VALIDATION.md` 定向验收 |
 | **S1** | seek 后 `Invalid NAL length` | 根因未确认，未做猜测性修改 | 拖动播放可能中断 | 按 `seek-nal-report.md` 取证后再修 |
 | **S1** | `media_folders` 慢性慢查询 + 5s 台阶 | 已定位，未修 | 目录页 2.6–11.5s；缩略图 53 次 >5s | 先做零风险分段打点，再做结构性优化 |
-| **S2** | 本地源永久删除：源码已实现两阶段安全删除（未发版）；本地源仍无重复检测/转码 | P0/P1 已开发（分支 `feature/mediareview-local-only`），待发布与真机验证 | 已发布 1.5.2/Alpha15 仍不能删本地媒体，需新版 Server+App | P5 发版 + 真机授权样本验证 |
+| **S2** | 本地源永久删除：源码已实现两阶段安全删除；本地源仍无重复检测/转码 | P1 第七轮复审通过，P5 版本/契约源码已同步 | 已发布 1.5.2/Alpha15 仍不能删本地媒体，1.6.0/Alpha16 产物未构建 | 后续授权构建 + 真机隔离样本验证 |
 | **S2** | 0016 无法恢复历史已被覆盖的跨库归属 | 仅回填现存归属 | 部分子库目录需刷新同步后才恢复 | 升级后确认库勾选并刷新 |
 | **S2** | 本机 2 项 pytest 环境失败 + `server/app/main.py` 2 条既有 ruff 违规 | 环境级 / 既有 | 不阻塞产品，但不能宣称全绿 | 修本机工具目录完整性标签 / 另开小提交清 ruff |
 | **S3** | GitHub 不可达（已于 2026-10-24 恢复） | 已解决：`2dd9ff2..5786f8f` 推送成功 | 远端交接渠道恢复 | 保持每次提交后核对 `git status -sb` |
@@ -116,10 +119,10 @@
 | 阶段 | 内容 | 规模 | 状态 |
 | --- | --- | --- | --- |
 | P0 | 去 Jellyfin 依赖收口（引导/诊断/运维文案、扩展名白名单、MIME） | S，1–2 人日 | **源码完成并验证（未发版）** |
-| P1 | **本地安全永久删除**（Server 能力 `native_delete_v1` + 入队/提交本地分支 + Android 门禁改造 + 测试） | M，3–5 人日 | **C1/I1/I2/I3/M1 已修（源码，未提交），待 Codex 二次独立复审后发版** |
+| P1 | **本地安全永久删除**（Server 能力 `native_delete_v1` + 入队/提交本地分支 + Android 门禁改造 + 测试） | M，3–5 人日 | **第七轮复审通过，进入 P5** |
 | P2 可选 | 删除可回滚（Windows 回收站或延迟删除 + 撤销窗口） | M，2–4 人日 | 未开始（可选） |
 | P3 | 播放兜底（按需 remux / HLS 转码） | L，7–12 人日 | 待真机 A/B 后决策 |
-| P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 | 未开始 |
+| P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 | **源码发版准备中；产物未构建，未 commit/push，未真机/LAN/生产验收** |
 
 验收标准（P1）：只能经"入队 → prepare nonce → 确认"删除；文件被替换/换链/junction/root 禁用/快照外项全部拒绝且不删；成功项审计可查；失败逐条不中断；**只在临时目录与合成文件上验证，真机删除样本需用户另行授权**。
 
@@ -136,7 +139,7 @@
 | `docs/ACCEPTANCE.md` | 1.1 历史验收清单 | 已被 2.0 实际进度取代，仅供追溯 |
 | `TAKEOVER_READ_FIRST.md`、`HANDOVER.md`、`REVIEW_SUMMARY.md` | **历史快照** | 分别停在 1.1 接管期 / 1.1.0 / Stage8I |
 | `STAGE8J_RESULT.md`、`STAGE9_RESULT.md`、`docs/STAGE9_*` | **历史快照** | 阶段交付/体检记录 |
-| `deploy_handoff/*` | 产物 | 有效产物 = 1.5.2 Server ZIP + Alpha15 APK |
+| `deploy_handoff/*` | 历史产物 | 当前仅有 1.5.2 Server ZIP + Alpha15 APK；P5 新产物未构建 |
 | `review_meta/` | 本地证据（git 忽略） | 回执/日志/调查报告，不入库 |
 
 ## 9. 变更记录
@@ -147,6 +150,7 @@
 | 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估；GitHub 恢复后推送 `2dd9ff2..5786f8f` | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；`git push` |
 | 2026-10-24 | 本地源为主 P0/P1：新增 `native_delete_v1` 与本地两阶段安全删除、去 Jellyfin 诊断/文案收口、Android 只信任 `can_delete`；Server 全量 709/711（2 项环境）、Android 507/507 | `feature/mediareview-local-only`、`docs/DEV_LOG.md`、`review_meta/ops-20261024/*.log` |
 | 2026-10-25 | Codex 复审 C1/I4/M1；完成 C1 句柄绑定删除、I1 队列代次(0017)、I2 状态机+恢复(含 Lead 修复本地恢复误判)、I3 Android fail-closed、M1 审计；Server 721/723（2 环境）、Android 511/511 | `review_meta/codex-review-20261025/`、`review_meta/codex-fix-20261025/`、`docs/DEV_LOG.md` |
+| 2026-10-25 | 第七轮复审后进入 P5；源码版本统一为 Server 1.6.0 / Alpha16-code23 / Contract2 / 0017，builder 要求 14 能力；产物未构建 | `review_meta/codex-review-20261025-round7/p5-report.md`、`docs/DEV_LOG.md` |
 
 ## 10. Codex 独立复审（2026-10-25，本地删除阻断项）
 

@@ -187,6 +187,17 @@ object ReleaseNotesCatalog {
                 "电脑端更新至 Server 1.5.2 并刷新索引后，可恢复重叠媒体库的目录内容",
             ),
         ),
+        ReleaseNote(
+            versionCode = 23,
+            versionName = "2.0.0-alpha16",
+            title = "MediaReview 2.0 Alpha 16",
+            highlights = listOf(
+                "本地来源支持先加入待删除队列、再二次确认的两阶段安全删除",
+                "Windows 仅使用 POSIX 安全删除语义，不支持时返回 delete_not_supported 且文件保持不变",
+                "只有电脑端明确返回 can_delete=true 的来源才允许执行删除",
+                "本版本尚未完成真实手机与家庭局域网验收",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

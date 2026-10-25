@@ -27,18 +27,19 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 - 批阅模式：视频/图片混合、P0/P1 预加载、断点恢复
 - 收藏（点赞）
 - 待删除队列 → 二次确认 → 最终删除
-- 本地源与 Jellyfin 均支持两阶段删除（本地删除需要新版 Server + App；源码已实现，待发版）
+- 本地源与 Jellyfin 均支持两阶段删除（本地源仅显式 `can_delete=true` 时可删）
 - 完全重复检测（full SHA-256）+ 疑似重复独立页面
-- 本机只读本地媒体源（Stage9）：登记电脑目录、扫描/增量索引、封面与原图、认证 Range 播放、本地播放进度
+- 本地媒体源：登记电脑目录、扫描/增量索引、封面与原图、认证 Range 播放、本地播放进度与两阶段安全删除
 - 局域网自动发现 + 手动 IP 兜底 + 一次配对码
 - Web 管理后台（操作台）
 - Windows 服务部署（事务式升级/回滚）+ ControlHub 接入（实例身份健康检查）
 
 ## 当前版本
 
-- Android `2.0.0-alpha15`（versionCode 22）
-- Server `1.5.2` / API Contract `2` / 数据库迁移 `0016`
-- 生产环境已安装 Server 1.5.2（2026-10-20 授权升级）
+- 源码发布目标：Android `2.0.0-alpha16`（versionCode 23）
+- 源码发布目标：Server `1.6.0` / API Contract `2` / 数据库迁移 `0017`
+- Server health 声明 14 项能力（含 `native_delete_v1`）；当前未构建 1.6.0 / Alpha16 产物
+- 生产环境仍是已安装的 Server 1.5.2（2026-10-20 授权升级）
 
 > **运行态提醒**：官方 Windows 服务 `AIHome.MediaReview` 当前为 Stopped，8766 由来源未确认的交互式实例占用（见 PROJECT_STATUS §3）。
 > **当前完整状态、验证证据、生产运行态与待办，以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为唯一事实源。** 本文只保留项目简介与当前版本摘要。
