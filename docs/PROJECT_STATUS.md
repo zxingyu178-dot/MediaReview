@@ -265,3 +265,10 @@ Alpha17 源码准备将 UI 重构写入 Release Notes，并把 Android 源码版
 
 - P4 打磨（沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍、性能）已完成并提交为 `ab9b393`；Codex 与 Lead 复核均为 79 suites / 533 tests / 0 失败。
 - 批阅视频黑屏在 P3 基线 APK 上同样复现（模拟器 goldfish/软解限制），不作为 P4 回归；真机视频画面待验收。
+
+## 21. Android Alpha17 交付（2026-10-26）
+
+- UI 重构 P1–P4 + 打磨已提交：`be3c92d`/`66ca2f9`/`3abc77b`/`ab9b393`；Alpha17 版本与 Release Notes：`4fe38d2`。
+- 交付产物：`deploy_handoff/MediaReview_2.0.0-alpha17_stage9.apk`（43,655,762 bytes，SHA256 `8782f42b…6571f6`，versionCode 24 / 2.0.0-alpha17，signature PASS），已发送到用户确认的 QQ 邮箱（SMTP accepted + SEND_OK 附件字节/哈希一致）。
+- Server 保持 1.6.0（本次仅 Android UI 变化）；`--package-verified` 因 1.6.0 同名发布包已存在而拒绝覆盖，故未生成新 Server ZIP。
+- Jellyfin 已补建剩余 5 个分类库（共 24 库），重新扫描进行中（~96%）；真机验收仍待用户完成。

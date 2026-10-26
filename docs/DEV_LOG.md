@@ -3118,3 +3118,10 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - Codex 修复报告 `review_meta/ui-refactor-20261025/phase4-fix-report.md`：为 review 路由改用 bottomBar `ExitTransition.None`（避免视频 Surface 首次 attach 后再因底栏退出动画改变视口），并补纯 JVM 策略测试。该修复已纳入工作区。
 - **模拟器 A/B 结论**：重新构建并安装 P3 提交 `3abc77b` 的 APK 后，批阅页视频同样黑屏（`MRReview PlaybackReady ok=true state=Playing` 但 Surface 画面黑），说明当前模拟器（goldfish H.264 软解、SurfaceView）在此阶段的黑帧不是 P4 独有回归；P3 早先截图有画面，属模拟器渲染不稳定。**真机视频画面仍待验收**，不能以模拟器黑帧判定代码回归。
 - 已清理临时 worktree `temp\mr_p3`；P4 改动待 Lead 全量复核后提交。
+
+## 2026-10-26 Android Alpha17（UI 重构版）构建与邮件交付
+- Alpha17 源码准备（Codex）：versionCode 24 / versionName 2.0.0-alpha17，Release Notes 覆盖首页/目录/相册/查看器/批阅/打磨，文档同步；提交 `4fe38d2`。
+- 构建：`build_deploy.py --prepare-only` 成功（EXE health / APK manifest / 签名 PASS，evidence 记录）；`--package-verified` 因 Server 版本仍为 1.6.0、发布包名 `MediaReview_Server_1.6.0_stage9` 已存在（alpha16 历史产物，脚本拒绝覆盖）而阻断；因此本轮只交付 Android APK，Server 保持已发布的 1.6.0 不变。
+- 产物：`deploy_handoff/MediaReview_2.0.0-alpha17_stage9.apk`，43,655,762 bytes，SHA256 `8782f42b98f0af68879f278489e126b7b03be423ffeb007515abf5a07d6571f6`，package `com.mediareview.app` versionCode 24 / alpha17，签名 PASS。
+- 邮件交付（用户已确认 QQ 收件地址）：`SMTP accepted` + `SEND_OK attachment=MediaReview_2.0.0-alpha17_stage9.apk bytes=43655762 sha256=8782f42b…`，无拒收；完整地址与凭据未记录。
+- 真机/家庭 LAN 未验收；批阅视频在模拟器上有软解黑帧（P3 基线同样复现），需真机确认。
