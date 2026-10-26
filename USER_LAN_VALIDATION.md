@@ -1,6 +1,6 @@
 # 手机验收路线
 
-> 2026-10-25：P5 源码目标为 Alpha16/code23 + Server 1.6.0 / Contract2 / 0017；产物未构建，新版真实手机和家庭 LAN **未验收**。待以后获准构建、安装与升级后，本地删除只允许用隔离的可丢弃样本，并验证入队→nonce→二次确认、仅显式 `can_delete` 可删、不支持 POSIX 语义时以 `delete_not_supported` 失败且文件不变。下文为 Stage8I 历史完整路线，本轮不要求重复全套。
+> 2026-10-26：当前源码目标为 Alpha17/code24 + Server 1.6.0 / Contract2 / 0017；Alpha17 产物未构建，新版真实手机和家庭 LAN **未验收**。待以后获准构建、安装与升级后，本地删除只允许用隔离的可丢弃样本，并验证入队→nonce→二次确认、仅显式 `can_delete` 可删、不支持 POSIX 语义时以 `delete_not_supported` 失败且文件不变。下文为 Stage8I 历史完整路线，本轮不要求重复全套。
 
 ## Stage8I 历史路线
 

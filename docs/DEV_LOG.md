@@ -3088,6 +3088,15 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 发送器：一次性脚本（全局 temp），复用 Hermes `send_mail.get_config()` 加载 SMTP 配置；APK 使用 `application/vnd.android.package-archive` MIME，附件字节与 SHA-256 取自同一份实际发送数据，任何附件/拒收失败均非零退出、不发送。
 - 交付证据：`SMTP accepted`；`SEND_OK attachment=MediaReview_2.0.0-alpha16_stage9.apk bytes=43606606 sha256=42d188cb37b4b45c3bcedacc8ef5b8670ae61844b78e066d8b477a40be3b1dfa`，无拒收收件人。
 
+## 2026-10-26 Android Alpha17 发版准备（源码层）
+
+- Android 源码版本由 Alpha16/code23 提升为 `2.0.0-alpha17`/code24；`scripts/build_deploy.py` 同步 Android 常量。Server `VERSION` 保持 1.6.0，`REQUIRED_CAPABILITIES` 保持 14 项且包含 `native_delete_v1`。
+- `ReleaseNotesCatalog` 新增 5 条中文用户说明，覆盖首页、目录、相册/沉浸查看器、批阅重构，并明确 Alpha 版本与真机/家庭 LAN 尚未验收；`ReleaseNotesTest` 同步当前版本、精确文案及跨版本聚合合同。
+- 文档同步 README、PROJECT_STATUS、COMPATIBILITY_MATRIX、SERVER_VERSION_POLICY、USER_INSTALL_GUIDE、USER_LAN_VALIDATION；Alpha16 APK/Server 1.6.0 ZIP 继续作为历史产物保留，不冒充 Alpha17。
+- TDD RED：Android ReleaseNotes 过滤集 **16 tests / 1 failed**（BuildConfig 仍为 code23）；Server 部署版本契约 **1 failed**（builder 仍为 alpha16）。GREEN 后同一范围通过。
+- 最终受影响验证：Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，`BUILD SUCCESSFUL in 19s`；Server 指定 health/deployment/0017 合同 **32 passed / 0 failed**。Server 有 1 条既有 Starlette/httpx 弃用警告；Android 有既有 AGP compileSdk 提示。
+- 边界：**产物未构建**；未 commit/push；未启停服务或部署；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
+
 ## 2026-10-26 Android UI 大规模重构（P1–P3，Codex 实现 + Lead 规划/验收）
 
 用户确认方向：Google Photos 式相册体验 + 文件夹分类；批阅优先“视觉极简、进度与导航、更好的预览”。需求基线与阶段计划：`docs/UI_REFACTOR_PLAN.md`。

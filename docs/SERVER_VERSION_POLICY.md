@@ -69,6 +69,7 @@ library_selection
 
 ### 1.6.0（P5 / 2026-10）
 - API Contract 保持 2，能力清单增加 `native_delete_v1`（13 → 14）；
+- Android Alpha16/code23 与 UI 重构后的 Alpha17/code24 均使用 Contract 2；Alpha17 不新增 Server 能力或协议要求；
 - 数据库迁移 head 升至 `0017`（`delete_queue.queue_token`，保留历史 `delete_done` / `delete_pending` 读取与降级阻断）；
 - Windows 本地删除仅使用 POSIX 语义；不支持时 `delete_not_supported` fail-closed，最低 Windows 10 1709；
 - receipt 保持 `success` / `missing` / `failed` 三值；

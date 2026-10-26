@@ -30,18 +30,19 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  * Stage 8C.1 §47/§55 + Stage 8C.2 §34：版本 / 更新日志目录合同。
  */
 class ReleaseNotesContractTest {
-    @Test fun `Alpha16 当前版本和更新说明匹配`() {
-        assertEquals(23, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha16", BuildConfig.VERSION_NAME)
-        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(23))
-        assertEquals("MediaReview 2.0 Alpha 16", note.title)
+    @Test fun `Alpha17 当前版本和更新说明匹配`() {
+        assertEquals(24, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha17", BuildConfig.VERSION_NAME)
+        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(24))
+        assertEquals("MediaReview 2.0 Alpha 17", note.title)
         assertEquals(listOf(
-            "本地来源支持先加入待删除队列、再二次确认的两阶段安全删除",
-            "Windows 仅使用 POSIX 安全删除语义，不支持时返回 delete_not_supported 且文件保持不变",
-            "只有电脑端明确返回 can_delete=true 的来源才允许执行删除",
-            "本版本尚未完成真实手机与家庭局域网验收",
+            "首页收敛顶栏，搜索改为全屏，并加入分类标签、无边框大图网格和下拉刷新",
+            "目录页支持折叠顶栏与横滑面包屑，包含子文件夹选项移入菜单",
+            "相册按日期分节；查看器支持沉浸大图、横滑翻页、双击或双指缩放、下滑关闭和信息层",
+            "批阅采用极简顶栏与进度、底部五项动作，支持手势切换、保留或标记待删除、撤销和快进一屏",
+            "本版本仍是 Alpha，尚未完成真实手机与家庭局域网验收",
         ), note.highlights)
-        assertEquals(listOf(23), codes(22, 23))
+        assertEquals(listOf(24), codes(23, 24))
         assertEquals(listOf(20), codes(null, 20))
         assertEquals(listOf(19, 20), codes(18, 20))
     }
@@ -214,27 +215,27 @@ class WhatsNewViewModelTest {
     }
 
     @Test
-    fun `升级 8 到 23 一个 Sheet 同时包含 alpha2 到 alpha16`() = runTest(main.dispatcher) {
+    fun `升级 8 到 24 一个 Sheet 同时包含 alpha2 到 alpha17`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(8))
         advanceUntilIdle()
 
         val state = vm.state.value
         assertTrue(state.visible)
-        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23), state.notes.map { it.versionCode })
+        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24), state.notes.map { it.versionCode })
         assertEquals(
-            listOf("2.0.0-alpha2", "2.0.0-alpha3", "2.0.0-alpha4", "2.0.0-alpha5", "2.0.0-alpha6", "2.0.0-alpha7", "2.0.0-alpha8", "2.0.0-alpha9", "2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12", "2.0.0-alpha13", "2.0.0-alpha14", "2.0.0-alpha15", "2.0.0-alpha16"),
+            listOf("2.0.0-alpha2", "2.0.0-alpha3", "2.0.0-alpha4", "2.0.0-alpha5", "2.0.0-alpha6", "2.0.0-alpha7", "2.0.0-alpha8", "2.0.0-alpha9", "2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12", "2.0.0-alpha13", "2.0.0-alpha14", "2.0.0-alpha15", "2.0.0-alpha16", "2.0.0-alpha17"),
             state.notes.map { it.versionName },
         )
         assertTrue("跨版本必须聚合在一个 Sheet(不同版本分区显示)", state.isMultiVersion)
     }
 
     @Test
-    fun `升级 16 到 23 聚合 alpha10 到 alpha16`() = runTest(main.dispatcher) {
+    fun `升级 16 到 24 聚合 alpha10 到 alpha17`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(16))
         advanceUntilIdle()
         assertTrue(vm.state.value.visible)
-        assertEquals(listOf(17, 18, 19, 20, 21, 22, 23), vm.state.value.notes.map { it.versionCode })
-        assertEquals(listOf("2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12", "2.0.0-alpha13", "2.0.0-alpha14", "2.0.0-alpha15", "2.0.0-alpha16"), vm.state.value.notes.map { it.versionName })
+        assertEquals(listOf(17, 18, 19, 20, 21, 22, 23, 24), vm.state.value.notes.map { it.versionCode })
+        assertEquals(listOf("2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12", "2.0.0-alpha13", "2.0.0-alpha14", "2.0.0-alpha15", "2.0.0-alpha16", "2.0.0-alpha17"), vm.state.value.notes.map { it.versionName })
         assertTrue(vm.state.value.isMultiVersion)
     }
 

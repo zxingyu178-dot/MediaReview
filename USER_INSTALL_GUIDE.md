@@ -1,6 +1,6 @@
 # 当前修复交付与安装边界
 
-> 2026-10-25：P5 源码目标为 Android Alpha16/code23、Server 1.6.0 / Contract2 / 迁移 0017。本轮产物未构建，也没有生产部署授权；实际交付时必须以包内 RELEASE_MANIFEST 和 SHA256 为准。既有 Alpha15 / Server 1.5.2 产物不含本地源删除能力。下文为 Alpha12 历史说明，不是当前版本/验收清单。
+> 2026-10-26：当前源码目标为 Android Alpha17/code24、Server 1.6.0 / Contract2 / 迁移 0017。Alpha17 仅完成源码准备，产物未构建，也没有生产部署授权；实际交付时必须以包内 RELEASE_MANIFEST 和 SHA256 为准。既有 Alpha16 APK 是 UI 重构前的历史产物。下文为 Alpha12 历史说明，不是当前版本/验收清单。
 
 > **本地安全删除最低系统要求**：Windows 10 版本 1709 或更高版本。旧版本不支持
 > Server 要求的 POSIX 安全删除语义时，文件会保持原样，App 提示“当前 Windows 版本不支持

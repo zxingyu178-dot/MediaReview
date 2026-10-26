@@ -1,14 +1,14 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-25（P5 源码发版准备）
-> 分支：`feature/mediareview-local-only` ｜ 本轮起点 HEAD `5e6c634`（第七轮复审通过后）
-> 工作树：P5 源码/测试/文档改动未提交；按任务要求不 commit/push
+> 更新时间：2026-10-26（Android Alpha17 源码发版准备）
+> 分支：`feature/mediareview-local-only` ｜ 本轮起点 HEAD `ab9b393`（UI P4 已提交）
+> 工作树：Alpha17 源码/测试/文档改动未提交；按任务要求不 commit/push
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
 ## 0. 一句话状态
 
-第七轮复审后已进入 P5 源码发版准备：当前源码声明 **Server 1.6.0 / Contract 2 / 迁移 0017 + Android 2.0.0-alpha16/code23**，Server 共 14 项能力（含 `native_delete_v1`）。**1.6.0 Server ZIP 与 Alpha16 APK 未构建**，未部署生产、未上真机、未做家庭 LAN 验收。生产安装版仍为 1.5.2；本轮不重新验证或改变其运行态。
+UI P1–P4 完成后进入 Alpha17 源码发版准备：当前源码声明 **Server 1.6.0 / Contract 2 / 迁移 0017 + Android 2.0.0-alpha17/code24**，Server 仍为 14 项能力（含 `native_delete_v1`）。**Alpha17 APK 未构建**，未部署生产、未上真机、未做家庭 LAN 验收；既有 Alpha16 APK/Server 1.6.0 ZIP 仅是历史产物。本轮不重新验证或改变生产运行态。
 
 ## 1. 权威版本表（SSOT）
 
@@ -18,13 +18,13 @@
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
 | Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产 1.5.2 仍为 13 项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
-| Android 版本（源码目标） | `versionCode 23` / `versionName 2.0.0-alpha16` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
+| Android 版本（源码目标） | `versionCode 24` / `versionName 2.0.0-alpha17` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
 | 生产已装版本 | `1.5.2` | `C:\Program Files\MediaReviewServer\VERSION.txt` |
 
 ## 2. 产物状态
 
-**P5 新产物：未构建。** 当前不存在经本轮确认的 Server 1.6.0 ZIP 或 Alpha16/code23 APK，下表仅为历史已发布的 1.5.2 / Alpha15 产物：
+**Alpha17 新产物：未构建。** Alpha16/Server 1.6.0 历史产物见 §15；下表保留更早的 1.5.2 / Alpha15 发布记录：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |
@@ -122,7 +122,7 @@
 | P1 | **本地安全永久删除**（Server 能力 `native_delete_v1` + 入队/提交本地分支 + Android 门禁改造 + 测试） | M，3–5 人日 | **第七轮复审通过，进入 P5** |
 | P2 可选 | 删除可回滚（Windows 回收站或延迟删除 + 撤销窗口） | M，2–4 人日 | 未开始（可选） |
 | P3 | 播放兜底（按需 remux / HLS 转码） | L，7–12 人日 | 待真机 A/B 后决策 |
-| P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 | **源码发版准备中；产物未构建，未 commit/push，未真机/LAN/生产验收** |
+| P5 | 发布（Server 1.6.0 + Android alpha16/code23 + 回滚说明） | S，1–2 人日 | **历史 Alpha16/Server 1.6.0 产物已构建；未部署、未真机/LAN/生产验收，见 §15** |
 
 验收标准（P1）：只能经"入队 → prepare nonce → 确认"删除；文件被替换/换链/junction/root 禁用/快照外项全部拒绝且不删；成功项审计可查；失败逐条不中断；**只在临时目录与合成文件上验证，真机删除样本需用户另行授权**。
 
@@ -139,7 +139,7 @@
 | `docs/ACCEPTANCE.md` | 1.1 历史验收清单 | 已被 2.0 实际进度取代，仅供追溯 |
 | `TAKEOVER_READ_FIRST.md`、`HANDOVER.md`、`REVIEW_SUMMARY.md` | **历史快照** | 分别停在 1.1 接管期 / 1.1.0 / Stage8I |
 | `STAGE8J_RESULT.md`、`STAGE9_RESULT.md`、`docs/STAGE9_*` | **历史快照** | 阶段交付/体检记录 |
-| `deploy_handoff/*` | 历史产物 | 当前仅有 1.5.2 Server ZIP + Alpha15 APK；P5 新产物未构建 |
+| `deploy_handoff/*` | 历史产物 | 包含 1.5.2/Alpha15 与 1.6.0/Alpha16 历史产物；Alpha17 产物未构建 |
 | `review_meta/` | 本地证据（git 忽略） | 回执/日志/调查报告，不入库 |
 
 ## 9. 变更记录
@@ -151,6 +151,7 @@
 | 2026-10-24 | 本地源为主 P0/P1：新增 `native_delete_v1` 与本地两阶段安全删除、去 Jellyfin 诊断/文案收口、Android 只信任 `can_delete`；Server 全量 709/711（2 项环境）、Android 507/507 | `feature/mediareview-local-only`、`docs/DEV_LOG.md`、`review_meta/ops-20261024/*.log` |
 | 2026-10-25 | Codex 复审 C1/I4/M1；完成 C1 句柄绑定删除、I1 队列代次(0017)、I2 状态机+恢复(含 Lead 修复本地恢复误判)、I3 Android fail-closed、M1 审计；Server 721/723（2 环境）、Android 511/511 | `review_meta/codex-review-20261025/`、`review_meta/codex-fix-20261025/`、`docs/DEV_LOG.md` |
 | 2026-10-25 | 第七轮复审后进入 P5；源码版本统一为 Server 1.6.0 / Alpha16-code23 / Contract2 / 0017，builder 要求 14 能力；产物未构建 | `review_meta/codex-review-20261025-round7/p5-report.md`、`docs/DEV_LOG.md` |
+| 2026-10-26 | UI P1–P4 完成后准备 Alpha17 源码：Android code24、中文 UI 重构 Release Notes、版本/兼容文档同步；受影响 Android 20/20、Server 32/32 通过，产物未构建 | `review_meta/ui-refactor-20261025/alpha17-report.md`、`docs/DEV_LOG.md` |
 
 ## 10. Codex 独立复审（2026-10-25，本地删除阻断项）
 
@@ -208,7 +209,7 @@ P1 仍待第四轮定点复审通过后发版。
 - 第七轮 Codex 定点复审因 5 小时额度用尽顺延（复位 15:49；Codex CLI 报 usage limit）。P5 发版继续暂停。
 - Lead 全量：Server 743/745（2 项本机 ffmpeg 环境，单独复跑通过）；Android 511/511；ruff 改动文件通过。
 
-## 15. P5 发版产物（2026-10-25 17:32）
+## 15. P5 Alpha16 发版产物（历史，2026-10-25 17:32）
 
 第九轮 Codex 复审结论 **PASS_WITH_MINOR**（C0/I0/M1，M8-T 为测试覆盖缺口，不阻断）。P5 源码与产物已完成：
 
@@ -233,10 +234,10 @@ P1 仍待第四轮定点复审通过后发版。
 | P1 | `be3c92d` | 设计 token + 公共组件；首页顶栏收敛/更多菜单/无边框网格；目录折叠顶栏+横滑面包屑；搜索全屏化 | 513 tests / 0 fail；Lead rerun 通过 |
 | P2 | `66ca2f9` | 相册按日期分节网格；沉浸式查看器（缩放/翻页/下滑关闭/动画/±1 预取）；顶底栏与信息层重做 | 522 tests / 0 fail |
 | P3 | `3abc77b` | 批阅极简顶栏+进度、底部五项动作、左右滑切换、上下滑决策、撤销、快进一屏 | 529 tests / 0 fail；Lead rerun 通过 |
-| P4 | 待提交 | 打磨：沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍与性能 | 待验证 |
+| P4 | `ab9b393` | 打磨：沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍与性能；修复批阅原生 Surface inset 时序 | 79 suites / 533 tests / 0 fail；Lead rerun 通过 |
 
 模拟器（MediaReview_Test，demo 数据）截图：`review_meta/ui-refactor-20261025/shots/`（home、album、imgviewer、review）。
-未做：真机/家庭 LAN 验收、长按多选批量、P5 版本与 APK 发布。
+Alpha17 源码准备将 UI 重构写入 Release Notes，并把 Android 源码版本提升到 code24；未做：真机/家庭 LAN 验收、长按多选批量、Alpha17 APK 构建与发布。
 
 ## 17. Jellyfin 库接入与扫描（2026-10-26）
 
@@ -247,7 +248,7 @@ P1 仍待第四轮定点复审通过后发版。
 - 进度：截至 2026-10-26 01:10，19 库合计约 **35,300 项**（`图片集` 31,863、`工作文件` 1,667、`高颜值素人泄密150套合集` 1,221 等），扫描仍在运行（~96%，照片多且部分图片损坏导致 TagLib 报错被记录并跳过）。监控日志：`temp/jellyfin_scan_monitor.log`。
 - 后续：扫描完成后在 MediaReview App 的库选择里勾选需要的分类库并同步即可；本次未改 Server、未改 Jellyfin 媒体文件。
 
-## 18. Android UI 重构状态（2026-10-26 01:10）
+## 18. Android UI 重构状态（历史检查点，2026-10-26 01:10）
 
 - P1 `be3c92d`、P2 `66ca2f9`、P3 `3abc77b` 已提交（本地 ahead 2，GitHub 网络不稳定待推送）；P4 打磨因 Codex 额度用尽于 04:33 复位后继续。
 - 截图走查：`review_meta/ui-refactor-20261025/shots/`（home/album/imgviewer/review，模拟器 MediaReview_Test + demo 数据）。
@@ -260,7 +261,7 @@ P1 仍待第四轮定点复审通过后发版。
 - 建议：MediaReview 优先使用**本地源**直接读取 `D:\视频合集`（不经 Jellyfin 探测）；Jellyfin 侧如需完整索引，可后续调大 ffprobe/ffmpeg 超时或改用兼容封装。
 - 未修改任何媒体文件；未改动 Server/API。
 
-## 20. Android UI P4 状态（2026-10-26 05:05）
+## 20. Android UI P4 状态（2026-10-26）
 
-- P4 打磨（沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍、性能）已完成，Codex 测试 79 suites / 533 tests / 0 失败；Lead 正在做 `--rerun-tasks` 全量复核后提交。
+- P4 打磨（沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉反馈、空/错/载态、无障碍、性能）已完成并提交为 `ab9b393`；Codex 与 Lead 复核均为 79 suites / 533 tests / 0 失败。
 - 批阅视频黑屏在 P3 基线 APK 上同样复现（模拟器 goldfish/软解限制），不作为 P4 回归；真机视频画面待验收。

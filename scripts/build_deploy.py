@@ -32,8 +32,8 @@ OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
 VERSION = "1.6.0"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha16"
-ANDROID_CODE = 23
+ANDROID_VERSION = "2.0.0-alpha17"
+ANDROID_CODE = 24
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
