@@ -3094,8 +3094,8 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - `ReleaseNotesCatalog` 新增 5 条中文用户说明，覆盖首页、目录、相册/沉浸查看器、批阅重构，并明确 Alpha 版本与真机/家庭 LAN 尚未验收；`ReleaseNotesTest` 同步当前版本、精确文案及跨版本聚合合同。
 - 文档同步 README、PROJECT_STATUS、COMPATIBILITY_MATRIX、SERVER_VERSION_POLICY、USER_INSTALL_GUIDE、USER_LAN_VALIDATION；Alpha16 APK/Server 1.6.0 ZIP 继续作为历史产物保留，不冒充 Alpha17。
 - TDD RED：Android ReleaseNotes 过滤集 **16 tests / 1 failed**（BuildConfig 仍为 code23）；Server 部署版本契约 **1 failed**（builder 仍为 alpha16）。GREEN 后同一范围通过。
-- 最终受影响验证：Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，`BUILD SUCCESSFUL in 19s`；Server 指定 health/deployment/0017 合同 **32 passed / 0 failed**。Server 有 1 条既有 Starlette/httpx 弃用警告；Android 有既有 AGP compileSdk 提示。
-- 边界：**产物未构建**；未 commit/push；未启停服务或部署；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
+- 最终受影响验证：Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，最终措辞收紧后复跑为 `BUILD SUCCESSFUL in 2m 42s`；Server 指定 health/deployment/0017 合同 **32 passed / 0 failed**。Server 有 1 条既有 Starlette/httpx 弃用警告；Android 有既有 AGP compileSdk 提示。
+- 边界：**产物未构建**；本执行未调用 commit/push，但终检发现 Alpha17 主体改动被并发提交为本地 `4fe38d2`（远端仍停在 `2cb007f`，未观察到 push）；未启停服务或部署；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
 
 ## 2026-10-26 Android UI 大规模重构（P1–P3，Codex 实现 + Lead 规划/验收）
 

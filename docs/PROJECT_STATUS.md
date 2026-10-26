@@ -2,7 +2,7 @@
 
 > 更新时间：2026-10-26（Android Alpha17 源码发版准备）
 > 分支：`feature/mediareview-local-only` ｜ 本轮起点 HEAD `ab9b393`（UI P4 已提交）
-> 工作树：Alpha17 源码/测试/文档改动未提交；按任务要求不 commit/push
+> Git 状态：Alpha17 主体改动在本轮终检前被并发提交为本地 `4fe38d2`；本执行未调用 commit/push，当前仍未推送；报告与状态补记留在工作树
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
