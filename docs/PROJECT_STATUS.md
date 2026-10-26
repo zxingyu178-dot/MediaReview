@@ -272,3 +272,9 @@ Alpha17 源码准备将 UI 重构写入 Release Notes，并把 Android 源码版
 - 交付产物：`deploy_handoff/MediaReview_2.0.0-alpha17_stage9.apk`（43,655,762 bytes，SHA256 `8782f42b…6571f6`，versionCode 24 / 2.0.0-alpha17，signature PASS），已发送到用户确认的 QQ 邮箱（SMTP accepted + SEND_OK 附件字节/哈希一致）。
 - Server 保持 1.6.0（本次仅 Android UI 变化）；`--package-verified` 因 1.6.0 同名发布包已存在而拒绝覆盖，故未生成新 Server ZIP。
 - Jellyfin 已补建剩余 5 个分类库（共 24 库），重新扫描进行中（~96%）；真机验收仍待用户完成。
+
+## 22. Jellyfin 24 库最终状态（2026-10-26 09:02）
+
+- 24 个分类库全部建立并扫描完成（Completed），合计 **36,532 项**。
+- 新增 5 库：`大神胖哥迷玩` 346、`JX` 19、`Maniacccccc` 4、`BeautyBox` 1、`CS` 1；超大视频仍受 Jellyfin ffprobe 超时限制（如 `12345` 131 文件→1 项），不是扫描失败。
+- MediaReview 建议优先使用本地源直读 `D:\视频合集`；Jellyfin 作为可选源。

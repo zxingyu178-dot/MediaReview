@@ -3125,3 +3125,8 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 - 产物：`deploy_handoff/MediaReview_2.0.0-alpha17_stage9.apk`，43,655,762 bytes，SHA256 `8782f42b98f0af68879f278489e126b7b03be423ffeb007515abf5a07d6571f6`，package `com.mediareview.app` versionCode 24 / alpha17，签名 PASS。
 - 邮件交付（用户已确认 QQ 收件地址）：`SMTP accepted` + `SEND_OK attachment=MediaReview_2.0.0-alpha17_stage9.apk bytes=43655762 sha256=8782f42b…`，无拒收；完整地址与凭据未记录。
 - 真机/家庭 LAN 未验收；批阅视频在模拟器上有软解黑帧（P3 基线同样复现），需真机确认。
+
+### 2026-10-26 09:02 Jellyfin 24 库补扫完成
+- 5 个补充分类库（BeautyBox/CS/JX/Maniacccccc/大神胖哥迷玩）已建库并完成扫描；扫描任务 09:02 完成（Completed）。
+- 24 库合计 **36,532 项**；新增库：`大神胖哥迷玩` 346、`JX` 19、`Maniacccccc` 4、`BeautyBox` 1、`CS` 1（大视频受 Jellyfin 探测超时限制，入库数少于文件数，属已知限制）。
+- 媒体文件未改动；MediaReview 本地源直读不受该限制。
