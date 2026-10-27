@@ -1,6 +1,6 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-27（Server1.6.3保持，Alpha19已覆盖安装并完成批阅真机抽样）
+> 更新时间：2026-10-28（Alpha20目录整改已交付，手机未连接；Server1.6.3保持）
 > 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
 > 加载源码提交`bb02671`已push；此前目录修复`6a74876`、交付记录`d18c31d`等本地提交亦一并推送成功。下方旧网络失败与运行态检查点按各自日期理解。
 >
@@ -8,7 +8,7 @@
 
 ## 0. 一句话状态
 
-**目录专项最新（Alpha20候选）**：用户确认子目录在前，默认只列当前目录直接图片/视频，可显式递归。新增常驻类型筛选及独立排序，修复单库根展开和排序上下文，澄清总数/当前数/加载状态。39项相关JVM、4项隔离模拟器设备用例通过，演示界面已复核；签名交付进行中，ADB无手机，Alpha20真机/LAN未验证。Server不改、不部署，保持1.6.3。详见[目录审查与整改](FOLDER_BROWSE_RESULT_20261028.md)。
+**目录专项最新（Alpha20已交付）**：用户确认子目录在前，默认只列当前目录直接图片/视频，可显式递归。新增常驻类型筛选及独立排序，修复单库根展开和排序上下文，澄清总数/当前数/加载状态。39项相关JVM、4项隔离模拟器设备用例通过，演示界面已复核；同Alpha19证书的Release构建成功，CURRENT_RELEASE已指向独立Alpha20/code27，源码`d0ba539`已push。ADB无手机，未安装Alpha20，真机/LAN未验证。Server不改、不部署，实际health仍1.6.3/windows_service。详见[目录审查与整改](FOLDER_BROWSE_RESULT_20261028.md)。
 
 **批阅专项最新（Alpha19已安装）**：用户确认上下切换、单击暂停、进度条拖动，取消滑动决策和双击跳进度/长按快捷操作。已复现旧冻结会话404及批阅漏接内核错误；Alpha19改为VerticalPager并补错误回传/范围重选入口；71项相关JVM及4项隔离模拟器核心测试通过。Release同证书核验、手机保留数据覆盖安装成功；实际Server下第5/6项上下切换、播放进度前进、暂停拖动仍暂停、播放拖动继续、横向画面不换片已抽样确认，未遍历全库或逐帧检查。生产Server保持1.6.3；CURRENT_RELEASE指向独立Alpha19，Server包内旧Alpha18不作为手机安装入口。源码`1abbeb0`已push。详见[批阅专项记录](REVIEW_REPAIR_20261027.md)。
 
@@ -32,13 +32,14 @@
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
 | Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.3实测14项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
-| Android 版本（源码/手机） | `versionCode 26` / `versionName 2.0.0-alpha19` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt`、手机dumpsys |
+| Android 版本（源码/发布） | `versionCode 27` / `versionName 2.0.0-alpha20` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt`、实际APK元数据/签名 |
+| 手机最近核验版本 | `versionCode 26` / `2.0.0-alpha19` | 2026-10-27真机dumpsys与批阅抽样；本轮无设备，未升级Alpha20 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
 | 生产已装版本 | `1.6.3` | 安装VERSION、实际health、EXE哈希与当前发布清单一致 |
 
 ## 2. 产物状态
 
-**当前独立Alpha19为43,655,762字节，已同证书覆盖安装手机，未发邮件；路径和哈希见CURRENT_RELEASE。历史Alpha18邮件SMTP已接受，Server1.6.3包仍附Alpha18。** Alpha16/Server1.6.0产物见§15；下表保留更早的1.5.2/Alpha15发布记录：
+**当前独立Alpha20为43,655,758字节，同Alpha19证书，未安装手机/未发邮件；路径和哈希见CURRENT_RELEASE。历史Alpha19已覆盖安装并抽样批阅，Alpha18邮件SMTP已接受，Server1.6.3包仍附Alpha18。** Alpha16/Server1.6.0产物见§15；下表保留更早的1.5.2/Alpha15发布记录：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |

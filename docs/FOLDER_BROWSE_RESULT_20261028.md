@@ -20,6 +20,6 @@
 
 ## 交付及限制
 
-源码Alpha20/code27，生产Server保持1.6.3。签名APK与唯一安装入口收口进行中，实际文件和哈希待补。
+Alpha20/code27 Release构建成功（5分钟），同Alpha19发布证书，允许原位覆盖。实际文件`deploy_handoff/current/MediaReview_2.0.0-alpha20_stage9.apk`，43,655,758字节，SHA256 `218f7b07a185161bd76a3bfb3747fc6afd524ed152ed596d878dff68fa89dff6`。CURRENT_RELEASE已指向独立Alpha20，Server包未重建，内附Alpha18不能作为手机安装入口。源码`d0ba539`已push；生产EXE哈希与原1.6.3发布值一致，实际health1.6.3/windows_service。手机未连接，未安装Alpha20、未发邮件。
 
 目录偏好在同ViewModel内保持，未增加跨重启存储。子目录计数表示全部类型总数，不跟随当前媒体筛选；页面已标清筛选范围。旧批阅会话失效项重选、长期刷新/掉线稳定性沿用前轮待观察项，本轮不声称解决。自然数字排序和其他面板可达性可独立评估，不扩成播放器/媒体源重构。
