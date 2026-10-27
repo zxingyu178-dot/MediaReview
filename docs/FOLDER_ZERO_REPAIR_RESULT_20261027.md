@@ -34,6 +34,10 @@ python -m ruff check app/adapters/jellyfin/client.py app/services/media_index.py
 
 ## 交付与下一步
 
-Server1.6.1产物待本轮构建校验；生产仍是1.5.2/windows_service，未升级或刷新，真实缺失目录尚未在手机闭环。升级后需要处理当前24库与2条历史库选择，再进行同步；不得为避免失败直接清库或丢弃收藏/批阅。手机不在场时，优先采用“相关逻辑回归→真实Jellyfin只读计数→隔离服务+模拟器UI”三层验证，Wi-Fi发现、硬解/seek及真实文件完整性留作实机验收。
+源码修复提交`6a748765838b5331518c94ac53dbe906fac32677`。仅按现有PyInstaller spec增量构建Server到独立dist（未清历史输出），耗时约80秒；复用原Alpha17 APK，经既有builder的实际EXE health/签名/manifest与打包核验入口交付。实际EXE1.6.1/Contract2/14能力通过，ZIP的182项SHA256通过。包路径：`deploy_handoff/folder-fix-1.6.1/MediaReview_Server_1.6.1_stage9.zip`，134,336,115字节，SHA256 `b644616f20535b4a80fb432ecfd206866e3e8681c5d3c210e280c2b0966618c6`；EXE SHA256 `882d9b3653a597fa70ddf21d764826b1863b722a937d8f1acd9b0246a10a5784`。本机`delivery-proof.json`、`package.log`与包内manifest保留构建提交和输入指纹，后续文档提交不代表重建产物。原Alpha17哈希未变，未重复构建APK或发送邮件。
+
+生产仍是1.5.2/windows_service，未升级或刷新，真实缺失目录尚未在手机闭环。升级后需要处理当前24库与2条历史库选择，再进行同步；不得为避免失败直接清库或丢弃收藏/批阅。手机不在场时，优先采用“相关逻辑回归→真实Jellyfin只读计数→隔离服务+模拟器UI”三层验证，Wi-Fi发现、硬解/seek及真实文件完整性留作实机验收。
+
+Git网络：首次修复提交push出现GitHub443超时及RPC失败（虽然末尾有Everything up-to-date，退出码为1，不能视为成功）；最终状态须以实际push/remote核对为准。
 
 模拟器使用虚拟网络，能经宿主机联网并用10.0.2.2访问宿主loopback，不能将其当作真实手机接入家庭Wi-Fi的等效验收：[Android官方网络地址说明](https://developer.android.com/studio/run/emulator-networking-address)。
