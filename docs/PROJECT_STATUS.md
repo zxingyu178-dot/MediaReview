@@ -8,6 +8,8 @@
 
 ## 0. 一句话状态
 
+**最新实机排障（进行中）**：用户连接Alpha18，发现服务有进程但无8766监听、历史QueuePool耗尽及大量旧路径404。官方ControlHub恢复失败后，经用户单独授权仅停启既有Windows服务，手机重新检测后在线。确认2个失效库选择及10月22日旧索引；现保留24有效库并逐库刷新，尚未全部完成。连接归还缺陷已按RED/GREEN修复：media修复相关36通过，补认证后相关11通过（重叠，不合计）；源码目标1.6.3，生产仍1.6.2，候选尚未部署。详见[实机排障记录](PHONE_REPAIR_20261027.md)。以下1.6.2收口为前一时段事实。
+
 **本次运维收口已执行**：用户确认后，经ControlHub停服、完整受保护备份并升级Server1.6.2/Contract2/0017，已启动且数据库ok、14项能力；终检只有一个MediaReview服务实例，8766归属与安装EXE哈希匹配。排除已验证身份的旧手动残留实例，首次失败备份标记不完整，最终有效全量备份及一致性快照保留。唯一发布入口为`deploy_handoff/CURRENT_RELEASE.json`→`current/`。Alpha18实际附件核验后发往已确认QQ，SMTP接受、拒收0，未声称收件箱已收到。ControlHub GUI已启动，Jellyfin在线、health200；应用内管理页打开请求queued，外部浏览器启动被自动审批拒绝，未计可见。未刷新生产索引、未操作真实媒体、未清手机数据，手机/HomeLAN验收待用户回家。详见[收口记录](DEPLOYMENT_CLOSURE_20261027.md)。下方旧版本与未部署陈述均为对应阶段历史快照，以本段及权威版本表为当前运行事实。
 
 **加载专项交付快照（部署前）**：Server1.6.2 + Alpha18/code25，雪碧图保持删除。图片缓存统一、滚动预取取消、缓存I/O线程化、播放源/续播并行已完成。Server13项与复核后缓存5项分别通过；JVM首轮57通过/1旧版本断言失败，修正后相关20项通过，非单轮全绿。隔离API35模拟器两项HTTP图片检查通过：合成小图冷304ms/内存4ms、磁盘命中、慢响应滚动新窗口23ms及账号隔离。Release/EXE构建、APK版本/签名及同Alpha17证书、实际EXE health、182项发布文件哈希通过。产物在`deploy_handoff/loading-1.6.2/`，源码bb02671已push；详见[专项结果与SHA256](LOADING_RESULT_20261027.md)。模拟器/探针已停止并清理本轮临时文件。生产最新health仍**1.5.2/windows_service，Running**，未部署/未发邮件/手机HomeLAN未验证；默认URL视频缓存无认证身份，下一条内容预缓冲按方案保留后续。下文1.6.1为本日上一轮记录。
@@ -22,7 +24,7 @@
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（源码目标） | `1.6.2` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
+| Server 版本（源码目标） | `1.6.3` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
 | Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.2实测14项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |

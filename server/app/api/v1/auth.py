@@ -69,6 +69,9 @@ def require_auth(request: Request, db: Session = Depends(get_db)):
             device = pairing.authenticate(db, token, touch=False)
             if device is None:
                 raise UnauthorizedError() from None
+    # 最近的心跳无需写入，但认证 SELECT 仍开启了事务。
+    # 释放连接后再进入可能等待上游的端点，避免只读认证挤满连接池。
+    db.commit()
     return device
 
 

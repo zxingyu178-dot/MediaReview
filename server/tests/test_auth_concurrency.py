@@ -35,6 +35,10 @@ def auth_probe(tmp_path: Path):
             other.execute("UPDATE paired_device SET name='worker' WHERE device_id='phone'")
         return {"ok": True}
 
+    @app.get("/pool")
+    def pool(_device=Depends(require_auth)):
+        return {"checked_out": database.engine.pool.checkedout()}
+
     @app.get("/identity")
     def identity(device=Depends(require_auth)):
         return {"device_id": device.device_id}
@@ -68,3 +72,9 @@ def test_revoked_device_is_still_rejected(auth_probe):
         session.commit()
     with pytest.raises(UnauthorizedError):
         client.get("/identity", headers=headers)
+
+
+def test_recent_auth_heartbeat_releases_read_connection(auth_probe):
+    client, database, headers = auth_probe
+    assert client.get("/identity", headers=headers).status_code == 200
+    assert client.get("/pool", headers=headers).json() == {"checked_out": 0}

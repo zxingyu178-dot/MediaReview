@@ -461,6 +461,9 @@ async def get_media_thumbnail(
         headers["X-MediaReview-Cache"] = "HIT"
         return Response(status_code=304, headers=headers)
 
+    # 已读取的 ORM 字段在 commit 后仍可用（expire_on_commit=False）。
+    # 慢缓存/上游 IO 不得占住有限连接池，否则后续同步 checkout 会卡住事件循环。
+    db.commit()
     if row.source_type == "local":
         from app.services.native_images import get_thumbnail
         result = await get_thumbnail(request.app.state.database, cache, row, selected_profile, key)
@@ -537,6 +540,7 @@ async def get_media_original(
             file.close()
             return Response(status_code=304, headers=headers)
         headers["Content-Length"] = str(info.st_size)
+        db.commit()
         def chunks():
             try:
                 remaining = info.st_size
@@ -550,6 +554,7 @@ async def get_media_original(
                 file.close()
         return StreamingResponse(chunks(), media_type=content_type, headers=headers,
                                  background=CloseTask(file.close))
+    db.commit()
     stream: ImageStream = await client.open_original_stream(row.jellyfin_id)
     log_perf("original_opened", start=started, media_id=media_id)
 
@@ -625,6 +630,7 @@ async def _resolve_stream_key(db: Session, device, client: JellyfinClient) -> st
     任何签发失败都抛 JellyfinError,由端点 fail-closed(不下发任何直连地址)。
     """
     name = _device_key_name(device.installation_id if device is not None else None)
+    db.commit()
     key = await client.ensure_device_stream_key(name)
     if device is not None and (
         device.jellyfin_key_value != key or device.jellyfin_key_name != name

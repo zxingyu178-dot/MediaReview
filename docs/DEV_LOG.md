@@ -3172,3 +3172,10 @@ Android首轮58项57通过/1旧Alpha17硬编码失败；同步Alpha18更新说�
 用户明确回复“确认升级并发送”。首轮停服备份因旧手动实例持有数据库失败，未替换程序，经ControlHub恢复旧服务；失败备份标记INCOMPLETE_BACKUP。Restart Manager只读定位后，完成受保护SQLite一致性快照并检查integrity_check=ok，再停服并核验身份后仅终止旧残留PID3896。重试完整停服备份、校验部署1.6.2并经ControlHub启动成功。终检1.6.2/Contract2/数据库ok/14能力/windows_service，单实例且服务子进程与8766归属一致，EXE哈希匹配当前发布。有效完整备份manual-1.6.2-20261027-180323及旧程序保留。
 
 Alpha18真实MIME附件43,655,762字节及SHA256匹配CURRENT_RELEASE，Defender无威胁，SMTP accepted且拒收0，不声称已阅读/收件箱送达；未复制凭据或记录完整收件地址。ControlHub GUI启动、Jellyfin健康200、管理页200；应用内页面打开返回queued，外部浏览器启动被自动审批blocked by policy拒绝，未绕过。未触碰真实媒体或清手机数据、未处理删除队列、未刷新生产媒体索引，手机/HomeLAN待用户验收。未重复构建/全量回归；复用构建证据，增加实际部署哈希/健康/单实例与SMTP回执检查。完整运维证据在review_meta/ops-20261027，本轮报告DEPLOYMENT_CLOSURE_20261027.md。
+
+
+### 2026-10-27 — Alpha18实机排障与1.6.3候选
+
+实际手机复现离线与文件夹零项。SCM进程存活但无8766监听；官方ControlHub把offline当作停止而跳过stop，start失败。用户明确授权精确Windows服务恢复例外后恢复1.6.2，手机重新检测在线。3图片+1视频样本上游元数据存在、文件路径winerror3/Download404，视频封面200；当前新媒体大量未进入10月22日旧缓存。保留24有效库并取消2失效库选择，正常接口逐库刷新进行中，所有独立诊断配对已撤销，无媒体删除。
+
+3个连接占用回归有效RED后修复media事务边界；相关36通过/2未选/777.10s。recent_auth用例RED后补认证读取事务归还；相关11通过/12未选/139.02s，与前轮有重叠，不累加。目标Server1.6.3，Alpha18不变；版本声明与当前指南同步候选，尚未生产部署。未重跑无关全量或重建APK。初轮SQLite临时文件权限失败不算RED，仅调整子进程TEMP/TMP后验证。详细事实与限制见PHONE_REPAIR_20261027.md。

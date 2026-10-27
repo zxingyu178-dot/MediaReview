@@ -337,3 +337,28 @@ def test_image_proxy_never_follows_upstream_redirects(secure_image_client, media
     assert "169.254.169.254" not in response.text
     assert "redirect-target" not in response.text
     assert "location" not in response.headers
+
+
+@pytest.mark.parametrize("media_id,endpoint,method", [
+    ("img-real", "thumbnail", "thumbnail_image"),
+    ("img-real", "original", "open_original_stream"),
+    ("video", "playback", "ensure_device_stream_key"),
+])
+def test_upstream_wait_does_not_hold_database_connection(
+    secure_image_client, monkeypatch, media_id, endpoint, method
+):
+    """慢上游不应占住有限连接池并卡住后续请求的事件循环。"""
+    client, token, _ = secure_image_client
+    original = getattr(JellyfinClient, method)
+    observed = []
+
+    async def probe(self, *args, **kwargs):
+        checked_out = client.app.state.database.engine.pool.checkedout()
+        observed.append(checked_out)
+        assert checked_out == 0, "upstream IO is holding a database connection"
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(JellyfinClient, method, probe)
+    response = client.get(f"/api/v1/media/{media_id}/{endpoint}", headers=_auth(token))
+    assert response.status_code == 200
+    assert observed
