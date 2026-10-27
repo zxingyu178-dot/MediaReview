@@ -1,4 +1,4 @@
-# 图片与视频加载专项结果（开发中）
+# 图片与视频加载专项结果（已交付）
 
 源码目标：Alpha18/code25 + Server1.6.2/Contract2/0017，包含上一轮目录漏项修复。用户确认雪碧图保持删除。UI、GSY播放器、批阅/删除流程不变，无数据库迁移，不操作真实媒体，不部署生产。
 
@@ -38,8 +38,23 @@ Android使用已装Gradle8.9/JDK17、项目既有`review_meta/stage9/gradle-home
 
 ## 剩余限制与交付状态
 
-JVM已分轮闭环，两项模拟器HTTP图片检查通过。实际数据源为NETWORK→MEMORY_CACHE→DISK；首次及换账号共2次成功PNG，合计252字节（不含HTTP头）；清除配对后的第3次请求返回401。未测UI首图P95、视频首帧或取消下载的字节分布，不把单次小图数字当真实媒体基准。证据为`loading-emulator-evidence.txt`；测试APK用既有Debug key的临时副本解决默认锁目录拒写，Release使用原正式签名。模拟器已按隔离数据盘身份关闭，正式产物构建待完成。
+JVM已分轮闭环，两项模拟器HTTP图片检查通过。实际数据源为NETWORK→MEMORY_CACHE→DISK；首次及换账号共2次成功PNG，合计252字节（不含HTTP头）；清除配对后的第3次请求返回401。未测UI首图P95、视频首帧或取消下载的字节分布，不把单次小图数字当真实媒体基准。证据为`loading-emulator-evidence.txt`；测试APK用既有Debug key的临时副本解决默认锁目录拒写，Release使用原正式签名。模拟器已按隔离数据盘身份关闭。
 
 GSY13.2.1本机字节码确认`ExoSourceManager.buildCacheKey`使用默认URL键，没有认证身份；本轮不直接打开全局视频缓存。安全共享下一条内容仍需验证数据源/缓存身份/播放器接管，按批准方案保留下一步，不重写播放器，不做独立文件头下载。`IjkExo2MediaPlayer.onRenderedFirstFrame`为空实现、内部Player受保护，保留可靠首帧指标与真实画面验收限制，不用时间轴前进冒充出帧。
 
-不跑全量Server/JVM/178 connected，不全库FFmpeg，不重复制作大证据包。真实手机/HomeLAN未验证，生产未升级。最终产物与Git/push实况待本轮实际完成后记录。
+不跑全量Server/JVM/178 connected，不全库FFmpeg，不重复制作大证据包。真实手机/HomeLAN未验证，生产未升级；最后只读health仍为1.5.2/Contract2/windows_service/AIHome.MediaReview，Windows服务Running。
+
+## 交付与Git
+
+分支`feature/mediareview-local-only`，源码提交`bb02671c4c49d24b1993ac34739e2b7a2e214280`已成功push（含此前未推送目录修复）。Git直连超时，核对现有WinINET代理监听者为已安装Athena/uniproxy后，仅以命令级`git -c http.proxy=... push`成功；未改全局Git、系统代理或环境。报告收尾提交与推送以末次Git输出为准。
+
+产物位于`deploy_handoff/loading-1.6.2/`：
+
+| 产物 | 字节 | SHA256 |
+| --- | --- | --- |
+| `MediaReview_2.0.0-alpha18_stage9.apk` | 43,655,762 | `3cc6d44504fe80961319c5a08b0fefac22b4b7e8ee3c4ae2cf3da2b48883a2ab` |
+| `MediaReview_Server_1.6.2_stage9.zip` | 134,338,213 | `02e66c0dbc2b39c2467cec9844a515919d2d1993d557ca93f7e9e1e14a04b3f2` |
+
+Release增量构建`:app:assembleRelease`成功（7m42s）；Server按既有PyInstaller spec增量构建成功（182秒），未清理历史dist。消费既有builder的EXE实际health、APK manifest/签名与发布包门禁：Server1.6.2/Contract2/14能力，APK Alpha18/code25且与Alpha17同发布证书，182项文件SHA256通过；构建前后源码/打包输入哈希一致，构建源码为bb02671。EXE SHA256为`d34b2a88c5d1773326f3bd1e1a812652b00df137bf75917e259a78780c49a2d4`。证据为`loading-release.log`、`loading-exe.log`、`loading-package.log`、`loading-delivery-proof.json`。
+
+一次只读聚焦复核发现的重复取消问题已由RED→GREEN关闭，未重复全面审计。隔离模拟器、EXE探针均已停止；初次动态路径批量清理被自动审批拦截后，改用明确LiteralPath、非递归文件清理成功，移除了本轮临时数据盘、Debug签名副本及检查中间文件，保留小型验证记录，未动原AVD/手机数据。生产部署和邮件发送未执行。
