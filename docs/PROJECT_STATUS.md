@@ -8,6 +8,8 @@
 
 ## 0. 一句话状态
 
+**本次运维收口进行中**：用户要求统一电脑端版本、邮件发送Alpha18并准备回家测试。当前实际仍为1.5.2/windows_service且ControlHub online，目标1.6.2。四份发布指引已统一到Alpha18/1.6.2，原文保留在docs/history/20261027-before-release-closure；准备生成唯一CURRENT_RELEASE指针和current发布目录，复用已验证程序字节，不重建。APK的Windows Defender定向扫描无威胁。生产升级及本次QQ收件人确认已询问，尚未执行升级或邮件发送；下方为上一轮交付事实。
+
 **最新交付状态**：Server1.6.2 + Alpha18/code25，雪碧图保持删除。图片缓存统一、滚动预取取消、缓存I/O线程化、播放源/续播并行已完成。Server13项与复核后缓存5项分别通过；JVM首轮57通过/1旧版本断言失败，修正后相关20项通过，非单轮全绿。隔离API35模拟器两项HTTP图片检查通过：合成小图冷304ms/内存4ms、磁盘命中、慢响应滚动新窗口23ms及账号隔离。Release/EXE构建、APK版本/签名及同Alpha17证书、实际EXE health、182项发布文件哈希通过。产物在`deploy_handoff/loading-1.6.2/`，源码bb02671已push；详见[专项结果与SHA256](LOADING_RESULT_20261027.md)。模拟器/探针已停止并清理本轮临时文件。生产最新health仍**1.5.2/windows_service，Running**，未部署/未发邮件/手机HomeLAN未验证；默认URL视频缓存无认证身份，下一条内容预缓冲按方案保留后续。下文1.6.1为本日上一轮记录。
 
 当前源码为 **Server1.6.1/Contract2/迁移0017 + Android Alpha17/code24**。已修复同用户Jellyfin库级递归漏项：后台改为有界的逐层分页、同目录分页异常失败闭合、跨目录稳定ID去重，完整成功后才失效旧索引。最终客户端/索引45项、目录/API52项通过；四个真实上游样本只读计数132/288/101/1866均符合对照。既有Alpha17在隔离模拟器连到修复版后显示全局5项、原递归0库3项及子目录2项，图片实际渲染；合成视频出帧未确认（goldfish Surface错误），不计播放通过。生产仍为**1.5.2/0016/windows_service，Running且DB正常**，未升级或刷新。详见[修复与测试结果](FOLDER_ZERO_REPAIR_RESULT_20261027.md)。§3、§5中的旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。

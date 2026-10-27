@@ -1,35 +1,14 @@
-# MediaReview 离线发布
+# MediaReview 当前发布与部署
 
-> 2026-10-27：当前加载专项目标为Server1.6.2、Contract2、迁移0017 + Alpha18/code25，包含上一轮1.6.1目录漏项修复。实际产物以包内manifest和SHA256为准，生产升级须单独授权，不能将源码目标视为已部署版本。
+当前唯一配套：**Server1.6.2 / Contract2 / 0017 + Alpha18 / code25**。
 
-当前源码目标：Android `2.0.0-alpha18` / code25；Server `1.6.2` / API Contract `2` / 迁移 `0017`。
+- 当前发布入口：项目 `deploy_handoff/CURRENT_RELEASE.json`，它指向 `deploy_handoff/current/` 的已验证包，包含版本、哈希和来源提交。不要从历史目录按“最新文件”猜包。
+- 实际程序及APK字节沿用已验证加载专项产物，只修正发布指引与默认入口，不为文档变更重建EXE/APK。源构建为 `bb02671`，当前文档收口有独立提交与清单。
+- 安装/升级只依当前 `USER_INSTALL_GUIDE.md`；回滚只依 `UPGRADE_ROLLBACK.md`；回家短验证依 `USER_LAN_VALIDATION.md`。三份文档位于项目根及当前发布包根。
+- 运行入口固定ControlHub既有`mediareview`/`AIHome.MediaReview`，不双击EXE或旧交互启动脚本。无本次升级授权时只准备与核验，不改生产。
+- 默认自动升级桥 `scripts/upgrade-aihome-managed.ps1` 仍有正式合同边界，不能将它的fixture或WhatIf当成生产许可。单次人工维护必须有明确授权、ControlHub停启、完整停服备份与逐文件校验，不能旁路到SCM/Helper或另建任务。
+- 升级后实际health必须是1.6.2/Contract2/14项能力/database=ok/windows_service/AIHome.MediaReview；若仍1.5.2则尚未升级完成。
 
-> **本地安全删除最低系统要求**：Windows 10 版本 1709 或更高版本。Server 只使用
-> `FILE_DISPOSITION_INFO_EX` 的 POSIX 删除语义，不会回退到传统 delete-on-close。
-> 不支持该能力时删除会在文件发生任何变化前失败，并提示改用升级后的 Windows 或电脑端删除。
+本地删除安全、成对回滚与Windows最低版本见当前升级指南。本次不更改Jellyfin配置、防火墙、服务身份或端口；视频直连Jellyfin，本地源通过原Server的认证Range接口，Server不代理完整Jellyfin视频。
 
-生产实测仍为Server1.5.2；Alpha17 APK及Server1.6.0包已存在，详情以docs/PROJECT_STATUS.md为准。下文包含历史阶段说明，不能作为当前产物或部署授权证明。
-
-## 既有发布入口
-
-沿用 `scripts/build_deploy.py` 的 `--prepare-only` / `--package-verified` 两步入口。按Stage8I规格统一安排最终构建，APK只生成一次，不为文档更新重复构建。构建前后源/产物哈希、Git状态、实际Server二进制隔离health、APK版本与签名、完整文件集合及证据有效期均须通过原门禁；源码或产物变化需重新核验，禁止旧产物或Debug回退。
-
-P5 目标 Server 实际 health 应为 `status=ok`、`version=1.6.0`、`api_contract=2`，并包含 14 项能力：`native_sources_v1`、`native_range_v1`、`native_read_only_v1`（历史兼容名）、`native_delete_v1`、`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。已发布的 1.5.2 产物只有 13 项能力，不含 `native_delete_v1`。
-
-完整自动化、签名、隔离二进制与产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`；不等于 `REAL_LAN_PASS` / `PRODUCTION_READY`。
-
-## 升级边界
-
-`scripts/upgrade-aihome-managed.ps1` 的正式执行仍封锁。现有 `AIHome.MediaReview` 身份不得改为平行计划任务；不能以底层Helper/SCM代替官方协调器的同实例IPC、事务lease、批准绑定与关联审计。隔离fixture通过仅证明对应事务测试，不证明真实生产升级或数据库恢复。
-
-后续网络配置应使用当时确认的地址：`jellyfin.url`给电脑端，`jellyfin.client_url`给手机直连，保留代理路径。手机视频直连Jellyfin，Server不中转完整视频流。本次不更改配置或防火墙。
-
-安装边界、回滚记录和Stage8I验收路线分别见 `USER_INSTALL_GUIDE.md`、`UPGRADE_ROLLBACK.md`、`USER_LAN_VALIDATION.md`。这三份文件均位于交付包根目录；在源码仓库中位于本目录的上一级。
-
-## 历史记录
-
-- Stage8E：Alpha8 code15 / Server1.2.2 / Contract2六项能力；保留旧RC历史，不当作当前产物。
-- Stage8E.1：隔离假二进制/数据库验证备份、切换与失败恢复，生产执行拒绝。
-- Stage8E.2：来源manifest、完整checksum与实际EXE门禁，以及历史可信RC的两步重打包。历史repackage复用旧APK/Server字节，不是Alpha11/1.3.0新构建入口；当前生产桥仍外部合同阻塞。
-
-历史部署包中的install/repair/uninstall脚本说明不构成本次运行授权。本阶段不创建基础设施。
+旧文档完整备份位于 `docs/history/20261027-before-release-closure/`；旧包保留作历史/回滚，不属于当前默认入口。真实运行和交付状态只看 `docs/PROJECT_STATUS.md` 最新段落。
