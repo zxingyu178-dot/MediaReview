@@ -221,6 +221,17 @@ object ReleaseNotesCatalog {
                 "本版本仍是 Alpha，加载效果待真实手机与家庭局域网验证",
             ),
         ),
+        ReleaseNote(
+            versionCode = 26,
+            versionName = "2.0.0-alpha19",
+            title = "MediaReview 2.0 Alpha 19",
+            highlights = listOf(
+                "批阅改为上下滑切换视频，单击暂停或继续",
+                "取消滑动保留和待删除，保留明确操作按钮",
+                "取消双击跳进度和长按快捷操作，进度条仍可左右拖动",
+                "批阅播放失败时显示错误与重试，并可重新选择批阅范围",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

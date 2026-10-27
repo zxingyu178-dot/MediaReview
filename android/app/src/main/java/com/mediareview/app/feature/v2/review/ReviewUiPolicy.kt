@@ -1,7 +1,5 @@
 package com.mediareview.app.feature.v2.review
 
-import kotlin.math.abs
-
 data class ReviewProgressUi(
     val position: Int,
     val total: Int,
@@ -25,20 +23,6 @@ fun reviewProgress(
     val remaining = (if (remainingCount >= 0) remainingCount else total - reviewed).coerceIn(0, total)
     val fraction = if (total == 0) 0f else reviewed.toFloat() / total.toFloat()
     return ReviewProgressUi(position, total, reviewed, remaining, fraction)
-}
-
-enum class ReviewDecisionGesture { KEEP, DELETE }
-
-fun reviewDecisionGesture(
-    dragX: Float,
-    dragY: Float,
-    viewportWidth: Float,
-    viewportHeight: Float,
-): ReviewDecisionGesture? {
-    if (viewportWidth <= 0f || viewportHeight <= 0f) return null
-    val minimum = (viewportHeight * 0.10f).coerceAtLeast(120f)
-    if (abs(dragY) < minimum || abs(dragY) < abs(dragX) * 1.25f) return null
-    return if (dragY < 0f) ReviewDecisionGesture.KEEP else ReviewDecisionGesture.DELETE
 }
 
 fun canGoPrevious(currentIndex: Int): Boolean = currentIndex > 0

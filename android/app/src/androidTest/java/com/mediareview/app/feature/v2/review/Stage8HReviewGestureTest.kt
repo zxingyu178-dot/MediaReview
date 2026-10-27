@@ -60,27 +60,16 @@ class Stage8HReviewGestureTest {
         compose.waitForIdle()
     }
 
-    @Test fun adaptiveHorizontalPreviewCommitsExactlyOnceWithoutFlippingPage() {
+    @Test fun bodyHorizontalDragDoesNotSeekOrFlipPage() {
         launch()
-        bar().performTouchInput { click(Offset(width * .2f, centerY)) }; near(12_000)
         tapBody(); compose.waitUntil(5_000) { !kernel { it.isPlaying } }
         val anchor = position()
-        val recorder = kernel { com.mediareview.app.feature.v2.player.KernelSeekRecorder(it.player.mediaPlayer as IjkExo2MediaPlayer) }
-        try {
-            body().performTouchInput {
-                down(Offset(width * .2f, height * .4f))
-                moveTo(Offset(width * .35f, height * .4f))
-                moveTo(Offset(width * .7f, height * .4f))
-            }
-            Assert.assertEquals(0, recorder.count)
-            Assert.assertTrue(abs(position() - anchor) < 1000)
-            body().performTouchInput { up() }
-            near(anchor + 15_000)
-            compose.waitUntil(5_000) { recorder.count == 1 }
-            Assert.assertEquals(0, page())
-            Assert.assertFalse(kernel { it.isPlaying })
-            compose.waitForIdle(); Assert.assertEquals(1, recorder.count)
-        } finally { compose.runOnUiThread { recorder.close() } }
+        body().performTouchInput {
+            swipe(Offset(width * .2f, height * .4f), Offset(width * .8f, height * .4f), 500)
+        }
+        near(anchor)
+        Assert.assertEquals(0, page())
+        Assert.assertFalse(kernel { it.isPlaying })
     }
 
     /** 提示仍可见时第一下真实触摸必须到达32dp进度条；不得等待提示消失或语义setProgress。 */
@@ -139,19 +128,13 @@ class Stage8HReviewGestureTest {
         Assert.assertEquals(0, page())
     }
 
-    @Test fun horizontalDirectionStaysHorizontalAfterLargeVerticalMovement() {
+    @Test fun pausedHorizontalDragDoesNotLoadNeighbour() {
         launch()
-        bar().performTouchInput { click(Offset(width * .2f, centerY)) }
-        near(12_000)
+        tapBody(); compose.waitUntil(5_000) { !kernel { it.isPlaying } }
         val baseline = position()
-        body().performTouchInput {
-            down(Offset(width * .2f, height * .55f))
-            moveTo(Offset(width * .4f, height * .54f))
-            moveTo(Offset(width * .7f, height * .2f))
-            up()
-        }
-        near(baseline + 15_000)
-        Assert.assertEquals("水平 owner 不得转为翻页", 0, page())
+        body().performTouchInput { swipeLeft() }
+        near(baseline)
+        Assert.assertEquals(0, page())
         Assert.assertFalse(fixture!!.videos.any { it.mediaId == "second" })
     }
 
@@ -170,42 +153,28 @@ class Stage8HReviewGestureTest {
         Assert.assertTrue(fixture!!.videos.all { it.authenticated })
     }
 
-    @Test fun doubleTapBothSidesSeekTenSecondsWithoutPaging() {
+    @Test fun doubleTapDoesNotJumpPlaybackPosition() {
         launch()
         bar().performTouchInput { click(Offset(width * .5f, centerY)) }
         near(30_000)
         val baseline = position()
-        body().performTouchInput { val p = Offset(width * .8f, height * .4f); click(p); advanceEventTime(100); click(p) }
-        near(baseline + 10_000)
-        val forward = position()
-        body().performTouchInput { val p = Offset(width * .2f, height * .4f); click(p); advanceEventTime(100); click(p) }
-        near(forward - 10_000)
+        body().performTouchInput {
+            val p = Offset(width * .8f, height * .4f)
+            click(p); advanceEventTime(100); click(p)
+        }
+        near(baseline)
         Assert.assertEquals(0, page())
     }
 
-    @Test fun formalSpeedHoldRestoreLockAndUnlockNeverPageOrSeek() {
+    @Test fun longHoldDoesNotOverrideFormalSpeedOrCreateDecision() {
         launch()
         compose.onNodeWithContentDescription("更多").performClick()
         compose.onNodeWithText("1.5×").performClick()
         compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f && kernel { it.isPlaying } }
-        body().performTouchInput { down(center); advanceEventTime(400); moveTo(center) }
-        compose.waitUntil(5_000) { abs(speed() - 2f) < .01f }
-        body().performTouchInput { up() }
-        compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f }
-        val baseline = position()
-        body().performTouchInput {
-            down(center); advanceEventTime(400); moveTo(center)
-            advanceEventTime(50); moveTo(center.copy(y = centerY - 100 * compose.activity.resources.displayMetrics.density))
-        }
-        compose.waitUntil(5_000) { abs(speed() - 2f) < .01f }
-        body().performTouchInput { up() }
+        body().performTouchInput { down(center); advanceEventTime(700); moveTo(center); up() }
+        Assert.assertEquals(1.5f, speed(), .01f)
         Assert.assertEquals(0, page())
-        Assert.assertTrue("长按上滑不得 seek", position() in baseline..baseline + 5_000)
-        Assert.assertEquals(2f, speed(), .01f)
-        body().performTouchInput { down(center); advanceEventTime(400); moveTo(center) }
-        compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f }
-        body().performTouchInput { up() }
-        Assert.assertEquals(0, page())
+        Assert.assertTrue(fixture!!.pendingWrites.isEmpty())
     }
 
     @Test fun formalSpeedSurvivesAuthenticatedNewSource() {
@@ -213,7 +182,7 @@ class Stage8HReviewGestureTest {
         compose.onNodeWithContentDescription("更多").performClick()
         compose.onNodeWithText("1.5×").performClick()
         compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f && kernel { it.isPlaying } }
-        body().performTouchInput { swipeLeft() }
+        body().performTouchInput { swipeUp() }
         compose.waitUntil(60_000) {
             page() == 1 && fixture!!.videos.any { it.mediaId == "second" && it.authenticated } &&
                 kernel { it.isPlaying && (it.player.mediaPlayer as IjkExo2MediaPlayer).dataSource.endsWith("/video/second.mp4") }
@@ -254,27 +223,27 @@ class Stage8HReviewGestureTest {
         compose.waitUntil(10_000) { position() > baseline + 300 }
     }
 
-    @Test fun loadingNextEndpointStillAllowsHorizontalReturnToPreviousItem() {
+    @Test fun loadingNextEndpointStillAllowsVerticalReturnToPreviousItem() {
         launch(blockSecond = true)
-        body().performTouchInput { swipeLeft() }
+        body().performTouchInput { swipeUp() }
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Loading }
         Assert.assertFalse(kernel { it.isPlaying })
-        body().performTouchInput { swipeRight() }
+        body().performTouchInput { swipeDown() }
         compose.waitUntil(5_000) { page() == 0 }
         fixture!!.releaseSecondPlayback()
         compose.waitUntil(60_000) { kernel { it.isPlaying && it.currentPosition > 500 } }
         Assert.assertFalse("跳过Loading项不得启动其流", fixture!!.videos.any { it.mediaId == "second" })
     }
 
-    @Test fun failedNextEndpointStillAllowsHorizontalReturnToPreviousItem() {
+    @Test fun failedNextEndpointStillAllowsVerticalReturnToPreviousItem() {
         launch(blockSecond = true)
-        body().performTouchInput { swipeLeft() }
+        body().performTouchInput { swipeUp() }
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Loading && fixture!!.secondPlaybackRequested.count == 0L }
         // Deliver an actual endpoint HTTP failure, not a 20s socket stall that marks Server Offline.
         fixture!!.failSecondPlayback()
         compose.waitUntil(5_000) { page() == 1 && vm.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Failed }
         Assert.assertFalse(kernel { it.isPlaying })
-        body().performTouchInput { swipeRight() }
+        body().performTouchInput { swipeDown() }
         compose.waitUntil(5_000) { page() == 0 }
         compose.waitUntil(60_000) { kernel { it.isPlaying && it.currentPosition > 500 } }
         Assert.assertFalse(fixture!!.videos.any { it.mediaId == "second" })

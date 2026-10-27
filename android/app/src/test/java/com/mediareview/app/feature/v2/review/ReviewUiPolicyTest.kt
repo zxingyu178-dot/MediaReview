@@ -32,17 +32,6 @@ class ReviewUiPolicyTest {
         assertEquals(1f, progress.fraction, 0.001f)
     }
 
-    @Test fun `vertical gesture maps up to keep and down to pending delete`() {
-        assertEquals(ReviewDecisionGesture.KEEP, reviewDecisionGesture(0f, -260f, 1080f, 1920f))
-        assertEquals(ReviewDecisionGesture.DELETE, reviewDecisionGesture(0f, 260f, 1080f, 1920f))
-    }
-
-    @Test fun `horizontal and short drags never become decisions`() {
-        assertNull(reviewDecisionGesture(500f, -260f, 1080f, 1920f))
-        assertNull(reviewDecisionGesture(0f, 90f, 1080f, 1920f))
-        assertNull(reviewDecisionGesture(0f, -90f, 1080f, 1920f))
-    }
-
     @Test fun `navigation and screen jump stay bounded`() {
         assertFalse(canGoPrevious(0))
         assertTrue(canGoPrevious(1))
