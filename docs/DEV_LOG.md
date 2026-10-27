@@ -3165,3 +3165,10 @@ Android首轮58项57通过/1旧Alpha17硬编码失败；同步Alpha18更新说�
 用户要求电脑端收口、发送Alpha18并打开测试所需程序。发现现用安装/回滚/验收指南仍混合1.6.1/Alpha17及1.4.0历史目标，已备份原文到docs/history/20261027-before-release-closure并统一四份当前指引至1.6.2/Alpha18。准备以CURRENT_RELEASE.json作为唯一当前入口，程序字节不重建。Windows Defender对实际APK扫描退出0/无威胁；生产仍1.5.2/windows_service/Running，ControlHub online。新版本升级与本次QQ掩码收件人确认已提出，尚未停服或发送。详见DEPLOYMENT_CLOSURE_20261027.md。
 
 收口准备结果：current目录已用既有builder重新验证并打包，182项校验通过，ZIP134,333,980字节/SHA256 cdc7df3b1d4fb3df5c394af6f23dd74366719fd199e3aa8dfe6cf9fd66ab0cd0；EXE/APK字节未变，唯一CURRENT_RELEASE.json已生成。APK实际MIME附件预检通过，smtp_accepted=false，未发送。ControlHub GUI窗口Responding，MediaReview/Jellyfin online，Jellyfin健康200；内嵌管理页打开请求queued，不计可见。生产仍1.5.2，升级/收件人确认未答复，当前会话非管理员；维护脚本已准备并只读预检、语法核对，无进行中删除恢复，未处理原队列。一次组合命令被自动审批blocked by policy拦截，未停服/升级；只继续了分开的安全文件标记和只读检查，未绕过审批。等待本次确认后执行，不能宣称回家新版已就绪。完整记录见DEPLOYMENT_CLOSURE_20261027.md。
+
+
+### 2026-10-27 — 用户确认后的生产升级与邮件完成
+
+用户明确回复“确认升级并发送”。首轮停服备份因旧手动实例持有数据库失败，未替换程序，经ControlHub恢复旧服务；失败备份标记INCOMPLETE_BACKUP。Restart Manager只读定位后，完成受保护SQLite一致性快照并检查integrity_check=ok，再停服并核验身份后仅终止旧残留PID3896。重试完整停服备份、校验部署1.6.2并经ControlHub启动成功。终检1.6.2/Contract2/数据库ok/14能力/windows_service，单实例且服务子进程与8766归属一致，EXE哈希匹配当前发布。有效完整备份manual-1.6.2-20261027-180323及旧程序保留。
+
+Alpha18真实MIME附件43,655,762字节及SHA256匹配CURRENT_RELEASE，Defender无威胁，SMTP accepted且拒收0，不声称已阅读/收件箱送达；未复制凭据或记录完整收件地址。ControlHub GUI启动、Jellyfin健康200、管理页200；应用内页面打开返回queued，外部浏览器启动被自动审批blocked by policy拒绝，未绕过。未触碰真实媒体或清手机数据、未处理删除队列、未刷新生产媒体索引，手机/HomeLAN待用户验收。未重复构建/全量回归；复用构建证据，增加实际部署哈希/健康/单实例与SMTP回执检查。完整运维证据在review_meta/ops-20261027，本轮报告DEPLOYMENT_CLOSURE_20261027.md。

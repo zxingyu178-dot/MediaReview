@@ -58,3 +58,6 @@ GSY13.2.1本机字节码确认`ExoSourceManager.buildCacheKey`使用默认URL键
 Release增量构建`:app:assembleRelease`成功（7m42s）；Server按既有PyInstaller spec增量构建成功（182秒），未清理历史dist。消费既有builder的EXE实际health、APK manifest/签名与发布包门禁：Server1.6.2/Contract2/14能力，APK Alpha18/code25且与Alpha17同发布证书，182项文件SHA256通过；构建前后源码/打包输入哈希一致，构建源码为bb02671。EXE SHA256为`d34b2a88c5d1773326f3bd1e1a812652b00df137bf75917e259a78780c49a2d4`。证据为`loading-release.log`、`loading-exe.log`、`loading-package.log`、`loading-delivery-proof.json`。
 
 一次只读聚焦复核发现的重复取消问题已由RED→GREEN关闭，未重复全面审计。隔离模拟器、EXE探针均已停止；初次动态路径批量清理被自动审批拦截后，改用明确LiteralPath、非递归文件清理成功，移除了本轮临时数据盘、Debug签名副本及检查中间文件，保留小型验证记录，未动原AVD/手机数据。生产部署和邮件发送未执行。
+
+
+> 后续运维补记（2026-10-27）：用户确认后已完成生产1.6.2备份升级与Alpha18邮件发送，见[部署收口记录](DEPLOYMENT_CLOSURE_20261027.md)。本文“未部署/未发送”为专项开发结束时快照；当前唯一产物入口为deploy_handoff/CURRENT_RELEASE.json，重打包只更新发布文档，程序字节未变。手机/HomeLAN仍待验收。

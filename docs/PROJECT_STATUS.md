@@ -1,6 +1,6 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-27（加载专项交付完成，生产未升级）
+> 更新时间：2026-10-27（Server1.6.2已部署、Alpha18邮件已发送）
 > 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
 > 加载源码提交`bb02671`已push；此前目录修复`6a74876`、交付记录`d18c31d`等本地提交亦一并推送成功。下方旧网络失败与运行态检查点按各自日期理解。
 >
@@ -8,11 +8,11 @@
 
 ## 0. 一句话状态
 
-**本次运维收口待确认执行**：四份现用发布指引已统一到1.6.2/Alpha18，旧文档完整保留；唯一入口`deploy_handoff/CURRENT_RELEASE.json`已指向`current/`，文档收口包182项校验通过，ZIP SHA256改为`cdc7df3b1d4fb3df5c394af6f23dd74366719fd199e3aa8dfe6cf9fd66ab0cd0`（程序字节未变）。APK Defender无威胁、实际MIME预检通过，但尚未发信。ControlHub窗口已打开，MediaReview/Jellyfin均online，Jellyfin health200；内嵌管理页请求queued，未计桌面可见。生产仍1.5.2/windows_service/Running，维护脚本默认只读、升级及本次QQ收件人确认已询问且未获答复，当前进程无管理员权限。未备份/替换/升级/邮件，不声称新版已就绪。详见[本次收口记录](DEPLOYMENT_CLOSURE_20261027.md)；下方为上一轮交付事实。
+**本次运维收口已执行**：用户确认后，经ControlHub停服、完整受保护备份并升级Server1.6.2/Contract2/0017，已启动且数据库ok、14项能力；终检只有一个MediaReview服务实例，8766归属与安装EXE哈希匹配。排除已验证身份的旧手动残留实例，首次失败备份标记不完整，最终有效全量备份及一致性快照保留。唯一发布入口为`deploy_handoff/CURRENT_RELEASE.json`→`current/`。Alpha18实际附件核验后发往已确认QQ，SMTP接受、拒收0，未声称收件箱已收到。ControlHub GUI已启动，Jellyfin在线、health200；应用内管理页打开请求queued，外部浏览器启动被自动审批拒绝，未计可见。未刷新生产索引、未操作真实媒体、未清手机数据，手机/HomeLAN验收待用户回家。详见[收口记录](DEPLOYMENT_CLOSURE_20261027.md)。下方旧版本与未部署陈述均为对应阶段历史快照，以本段及权威版本表为当前运行事实。
 
-**最新交付状态**：Server1.6.2 + Alpha18/code25，雪碧图保持删除。图片缓存统一、滚动预取取消、缓存I/O线程化、播放源/续播并行已完成。Server13项与复核后缓存5项分别通过；JVM首轮57通过/1旧版本断言失败，修正后相关20项通过，非单轮全绿。隔离API35模拟器两项HTTP图片检查通过：合成小图冷304ms/内存4ms、磁盘命中、慢响应滚动新窗口23ms及账号隔离。Release/EXE构建、APK版本/签名及同Alpha17证书、实际EXE health、182项发布文件哈希通过。产物在`deploy_handoff/loading-1.6.2/`，源码bb02671已push；详见[专项结果与SHA256](LOADING_RESULT_20261027.md)。模拟器/探针已停止并清理本轮临时文件。生产最新health仍**1.5.2/windows_service，Running**，未部署/未发邮件/手机HomeLAN未验证；默认URL视频缓存无认证身份，下一条内容预缓冲按方案保留后续。下文1.6.1为本日上一轮记录。
+**加载专项交付快照（部署前）**：Server1.6.2 + Alpha18/code25，雪碧图保持删除。图片缓存统一、滚动预取取消、缓存I/O线程化、播放源/续播并行已完成。Server13项与复核后缓存5项分别通过；JVM首轮57通过/1旧版本断言失败，修正后相关20项通过，非单轮全绿。隔离API35模拟器两项HTTP图片检查通过：合成小图冷304ms/内存4ms、磁盘命中、慢响应滚动新窗口23ms及账号隔离。Release/EXE构建、APK版本/签名及同Alpha17证书、实际EXE health、182项发布文件哈希通过。产物在`deploy_handoff/loading-1.6.2/`，源码bb02671已push；详见[专项结果与SHA256](LOADING_RESULT_20261027.md)。模拟器/探针已停止并清理本轮临时文件。生产最新health仍**1.5.2/windows_service，Running**，未部署/未发邮件/手机HomeLAN未验证；默认URL视频缓存无认证身份，下一条内容预缓冲按方案保留后续。下文1.6.1为本日上一轮记录。
 
-当前源码为 **Server1.6.1/Contract2/迁移0017 + Android Alpha17/code24**。已修复同用户Jellyfin库级递归漏项：后台改为有界的逐层分页、同目录分页异常失败闭合、跨目录稳定ID去重，完整成功后才失效旧索引。最终客户端/索引45项、目录/API52项通过；四个真实上游样本只读计数132/288/101/1866均符合对照。既有Alpha17在隔离模拟器连到修复版后显示全局5项、原递归0库3项及子目录2项，图片实际渲染；合成视频出帧未确认（goldfish Surface错误），不计播放通过。生产仍为**1.5.2/0016/windows_service，Running且DB正常**，未升级或刷新。详见[修复与测试结果](FOLDER_ZERO_REPAIR_RESULT_20261027.md)。§3、§5中的旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。
+目录修复阶段源码曾为 **Server1.6.1/Contract2/迁移0017 + Android Alpha17/code24**。已修复同用户Jellyfin库级递归漏项：后台改为有界的逐层分页、同目录分页异常失败闭合、跨目录稳定ID去重，完整成功后才失效旧索引。最终客户端/索引45项、目录/API52项通过；四个真实上游样本只读计数132/288/101/1866均符合对照。既有Alpha17在隔离模拟器连到修复版后显示全局5项、原递归0库3项及子目录2项，图片实际渲染；合成视频出帧未确认（goldfish Surface错误），不计播放通过。生产仍为**1.5.2/0016/windows_service，Running且DB正常**，未升级或刷新。详见[修复与测试结果](FOLDER_ZERO_REPAIR_RESULT_20261027.md)。§3、§5中的旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。
 
 本轮Server1.6.1包已生成：`deploy_handoff/folder-fix-1.6.1/MediaReview_Server_1.6.1_stage9.zip`（134,336,115字节，SHA256 `b644616f20535b4a80fb432ecfd206866e3e8681c5d3c210e280c2b0966618c6`）；实际EXE health及182项文件校验通过，构建源码`6a74876`。复用Alpha17，不重建APK；产物未经生产部署或手机/HomeLAN验收。
 
@@ -24,15 +24,15 @@
 | --- | --- | --- |
 | Server 版本（源码目标） | `1.6.2` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产 1.5.2 仍为 13 项 |
+| Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.2实测14项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
 | Android 版本（源码目标） | `versionCode 25` / `versionName 2.0.0-alpha18` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
-| 生产已装版本 | `1.5.2` | `C:\Program Files\MediaReviewServer\VERSION.txt` |
+| 生产已装版本 | `1.6.2` | 安装VERSION、实际health、EXE哈希与当前发布清单一致 |
 
 ## 2. 产物状态
 
-**Alpha17 APK已构建：43,655,762字节，交付见§21；用户确认已安装，未独立实机核验。** Alpha16/Server1.6.0产物见§15；下表保留更早的1.5.2/Alpha15发布记录：
+**当前Alpha18为43,655,762字节，邮件SMTP已接受；见CURRENT_RELEASE与本次收口记录。Alpha17为用户此前已装版本，未独立实机核验。** Alpha16/Server1.6.0产物见§15；下表保留更早的1.5.2/Alpha15发布记录：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |
@@ -286,3 +286,8 @@ Alpha17 源码准备将 UI 重构写入 Release Notes，并把 Android 源码版
 - 24 个分类库全部建立并扫描完成（Completed），合计 **36,532 项**。
 - 新增 5 库：`大神胖哥迷玩` 346、`JX` 19、`Maniacccccc` 4、`BeautyBox` 1、`CS` 1；超大视频仍受 Jellyfin ffprobe 超时限制（如 `12345` 131 文件→1 项），不是扫描失败。
 - MediaReview 建议优先使用本地源直读 `D:\视频合集`；Jellyfin 作为可选源。
+
+
+### 2026-10-27 运维最终收口
+
+用户明确确认升级并发送。1.6.2已通过ControlHub完整备份后部署并启动；确认单实例、服务/端口归属及程序哈希一致，数据库正常。Alpha18附件通过MIME字节校验后SMTP接受，拒收0。详见DEPLOYMENT_CLOSURE_20261027.md。历史记录保留，手机/HomeLAN尚未验收。
