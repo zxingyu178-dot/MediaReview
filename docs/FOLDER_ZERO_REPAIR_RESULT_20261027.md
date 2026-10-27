@@ -38,6 +38,6 @@ python -m ruff check app/adapters/jellyfin/client.py app/services/media_index.py
 
 生产仍是1.5.2/windows_service，未升级或刷新，真实缺失目录尚未在手机闭环。升级后需要处理当前24库与2条历史库选择，再进行同步；不得为避免失败直接清库或丢弃收藏/批阅。手机不在场时，优先采用“相关逻辑回归→真实Jellyfin只读计数→隔离服务+模拟器UI”三层验证，Wi-Fi发现、硬解/seek及真实文件完整性留作实机验收。
 
-Git网络：首次修复提交push出现GitHub443超时及RPC失败（虽然末尾有Everything up-to-date，退出码为1，不能视为成功）；最终状态须以实际push/remote核对为准。
+Git网络：本轮两次push均失败：首次GitHub443超时/RPC失败（虽然末尾有Everything up-to-date，退出码为1，不能视为成功）；第二次连接443超时。源码提交6a74876、交付记录d18c31d已保存在本地，远端交付未确认，不能声称push成功。没有为推送擅自改代理或系统网络设置。
 
 模拟器使用虚拟网络，能经宿主机联网并用10.0.2.2访问宿主loopback，不能将其当作真实手机接入家庭Wi-Fi的等效验收：[Android官方网络地址说明](https://developer.android.com/studio/run/emulator-networking-address)。

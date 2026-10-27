@@ -3144,3 +3144,5 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 首次空库配置422经正常选库解决；测试服务初次SQLite临时文件权限错误，仅设置子进程TEMP/TMP为项目目录后同步成功。模拟器准备与pytest曾短暂重叠，已终止该模拟器并在pytest结束后用独立数据盘启动。未重跑全量Server/JVM/connected，不重建APK，不改系统环境/权限、生产索引、真实媒体或服务生命周期。源码及证据见FOLDER_ZERO_REPAIR_RESULT_20261027.md；本轮Server产物构建待验，生产仍1.5.2。
 
 补记：源码修复提交6a74876；Server1.6.1增量EXE构建成功（约80秒），消费既有builder实际health/签名/manifest与ZIP门禁，182项SHA256通过。包deploy_handoff/folder-fix-1.6.1/MediaReview_Server_1.6.1_stage9.zip，134,336,115字节，SHA256 b644616f20535b4a80fb432ecfd206866e3e8681c5d3c210e280c2b0966618c6。Alpha17原APK复用不重建；实际EXE1.6.1/Contract2/14能力，隔离探针已停止。最终严格分页保护再次对四个真实样本只读计数通过。首次git push因GitHub443超时/RPC错误失败（退出1），末尾Everything up-to-date不构成成功；最终push状态另按实际输出核对。
+
+最终网络状态：第二次git push同样因GitHub443连接超时失败，未确认远端交付。源码6a74876、交付记录d18c31d及后续文档修正保留本地，不声称push成功；未改代理/系统网络设置。生产健康仍1.5.2/windows_service/AIHome.MediaReview，测试端口已释放、ADB无设备。
