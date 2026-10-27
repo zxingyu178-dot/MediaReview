@@ -1,14 +1,14 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-26（Android Alpha17 源码发版准备）
-> 分支：`feature/mediareview-local-only` ｜ 本轮起点 HEAD `ab9b393`（UI P4 已提交）
-> Git 状态：Alpha17 主体改动在本轮终检前被并发提交为本地 `4fe38d2`；本执行未调用 commit/push，当前仍未推送；报告与状态补记留在工作树
+> 更新时间：2026-10-27（Codex接替；文件夹0项只读诊断）
+> 分支：`feature/mediareview-local-only` ｜ 调查基线 HEAD `1247ee4`
+> Git 状态：调查前工作树干净；本次fetch因GitHub443连接超时失败，远端最新状态未确认。下方历史检查点按各自日期理解。
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
 ## 0. 一句话状态
 
-UI P1–P4 完成后进入 Alpha17 源码发版准备：当前源码声明 **Server 1.6.0 / Contract 2 / 迁移 0017 + Android 2.0.0-alpha17/code24**，Server 仍为 14 项能力（含 `native_delete_v1`）。**Alpha17 APK 未构建**，未部署生产、未上真机、未做家庭 LAN 验收；既有 Alpha16 APK/Server 1.6.0 ZIP 仅是历史产物。本轮不重新验证或改变生产运行态。
+当前源码为 **Server1.6.0/Contract2/迁移0017 + Android Alpha17/code24**；Alpha17 APK已构建并在§21记录交付，用户确认已安装，当前ADB未连接。2026-10-27实测生产为**Server1.5.2/Contract2/0016，官方Windows服务Running，health身份正确、DB正常**，1.6.0未部署。目录0项已复现：Jellyfin同用户库级递归漏项，逐层查询四个样本分别恢复132/288/101/1866条；MediaReview索引还停在10月22日，未跟随库整理刷新。详见[本轮诊断与最小修复方案](FOLDER_ZERO_DIAGNOSIS_20261027.md)，尚未改代码、刷新生产或完成手机验收。§3、§5中旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。
 
 ## 1. 权威版本表（SSOT）
 
@@ -24,7 +24,7 @@ UI P1–P4 完成后进入 Alpha17 源码发版准备：当前源码声明 **Ser
 
 ## 2. 产物状态
 
-**Alpha17 新产物：未构建。** Alpha16/Server 1.6.0 历史产物见 §15；下表保留更早的 1.5.2 / Alpha15 发布记录：
+**Alpha17 APK已构建：43,655,762字节，交付见§21；用户确认已安装，未独立实机核验。** Alpha16/Server1.6.0产物见§15；下表保留更早的1.5.2/Alpha15发布记录：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |
