@@ -191,7 +191,7 @@ fun FolderTile(
     val profile = if (displayMode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
     Column(
         modifier.fillMaxWidth()
-            .semantics { contentDescription = "${node.name}，文件夹，${node.recursiveMediaCount} 项" }
+            .semantics { contentDescription = "${node.name}，文件夹，共${node.recursiveMediaCount}项，当前目录${node.directMediaCount}项，${node.childCount}个子目录" }
             .clickable(role = Role.Button, onClick = onClick),
     ) {
         Box(
@@ -228,7 +228,7 @@ fun FolderTile(
                 Column {
                     Text(node.name, color = MediaOnImmersive, style = MaterialTheme.typography.titleSmall,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${node.recursiveMediaCount} 项 · ${node.childCount} 个子目录",
+                    Text("共 ${node.recursiveMediaCount} 项 · 当前 ${node.directMediaCount} 项 · ${node.childCount} 个子目录",
                         color = MediaOnImmersive.copy(alpha = 0.78f), style = MaterialTheme.typography.labelSmall)
                 }
             }

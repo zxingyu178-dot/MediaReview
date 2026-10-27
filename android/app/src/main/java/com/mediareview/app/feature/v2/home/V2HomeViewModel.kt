@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mediareview.app.feature.v2.model.V2SortField
+import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.core.pairing.normalizeBaseUrl
@@ -97,12 +99,15 @@ class V2HomeViewModel @Inject constructor(
     private val browseCache = BrowseWindowCache()
     private val folderBrowserController = FolderPagingController(viewModelScope, browseCache, { albumSourceGeneration }, ::emitMessage, repository::mediaPage)
     val folderBrowserState = folderBrowserController.state
-    fun openFolderBrowser(folderId: String?, includeDescendants: Boolean = true) {
+    private val _folderSortSpec = MutableStateFlow(V2SortSpec(field = V2SortField.NAME, order = V2SortOrder.ASC))
+    val folderSortSpec = _folderSortSpec.asStateFlow()
+    fun setFolderSortSpec(spec: V2SortSpec) { _folderSortSpec.value = spec.copy(sourceType = null) }
+    fun openFolderBrowser(folderId: String?, includeDescendants: Boolean = false) {
         if (isServerMode && !statusStore.supportsFolderTree) {
             folderBrowserController.close()
             return
         }
-        folderBrowserController.open(folderId, _sortSpec.value, includeDescendants)
+        folderBrowserController.open(folderId, _folderSortSpec.value, includeDescendants)
     }
     fun closeFolderBrowser() = folderBrowserController.close()
     fun updateFolderAnchor(anchor: HomeGridAnchor?) = folderBrowserController.updateAnchor(anchor)
@@ -115,7 +120,8 @@ class V2HomeViewModel @Inject constructor(
     fun openFolderMedia(window: List<V2Media>, mediaId: String, folderId: String?): Boolean {
         val context = buildBrowseContext(window, mediaId) ?: return false
         invalidateAlbumViewer()
-        contextQueue = context.copy(folderId = folderId, sortField = _sortSpec.value.field, sortOrder = _sortSpec.value.order)
+        val sort = folderBrowserState.value.sortSpec
+        contextQueue = context.copy(folderId = folderId, sortField = sort.field, sortOrder = sort.order)
         return true
     }
 

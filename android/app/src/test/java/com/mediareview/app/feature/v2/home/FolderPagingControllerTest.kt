@@ -18,7 +18,7 @@ class FolderPagingControllerTest {
             if (fail) error("offline")
             V2MediaPage(listOf(media().copy(id = if (query.includeDescendants) "recursive" else "direct")), 1, 50, 1)
         }
-        pager.open("ft_parent", V2SortSpec()); runCurrent()
+        pager.open("ft_parent", V2SortSpec(), true); runCurrent()
         val recursiveAnchor = HomeGridAnchor("media_recursive", 12)
         pager.updateAnchor(recursiveAnchor)
         pager.open("ft_parent", V2SortSpec(), false)
@@ -37,7 +37,7 @@ class FolderPagingControllerTest {
         runCurrent()
         assertEquals(listOf(true, false, true, false), requests.map { it.includeDescendants })
     }
-    @Test fun defaultsToRecursiveMediaInBoundedPagesAndDoesNotPolluteHomeQuery() = runTest {
+    @Test fun defaultsToDirectMediaInBoundedPagesAndDoesNotPolluteHomeQuery() = runTest {
         val requests = mutableListOf<V2MediaQuery>()
         val pager = FolderPagingController(backgroundScope) { query ->
             requests += query
@@ -47,7 +47,7 @@ class FolderPagingControllerTest {
         runCurrent()
         assertEquals(1, requests.size)
         assertEquals("ft_movies", requests.single().folderId)
-        assertTrue(requests.single().includeDescendants)
+        assertFalse(requests.single().includeDescendants)
         assertEquals(50, requests.single().pageSize)
         pager.loadNextPage()
         runCurrent()
@@ -72,6 +72,24 @@ class FolderPagingControllerTest {
     }
     private fun media(favorite: Boolean = false) = V2Media("cached", "", "照片", "folder", "目录", V2MediaType.IMAGE,
         0, 1, 0, favorite, false, "", "", null, null, 1, 1)
+    @Test fun sortAndTypeChangesResetPageAndRejectLateOldSortResponse() = runTest {
+        val late = CompletableDeferred<V2MediaPage>()
+        val requests = mutableListOf<V2MediaQuery>()
+        val name = V2SortSpec(field = V2SortField.NAME, order = V2SortOrder.ASC)
+        val images = name.copy(field = V2SortField.SIZE, order = V2SortOrder.DESC, typeFilter = V2TypeFilter.IMAGE)
+        val pager = FolderPagingController(backgroundScope) { q ->
+            requests += q
+            if (q.spec == name) withContext(NonCancellable) { late.await() }
+            else V2MediaPage(listOf(media().copy(id = "image-${q.page}")), q.page, 50, 125)
+        }
+        pager.open("same-folder", name); runCurrent()
+        pager.open("same-folder", images); runCurrent()
+        pager.loadNextPage(); runCurrent()
+        late.complete(V2MediaPage(listOf(media().copy(id = "stale")), 1, 50, 1)); runCurrent()
+        assertEquals(listOf("image-1", "image-2"), pager.state.value.items.map { it.id })
+        assertEquals(listOf(1, 2), requests.filter { it.spec == images }.map { it.page })
+        assertTrue(requests.all { !it.includeDescendants && it.pageSize == 50 })
+    }
     @Test fun cachedFolderReopensSynchronouslyWhileRefreshWaitsThreeSeconds() = runTest {
         var calls = 0
         val pager = FolderPagingController(backgroundScope) { query ->

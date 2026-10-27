@@ -41,14 +41,16 @@ fun FolderBrowserScreen(
     val hint by vm.categoryHint.collectAsState()
     val state by vm.folderBrowserState.collectAsState()
     val mode by vm.displayMode.collectAsState()
+    val sortSpec by vm.folderSortSpec.collectAsState()
     val pendingState by vm.viewerPendingDeleteState.collectAsState()
     val pendingIds = (pendingState as? ViewerPendingDeleteState.Ready)?.ids.orEmpty()
     var folderId by rememberSaveable(initialFolderId) { mutableStateOf(initialFolderId) }
-    var includeDescendants by rememberSaveable { mutableStateOf(true) }
+    var includeDescendants by rememberSaveable { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
     val libraryRoots = tree.filter { it.parentId == null }
-    val children = if (folderId == null) homeFolderRoots(tree) else tree.filter { it.parentId == folderId }
-    val implicitRoot = libraryRoots.singleOrNull()?.takeIf { it.childCount > 0 }?.id
+    val children = folderChildren(tree, folderId, sortSpec)
+    val implicitRoot = implicitFolderRoot(tree)
     val effectiveFolderId = folderId ?: implicitRoot
     val crumbs = folderBreadcrumbs(tree, folderId).let { path ->
         if (libraryRoots.size == 1 && path.size > 1) path.drop(1) else path
@@ -63,7 +65,7 @@ fun FolderBrowserScreen(
         }
     }
     BackHandler(onBack = ::goBack)
-    LaunchedEffect(effectiveFolderId, tree, includeDescendants) {
+    LaunchedEffect(effectiveFolderId, tree, includeDescendants, sortSpec) {
         vm.openFolderBrowser(effectiveFolderId, includeDescendants)
         val anchor = vm.folderBrowserState.value.anchor
         val keys = children.map { "folder_${it.id}" } + vm.folderBrowserState.value.items.map { "media_${it.id}" }
@@ -76,7 +78,13 @@ fun FolderBrowserScreen(
             vm.closeFolderBrowser()
         }
     }
-    val visibleMedia = state.items.takeIf { state.folderId == effectiveFolderId }.orEmpty()
+    val currentWindow = state.folderId == effectiveFolderId && state.sortSpec == sortSpec && state.includeDescendants == includeDescendants
+    val visibleMedia = state.items.takeIf { currentWindow }.orEmpty()
+    val countLabel = when {
+        !currentWindow || state.loading -> "加载中…"
+        state.error != null && visibleMedia.isEmpty() -> "加载失败"
+        else -> "${typeFilterLabel(sortSpec.typeFilter)} ${state.total} 项"
+    }
     val entries = children.map(FolderEntry::Folder) + visibleMedia.map(FolderEntry::Media)
     WindowCoverPrefetch(visibleMedia.map(vm::coverUri), grid, mode, leadingItemCount = children.size)
     LaunchedEffect(grid, entries) {
@@ -98,7 +106,7 @@ fun FolderBrowserScreen(
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
-                        text = { Text(if (includeDescendants) "包含子文件夹" else "仅当前文件夹") },
+                        text = { Text("包含子文件夹媒体") },
                         onClick = { includeDescendants = !includeDescendants; menuExpanded = false },
                         trailingIcon = {
                             Switch(
@@ -112,6 +120,21 @@ fun FolderBrowserScreen(
             }
         })
         BreadcrumbRow(crumbs, onRoot = { folderId = null }, onCrumb = { folderId = it })
+        Row(Modifier.fillMaxWidth().padding(horizontal = MediaSpacing.Medium),
+            horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
+            V2TypeFilter.entries.forEach { type ->
+                FilterChip(selected = sortSpec.typeFilter == type,
+                    onClick = { vm.setFolderSortSpec(sortSpec.copy(typeFilter = type)) },
+                    label = { Text(typeFilterLabel(type)) }, modifier = Modifier.testTag("folder_type_${type.name}"))
+            }
+        }
+        SortFilterRow(sortSpec, { showSortSheet = true }, Modifier.testTag("folder_sort"))
+        Text(
+            if (effectiveFolderId == null) "${children.size} 个媒体库 · 请选择目录"
+            else "${children.size} 个子文件夹 · ${if (includeDescendants) "含子文件夹" else "仅当前目录"} · $countLabel",
+            color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = MediaSpacing.Medium, vertical = MediaSpacing.XSmall),
+        )
         if (vm.isServerMode) RuntimeDiagnosis(vm)
         hint?.let {
             Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall,
@@ -123,8 +146,8 @@ fun FolderBrowserScreen(
             ErrorState(state.error ?: "无法读取目录", { vm.retryFolders(); vm.retryFolderPage() }, Modifier.weight(1f))
         } else if (entries.isEmpty() && hint == null) {
             EmptyState(
-                "此文件夹为空",
-                if (includeDescendants) "当前目录与筛选范围内暂无媒体" else "可在更多菜单中启用“包含子文件夹”",
+                "当前筛选暂无媒体",
+                if (includeDescendants) "当前目录与筛选范围内暂无媒体" else "可切换图片/视频筛选，或在更多菜单中启用“包含子文件夹媒体”",
                 Modifier.weight(1f), "重新加载", { vm.retryFolders(); vm.retryFolderPage() },
             )
         } else {
@@ -152,6 +175,7 @@ fun FolderBrowserScreen(
             }
         }
     }
+    if (showSortSheet) SortFilterSheet(sortSpec, vm::setFolderSortSpec, showSourceFilter = false) { showSortSheet = false }
 }
 
 @Composable

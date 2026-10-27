@@ -94,8 +94,6 @@ class Stage8IFolderHttpTest {
             val center = pixels[pixels.width / 2, pixels.height / 2]
             center.green > .8f && center.red < .2f && center.blue < .2f
         }
-        compose.onNodeWithTag("folder_more").performTouchInput { click() }
-        compose.onNodeWithTag("folder_scope_toggle").performTouchInput { click() }
         compose.waitUntil(10_000) { !vm.folderBrowserState.value.includeDescendants && !vm.folderBrowserState.value.loading }
         Assert.assertTrue(vm.folderBrowserState.value.items.isEmpty())
         compose.onNodeWithTag("folder_ft_child").assertIsDisplayed().performTouchInput { click() }

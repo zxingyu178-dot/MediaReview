@@ -232,6 +232,17 @@ object ReleaseNotesCatalog {
                 "批阅播放失败时显示错误与重试，并可重新选择批阅范围",
             ),
         ),
+        ReleaseNote(
+            versionCode = 27,
+            versionName = "2.0.0-alpha20",
+            title = "MediaReview 2.0 Alpha 20",
+            highlights = listOf(
+                "文件夹默认只显示当前目录媒体，保留直接存放的图片和视频",
+                "文件夹新增全部、视频、图片快捷筛选和独立排序",
+                "支持按文件名、最近添加、时长、大小正倒序浏览目录媒体",
+                "可选择包含子文件夹媒体，目录总数与当前目录数量明确区分",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

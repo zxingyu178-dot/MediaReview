@@ -70,7 +70,7 @@ class FolderBrowserTouchTest {
         compose.onNodeWithTag("home_grid").performScrollToIndex(40)
         compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 75 }
         assertEquals(listOf(1, 2), queries.filter { it.folderId == "action" }.map { it.page })
-        assertTrue(queries.filter { it.folderId != null }.all { it.includeDescendants && it.pageSize == 50 })
+        assertTrue(queries.filter { it.folderId != null }.all { !it.includeDescendants && it.pageSize == 50 })
         compose.onNodeWithText("电影", substring = false).performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "movies" && !vm.folderBrowserState.value.loading }
         compose.onNodeWithTag("folder_action").assertIsDisplayed()
@@ -78,7 +78,71 @@ class FolderBrowserTouchTest {
         compose.waitForIdle()
         compose.onNodeWithTag("folder_movies").assertIsDisplayed()
         compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
-        android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 recursive=true; breadcrumb/back preserve parent-child")
+        android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 recursive=false; breadcrumb/back preserve parent-child")
+    }
+
+    @Test fun directRootMixedMediaFilterAndFolderSortStayIndependentFromHome() {
+        val queries = CopyOnWriteArrayList<V2MediaQuery>()
+        val image = DemoMediaCatalog.buildMedia().first { !it.isVideo }
+        val video = DemoMediaCatalog.buildMedia().first { it.isVideo }
+        val direct = listOf(image.copy(id = "root-image", name = "根目录照片", folderId = "root", sizeBytes = 10),
+            video.copy(id = "root-video", name = "根目录视频", folderId = "root", sizeBytes = 100))
+        val nested = image.copy(id = "deep-image", name = "子目录照片", folderId = "child")
+        val demo = DemoMediaRepository(context, AlbumCoverStore(context))
+        val repo = object : MediaRepository by demo {
+            override suspend fun folderTree() = listOf(
+                V2FolderNode("root", null, "lib", "媒体库", 1, 2, 3, 1),
+                V2FolderNode("child", "root", "lib", "子文件夹", 0, 1, 1, 1))
+            override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
+                queries += query
+                val scope = if (query.folderId == "child") listOf(nested)
+                    else direct + if (query.includeDescendants) listOf(nested) else emptyList()
+                val filtered = scope.filter { query.spec.typeFilter == V2TypeFilter.ALL ||
+                    (it.isVideo == (query.spec.typeFilter == V2TypeFilter.VIDEO)) }
+                val sorted = when (query.spec.field) {
+                    V2SortField.SIZE -> filtered.sortedBy { it.sizeBytes }
+                    else -> filtered.sortedBy { it.name }
+                }.let { if (query.spec.order == V2SortOrder.DESC) it.reversed() else it }
+                return V2MediaPage(sorted, query.page, query.pageSize, sorted.size)
+            }
+        }
+        val vm = testHomeViewModel(repo, SearchHistoryStore(context))
+        compose.runOnIdle { ownedViewModels.put("mixed-folder", vm) }
+        compose.setContent { FolderBrowserScreen(vm, null, {}, { m, window, folder ->
+            assertTrue(vm.openFolderMedia(window, m.id, folder))
+        }) }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 2 }
+        compose.onNodeWithTag("folder_child").assertIsDisplayed()
+        compose.onNodeWithTag("media_root-image").assertExists()
+        compose.onAllNodesWithTag("media_deep-image").assertCountEquals(0)
+        compose.onNodeWithTag("folder_type_IMAGE").performTouchInput { click() }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.map { it.id } == listOf("root-image") }
+        compose.onNodeWithTag("folder_child").assertExists()
+        compose.onNodeWithTag("folder_type_ALL").performTouchInput { click() }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 2 }
+        compose.onNodeWithTag("folder_sort").performTouchInput { click() }
+        compose.onAllNodesWithText("媒体墙来源").assertCountEquals(0)
+        compose.onNodeWithText("大小", substring = false).performTouchInput { click() }
+        compose.onNodeWithText("倒序", substring = false).performTouchInput { click() }
+        androidx.test.espresso.Espresso.pressBack()
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.map { it.id } == listOf("root-video", "root-image") }
+        compose.onNodeWithTag("media_root-video").performTouchInput { click() }
+        compose.runOnIdle {
+            assertEquals(V2SortField.SIZE, vm.contextQueue?.sortField)
+            assertEquals(V2SortOrder.DESC, vm.contextQueue?.sortOrder)
+            assertEquals(listOf("root-video"), vm.contextQueue?.mediaIds)
+            assertEquals(V2SortSpec(), vm.sortSpec.value)
+        }
+        compose.onNodeWithTag("folder_more").performTouchInput { click() }
+        compose.onNodeWithTag("folder_scope_toggle").performTouchInput { click() }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 3 }
+        compose.onNodeWithTag("folder_child").performTouchInput { click() }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "child" && vm.folderBrowserState.value.items.size == 1 }
+        compose.onNodeWithTag("folder_back").performTouchInput { click() }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "root" && vm.folderBrowserState.value.items.size == 3 }
+        assertTrue(queries.any { it.folderId == "root" && !it.includeDescendants })
+        assertTrue(queries.any { it.folderId == "root" && it.includeDescendants })
+        assertTrue(queries.filter { it.folderId == "child" }.all { it.spec.field == V2SortField.SIZE && it.spec.order == V2SortOrder.DESC })
     }
 
     @Test fun folderChildrenDoNotShiftMediaCoverPrefetchWindow() {

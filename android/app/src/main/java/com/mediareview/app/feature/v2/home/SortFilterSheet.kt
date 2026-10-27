@@ -117,6 +117,7 @@ fun SortFilterRow(
 fun SortFilterSheet(
     spec: V2SortSpec,
     onChange: (V2SortSpec) -> Unit,
+    showSourceFilter: Boolean = true,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -133,14 +134,16 @@ fun SortFilterSheet(
                 modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Md),
             )
 
-            Text("媒体墙来源", color = MediaTextSecondary,
-                modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm))
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                .padding(horizontal = V2Spacing.Xl).selectableGroup()) {
-                listOf(null to "全部", "jellyfin" to "Jellyfin", "local" to "本地").forEach { (value, label) ->
-                    OptionChip(text = label, selected = spec.sourceType == value,
-                        onClick = { onChange(spec.copy(sourceType = value)) })
-                    Spacer(modifier = Modifier.size(V2Spacing.Sm))
+            if (showSourceFilter) {
+                Text("媒体墙来源", color = MediaTextSecondary,
+                    modifier = Modifier.padding(horizontal = V2Spacing.Xl, vertical = V2Spacing.Sm))
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = V2Spacing.Xl).selectableGroup()) {
+                    listOf(null to "全部", "jellyfin" to "Jellyfin", "local" to "本地").forEach { (value, label) ->
+                        OptionChip(text = label, selected = spec.sourceType == value,
+                            onClick = { onChange(spec.copy(sourceType = value)) })
+                        Spacer(modifier = Modifier.size(V2Spacing.Sm))
+                    }
                 }
             }
             // 排序字段

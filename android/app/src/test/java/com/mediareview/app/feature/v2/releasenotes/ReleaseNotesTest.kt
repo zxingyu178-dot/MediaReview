@@ -30,16 +30,16 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  * Stage 8C.1 §47/§55 + Stage 8C.2 §34：版本 / 更新日志目录合同。
  */
 class ReleaseNotesContractTest {
-    @Test fun `Alpha19 当前版本和更新说明匹配`() {
-        assertEquals(26, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha19", BuildConfig.VERSION_NAME)
-        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(26))
-        assertEquals("MediaReview 2.0 Alpha 19", note.title)
+    @Test fun `Alpha20 当前版本和更新说明匹配`() {
+        assertEquals(27, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha20", BuildConfig.VERSION_NAME)
+        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(27))
+        assertEquals("MediaReview 2.0 Alpha 20", note.title)
         assertEquals(listOf(
-            "批阅改为上下滑切换视频，单击暂停或继续",
-            "取消滑动保留和待删除，保留明确操作按钮",
-            "取消双击跳进度和长按快捷操作，进度条仍可左右拖动",
-            "批阅播放失败时显示错误与重试，并可重新选择批阅范围",
+            "文件夹默认只显示当前目录媒体，保留直接存放的图片和视频",
+            "文件夹新增全部、视频、图片快捷筛选和独立排序",
+            "支持按文件名、最近添加、时长、大小正倒序浏览目录媒体",
+            "可选择包含子文件夹媒体，目录总数与当前目录数量明确区分",
         ), note.highlights)
         assertEquals(listOf(25), codes(24, 25))
         assertEquals(listOf(20), codes(null, 20))

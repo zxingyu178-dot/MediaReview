@@ -18,7 +18,8 @@ data class FolderBrowseState(
     val error: String? = null,
     val refreshing: Boolean = false,
     val anchor: HomeGridAnchor? = null,
-    val includeDescendants: Boolean = true,
+    val includeDescendants: Boolean = false,
+    val sortSpec: V2SortSpec = V2SortSpec(field = V2SortField.NAME, order = V2SortOrder.ASC),
 )
 
 /** 与搜索、相册分离的有界窗口；后台刷新成功才原子替换已经加载的页。 */
@@ -37,12 +38,12 @@ internal class FolderPagingController(
     private var key: WindowKey? = null
     private val favoriteOverrides = mutableMapOf<String, Boolean>()
 
-    fun open(folderId: String?, spec: V2SortSpec, includeDescendants: Boolean = true) {
+    fun open(folderId: String?, spec: V2SortSpec, includeDescendants: Boolean = false) {
         close()
         key = WindowKey(sourceGeneration(), folderId, spec, includeDescendants = includeDescendants)
         val cached = if (folderId != null) cache.get(key!!) else null
-        mutable.value = if (cached == null) FolderBrowseState(folderId = folderId, includeDescendants = includeDescendants)
-            else FolderBrowseState(folderId, cached.items, cached.page, cached.total, cached.hasMore, anchor = cached.anchor, includeDescendants = includeDescendants)
+        mutable.value = if (cached == null) FolderBrowseState(folderId = folderId, includeDescendants = includeDescendants, sortSpec = spec)
+            else FolderBrowseState(folderId, cached.items, cached.page, cached.total, cached.hasMore, anchor = cached.anchor, includeDescendants = includeDescendants, sortSpec = spec)
         if (folderId != null) request(if (cached == null) 1 else cached.page, refresh = cached != null)
     }
     fun close() {
