@@ -599,10 +599,10 @@ fun GsyNativePlayerScreen(
                 .setMapHeadData(current.endpoint.headers.ifEmpty { null })
                 // Stage 8A.1 §33: 只加性能指标,不改播放器行为。
                 // GSY 进度回调为 4 参: (curProgress, duration, currPosition, bufferedPosition)。
-                // 播放位置首次 >0 即"首帧已呈现"; duration 不参与判定以免准备完成即误报。
+                // 进度变化只代表时间轴启动，不能证明视频已出帧（音频推进/Surface失败亦可能触发）。
                 .setGSYVideoProgressListener { curProgress, _duration, currPosition, _buffer ->
                     if (curProgress > 0 || currPosition > 0) {
-                        V2Perf.player()?.markOnce("first_frame", "first_frame")
+                        V2Perf.player()?.markOnce("playback_position_started", "playback_position_started")
                     }
                 }
             detachRetiredKernelErrorListener(ownedHost, loadedEndpointUrl)

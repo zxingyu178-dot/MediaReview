@@ -210,6 +210,17 @@ object ReleaseNotesCatalog {
                 "本版本仍是 Alpha，尚未完成真实手机与家庭局域网验收",
             ),
         ),
+        ReleaseNote(
+            versionCode = 25,
+            versionName = "2.0.0-alpha18",
+            title = "MediaReview 2.0 Alpha 18",
+            highlights = listOf(
+                "图片墙、相册和图片查看共享缩略图缓存，减少重复加载",
+                "快速滚动时取消过期预取，优先加载当前区域",
+                "改善切换服务器或重新配对时的图片缓存隔离",
+                "本版本仍是 Alpha，加载效果待真实手机与家庭局域网验证",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

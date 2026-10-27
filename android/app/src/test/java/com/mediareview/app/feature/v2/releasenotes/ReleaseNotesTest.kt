@@ -30,19 +30,18 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  * Stage 8C.1 §47/§55 + Stage 8C.2 §34：版本 / 更新日志目录合同。
  */
 class ReleaseNotesContractTest {
-    @Test fun `Alpha17 当前版本和更新说明匹配`() {
-        assertEquals(24, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha17", BuildConfig.VERSION_NAME)
-        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(24))
-        assertEquals("MediaReview 2.0 Alpha 17", note.title)
+    @Test fun `Alpha18 当前版本和更新说明匹配`() {
+        assertEquals(25, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha18", BuildConfig.VERSION_NAME)
+        val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(25))
+        assertEquals("MediaReview 2.0 Alpha 18", note.title)
         assertEquals(listOf(
-            "首页收敛顶栏，搜索改为全屏，并加入分类标签、无边框大图网格和下拉刷新",
-            "目录页支持折叠顶栏与横滑面包屑，包含子文件夹选项移入菜单",
-            "相册按日期分节；查看器支持沉浸大图、横滑翻页、双击或双指缩放、下滑关闭和信息层",
-            "批阅采用极简顶栏与进度、底部五项动作，支持手势切换、保留或标记待删除、撤销和快进一屏",
-            "本版本仍是 Alpha，尚未完成真实手机与家庭局域网验收",
+            "图片墙、相册和图片查看共享缩略图缓存，减少重复加载",
+            "快速滚动时取消过期预取，优先加载当前区域",
+            "改善切换服务器或重新配对时的图片缓存隔离",
+            "本版本仍是 Alpha，加载效果待真实手机与家庭局域网验证",
         ), note.highlights)
-        assertEquals(listOf(24), codes(23, 24))
+        assertEquals(listOf(25), codes(24, 25))
         assertEquals(listOf(20), codes(null, 20))
         assertEquals(listOf(19, 20), codes(18, 20))
     }

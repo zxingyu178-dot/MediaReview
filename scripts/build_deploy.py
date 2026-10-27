@@ -30,10 +30,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.6.1"
+VERSION = "1.6.2"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha17"
-ANDROID_CODE = 24
+ANDROID_VERSION = "2.0.0-alpha18"
+ANDROID_CODE = 25
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",

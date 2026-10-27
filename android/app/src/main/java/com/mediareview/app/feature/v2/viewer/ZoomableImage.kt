@@ -108,14 +108,14 @@ fun ZoomableImage(
     val previewPainter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
             .data(smallPreviewUri.takeIf { it.isNotBlank() })
-            .setParameter("mediareview_retry", retryKey)
-            .placeholderMemoryCacheKey(largePreviewUri)
+            .setParameter("mediareview_retry", retryKey, memoryCacheKey = null)
             .crossfade(false)
             .size(256, 144)
             .build(),
         contentScale = ContentScale.Fit,
     )
-    // 单列墙已有Large：只读现有memory/disk源，不另发Large网络；异步Coil读盘不阻塞UI。
+    // 单列墙已有Large：经共享认证缓存入口只读现有memory/disk源，不另发Large网络。
+    // 不使用URL形式placeholderMemoryCacheKey：Coil在拦截器前读取占位，无法在该步骤认证隔离。
     // 独立底层也能在Small失败时保留已显示的封面。
     val cachedLargePainter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)

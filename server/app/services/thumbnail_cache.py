@@ -268,7 +268,7 @@ class ThumbnailCacheService:
         loader: Callable[[], Awaitable[tuple[bytes, str]]],
     ) -> ThumbnailFetchResult:
         """返回完整结果(含磁盘/上游耗时)。并发同 key 只回源一次。"""
-        cached = self.read(key)
+        cached = await asyncio.to_thread(self.read, key)
         if cached is not None:
             self.hits += 1
             return ThumbnailFetchResult(cached[0], cached[1], True, disk_read_ms=cached[2])
@@ -281,14 +281,29 @@ class ThumbnailCacheService:
             self.singleflight_waits += 1
 
         async with lock:
-            cached = self.read(key)
+            cached = await asyncio.to_thread(self.read, key)
             if cached is not None:
                 self.hits += 1
                 return ThumbnailFetchResult(cached[0], cached[1], True, disk_read_ms=cached[2])
             upstream_started = time.perf_counter()
             payload, content_type = await loader()
             upstream_ms = _ms(upstream_started)
-            disk_write_ms = self.write(key, payload, content_type)
+            # 文件flush/fsync也可能很慢，不能占用HTTP事件循环。
+            # 取消等待时仍等原子落盘结束才释放同键锁，避免后台线程脱离single-flight。
+            write = asyncio.create_task(asyncio.to_thread(self.write, key, payload, content_type))
+            try:
+                disk_write_ms = await asyncio.shield(write)
+            except asyncio.CancelledError:
+                # 请求可能被超时和断连连续取消；每次等待都必须shield，
+                # 否则第二次取消会结束Task而真实写线程仍持有文件。
+                while not write.done():
+                    try:
+                        await asyncio.shield(write)
+                    except asyncio.CancelledError:
+                        continue
+                if not write.cancelled():
+                    write.result()
+                raise
             self.misses += 1
             pruned = await self._maybe_prune()
             return ThumbnailFetchResult(

@@ -11,6 +11,27 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class ImageRequestLifetimeTest {
+    @Test fun queuedThumbnailCannotUseAnotherAccountOrNewPairingAfterScopeChanged() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val url = server.url("/api/v1/media/p1/thumbnail").toString()
+            val provider = TokenProvider().also { it.set("first", server.url("/").toString()) }
+            val scope = ThumbnailAuthScope(provider.imageCacheNamespaceFor(url))
+            val client = OkHttpClient.Builder().addInterceptor(CacheAuthInterceptor(provider)).build()
+            val request = Request.Builder().url(url).tag(ThumbnailAuthScope::class.java, scope).build()
+            provider.set("second", server.url("/").toString())
+            try { client.newCall(request).execute().close(); fail("stale account must fail before HTTP") }
+            catch (_: IOException) { }
+            provider.clear()
+            val anonymous = request.newBuilder().tag(ThumbnailAuthScope::class.java, ThumbnailAuthScope(null)).build()
+            provider.set("third", server.url("/").toString())
+            try { client.newCall(anonymous).execute().close(); fail("late pairing must not revive request") }
+            catch (_: IOException) { }
+            assertEquals(0, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
     @Test fun pageCancellationInterruptsBodyAfterHeadersThroughExistingInterceptor() {
         val server = MockWebServer()
         val reader = Executors.newSingleThreadExecutor()

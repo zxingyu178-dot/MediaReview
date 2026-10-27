@@ -1,8 +1,8 @@
 # MediaReview 离线发布
 
-> 2026-10-27：当前修复目标为Server1.6.1、Contract2、迁移0017，兼容既有Alpha17/code24；修复Jellyfin库级递归漏项。本轮只构建Server，复用已验证Alpha17，不改生产实例。实际产物以包内manifest和SHA256为准，生产升级须单独授权。
+> 2026-10-27：当前加载专项目标为Server1.6.2、Contract2、迁移0017 + Alpha18/code25，包含上一轮1.6.1目录漏项修复。实际产物以包内manifest和SHA256为准，生产升级须单独授权，不能将源码目标视为已部署版本。
 
-当前源码目标：Android `2.0.0-alpha17` / code24；Server `1.6.1` / API Contract `2` / 迁移 `0017`。
+当前源码目标：Android `2.0.0-alpha18` / code25；Server `1.6.2` / API Contract `2` / 迁移 `0017`。
 
 > **本地安全删除最低系统要求**：Windows 10 版本 1709 或更高版本。Server 只使用
 > `FILE_DISPOSITION_INFO_EX` 的 POSIX 删除语义，不会回退到传统 delete-on-close。

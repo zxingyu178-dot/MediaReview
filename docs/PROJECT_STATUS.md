@@ -1,6 +1,6 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-27（目录漏项修复、模拟器验证及加载/预览调查）
+> 更新时间：2026-10-27（加载专项开发与定向验证中）
 > 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
 > 修复源码提交`6a74876`、交付记录`d18c31d`；本轮两次push均因GitHub443连接失败，远端交付未确认，不能声称已push。下方历史检查点按各自日期理解。
 >
@@ -8,21 +8,23 @@
 
 ## 0. 一句话状态
 
+**最新开发中状态**：用户确认加载专项，雪碧图保持删除。源码目标为Server1.6.2 + Alpha18/code25；图片缓存统一、可见区域预取取消、缓存I/O线程化、播放源/续播并行已实现。Server13项与复核后缓存5项分别通过；JVM首轮57通过/1旧版本断言失败，修正后相关20项通过，非单轮全绿。隔离API35模拟器两项图片HTTP检查通过：合成小图冷304ms、内存4ms、磁盘命中，慢响应滚动新窗口23ms，账号隔离有效。模拟器已关闭，正式产物待构建。详见[加载专项结果](LOADING_RESULT_20261027.md)。未部署生产，下文1.6.1是本日上一轮交付记录。
+
 当前源码为 **Server1.6.1/Contract2/迁移0017 + Android Alpha17/code24**。已修复同用户Jellyfin库级递归漏项：后台改为有界的逐层分页、同目录分页异常失败闭合、跨目录稳定ID去重，完整成功后才失效旧索引。最终客户端/索引45项、目录/API52项通过；四个真实上游样本只读计数132/288/101/1866均符合对照。既有Alpha17在隔离模拟器连到修复版后显示全局5项、原递归0库3项及子目录2项，图片实际渲染；合成视频出帧未确认（goldfish Surface错误），不计播放通过。生产仍为**1.5.2/0016/windows_service，Running且DB正常**，未升级或刷新。详见[修复与测试结果](FOLDER_ZERO_REPAIR_RESULT_20261027.md)。§3、§5中的旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。
 
 本轮Server1.6.1包已生成：`deploy_handoff/folder-fix-1.6.1/MediaReview_Server_1.6.1_stage9.zip`（134,336,115字节，SHA256 `b644616f20535b4a80fb432ecfd206866e3e8681c5d3c210e280c2b0966618c6`）；实际EXE health及182项文件校验通过，构建源码`6a74876`。复用Alpha17，不重建APK；产物未经生产部署或手机/HomeLAN验收。
 
 ## 1. 权威版本表（SSOT）
 
-加载调查见[调查与建议](LOADING_PREVIEW_ASSESSMENT_20261027.md)。用户明确雪碧图已主动砍掉，保持删除，不再列为缺陷。图片预取/显示内存键不统一，视频相邻项主要预取地址而非内容；已形成[加载专项方案](superpowers/specs/2026-10-27-media-loading-design.md)，先优化图片与首播，再验证有界视频内容预缓冲，方案待确认。仅文档变更，无新性能实测、程序或生产改动。
+加载调查及用户裁剪决定见[调查与建议](LOADING_PREVIEW_ASSESSMENT_20261027.md)。[专项方案](superpowers/specs/2026-10-27-media-loading-design.md)已获确认，正在实施；以本页最新段落及专项结果为准。
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（源码目标） | `1.6.1` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
+| Server 版本（源码目标） | `1.6.2` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
 | Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产 1.5.2 仍为 13 项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
-| Android 版本（源码目标） | `versionCode 24` / `versionName 2.0.0-alpha17` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
+| Android 版本（源码目标） | `versionCode 25` / `versionName 2.0.0-alpha18` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
 | 生产已装版本 | `1.5.2` | `C:\Program Files\MediaReviewServer\VERSION.txt` |
 

@@ -36,12 +36,12 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 
 ## 当前版本
 
-- 源码发布目标：Android `2.0.0-alpha17`（versionCode 24）
-- 源码发布目标：Server `1.6.0` / API Contract `2` / 数据库迁移 `0017`
-- Server health 声明 14 项能力（含 `native_delete_v1`）；Alpha17 APK 未构建，既有 Alpha16 产物仅作为历史发布记录
+- 源码发布目标：Android `2.0.0-alpha18`（versionCode 25）
+- 源码发布目标：Server `1.6.2` / API Contract `2` / 数据库迁移 `0017`
+- 加载专项沿用现有播放器与批阅流程，雪碧图保持删除；构建、定向测试与交付状态见项目状态页
 - 生产环境仍是已安装的 Server 1.5.2（2026-10-20 授权升级）
 
-> **运行态提醒**：官方 Windows 服务 `AIHome.MediaReview` 当前为 Stopped，8766 由来源未确认的交互式实例占用（见 PROJECT_STATUS §3）。
+> **运行态提醒**：2026-10-27上一轮实测官方 Windows 服务正常、生产仍为1.5.2；本轮不部署。后续实时状态与历史检查点请按PROJECT_STATUS最新段落区分。
 > **当前完整状态、验证证据、生产运行态与待办，以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为唯一事实源。** 本文只保留项目简介与当前版本摘要。
 
 ## 仓库结构

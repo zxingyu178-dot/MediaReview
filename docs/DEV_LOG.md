@@ -3152,3 +3152,9 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 用户随后澄清雪碧图已主动删除，原“恢复预览”建议撤回，保持裁剪。形成加载专项设计草案 `superpowers/specs/2026-10-27-media-loading-design.md`：图片缓存/可见项调度与Server图片I/O先行，视频首播分段测量后再验证下一条内容预缓冲；不更换播放器、不新增媒体服务。方案待确认，未修改生产代码或启动新构建/测试。
 
 核对Alpha17图片墙/原图、批阅播放地址预取及Server图片任务链，并对照Immich、Coil、Media3和thumbfast官方资料。确认历史2c164e3移除卡片雪碧图长按与仓库接线（功能提交b1ee683为当前祖先），不能归因于本轮接替；当前内存缓存键跨入口不统一、相邻视频仅地址/封面预取、原图解码限尺寸不减网络字节、后台任务FIFO且本地源尚无sprite适配。输出LOADING_PREVIEW_ASSESSMENT_20261027.md及分步建议。仅文档变更，未运行测试/构建、未部署或访问真实媒体；历史耗时不冒充本轮实机数据。
+
+### 2026-10-27 — 加载专项实施与定向验证（进行中）
+
+用户确认专项，雪碧图保持删除。共享Coil缩略图缓存键、认证命名空间/排队请求scope及返回会话检查；滚动collectLatest即刻监听；Server缓存I/O线程化，单次只读复核发现重复取消提前放锁，双cancel RED后修复并以5项通过收口。播放信息在凭据成功后TaskGroup并行源信息/续播，13项合同及缓存组通过；与后续缓存组重叠，不合并测试数。受控慢磁盘最大事件循环延迟464.87→3.19ms，两路各200ms模拟上游的实际API函数中位403.03→201.47ms，不外推真实LAN/首帧。
+
+Android首轮58项57通过/1旧Alpha17硬编码失败；同步Alpha18更新说明合同后受影响20项通过，非单轮58全绿。目标Server1.6.2/Alpha18 code25/Contract2，SSOT静态核对通过。默认Gradle/Kotlin及Debug签名锁权限问题以项目已有缓存、进程内编译及临时Debug key副本解决，不改系统权限；一次PowerShell参数传递错误不计测试。两项合成图片HTTP缓存/取消模拟器检查及正式产物待完成，生产不变。GSY默认URL缓存无认证身份，本轮不直接开启视频全局缓存；虚假first_frame进度日志改名playback_position_started。见LOADING_RESULT_20261027.md。

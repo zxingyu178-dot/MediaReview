@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Literal
@@ -690,12 +691,24 @@ async def get_playback_info(
     authoritative = bool(jellyfin_settings.client_url)
 
     try:
+        key_started = perf_now()
         stream_key = await _resolve_stream_key(db, device, client)
     except JellyfinError as exc:
         raise ConfigError("无法为设备签发 Jellyfin 播放凭据,请稍后重试") from exc
 
+    log_perf("playback_credential", start=key_started)
+
     direct_url = client.video_stream_url(row.jellyfin_id, base_url=client_base)
-    source_id = await client.playback_media_source_id(row.jellyfin_id)
+    metadata_started = perf_now()
+    # 两个读取互不依赖；仍在设备凭据成功后执行。TaskGroup在取消/异常时回收兄弟任务。
+    async with asyncio.TaskGroup() as metadata:
+        source = metadata.create_task(client.playback_media_source_id(row.jellyfin_id))
+        resume = metadata.create_task(client.item_resume_position_ms(
+            jellyfin_settings.user_id or "", row.jellyfin_id
+        ))
+    source_id = source.result()
+    resume_position_ms = resume.result()
+    log_perf("playback_metadata", start=metadata_started)
     hls_url = (
         client.hls_stream_url(row.jellyfin_id, media_source_id=source_id, base_url=client_base)
         if source_id
@@ -710,9 +723,6 @@ async def get_playback_info(
             raise ConfigError("Jellyfin 播放配置存在凭据泄漏风险") from None
 
     stream_headers = {"X-Emby-Token": stream_key}
-    resume_position_ms = await client.item_resume_position_ms(
-        jellyfin_settings.user_id or "", row.jellyfin_id
-    )
     log_perf("playback_info", start=started, media_id=media_id)
     return ok(
         PlaybackInfo(

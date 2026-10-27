@@ -15,7 +15,9 @@ class CacheAuthInterceptor(
         val request = chain.request()
         request.tag(ImageRequestLifetime::class.java)?.register(chain.call())
         if (request.url.encodedPath.startsWith("/api/v1/")) {
-            val token = tokenProvider.tokenFor(request.url.toString())
+            val scope = request.tag(ThumbnailAuthScope::class.java)
+            val token = if (scope != null) tokenProvider.scopedImageTokenFor(request.url.toString(), scope.namespace)
+                else tokenProvider.tokenFor(request.url.toString())
             if (!token.isNullOrBlank()) {
                 return chain.proceed(
                     request.newBuilder().header("Authorization", "Bearer $token").build()
