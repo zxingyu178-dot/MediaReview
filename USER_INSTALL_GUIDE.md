@@ -1,11 +1,11 @@
 # MediaReview 当前安装入口
 
-唯一当前配套：**Server1.6.3 / API Contract2 / 数据库0017 + Android Alpha18 / code25**。
+唯一当前配套：**Server1.6.3 / API Contract2 / 数据库0017 + Android Alpha19 / code26**。
 
 ## 防止装错版本
 
 1. 从项目 `deploy_handoff/CURRENT_RELEASE.json` 读取当前包路径、版本与SHA256；不要按目录排序或文件日期选择包。
-2. 当前包必须包含 `RELEASE_MANIFEST.json` 和 `SHA256SUMS.txt`。manifest中的Server必须是1.6.3、Android必须是2.0.0-alpha18/code25；逐文件校验不通过就停止。
+2. Server包必须包含 `RELEASE_MANIFEST.json` 和 `SHA256SUMS.txt`，Server为1.6.3；逐文件校验不通过就停止。该既有包内附Alpha18，手机应另装CURRENT_RELEASE指向的独立Alpha19/code26 APK，核对其独立SHA256，不要从Server包回装旧APK。本轮未重建Server。
 3. 安装前核对当前服务真实程序路径、已装版本与端口归属；同一时间仅允许既有Windows服务实例。旧包、`.old-*`和备份只用于有明确决定的回滚，不作为启动入口。
 4. 运行目标固定为ControlHub已有的`mediareview`接入和`AIHome.MediaReview`服务。不要双击EXE或旧`start_server.cmd`制造交互式实例。
 
@@ -17,7 +17,7 @@
 
 ## 手机端
 
-安装Alpha18前核对APK哈希。它与已交付Alpha17使用同一发布证书，正常覆盖升级，无需卸载或清数据。真实手机上的既有包签名若不匹配，先停止，不自行卸载。
+安装Alpha19前核对APK哈希。它与已交付Alpha18使用同一发布证书，正常覆盖升级，无需卸载或清数据。真实手机上的既有包签名若不匹配，先停止，不自行卸载。
 
 回家后手机与电脑使用同一Wi-Fi，保留已有配对；若需重新配对，从电脑管理页取得配对码。按 `USER_LAN_VALIDATION.md` 进行短验证，真实媒体删除不属于这次加载验证。
 
