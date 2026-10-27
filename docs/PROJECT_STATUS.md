@@ -8,7 +8,7 @@
 
 ## 0. 一句话状态
 
-**本次运维收口进行中**：用户要求统一电脑端版本、邮件发送Alpha18并准备回家测试。当前实际仍为1.5.2/windows_service且ControlHub online，目标1.6.2。四份发布指引已统一到Alpha18/1.6.2，原文保留在docs/history/20261027-before-release-closure；准备生成唯一CURRENT_RELEASE指针和current发布目录，复用已验证程序字节，不重建。APK的Windows Defender定向扫描无威胁。生产升级及本次QQ收件人确认已询问，尚未执行升级或邮件发送；下方为上一轮交付事实。
+**本次运维收口待确认执行**：四份现用发布指引已统一到1.6.2/Alpha18，旧文档完整保留；唯一入口`deploy_handoff/CURRENT_RELEASE.json`已指向`current/`，文档收口包182项校验通过，ZIP SHA256改为`cdc7df3b1d4fb3df5c394af6f23dd74366719fd199e3aa8dfe6cf9fd66ab0cd0`（程序字节未变）。APK Defender无威胁、实际MIME预检通过，但尚未发信。ControlHub窗口已打开，MediaReview/Jellyfin均online，Jellyfin health200；内嵌管理页请求queued，未计桌面可见。生产仍1.5.2/windows_service/Running，维护脚本默认只读、升级及本次QQ收件人确认已询问且未获答复，当前进程无管理员权限。未备份/替换/升级/邮件，不声称新版已就绪。详见[本次收口记录](DEPLOYMENT_CLOSURE_20261027.md)；下方为上一轮交付事实。
 
 **最新交付状态**：Server1.6.2 + Alpha18/code25，雪碧图保持删除。图片缓存统一、滚动预取取消、缓存I/O线程化、播放源/续播并行已完成。Server13项与复核后缓存5项分别通过；JVM首轮57通过/1旧版本断言失败，修正后相关20项通过，非单轮全绿。隔离API35模拟器两项HTTP图片检查通过：合成小图冷304ms/内存4ms、磁盘命中、慢响应滚动新窗口23ms及账号隔离。Release/EXE构建、APK版本/签名及同Alpha17证书、实际EXE health、182项发布文件哈希通过。产物在`deploy_handoff/loading-1.6.2/`，源码bb02671已push；详见[专项结果与SHA256](LOADING_RESULT_20261027.md)。模拟器/探针已停止并清理本轮临时文件。生产最新health仍**1.5.2/windows_service，Running**，未部署/未发邮件/手机HomeLAN未验证；默认URL视频缓存无认证身份，下一条内容预缓冲按方案保留后续。下文1.6.1为本日上一轮记录。
 

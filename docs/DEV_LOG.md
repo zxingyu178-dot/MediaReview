@@ -3163,3 +3163,5 @@ Android首轮58项57通过/1旧Alpha17硬编码失败；同步Alpha18更新说�
 
 ### 2026-10-27 — 当前版本与测试就绪收口（进行中）
 用户要求电脑端收口、发送Alpha18并打开测试所需程序。发现现用安装/回滚/验收指南仍混合1.6.1/Alpha17及1.4.0历史目标，已备份原文到docs/history/20261027-before-release-closure并统一四份当前指引至1.6.2/Alpha18。准备以CURRENT_RELEASE.json作为唯一当前入口，程序字节不重建。Windows Defender对实际APK扫描退出0/无威胁；生产仍1.5.2/windows_service/Running，ControlHub online。新版本升级与本次QQ掩码收件人确认已提出，尚未停服或发送。详见DEPLOYMENT_CLOSURE_20261027.md。
+
+收口准备结果：current目录已用既有builder重新验证并打包，182项校验通过，ZIP134,333,980字节/SHA256 cdc7df3b1d4fb3df5c394af6f23dd74366719fd199e3aa8dfe6cf9fd66ab0cd0；EXE/APK字节未变，唯一CURRENT_RELEASE.json已生成。APK实际MIME附件预检通过，smtp_accepted=false，未发送。ControlHub GUI窗口Responding，MediaReview/Jellyfin online，Jellyfin健康200；内嵌管理页打开请求queued，不计可见。生产仍1.5.2，升级/收件人确认未答复，当前会话非管理员；维护脚本已准备并只读预检、语法核对，无进行中删除恢复，未处理原队列。一次组合命令被自动审批blocked by policy拦截，未停服/升级；只继续了分开的安全文件标记和只读检查，未绕过审批。等待本次确认后执行，不能宣称回家新版已就绪。完整记录见DEPLOYMENT_CLOSURE_20261027.md。
