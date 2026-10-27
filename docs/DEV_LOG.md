@@ -3146,3 +3146,7 @@ Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）�
 补记：源码修复提交6a74876；Server1.6.1增量EXE构建成功（约80秒），消费既有builder实际health/签名/manifest与ZIP门禁，182项SHA256通过。包deploy_handoff/folder-fix-1.6.1/MediaReview_Server_1.6.1_stage9.zip，134,336,115字节，SHA256 b644616f20535b4a80fb432ecfd206866e3e8681c5d3c210e280c2b0966618c6。Alpha17原APK复用不重建；实际EXE1.6.1/Contract2/14能力，隔离探针已停止。最终严格分页保护再次对四个真实样本只读计数通过。首次git push因GitHub443超时/RPC错误失败（退出1），末尾Everything up-to-date不构成成功；最终push状态另按实际输出核对。
 
 最终网络状态：第二次git push同样因GitHub443连接超时失败，未确认远端交付。源码6a74876、交付记录d18c31d及后续文档修正保留本地，不声称push成功；未改代理/系统网络设置。生产健康仍1.5.2/windows_service/AIHome.MediaReview，测试端口已释放、ADB无设备。
+
+### 2026-10-27 — 加载与核心预览源码调查
+
+核对Alpha17图片墙/原图、批阅播放地址预取及Server图片任务链，并对照Immich、Coil、Media3和thumbfast官方资料。确认历史2c164e3移除卡片雪碧图长按与仓库接线（功能提交b1ee683为当前祖先），不能归因于本轮接替；当前内存缓存键跨入口不统一、相邻视频仅地址/封面预取、原图解码限尺寸不减网络字节、后台任务FIFO且本地源尚无sprite适配。输出LOADING_PREVIEW_ASSESSMENT_20261027.md及分步建议。仅文档变更，未运行测试/构建、未部署或访问真实媒体；历史耗时不冒充本轮实机数据。
