@@ -1,20 +1,20 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-27（Codex接替；文件夹0项只读诊断）
-> 分支：`feature/mediareview-local-only` ｜ 调查基线 HEAD `1247ee4`
-> Git 状态：调查前工作树干净；本次fetch因GitHub443连接超时失败，远端最新状态未确认。下方历史检查点按各自日期理解。
+> 更新时间：2026-10-27（目录漏项修复与模拟器验证）
+> 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
+> Git状态与本轮修复提交以Git实际结果为准；下方历史检查点按各自日期理解。
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
 ## 0. 一句话状态
 
-当前源码为 **Server1.6.0/Contract2/迁移0017 + Android Alpha17/code24**；Alpha17 APK已构建并在§21记录交付，用户确认已安装，当前ADB未连接。2026-10-27实测生产为**Server1.5.2/Contract2/0016，官方Windows服务Running，health身份正确、DB正常**，1.6.0未部署。目录0项已复现：Jellyfin同用户库级递归漏项，逐层查询四个样本分别恢复132/288/101/1866条；MediaReview索引还停在10月22日，未跟随库整理刷新。详见[本轮诊断与最小修复方案](FOLDER_ZERO_DIAGNOSIS_20261027.md)，尚未改代码、刷新生产或完成手机验收。§3、§5中旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。
+当前源码为 **Server1.6.1/Contract2/迁移0017 + Android Alpha17/code24**。已修复同用户Jellyfin库级递归漏项：后台改为有界的逐层分页、同目录分页异常失败闭合、跨目录稳定ID去重，完整成功后才失效旧索引。最终客户端/索引45项、目录/API52项通过；四个真实上游样本只读计数132/288/101/1866均符合对照。既有Alpha17在隔离模拟器连到修复版后显示全局5项、原递归0库3项及子目录2项，图片实际渲染；合成视频出帧未确认（goldfish Surface错误），不计播放通过。生产仍为**1.5.2/0016/windows_service，Running且DB正常**，未升级或刷新。详见[修复与测试结果](FOLDER_ZERO_REPAIR_RESULT_20261027.md)。§3、§5中的旧运行态与旧产物待办属于历史检查点，以本段最新实测为准。
 
 ## 1. 权威版本表（SSOT）
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（源码目标） | `1.6.0` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
+| Server 版本（源码目标） | `1.6.1` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
 | Server 能力（源码 14 项；已发布 1.5.2 为 13 项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产 1.5.2 仍为 13 项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |

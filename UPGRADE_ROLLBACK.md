@@ -1,6 +1,6 @@
 # MediaReview 升级与回滚边界
 
-> 2026-10-25：P5 源码目标为 Alpha16/code23、Server 1.6.0、Contract2、迁移 0017。**产物未构建，未授权部署或回滚**。后续若获准升级，必须经 ControlHub 停服并备份完整程序与活动数据；回滚必须恢复成对备份。0017 含 `delete_queue.queue_token`；存在 `committing` / `delete_done` / `delete_pending` 可恢复行时降级 fail-closed，必须先使用 0017 代码完成恢复并备份。Windows 本地删除最低要求 Windows 10 1709，仅使用 POSIX 语义；不支持时 `delete_not_supported` 且文件不变。以下 Alpha12/1.4.0 内容为历史边界，不构成本轮部署授权。
+> 2026-10-27：当前修复目标为Alpha17/code24、Server1.6.1、Contract2、迁移0017。本轮未授权生产部署或回滚。若获准升级，必须经ControlHub停服，备份完整有效程序和全部活动数据（不递归复制历史备份）；回滚必须恢复成对备份。0017含`delete_queue.queue_token`；存在`committing`/`delete_done`/`delete_pending`可恢复行时降级fail-closed，须先使用0017代码完成恢复并备份。Windows本地删除最低要求Windows10 1709，仅使用POSIX语义；不支持时`delete_not_supported`且文件不变。以下Alpha12/1.4.0内容为历史边界，不构成本轮部署授权。
 
 > 下述 SCM 查询模拟结果是 2026-10-20 Server 1.5.2 发版历史，不是 1.6.0 的当前验证结果。
 

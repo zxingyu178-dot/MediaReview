@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,8 @@ from app.core.errors import ImageNotFoundError, JellyfinError
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 # 拉取大列表时的单页上限,防止一次请求过重
 _MAX_PAGE_LIMIT = 1000
+_MAX_SYNC_FOLDERS = 100_000
+_MAX_SYNC_PAGES = 100_000
 _MAX_IMAGE_BYTES = 25 * 1024 * 1024
 # 连接池: 媒体墙缩略图会连续发起数十个请求,必须复用到 Jellyfin 的 Keep-Alive 连接,
 # 否则每个 thumbnail 都要重新 TCP + 认证握手。
@@ -295,15 +298,17 @@ class JellyfinClient:
         sort_by: str | None = None,
         sort_order: str | None = None,
         search_term: str | None = None,
+        recursive: bool = True,
     ) -> JFItemsPage:
         params: dict[str, Any] = {
-            "Recursive": "true",
+            "Recursive": "true" if recursive else "false",
             "StartIndex": max(0, start_index),
             "Limit": min(max(1, limit), _MAX_PAGE_LIMIT),
             "Fields": "Path,Size,DateModified,Container,MediaSources",
         }
-        types = include_types or ",".join(sorted(PLAYABLE_ITEM_TYPES))
-        params["IncludeItemTypes"] = types
+        types = ",".join(sorted(PLAYABLE_ITEM_TYPES)) if include_types is None else include_types
+        if types:
+            params["IncludeItemTypes"] = types
         if parent_id:
             params["ParentId"] = parent_id
         if sort_by:
@@ -325,6 +330,60 @@ class JellyfinClient:
             map_media_item(raw, library_id=parent_id or "") for raw in page.items if raw.jellyfin_id
         ]
         return items, page.total_record_count
+
+    async def library_media_pages(
+        self, user_id: str, *, library_id: str, page_size: int = 500
+    ) -> AsyncIterator[list[MediaItem]]:
+        """同用户逐层枚举，避免整理后库级递归查询漏掉已存在的媒体。
+
+        空媒体页也交还控制权，供同步任务在目录/分页之间检查取消。
+        不完整枚举必须抛错，禁止调用方据此失效旧索引。
+        """
+        if library_id not in {lib.jellyfin_id for lib in await self.libraries(user_id)}:
+            raise JellyfinError("媒体库已不存在或当前用户不可访问，请重新选择媒体库")
+        folders = deque([library_id])
+        discovered = {library_id}
+        emitted: set[str] = set()
+        requests = 0
+        while folders:
+            parent_id = folders.popleft()
+            start = 0
+            expected_total = None
+            listed_ids: set[str] = set()
+            while True:
+                requests += 1
+                if requests > _MAX_SYNC_PAGES:
+                    raise JellyfinError("媒体目录分页超出同步上限")
+                page = await self.items_page(
+                    user_id, parent_id=parent_id, recursive=False, include_types="",
+                    start_index=start, limit=page_size, sort_by="SortName", sort_order="Ascending",
+                )
+                total = page.total_record_count
+                if expected_total is not None and total != expected_total:
+                    raise JellyfinError("媒体目录在同步期间发生变化，请重试")
+                expected_total = total
+                keys = tuple(item.jellyfin_id for item in page.items)
+                if (any(not key for key in keys) or start + len(keys) > total
+                        or (not keys and start < total) or len(set(keys)) != len(keys)
+                        or any(key in listed_ids for key in keys)):
+                    raise JellyfinError("媒体目录分页不完整，请重试")
+                listed_ids.update(keys)
+                items = []
+                for item in page.items:
+                    if item.is_folder:
+                        if item.jellyfin_id not in discovered:
+                            if len(discovered) >= _MAX_SYNC_FOLDERS:
+                                raise JellyfinError("媒体目录数量超出同步上限")
+                            discovered.add(item.jellyfin_id)
+                            folders.append(item.jellyfin_id)
+                    elif (item.item_type in PLAYABLE_ITEM_TYPES
+                          and item.jellyfin_id not in emitted):
+                        emitted.add(item.jellyfin_id)
+                        items.append(map_media_item(item, library_id=library_id))
+                yield items
+                start += len(keys)
+                if start >= total:
+                    break
 
     async def media_item(self, user_id: str, item_id: str, library_id: str = "") -> MediaItem:
         raw = await self._get(f"/Users/{_path_segment(user_id)}/Items/{_path_segment(item_id)}")

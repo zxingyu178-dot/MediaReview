@@ -1022,39 +1022,37 @@ async def _refresh_media_index_async(
     async with client_factory() as client:
         for library_id in targets:
             start = 0
-            total = 0
-            while True:
-                if _is_cancelled(database, task_id):
-                    _finish_cancelled(database, task_id, targets)
-                    return
-                page, reported_total = await client.media_page(
-                    user_id,
-                    parent_id=library_id,
-                    start_index=start,
-                    limit=_LIBRARY_PAGE,
-                )
-                if _is_cancelled(database, task_id):
-                    _finish_cancelled(database, task_id, targets)
-                    return
-                total = max(0, int(reported_total))
-                if not page and start < total:
-                    raise RuntimeError("Jellyfin 媒体分页提前结束")
-                with database.session() as session:
-                    task = session.get(BackgroundTask, task_id)
-                    if task is None or task.status == "cancelled":
-                        session.rollback()
+            pages = client.library_media_pages(user_id, library_id=library_id,
+                                               page_size=_LIBRARY_PAGE)
+            try:
+                while True:
+                    if _is_cancelled(database, task_id):
                         _finish_cancelled(database, task_id, targets)
                         return
-                    now = utc_now()
-                    upsert_media_items(session, page, generation=generation, now=now)
-                    start += len(page)
-                    state = session.get(MediaSyncState, library_id)
-                    if state is not None:
-                        state.processed = start
-                        state.total = total
-                    session.commit()
-                if not page or start >= total:
-                    break
+                    try:
+                        page = await anext(pages)
+                    except StopAsyncIteration:
+                        break
+                    if _is_cancelled(database, task_id):
+                        _finish_cancelled(database, task_id, targets)
+                        return
+                    with database.session() as session:
+                        task = session.get(BackgroundTask, task_id)
+                        if task is None or task.status == "cancelled":
+                            session.rollback()
+                            _finish_cancelled(database, task_id, targets)
+                            return
+                        now = utc_now()
+                        upsert_media_items(session, page, generation=generation, now=now)
+                        start += len(page)
+                        state = session.get(MediaSyncState, library_id)
+                        if state is not None:
+                            state.processed = start
+                            # 逐层枚举完成前没有可信的全库总数；仅报告已发现数量。
+                            state.total = start
+                        session.commit()
+            finally:
+                await pages.aclose()
 
             # 所有目标库都成功后才统一隐藏本代未见的旧缓存。
             if _is_cancelled(database, task_id):
@@ -1062,7 +1060,7 @@ async def _refresh_media_index_async(
                 return
             with database.session() as session:
                 completed += 1
-                totals[library_id] = total
+                totals[library_id] = start
                 task = session.get(BackgroundTask, task_id)
                 if task is not None and task.status == "running":
                     task.progress = min(99, int(completed * 100 / max(1, len(targets))))

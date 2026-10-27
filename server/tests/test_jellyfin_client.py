@@ -58,6 +58,97 @@ async def test_media_page_maps_to_unified_dto(client: JellyfinClient) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("old_recursive_total", [0, 1])
+async def test_library_media_pages_recovers_zero_and_partial_recursive_results(
+    jellyfin_config, old_recursive_total
+):
+    """真实故障：库级递归为0或非零漏项，直接子级有完整条目。"""
+    calls = []
+    video = {"Id": "video-a", "Name": "a.mp4", "Type": "Video"}
+    photo = {"Id": "photo-b", "Name": "b.jpg", "Type": "Photo"}
+    folder = lambda key: {"Id": key, "Name": key, "Type": "Folder", "IsFolder": True}
+    tree = {"library": [video, folder("child"), photo],
+            "child": [video, photo, folder("library")]}
+
+    def handler(request):
+        assert request.url.path.startswith(f"/Users/{JELLYFIN_USER_ID}/")
+        assert 'Token="test-api-key"' in request.headers["Authorization"]
+        assert "api_key" not in request.url.params
+        if request.url.path.endswith("/Views"):
+            return httpx.Response(200, json={"Items": [{"Id": "library", "Name": "库"}]})
+        params = request.url.params
+        calls.append((params.get("ParentId"), params.get("Recursive"), params.get("StartIndex")))
+        if params.get("Recursive") == "true":
+            return httpx.Response(200, json={"Items": [video][:old_recursive_total],
+                                            "TotalRecordCount": old_recursive_total})
+        assert "IncludeItemTypes" not in params  # 文件夹也必须被返回
+        items = tree[params["ParentId"]]
+        start, limit = int(params["StartIndex"]), int(params["Limit"])
+        return httpx.Response(200, json={"Items": items[start:start + limit],
+                                        "TotalRecordCount": len(items)})
+
+    async with JellyfinClient(jellyfin_config, transport=httpx.MockTransport(handler)) as jf:
+        pages = [page async for page in jf.library_media_pages(
+            JELLYFIN_USER_ID, library_id="library", page_size=2)]
+    items = [item for page in pages for item in page]
+    assert [item.jellyfin_id for item in items] == ["video-a", "photo-b"]
+    assert all(item.library_id == "library" for item in items)
+    assert calls == [("library", "false", "0"), ("library", "false", "2"),
+                     ("child", "false", "0"), ("child", "false", "2")]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["denied", "truncated", "changed", "repeated"])
+async def test_library_media_pages_fails_closed_on_incomplete_listing(jellyfin_config, failure):
+    def handler(request):
+        if request.url.path.endswith("/Views"):
+            return httpx.Response(200, json={"Items": [{"Id": "library", "Name": "库"}]})
+        start = int(request.url.params["StartIndex"])
+        if start == 0:
+            return httpx.Response(200, json={"Items": [{"Id": "a", "Type": "Video"}],
+                                            "TotalRecordCount": 2})
+        if failure == "denied":
+            return httpx.Response(403)
+        return httpx.Response(200, json={
+            "Items": [] if failure == "truncated" else [
+                {"Id": "a" if failure == "repeated" else "b", "Type": "Video"}],
+            "TotalRecordCount": 3 if failure == "changed" else 2,
+        })
+
+    async with JellyfinClient(jellyfin_config, transport=httpx.MockTransport(handler)) as jf:
+        with pytest.raises(JellyfinError):
+            _ = [page async for page in jf.library_media_pages(
+                JELLYFIN_USER_ID, library_id="library", page_size=1)]
+
+
+@pytest.mark.anyio
+async def test_library_media_pages_rejects_removed_library_before_listing(jellyfin_config):
+    def handler(request):
+        assert request.url.path.endswith("/Views")
+        return httpx.Response(200, json={"Items": []})
+
+    async with JellyfinClient(jellyfin_config, transport=httpx.MockTransport(handler)) as jf:
+        with pytest.raises(JellyfinError):
+            _ = [page async for page in jf.library_media_pages(
+                JELLYFIN_USER_ID, library_id="removed")]
+
+
+@pytest.mark.anyio
+async def test_library_media_pages_rejects_partially_overlapping_pages(jellyfin_config):
+    def handler(request):
+        if request.url.path.endswith("/Views"):
+            return httpx.Response(200, json={"Items": [{"Id": "library", "Name": "库"}]})
+        keys = ["a", "b"] if request.url.params["StartIndex"] == "0" else ["b", "c"]
+        return httpx.Response(200, json={"Items": [{"Id": k, "Type": "Video"} for k in keys],
+                                        "TotalRecordCount": 4})
+
+    async with JellyfinClient(jellyfin_config, transport=httpx.MockTransport(handler)) as jf:
+        with pytest.raises(JellyfinError):
+            _ = [page async for page in jf.library_media_pages(
+                JELLYFIN_USER_ID, library_id="library", page_size=2)]
+
+
+@pytest.mark.anyio
 async def test_media_item_single(client: JellyfinClient) -> None:
     media = await client.media_item(JELLYFIN_USER_ID, "it-video")
     assert media.jellyfin_id == "it-video"

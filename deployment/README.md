@@ -1,14 +1,14 @@
 # MediaReview 离线发布
 
-> P5 源码发布目标：Android Alpha16/code23、Server 1.6.0、Contract 2、迁移 0017 与本地源两阶段安全删除。实际产物以包内 manifest 为准；本轮只做源码准备，不构建产物、不部署生产。生产升级仍需单独授权。
+> 2026-10-27：当前修复目标为Server1.6.1、Contract2、迁移0017，兼容既有Alpha17/code24；修复Jellyfin库级递归漏项。本轮只构建Server，复用已验证Alpha17，不改生产实例。实际产物以包内manifest和SHA256为准，生产升级须单独授权。
 
-当前源码目标：Android `2.0.0-alpha16` / code23；Server `1.6.0` / API Contract `2` / 迁移 `0017`。
+当前源码目标：Android `2.0.0-alpha17` / code24；Server `1.6.1` / API Contract `2` / 迁移 `0017`。
 
 > **本地安全删除最低系统要求**：Windows 10 版本 1709 或更高版本。Server 只使用
 > `FILE_DISPOSITION_INFO_EX` 的 POSIX 删除语义，不会回退到传统 delete-on-close。
 > 不支持该能力时删除会在文件发生任何变化前失败，并提示改用升级后的 Windows 或电脑端删除。
 
-已发布的历史产物仍是 `MediaReview_2.0.0-alpha15_stage9.apk` 与 `MediaReview_Server_1.5.2_stage9.zip`；生产仍是 2026-10-20 经授权升级的 Server 1.5.2。当前没有 1.6.0 / Alpha16 产物，也未执行新一轮生产升级。
+生产实测仍为Server1.5.2；Alpha17 APK及Server1.6.0包已存在，详情以docs/PROJECT_STATUS.md为准。下文包含历史阶段说明，不能作为当前产物或部署授权证明。
 
 ## 既有发布入口
 
