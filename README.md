@@ -38,11 +38,11 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 唯一当前发布入口为 `deploy_handoff/CURRENT_RELEASE.json`，指向 `deploy_handoff/current/`；旧包只保留历史/回滚，不从目录时间猜测部署版本。安装、备份和回家验证按项目根的三份当前指引执行。
 
 - 源码发布目标：Android `2.0.0-alpha18`（versionCode 25）
-- 源码候选目标：Server `1.6.3` / API Contract `2` / 数据库迁移 `0017`
+- 源码与生产版本：Server `1.6.3` / API Contract `2` / 数据库迁移 `0017`
 - 加载专项沿用现有播放器与批阅流程，雪碧图保持删除；构建、定向测试与交付状态见项目状态页
-- 生产环境：Server1.6.2，经用户确认、完整备份后升级；Alpha18邮件已获SMTP接受
+- 生产环境：Server1.6.3，经用户确认、完整备份后由ControlHub升级启动；Alpha18邮件此前已获SMTP接受
 
-> **运行态提醒**：2026-10-27终检只有一个ControlHub管理的MediaReview Windows服务实例，安装程序与当前发布清单一致。旧包仅供历史/回滚；以后通过ControlHub启动。手机/HomeLAN实际播放仍待验证。
+> **运行态提醒**：2026-10-27终检只有一个ControlHub管理的MediaReview Windows服务实例，安装程序与当前发布清单一致。旧包仅供历史/回滚；以后通过ControlHub启动。24个有效库已刷新，真机视频画面/图片查看抽样通过；不代表全库验收，详见状态页。
 > **当前完整状态、验证证据、生产运行态与待办，以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为唯一事实源。** 本文只保留项目简介与当前版本摘要。
 
 ## 仓库结构

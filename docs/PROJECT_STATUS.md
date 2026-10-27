@@ -1,6 +1,6 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-27（Server1.6.2已部署、Alpha18邮件已发送）
+> 更新时间：2026-10-27（Server1.6.3已部署、24库刷新完成，Alpha18真机抽样）
 > 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
 > 加载源码提交`bb02671`已push；此前目录修复`6a74876`、交付记录`d18c31d`等本地提交亦一并推送成功。下方旧网络失败与运行态检查点按各自日期理解。
 >
@@ -8,7 +8,7 @@
 
 ## 0. 一句话状态
 
-**最新实机排障（进行中）**：用户连接Alpha18，发现服务有进程但无8766监听、历史QueuePool耗尽及大量旧路径404。官方ControlHub恢复失败后，经用户单独授权仅停启既有Windows服务，手机重新检测后在线。确认2个失效库选择及10月22日旧索引；现保留24有效库并逐库刷新，尚未全部完成。连接归还缺陷已按RED/GREEN修复：media修复相关36通过，补认证后相关11通过（重叠，不合计）；源码目标1.6.3，生产仍1.6.2，候选尚未部署。详见[实机排障记录](PHONE_REPAIR_20261027.md)。以下1.6.2收口为前一时段事实。
+**最新实机排障与部署**：用户连接Alpha18，发现服务有进程但无8766监听、历史QueuePool耗尽及大量旧路径404。经用户单独授权精确服务恢复后，手机重新检测在线。保留24有效库、取消2失效选择，正常API逐库刷新全部succeeded、processed合计56553；不删除媒体。连接归还缺陷已按RED/GREEN修复：media相关36通过，补认证后相关11通过（重叠，不合计）。源码d87b69a已push，EXE健康与182项包校验通过；用户单独授权后通过ControlHub完整备份升级至1.6.3，健康ok、单实例，唯一CURRENT_RELEASE已同步。Alpha18不变，真机视频实际画面、图片查看与缩略图抽样确认；全部目录未逐个验收。断线后仍可能需手动重新检测，列表/目录延迟仍约数秒；端口丢失触发与整批刷新失败原因尚未确证。详见[实机排障记录](PHONE_REPAIR_20261027.md)。下方旧状态均为各时段历史快照。
 
 **本次运维收口已执行**：用户确认后，经ControlHub停服、完整受保护备份并升级Server1.6.2/Contract2/0017，已启动且数据库ok、14项能力；终检只有一个MediaReview服务实例，8766归属与安装EXE哈希匹配。排除已验证身份的旧手动残留实例，首次失败备份标记不完整，最终有效全量备份及一致性快照保留。唯一发布入口为`deploy_handoff/CURRENT_RELEASE.json`→`current/`。Alpha18实际附件核验后发往已确认QQ，SMTP接受、拒收0，未声称收件箱已收到。ControlHub GUI已启动，Jellyfin在线、health200；应用内管理页打开请求queued，外部浏览器启动被自动审批拒绝，未计可见。未刷新生产索引、未操作真实媒体、未清手机数据，手机/HomeLAN验收待用户回家。详见[收口记录](DEPLOYMENT_CLOSURE_20261027.md)。下方旧版本与未部署陈述均为对应阶段历史快照，以本段及权威版本表为当前运行事实。
 
@@ -26,11 +26,11 @@
 | --- | --- | --- |
 | Server 版本（源码目标） | `1.6.3` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.2实测14项 |
+| Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.3实测14项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
 | Android 版本（源码目标） | `versionCode 25` / `versionName 2.0.0-alpha18` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt` |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
-| 生产已装版本 | `1.6.2` | 安装VERSION、实际health、EXE哈希与当前发布清单一致 |
+| 生产已装版本 | `1.6.3` | 安装VERSION、实际health、EXE哈希与当前发布清单一致 |
 
 ## 2. 产物状态
 
