@@ -1,5 +1,11 @@
 # 开发日志
 
+### 2026-10-28 — 独立生图页面需求、动态队列基础及评分接口交接
+
+用户将方案改为与批阅同级的独立界面，新图追加队尾，逐图看生成快照/时间/尺寸；随后要求给上游接口需求并设计手机提示词评分。只读核对NSFW现有1–5总分/7维度/追加历史/版本字段，生成NSFW_MOBILE_API_REQUEST_V2.md：复用8767，增量发现、详情、动态审核和版本图组评分，兼容明确选择的无版本整体评分。NSFW代码/配置/数据/服务未修改。
+
+MediaReview新增GeneratedImage与纯队列基础，按稳定ID原位更新/队尾追加，空轮询不删数据、保留当前图片；不假设上游新路由存在。测试先因缺类型编译失败（非运行时bug复现），补实现后`:app:testDebugUnitTest --tests '*GeneratedImageQueueTest'`通过4项/0失败，构建2分12秒；使用既有Gradle8.9/JDK17、项目缓存及in-process Kotlin，证据review_meta/nsfw-20261028/{red,green}.log。未全量回归、未构建APK、未发布、未接通页面。现有发布仍Alpha20/Server1.6.3；完整需求未完成，待新增合同后继续界面/API联通。
+
 ### 2026-10-28 — NSFW生成图片手机审核规划
 
 核对当前Alpha20/code27与NSFW双目录6ad633a，读取冻结合同、Android指南及实际审核/图片路由；旧兼容审计基于Alpha9，不能直接作为现行基线。方案新增独立图片审核入口和配对，直连既有8767桥，分接入、闭环、模拟器联调三个检查点；记录favorite/RESET已审语义、共享latest会话及304待验证等边界。仅文档检查，未跑业务测试、未修改NSFW、未启动/写入生产。详见superpowers/specs/2026-10-28-nsfw-review-integration-plan.md。
