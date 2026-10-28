@@ -1,5 +1,9 @@
 # 开发日志
 
+### 2026-10-28 — NSFW生成图片手机审核规划
+
+核对当前Alpha20/code27与NSFW双目录6ad633a，读取冻结合同、Android指南及实际审核/图片路由；旧兼容审计基于Alpha9，不能直接作为现行基线。方案新增独立图片审核入口和配对，直连既有8767桥，分接入、闭环、模拟器联调三个检查点；记录favorite/RESET已审语义、共享latest会话及304待验证等边界。仅文档检查，未跑业务测试、未修改NSFW、未启动/写入生产。详见superpowers/specs/2026-10-28-nsfw-review-integration-plan.md。
+
 ### 2026-10-28 — Alpha20独立APK收口
 
 源码d0ba539已push。Release构建成功（5分钟），实际APK27/2.0.0-alpha20，43,655,758字节，签名有效且同Alpha19；哈希和路径见FOLDER_BROWSE_RESULT_20261028.md。CURRENT_RELEASE与安装/回滚说明切至独立Alpha20；Server包未重建且内附Alpha18，不能从旧包回装手机。生产EXE哈希不变、health1.6.3/windows_service。39项相关JVM、4项隔离模拟器结果复用，未重复跑全量；手机未连接，未安装/未发邮件。辅助会话已退出、本轮模拟器已关闭、ADB forward为空。
