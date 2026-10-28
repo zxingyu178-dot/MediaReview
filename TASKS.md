@@ -2,6 +2,17 @@
 
 > **当前状态以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为准。** 本文件是任务与阶段流水；下方 Stage8H/8I/8J/9 等段落均为历史记录，不代表当前进度。
 
+## 2026-10-29 NSFW 生图审核 V2 客户端（分支 `feature/nsfw-image-review-v2`）
+
+- [x] M0 契约冻结：需求单原文归档到 `docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`；冻结 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`（端点 / DTO / 能力标记 / 错误码 / 游标语义）与 `fixtures/`。
+- [x] 能力门禁：真实 Bridge 当前 `api_contract=1` 且缺 `mobile_feed_v2` 等 5 项能力 → 客户端在配对前阻断。真实端到端联调 **BLOCKED（等待 NSFW 实现 v2）**，不是客户端缺陷。
+- [x] M1 独立配对与网络层：`NsfwProfileStore`（DataStore `nsfw_studio_profile` + 独立 Keystore alias）、`NsfwTokenProvider`、`NsfwAuthInterceptor`、`NsfwStudioApi` / `NsfwApiFactory`；401 只清 NSFW 凭据。
+- [x] M2 独立一级页面：底部导航 5 项（首页 / 批阅 / 生图审核 / 收藏 / 整理）；未加入 `V2DataMode`；独立 `NsfwReviewViewModel` / `NsfwRepository` / DTO，不复用视频批阅 ViewModel。
+- [x] M3 feed / 详情 / 审核 / 评分：稳定游标与去重、原位更新、队尾追加、断线追平、`CURSOR_EXPIRED` 恢复、409 不自动重提、版本未知必须显式整体评分、`client_request_id` 幂等与回执查询。
+- [x] M4 测试与构建：JVM 80 suites / 554 tests（NSFW 新增 56）；`assembleDebug` 通过；`compileDebugAndroidTestKotlin` 通过；lint 0 errors / 37 warnings。
+- [ ] 真实 Bridge v2 接口实现（NSFW 维护者）→ 之后才能做真实手机联调与「正式可用」验收。
+- [ ] 真机/模拟器五入口布局测试：`adb devices` 无设备，仪器测试已编译但未执行。
+
 ## 2026-10-24 进度统一与产品方向评估
 - [x] 建立 `docs/PROJECT_STATUS.md` 为唯一活状态源；修订 README/TAKEOVER_READ_FIRST/HANDOVER/REVIEW_SUMMARY/ACCEPTANCE/PRODUCTION_READINESS/deployment README 等 S 级口径漂移。
 - [x] 完成"跳过 Jellyfin、纯本地源"可行性评估（`review_meta/ops-20261024/jellyfin-skip-assessment.md`；结论：可行，最大缺口是本地永久删除，其次是无转码兜底）。

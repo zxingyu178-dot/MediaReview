@@ -2905,3 +2905,28 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 
 验证：本轮仅文档与只读审计，未改源码、未跑构建、未改生产/媒体/密钥；GitHub 仍不可达，`747e704` 及本次文档提交均未推送。文档改动需在 commit 前经 `git diff` 复核。
 推送补充（2026-10-24）：GitHub 网络恢复，已成功推送 `2dd9ff2..5786f8f`（含 10-23 的 `747e704` 图片 404 修复与本次统一文档提交）；`git status -sb` 显示与 origin 同步。此前记录的"GitHub 不可达、本地 ahead 1"已解除。
+
+## 2026-10-29 NSFW 生图审核 V2 客户端（分支 feature/nsfw-image-review-v2）
+
+背景：用户要求在 MediaReview 中新增与「批阅」并列的「生图审核」页面，独立连接 NSFW Studio Mobile Review Bridge；本轮只允许改 MediaReview，不得改 NSFW 仓库/Bridge/数据库/部署，也不得把模拟接口测试说成真实联调通过。
+
+基线：`codex/mediareview-stage9-native-source` @ `37e93e2`。由于主工作树在 `feature/mediareview-local-only` 且有其他未提交改动，本轮用独立 worktree（`projects/mediareview/.worktrees/nsfw-image-review-v2`）创建功能分支，未触碰主工作树内容。
+
+完成：
+- M0：需求单原文归档 `docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`；冻结 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`（端点/DTO/能力/错误码/游标语义）+ 7 个 fixtures。
+- M1：`NsfwProfileStore`（DataStore `nsfw_studio_profile`，Keystore alias `nsfw_studio_pairing_token_v1`）、`NsfwTokenProvider`、`NsfwAuthInterceptor`、`NsfwStudioApi`/`NsfwApiFactory`、`NsfwPairingRepository`。配对前检查 `/mobile/system/health` 的 product / api_contract / capabilities；401 只清 NSFW 凭据。
+- M2：`V2MainTab` 增加 `NSFW_REVIEW`，底部导航 5 项，路由 `nsfw-review`；新增 `NsfwReviewScreen/ViewModel/Repository/DTO/FeedStore`，未加入 `V2DataMode`。
+- M3：feed 稳定游标、事件去重、原位更新、队尾追加、断线追平、`CURSOR_EXPIRED` 从头恢复；详情快照与 link_state；按 image_id 审核（409 只刷新权威状态）；提示词版本评分（版本未知必须显式整体评分、只提交填写维度、`client_request_id` 幂等 + 回执查询）。
+- 兼容性小改：`AndroidKeystoreCredentialCipher` 支持自定义 alias（默认不变）；`normalizeBaseUrl` 支持默认端口参数（MediaReview 仍 8766，NSFW 用 8767）。
+
+验证（本机 JDK17，Gradle 8.9 离线缓存）：
+- `:app:testDebugUnitTest` → 80 suites / 554 tests / 0 failures（新增 NSFW 56 项）。
+- `:app:assembleDebug` 通过；`:app:compileDebugAndroidTestKotlin` 通过。
+- `:app:lintDebug` → 0 errors / 37 warnings。
+- `adb devices` 无设备：`NsfwBottomNavFiveTabsTest` 已编写并编译，未执行。
+- 真实 Bridge 当前 `api_contract=1`、缺 5 项 v2 能力：客户端在能力门禁处阻断，这是预期行为；未做真实端到端，不声明正式可用。
+
+环境说明：Gradle wrapper 与 `~/.gradle` 存在低完整性/残留 daemon 锁问题，本轮用已解压 Gradle 8.9 + 独立 `GRADLE_USER_HOME`（复制 modules-2/8.9 缓存）+ `ANDROID_PREFS_ROOT` 指向项目 temp，未修改系统 PATH、全局 JDK 或其他项目目录。
+
+边界：未改 NSFW 任何文件；未改 MediaReview Server/Jellyfin；未改生产服务、真实媒体、数据库；未发版、未改版本号。
+

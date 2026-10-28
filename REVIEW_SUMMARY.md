@@ -1,3 +1,52 @@
+# NSFW 生图审核 V2 客户端审查摘要（2026-10-29）
+
+- 分支：`feature/nsfw-image-review-v2`（基线 `codex/mediareview-stage9-native-source` @ `37e93e2`）
+- 目标：MediaReview 新增与「批阅」并列的「生图审核」一级页面，独立连接 NSFW Studio Mobile Review Bridge，实现 v2 feed / 详情 / 按 image_id 审核 / 提示词版本评分。
+- 实际完成：M0 契约与 fixtures、M1 独立配对与网络层、M2 五入口导航与独立页面、M3 feed/详情/审核/评分、M4 JVM 测试与构建。
+- 是否达到目标：**客户端契约与模拟测试完成；真实 Bridge 尚未实现 v2，真实手机联调未完成**。
+
+## 主要文件与 API
+
+- `docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`（需求单原文归档）
+- `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`（冻结端点、DTO、能力标记、错误码、游标语义）+ `fixtures/`
+- `feature/v2/nsfw/`：`NsfwReviewScreen`、`NsfwReviewViewModel`、`NsfwProfileStore`、`NsfwPairingRepository`、`NsfwRepository`、`NsfwFeedStore`、`NsfwModels`、`network/NsfwStudioApi`、`di/NsfwModule`
+- 修改：`V2MainScreen`、`MediaNavigator`、`V2BottomNavBar`（5 入口）、`CredentialCipher`（Keystore alias 可配置）、`UrlNormalize`（默认端口可配置）
+- API：`GET /mobile/system/health`、`GET/POST /mobile/pairing/*`（沿用现有）、`GET /mobile/images/feed`、`GET /mobile/images/{id}/details`、`POST /mobile/review/images/{id}/decision`、`GET /mobile/prompts/{id}/review-summary`、`GET /mobile/prompts/{id}/images`、`POST /mobile/prompts/{id}/evaluations`、`GET /mobile/prompts/evaluations/{client_request_id}`
+- 数据库：无新增、无迁移；NSFW 与 MediaReview 均未修改服务端代码。
+
+## UI 与行为
+
+- 底部导航变为 5 项：首页 / 批阅 / 生图审核 / 收藏 / 整理；未加入 `V2DataMode`，DEMO/SERVER 语义不变。
+- 未配对时显示独立 NSFW 配对页；能力门禁失败时列出缺失能力，不发起配对。
+- 已配对：单图浏览 + 缩略队列；新图只追加队尾，同 ID 原位更新，当前图片位置保持；`CURSOR_EXPIRED` 从头追平；409 只刷新权威状态不自动重提。
+- 图片详情展示生成快照与关联状态；`UNLINKED` 禁用评分；`UNRESOLVED` 必须显式选择「整体评分（版本未知）」。
+- 评分 1–5，仅提交填写维度（白名单 7 项），`client_request_id` 幂等，超时先查回执再决定是否重试。
+
+## 测试与构建（实际结果）
+
+- JVM：`./gradlew :app:testDebugUnitTest` → 80 suites / 554 tests / 0 failures（NSFW 新增 56）。
+- `:app:assembleDebug` 通过；`:app:compileDebugAndroidTestKotlin` 通过。
+- `:app:lintDebug` → 0 errors / 37 warnings（基线历史为 42 warnings）。
+- 仪器测试 `NsfwBottomNavFiveTabsTest` 已编写并编译；`adb devices` 无设备，**未执行**。
+- 未执行真实 Bridge 联调：当前 `/mobile/system/health` 为 `api_contract=1`，缺 5 项 v2 能力，客户端在配对门禁处阻断（预期行为）。
+
+## 已知问题 / 遗留
+
+- 真实 Bridge v2 接口未实现（NSFW 维护者负责）；真实端到端、真机截图、正式可用均未验收。
+- 评分面板当前用 AlertDialog 承载，未做分页加载更多；首期只展示该版本有界图片。
+- 未实现图片手势缩放（复用需要 MediaReview 的图片 URL 规则，NSFW 路径不同）；当前为整图 Fit 展示。
+- 未提供从 NSFW 图片跳转 MediaReview 媒体的能力（本轮不需要）。
+
+## 风险最高的 3 个点
+
+1. 真实 Bridge 字段/语义与冻结契约若有偏差，需按契约文档重新对齐（客户端已集中定义 DTO，改动面可控）。
+2. 五入口在极窄屏 / 大字体下的布局只做了 360dp 仪器测试源码，尚未真机验证。
+3. 评分版本绑定依赖服务端返回可靠 `prompt_id + prompt_version_id`；`UNRESOLVED` 的交互已显式限制，但若服务端错报 `EXACT` 会误绑版本。
+
+阶段结论：有条件合格（客户端契约、隔离配对、模拟接口测试与构建通过；真实 Bridge v2 未实现，真实联调与正式可用未验收）。
+
+---
+
 # Stage8I 审查摘要（历史快照）
 
 > **SUPERSEDED（2026-10-24）**：本文件是 Stage8I（Alpha12 / Server 1.4.0）的历史审查摘要，不代表当前版本或状态。当前进度、版本与已知问题见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)；后续 Stage9 与 1.5.2 上线记录见 `docs/STAGE9_RESULT.md`、`docs/STAGE9_REPAIR_RESULT.md`、`docs/DEV_LOG.md`。

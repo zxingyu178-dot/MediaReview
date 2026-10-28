@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "data": {
+    "evaluation_id": "pev_1",
+    "prompt_id": "prm_1",
+    "prompt_version_id": "prmv_1",
+    "overall_score": 4,
+    "created_at": "2026-10-28T12:10:00Z",
+    "client_request_id": "req-eval-1"
+  },
+  "request_id": "req_fixture_eval_created"
+}

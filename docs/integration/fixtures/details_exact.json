@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "data": {
+    "image_id": "img_a",
+    "created_at": "2026-10-28T12:00:00Z",
+    "generated_at": "2026-10-28T12:00:02Z",
+    "width": 1024,
+    "height": 1024,
+    "positive_prompt": "生成时快照 v1",
+    "negative_prompt": "",
+    "prompt_id": "prm_1",
+    "prompt_version_id": "prmv_1",
+    "link_state": "EXACT",
+    "job_id": "job_1",
+    "module_id": "basic_generate",
+    "seed": 1001,
+    "model": "qwen-image-2.1",
+    "size_bytes": 1048576,
+    "mime": "image/webp",
+    "updated_at": "2026-10-28T12:00:03Z",
+    "revision": "1"
+  },
+  "request_id": "req_fixture_details_exact"
+}

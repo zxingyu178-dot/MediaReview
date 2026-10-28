@@ -54,8 +54,9 @@ fun stableInstallationId(existing: String, generator: () -> String): String =
     existing.trim().ifBlank(generator)
 
 /** minSdk 26: Android Keystore 持有 AES key，DataStore 仅保存 AES-GCM 密文。 */
-class AndroidKeystoreCredentialCipher : CredentialCipher {
-    private val alias = "mediareview_pairing_token_v1"
+class AndroidKeystoreCredentialCipher(
+    private val alias: String = "mediareview_pairing_token_v1",
+) : CredentialCipher {
 
     override fun encrypt(plaintext: String): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

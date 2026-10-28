@@ -142,3 +142,13 @@
 | --- | --- | --- |
 | 2026-10-23 | 图片 404 归类 + 失败诊断补齐；修正陈旧版本断言；全量 pytest 693/695 | `747e704`、`docs/DEV_LOG.md:2870-2890` |
 | 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估；GitHub 恢复后推送 `2dd9ff2..5786f8f` | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；`git push` |
+| 2026-10-29 | 新增 NSFW Studio 生图审核 V2 客户端（独立配对 / feed / 详情 / 按 image_id 审核 / 提示词版本评分）；真实 Bridge 缺 v2 能力，联调 BLOCKED；生产版本与产物未变 | 分支 `feature/nsfw-image-review-v2`；`docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`；`REVIEW_SUMMARY.md` |
+
+## 10. 2026-10-29 分支：NSFW 生图审核 V2（客户端）
+
+- **范围**：只在 MediaReview Android 客户端新增「生图审核」一级页面；不改 NSFW Studio 仓库、Bridge、数据库或部署，不改 MediaReview Server/Jellyfin 接口，不加端口。
+- **状态**：客户端契约冻结、独立配对与凭据隔离、feed/详情/审核/评分 UI 与模拟接口测试已完成；JVM 80 suites / 554 tests 全绿，`assembleDebug` 通过，lint 0 errors / 37 warnings。
+- **真实联调：BLOCKED**。当前 NSFW Bridge `/mobile/system/health` 为 `api_contract=1`，能力集不含 `mobile_feed_v2 / mobile_image_details_v2 / mobile_image_decision_v2 / mobile_prompt_review_v2 / mobile_prompt_evaluation_v2`；客户端按契约在配对前阻断并列出缺失能力。
+- **未验证**：无 ADB 设备，五入口 360dp 仪器测试已编译未执行；无真实 Bridge，未做手机端到端、未生成真机截图、未声明正式可用。
+- **版本**：Android 仍为 `2.0.0-alpha15 / code22`；未发版、未改生产服务与数据。
+- 契约细节见 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`；审查摘要见 `REVIEW_SUMMARY.md` 顶部。

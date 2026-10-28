@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
@@ -33,9 +34,18 @@ import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 
 /** V2 主导航 Tab。 */
-enum class V2MainTab { HOME, REVIEW, FAVORITES, ORGANIZE }
+enum class V2MainTab { HOME, REVIEW, NSFW_REVIEW, FAVORITES, ORGANIZE }
 
-/** 底部主导航：首页 / 批阅 / 收藏 / 整理。 */
+/** 五个一级入口的顺序、文案与图标（JVM 导航测试直接复用）。 */
+val V2_MAIN_TAB_ITEMS: List<Triple<V2MainTab, String, ImageVector>> = listOf(
+    Triple(V2MainTab.HOME, "首页", Icons.Default.Home),
+    Triple(V2MainTab.REVIEW, "批阅", Icons.Default.RateReview),
+    Triple(V2MainTab.NSFW_REVIEW, "生图审核", Icons.Default.AutoAwesome),
+    Triple(V2MainTab.FAVORITES, "收藏", Icons.Default.Favorite),
+    Triple(V2MainTab.ORGANIZE, "整理", Icons.Default.DeleteSweep),
+)
+
+/** 底部主导航：首页 / 批阅 / 生图审核 / 收藏 / 整理。 */
 @Composable
 fun V2BottomNavBar(
     current: V2MainTab,
@@ -50,10 +60,9 @@ fun V2BottomNavBar(
             .navigationBarsPadding(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NavItem(Icons.Default.Home, "首页", current == V2MainTab.HOME, Modifier.weight(1f)) { onSelect(V2MainTab.HOME) }
-        NavItem(Icons.Default.RateReview, "批阅", current == V2MainTab.REVIEW, Modifier.weight(1f)) { onSelect(V2MainTab.REVIEW) }
-        NavItem(Icons.Default.Favorite, "收藏", current == V2MainTab.FAVORITES, Modifier.weight(1f)) { onSelect(V2MainTab.FAVORITES) }
-        NavItem(Icons.Default.DeleteSweep, "整理", current == V2MainTab.ORGANIZE, Modifier.weight(1f)) { onSelect(V2MainTab.ORGANIZE) }
+        V2_MAIN_TAB_ITEMS.forEach { (tab, label, icon) ->
+            NavItem(icon, label, current == tab, Modifier.weight(1f)) { onSelect(tab) }
+        }
     }
 }
 

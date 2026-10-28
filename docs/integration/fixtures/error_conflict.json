@@ -1,0 +1,9 @@
+{
+  "success": false,
+  "error": {
+    "code": "REVIEW_CONFLICT",
+    "message": "图片状态已被他处修改",
+    "details": { "image_id": "img_a", "status": "KEEP", "updated_at": "2026-10-28T12:06:00Z", "revision": "3" }
+  },
+  "request_id": "req_fixture_conflict"
+}

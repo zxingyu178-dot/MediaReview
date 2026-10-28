@@ -46,6 +46,7 @@ import com.mediareview.app.feature.v2.home.V2BottomNavBar
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
 import com.mediareview.app.feature.v2.home.V2MainTab
 import com.mediareview.app.feature.v2.model.V2Media
+import com.mediareview.app.feature.v2.nsfw.NsfwReviewScreen
 import com.mediareview.app.feature.v2.organize.OrganizePage
 import com.mediareview.app.feature.v2.organize.delete.DeleteQueueScreen
 import com.mediareview.app.feature.v2.organize.duplicates.DuplicateCompareScreen
@@ -183,6 +184,10 @@ fun V2MainScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
+            composable(MediaNavigator.ROUTE_NSFW_REVIEW) {
+                // 生图审核：独立 NSFW 配对 / feed / 评分，不复用视频批阅 ViewModel。
+                NsfwReviewScreen()
+            }
             composable(MediaNavigator.ROUTE_FAVORITES) {
                 FavoritesPage(
                     vm = vm,
@@ -307,6 +312,7 @@ fun V2MainScreen(
 private fun currentTab(route: String?): V2MainTab = when (route) {
     MediaNavigator.ROUTE_HOME -> V2MainTab.HOME
     MediaNavigator.ROUTE_REVIEW -> V2MainTab.REVIEW
+    MediaNavigator.ROUTE_NSFW_REVIEW -> V2MainTab.NSFW_REVIEW
     MediaNavigator.ROUTE_FAVORITES -> V2MainTab.FAVORITES
     MediaNavigator.ROUTE_ORGANIZE -> V2MainTab.ORGANIZE
     else -> V2MainTab.HOME

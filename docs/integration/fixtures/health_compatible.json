@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "product": "nsfw-studio",
+    "version": "0.40.0",
+    "api_contract": 2,
+    "capabilities": [
+      "image_review",
+      "review_session",
+      "favorite",
+      "thumbnail",
+      "preview",
+      "original",
+      "mobile_feed_v2",
+      "mobile_image_details_v2",
+      "mobile_image_decision_v2",
+      "mobile_prompt_review_v2",
+      "mobile_prompt_evaluation_v2"
+    ]
+  },
+  "request_id": "req_fixture_health_ok"
+}

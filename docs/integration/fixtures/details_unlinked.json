@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "data": {
+    "image_id": "img_c",
+    "created_at": "2026-10-28T12:00:00Z",
+    "generated_at": null,
+    "width": 768,
+    "height": 1024,
+    "positive_prompt": null,
+    "negative_prompt": null,
+    "prompt_id": null,
+    "prompt_version_id": null,
+    "link_state": "UNLINKED",
+    "job_id": null,
+    "module_id": null,
+    "seed": null,
+    "model": null,
+    "size_bytes": null,
+    "mime": null,
+    "updated_at": "2026-10-28T12:00:01Z",
+    "revision": "1"
+  },
+  "request_id": "req_fixture_details_unlinked"
+}

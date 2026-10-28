@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "CURSOR_EXPIRED",
+    "message": "游标已过期，请从头同步"
+  },
+  "request_id": "req_fixture_cursor_expired"
+}
