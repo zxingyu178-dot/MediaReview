@@ -107,6 +107,9 @@ import com.shuyu.gsyvideoplayer.utils.GSYVideoType
 import com.shuyu.gsyvideoplayer.video.base.GSYVideoView
 import kotlinx.coroutines.delay
 import com.mediareview.app.feature.v2.player.native.state.SeekDragEngine
+import com.mediareview.app.feature.v2.player.native.state.SeekPositionLatch
+import com.mediareview.app.feature.v2.player.native.state.PlayerSeekMapping
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureState
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureChange
 import com.mediareview.app.feature.v2.player.native.ui.PlayerSeekBar
@@ -309,6 +312,10 @@ private fun ReviewPagerContent(
 
     val speed = remember { SpeedGestureState() }
     val scrub = remember { SeekDragEngine() }
+    val seekLanding = remember { SeekPositionLatch() }
+    var seekLandingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var bodySeekStart by remember { mutableStateOf(0L) }
+    var bodySeekDx by remember { mutableStateOf(0f) }
     val haptic = LocalHapticFeedback.current
     var seekPreview by remember { mutableStateOf<Long?>(null) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -447,7 +454,16 @@ private fun ReviewPagerContent(
         if (result == null) return
         seekPreview = null
         if (!foreground || !sourceIsCurrent() || sheetOpen) return
+        seekLanding.commit(result.targetMs)
+        seekLandingJob?.cancel()
         seekCurrent(result.targetMs, result.resumePlaying)
+        seekLandingJob = scope.launch {
+            delay(5_000)
+            if (seekLanding.pendingTarget != null) {
+                seekLanding.clear()
+                feedback = "定位尚未完成，请重试"
+            }
+        }
     }
     fun cancelSeek(engine: SeekDragEngine) {
         val resume = engine.cancel()
@@ -479,11 +495,31 @@ private fun ReviewPagerContent(
         vm.addPendingDelete(item.mediaId)
         if (canGoNext(page, items.size)) navigateTo(page + 1)
     }
-    // Pager owns vertical drags; the body only toggles playback on a single tap.
-    // Long holds and double taps never seek, decide or change playback speed.
+    // VerticalPager owns vertical drags; horizontal drags seek without decisions.
     val bodyModifier = Modifier.pointerInput(foreground, sheetOpen) {
         if (!foreground || sheetOpen) return@pointerInput
         detectTapGestures(onTap = { togglePlayPause() }, onLongPress = {})
+    }.pointerInput(foreground, sheetOpen) {
+        if (!foreground || sheetOpen) return@pointerInput
+        detectHorizontalDragGestures(
+            onDragStart = {
+                if (sourceIsCurrent()) {
+                    seekLanding.clear(); seekLandingJob?.cancel()
+                    bodySeekStart = kernelPosition(); bodySeekDx = 0f
+                    if (scrub.begin(bodySeekStart, kernelDuration(), kernelPlaying())) pauseOwnedHost()
+                    seekPreview = scrub.previewMs
+                }
+            },
+            onHorizontalDrag = { change, dx ->
+                if (scrub.active) {
+                    change.consume(); bodySeekDx += dx
+                    scrub.preview(PlayerSeekMapping.horizontalTarget(bodySeekStart, bodySeekDx / size.width.coerceAtLeast(1), kernelDuration()))
+                    seekPreview = scrub.previewMs
+                }
+            },
+            onDragEnd = { commitSeek(scrub) },
+            onDragCancel = { cancelSeek(scrub) },
+        )
     }
     // Lifecycle callbacks stop sound synchronously; keeping the composition is not an exit.
     // userPaused remains the explicit user intent, never inferred from our temporary pause.
@@ -499,6 +535,7 @@ private fun ReviewPagerContent(
                     }
                     scrub.cancel()
                     seekPreview = null
+                    seekLanding.clear(); seekLandingJob?.cancel()
                     val restoredSpeed = speed.cancel().speed
                     if (currentOwnedSourceHost() != null) controller.setSpeed(restoredSpeed)
                     feedback = null
@@ -541,6 +578,7 @@ private fun ReviewPagerContent(
             vm.onPlaybackUnstable()
             // No old-source resume after cancel/up when P0 is Loading or the page changed.
             scrub.cancel(); seekPreview = null
+            seekLanding.clear(); seekLandingJob?.cancel()
             applySpeed(speed.cancel())
             pauseOwnedHost()
             revealedPage = -1
@@ -957,14 +995,6 @@ private fun ReviewPagerContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ReviewActionButton(
-                    icon = Icons.Default.NavigateBefore,
-                    tint = MediaTextPrimary,
-                    label = "上一项",
-                    enabled = canGoPrevious(pagerState.settledPage),
-                    tag = "review_previous",
-                    onClick = { navigateTo(pagerState.settledPage - 1) },
-                )
-                ReviewActionButton(
                     icon = Icons.Default.CheckCircle,
                     tint = V2Colors.Accent,
                     label = "保留",
@@ -992,14 +1022,6 @@ private fun ReviewPagerContent(
                             vm.undoPendingDelete(it)
                         }
                     },
-                )
-                ReviewActionButton(
-                    icon = Icons.Default.NavigateNext,
-                    tint = MediaTextPrimary,
-                    label = "下一项",
-                    enabled = canGoNext(pagerState.settledPage, items.size),
-                    tag = "review_next",
-                    onClick = { navigateTo(pagerState.settledPage + 1) },
                 )
             }
         }
@@ -1106,13 +1128,14 @@ private fun ReviewPagerContent(
                 Text(it, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 4.dp), color = Color.White)
             }
             PlayerSeekBar(
-                positionMs = seekPreview ?: snapshot.currentPosition,
+                positionMs = seekPreview ?: seekLanding.display(snapshot.currentPosition),
                 durationMs = snapshot.duration,
                 bufferPercent = snapshot.bufferPercent,
                 trackHeight = 2.5.dp,
                 enabled = foreground && sourceIsCurrent() && !sheetOpen,
                 tag = "review_seek_bar",
                 onDragStart = {
+                    seekLanding.clear(); seekLandingJob?.cancel()
                     if (scrub.begin(kernelPosition(), kernelDuration(), kernelPlaying())) pauseOwnedHost()
                     seekPreview = scrub.previewMs
                 },

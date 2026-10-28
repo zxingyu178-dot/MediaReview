@@ -243,6 +243,19 @@ object ReleaseNotesCatalog {
                 "可选择包含子文件夹媒体，目录总数与当前目录数量明确区分",
             ),
         ),
+        ReleaseNote(
+            versionCode = 28,
+            versionName = "2.0.0-alpha21",
+            title = "MediaReview 2.0 Alpha 21",
+            highlights = listOf(
+                "首页仅显示视频，照片集中从相册进入",
+                "批阅支持画面左右滑动快进或倒退，上下滑动切换",
+                "改善进度条松手后的显示，避免旧位置短暂回跳",
+                "文件夹批阅支持直接勾选，移除上一项和下一项按钮",
+                "网络短暂断开后有界重试连接，配对信息保留",
+                "正式安装包移除内置演示图片和视频",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

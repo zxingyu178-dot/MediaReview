@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import retrofit2.HttpException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Server 连接状态（Stage 8A §30；Stage 8D.1 §15 新增 [Incompatible]）。
@@ -130,7 +132,9 @@ class V2ServerHealthMonitor @Inject constructor(
     private val statusStore: V2ServerStatusStore,
 ) {
 
-    suspend fun probe() {
+    private val probeMutex = Mutex()
+    suspend fun probe() { probeMutex.withLock { probeCurrent() } }
+    private suspend fun probeCurrent() {
         val profile = store.current()
         if (profile.baseUrl.isBlank()) {
             statusStore.update(V2ServerStatus.Unconfigured)
@@ -140,6 +144,7 @@ class V2ServerHealthMonitor @Inject constructor(
         try {
             val api = apiFactory.create(profile.baseUrl, authenticated = true)
             val health = api.health()
+            if (store.current() != profile) return
             val data = health.data
             if (!health.success || data == null) {
                 statusStore.update(V2ServerStatus.Offline)
@@ -158,8 +163,10 @@ class V2ServerHealthMonitor @Inject constructor(
             try {
                 // 1 条媒体即可确认 token 仍然有效（401 = 认证失效）
                 api.media(page = 1, pageSize = 1)
+                if (store.current() != profile) return
                 statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
             } catch (error: HttpException) {
+                if (store.current() != profile) return
                 if (error.code() == 401) {
                     statusStore.update(V2ServerStatus.AuthRejected)
                 } else {
@@ -169,9 +176,9 @@ class V2ServerHealthMonitor @Inject constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: IOException) {
-            statusStore.update(V2ServerStatus.Offline)
+            if (store.current() == profile) statusStore.update(V2ServerStatus.Offline)
         } catch (_: Exception) {
-            statusStore.update(V2ServerStatus.Offline)
+            if (store.current() == profile) statusStore.update(V2ServerStatus.Offline)
         }
     }
 }

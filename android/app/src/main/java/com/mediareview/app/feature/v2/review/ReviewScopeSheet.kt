@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.review
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
@@ -29,7 +30,8 @@ internal fun ReviewScopeSheet(state: ReviewScopeSheetState, vm: V2ReviewViewMode
                 modifier = Modifier.testTag("review_scope_cancel")) { Text("取消") } })
         return
     }
-    ModalBottomSheet(onDismissRequest = vm::cancelReviewScope) {
+    ModalBottomSheet(onDismissRequest = vm::cancelReviewScope,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).testTag("review_scope_sheet")) {
             Text("选择批阅范围", style = MaterialTheme.typography.titleLarge)
             TextButton(vm::chooseReviewScope, enabled = state.folderEnabled && !state.creating,
@@ -52,12 +54,12 @@ internal fun ReviewScopeSheet(state: ReviewScopeSheetState, vm: V2ReviewViewMode
                         modifier = Modifier.testTag("review_scope_descendants"))
                     Text("包含子文件夹", Modifier.padding(top = 12.dp))
                 }
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 360.dp)) {
                     items(state.folders, key = { it.id }) { node ->
                         Column(Modifier.padding(bottom = 8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().clickable(enabled = !state.creating) { vm.toggleScopeFolder(node.id) }, verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = node.id in state.scope.folderIds,
-                                    onCheckedChange = null, modifier = Modifier.size(40.dp))
+                                    onCheckedChange = { vm.toggleScopeFolder(node.id) }, enabled = !state.creating, modifier = Modifier.size(48.dp).testTag("review_scope_checkbox_${node.id}"))
                                 Text(folderBreadcrumbs(state.folders, node.id).joinToString("/") { it.name })
                             }
                             FolderCard(node, HomeDisplayMode.ONE_COLUMN,

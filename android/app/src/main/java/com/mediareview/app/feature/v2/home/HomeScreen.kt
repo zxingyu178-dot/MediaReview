@@ -191,7 +191,7 @@ fun HomeScreen(
             }
         }
     }
-    if (showSortSheet) SortFilterSheet(sortSpec, vm::setSortSpec) { showSortSheet = false }
+    if (showSortSheet) SortFilterSheet(sortSpec, vm::setSortSpec, showTypeFilter = false) { showSortSheet = false }
 }
 
 @Composable
@@ -266,7 +266,7 @@ private fun ModeTabRow(current: V2HomeTab, onSelect: (V2HomeTab) -> Unit, modifi
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        listOf(V2HomeTab.MEDIA to "全部媒体", V2HomeTab.SHELF to "相册").forEach { (tab, label) ->
+        listOf(V2HomeTab.MEDIA to "视频", V2HomeTab.SHELF to "相册").forEach { (tab, label) ->
             val selectedTab = current == tab
             Box(
                 modifier = Modifier

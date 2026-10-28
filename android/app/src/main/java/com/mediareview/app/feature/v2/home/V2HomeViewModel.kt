@@ -249,7 +249,7 @@ class V2HomeViewModel @Inject constructor(
     var homeAnchor: HomeGridAnchor? = null
         private set
     private var homeLeft = false
-    private fun browseKey() = WindowKey(albumSourceGeneration, _selectedFolderId.value, _sortSpec.value)
+    private fun browseKey() = WindowKey(albumSourceGeneration, _selectedFolderId.value, _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO))
     private fun saveHomeWindow() {
         val key = homeWindowKey ?: return
         if (loadedPage > 0 && key.sourceGeneration == albumSourceGeneration && _listError.value == null)
@@ -351,7 +351,12 @@ class V2HomeViewModel @Inject constructor(
         invalidateAlbumViewer()
     }
 
+    private var serverRecovery: ServerRecovery? = null
+    fun recoverServerOnWake() { viewModelScope.launch { serverRecovery?.retry() } }
     init {
+        serverRecovery = ServerRecovery(viewModelScope, statusStore.status,
+            { isServerMode && _serverSession.value.configured }, healthMonitor::probe,
+            { reloadAll() }, { albumSourceGeneration }).also { it.start() }
         V2Perf.openHome()
         viewModelScope.launch {
             try { homeDisplayModeStore.bootstrap() }
@@ -978,7 +983,7 @@ class V2HomeViewModel @Inject constructor(
         pageSize = V2MediaQuery.DEFAULT_PAGE_SIZE,
         folderId = _selectedFolderId.value,
         search = null,
-        spec = _sortSpec.value,
+        spec = _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO),
     )
 
     private fun resetPager() {

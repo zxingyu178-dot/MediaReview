@@ -118,6 +118,7 @@ fun SortFilterSheet(
     spec: V2SortSpec,
     onChange: (V2SortSpec) -> Unit,
     showSourceFilter: Boolean = true,
+    showTypeFilter: Boolean = true,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -185,6 +186,7 @@ fun SortFilterSheet(
             }
 
             Spacer(modifier = Modifier.size(V2Spacing.Lg))
+            if (showTypeFilter) {
             Text(
                 text = "媒体类型",
                 style = MaterialTheme.typography.labelMedium,
@@ -201,6 +203,7 @@ fun SortFilterSheet(
                     )
                     Spacer(modifier = Modifier.size(V2Spacing.Sm))
                 }
+            }
             }
         }
     }

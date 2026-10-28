@@ -1,5 +1,9 @@
 # 开发日志
 
+### 2026-10-28 — 五项手机反馈修复与清理（进行中）
+
+主页VIDEO查询及标签、批阅水平seek/提交位置锁存、范围Checkbox与完整展开、删除上下项按钮；新增有界恢复、前台/网络唤醒及探测串行和旧配置防护。58项相关JVM和另16版本测试通过，4项隔离设备用例56.564秒通过；用户要求后停止模拟器，不再运行。明确授权核身份关闭残留interactive实例，经ControlHub恢复1.6.3/windows_service。正式素材移debug、Release关闭DEMO；清理旧pytest与debug/test APK共72,855,807字节，保留源码/证据/当前发布和真实数据。补唤醒验证及手机最终验收待完成，详见FIVE_ISSUES_RESULT_20261028.md。
+
 ### 2026-10-28 — 手机Alpha20基线升级及NSFW新版本接口复核
 
 手机9f设备原Alpha19/code26，通过CURRENT_RELEASE哈希校验后install -r成功、dumpsys为Alpha20/code27，保留数据。真实目录卡片与排序入口、六个排序选项可见，大小倒序摘要更新；图片筛选selected查询未确认，未作为通过。仅导航/查看，无删除或审核写入。uiautomator app_current返回旧前台包名与系统topResumedActivity矛盾，采用系统Activity和本App控件确认。测试会话退出、forward为空，证据review_meta/nsfw-20261028/alpha20-phone.json。

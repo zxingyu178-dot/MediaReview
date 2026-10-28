@@ -88,6 +88,23 @@ fun V2MainScreen(
     vm: V2HomeViewModel,
     modifier: Modifier = Modifier,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(vm, context, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.recoverServerOnWake()
+        }
+        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) { vm.recoverServerOnWake() }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        connectivity.registerDefaultNetworkCallback(callback)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            connectivity.unregisterNetworkCallback(callback)
+        }
+    }
     val reviewViewModel: V2ReviewViewModel = hiltViewModel()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()

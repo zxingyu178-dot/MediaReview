@@ -60,12 +60,16 @@ class Stage8HReviewGestureTest {
         compose.waitForIdle()
     }
 
-    @Test fun bodyHorizontalDragDoesNotSeekOrFlipPage() {
+    @Test fun bodyHorizontalDragSeeksBothDirectionsWithoutFlippingPage() {
         launch()
         tapBody(); compose.waitUntil(5_000) { !kernel { it.isPlaying } }
         val anchor = position()
         body().performTouchInput {
             swipe(Offset(width * .2f, height * .4f), Offset(width * .8f, height * .4f), 500)
+        }
+        near((anchor + 18_000L).coerceAtMost(60_000L))
+        body().performTouchInput {
+            swipe(Offset(width * .8f, height * .4f), Offset(width * .2f, height * .4f), 500)
         }
         near(anchor)
         Assert.assertEquals(0, page())
