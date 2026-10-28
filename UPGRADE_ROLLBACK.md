@@ -1,6 +1,6 @@
 # MediaReview 1.6.3 升级与回滚
 
-当前唯一发布目标：Server1.6.3/Contract2/0017 + 独立Alpha20/code27 APK；具体文件和哈希见 `deploy_handoff/CURRENT_RELEASE.json`。Server包沿用既有1.6.3，包内Alpha18不是当前手机安装入口；本轮仅发布Android，手机未连接尚未覆盖安装，不替换生产Server。
+当前唯一发布目标：Server1.6.3/Contract2/0017 + 独立Alpha21/code28 APK；具体文件和哈希见 `deploy_handoff/CURRENT_RELEASE.json`。Server包沿用既有1.6.3，包内Alpha18不是当前手机安装入口；本轮已保留数据覆盖安装Android、恢复受管服务，不替换生产Server程序。
 
 - 升级前通过ControlHub停止同一服务身份，备份有效程序、配置、配对数据库和全部活动数据；备份放在受保护目录，校验完整性。历史备份及`.old-*`不嵌套复制，但原件保留。
 - 新程序只从已验证manifest指定的目录进入stage；确认路径无链接/重解析点、完整文件集合与哈希一致后切换。不得以新包目录的名称代替内容验证。

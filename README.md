@@ -37,7 +37,7 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 
 唯一当前发布入口为 `deploy_handoff/CURRENT_RELEASE.json`，指向 `deploy_handoff/current/`；旧包只保留历史/回滚，不从目录时间猜测部署版本。安装、备份和回家验证按项目根的三份当前指引执行。
 
-- 源码发布目标：Android `2.0.0-alpha20`（versionCode 27）；APK独立发布，Server保持1.6.3。Server包内旧Alpha18不作为手机安装入口，以CURRENT_RELEASE为准。目录分类/排序整改见[结果](docs/FOLDER_BROWSE_RESULT_20261028.md)，本轮手机未连接。
+- 源码发布目标：Android `2.0.0-alpha21`（versionCode 28），已覆盖安装并真机抽样；主页视频/相册分开，批阅左右调进度/上下换片，正式包无演示素材。APK独立发布，Server1.6.3恢复受管运行。Server包内旧Alpha18不作为安装入口，以CURRENT_RELEASE为准。详见[五项修复与清理](docs/FIVE_ISSUES_RESULT_20261028.md)。
 - 源码与生产版本：Server `1.6.3` / API Contract `2` / 数据库迁移 `0017`
 - 加载专项沿用现有播放器与批阅流程，雪碧图保持删除；构建、定向测试与交付状态见项目状态页
 - 生产环境：Server1.6.3，经用户确认、完整备份后由ControlHub升级启动；Alpha18邮件此前已获SMTP接受
