@@ -8,6 +8,8 @@
 
 ## 0. 一句话状态
 
+**手机基线与接口复核（2026-10-28）**：USB手机此前Alpha19/code26，已校验CURRENT_RELEASE的APK哈希并install -r保留数据升级Alpha20/code27。真实界面可见分类卡、排序入口及全部排序选项，切换大小倒序后摘要正确；未验证图片筛选selected语义或全部媒体排序结果，不扩成全量验收。辅助会话退出、ADB forward为空。NSFW开发/部署目录现均882629f（v0.36.2），相对6ad633a未新增mobile/integration接口；增量发现、提示词详情、手机评分仍缺失。完整生图页面接入待维护者提供新增合同；本轮不改NSFW、不发布新版本。
+
 **生图审核开发新要求（2026-10-28，进行中）**：用户要求与批阅同级的独立页面、新图追加队尾、逐图查看生成提示词/时间/尺寸，随后要求接入桌面提示词评分。最新边界见[动态队列设计](superpowers/specs/2026-10-28-generated-image-live-review.md)，优先于上一版冻结会话方案。已形成[给NSFW维护者的接口需求](NSFW_MOBILE_API_REQUEST_V2.md)，复用8767、不新增端口；上游现有合同缺增量发现、提示词详情及手机评分接口。MediaReview开始稳定追加队列基础，尚未接通独立页面或发布APK；NSFW未修改。
 
 **后续功能规划（2026-10-28，未实施）**：已基于Alpha20和NSFW开发/部署目录相同提交6ad633a调查8767审核桥，形成[生成图片审核接入方案](superpowers/specs/2026-10-28-nsfw-review-integration-plan.md)。建议独立图片审核入口、独立配对与状态机、直连既有桥；不套用旧Alpha9审计或媒体删除语义。本轮只写方案，未启动服务、配对、改业务或发布新版本。
@@ -37,7 +39,7 @@
 | Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.3实测14项 |
 | 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
 | Android 版本（源码/发布） | `versionCode 27` / `versionName 2.0.0-alpha20` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt`、实际APK元数据/签名 |
-| 手机最近核验版本 | `versionCode 26` / `2.0.0-alpha19` | 2026-10-27真机dumpsys与批阅抽样；本轮无设备，未升级Alpha20 |
+| 手机最近核验版本 | `versionCode 27` / `2.0.0-alpha20` | 2026-10-28 install -r成功及dumpsys；目录/排序入口真机抽样 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
 | 生产已装版本 | `1.6.3` | 安装VERSION、实际health、EXE哈希与当前发布清单一致 |
 

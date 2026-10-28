@@ -1,5 +1,11 @@
 # 开发日志
 
+### 2026-10-28 — 手机Alpha20基线升级及NSFW新版本接口复核
+
+手机9f设备原Alpha19/code26，通过CURRENT_RELEASE哈希校验后install -r成功、dumpsys为Alpha20/code27，保留数据。真实目录卡片与排序入口、六个排序选项可见，大小倒序摘要更新；图片筛选selected查询未确认，未作为通过。仅导航/查看，无删除或审核写入。uiautomator app_current返回旧前台包名与系统topResumedActivity矛盾，采用系统Activity和本App控件确认。测试会话退出、forward为空，证据review_meta/nsfw-20261028/alpha20-phone.json。
+
+NSFW双目录已更新882629f/v0.36.2，未新增mobile/integration变更；现有审核桥仍无增量feed、提示词详情及评分路由。未修改NSFW或其服务，不假设提案端点存在。生图队列基础此前4项通过；完整新功能仍待上游合同，无新APK发布，未重跑业务测试。
+
 ### 2026-10-28 — 独立生图页面需求、动态队列基础及评分接口交接
 
 用户将方案改为与批阅同级的独立界面，新图追加队尾，逐图看生成快照/时间/尺寸；随后要求给上游接口需求并设计手机提示词评分。只读核对NSFW现有1–5总分/7维度/追加历史/版本字段，生成NSFW_MOBILE_API_REQUEST_V2.md：复用8767，增量发现、详情、动态审核和版本图组评分，兼容明确选择的无版本整体评分。NSFW代码/配置/数据/服务未修改。
