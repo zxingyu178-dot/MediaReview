@@ -2923,7 +2923,7 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 - `:app:testDebugUnitTest` → 80 suites / 554 tests / 0 failures（新增 NSFW 56 项）。
 - `:app:assembleDebug` 通过；`:app:compileDebugAndroidTestKotlin` 通过。
 - `:app:lintDebug` → 0 errors / 37 warnings。
-- `adb devices` 无设备：`NsfwBottomNavFiveTabsTest` 已编写并编译，未执行。
+- 仪器测试：`NsfwBottomNavFiveTabsTest`（360dp 五入口显示）与 `NsfwBottomNavStateTest`（Tab 切换 saveState/restoreState）在无头 `MediaReview_Test` AVD 执行通过，`OK (2 tests)` / 7.233s。该 AVD 原装 code27，本轮用 `adb install -r -d` 允许降级安装 code22 debug（仅测试模拟器，不涉及真机/生产）。
 - 真实 Bridge 当前 `api_contract=1`、缺 5 项 v2 能力：客户端在能力门禁处阻断，这是预期行为；未做真实端到端，不声明正式可用。
 
 环境说明：Gradle wrapper 与 `~/.gradle` 存在低完整性/残留 daemon 锁问题，本轮用已解压 Gradle 8.9 + 独立 `GRADLE_USER_HOME`（复制 modules-2/8.9 缓存）+ `ANDROID_PREFS_ROOT` 指向项目 temp，未修改系统 PATH、全局 JDK 或其他项目目录。

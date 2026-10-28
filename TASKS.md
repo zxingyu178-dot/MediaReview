@@ -10,8 +10,8 @@
 - [x] M2 独立一级页面：底部导航 5 项（首页 / 批阅 / 生图审核 / 收藏 / 整理）；未加入 `V2DataMode`；独立 `NsfwReviewViewModel` / `NsfwRepository` / DTO，不复用视频批阅 ViewModel。
 - [x] M3 feed / 详情 / 审核 / 评分：稳定游标与去重、原位更新、队尾追加、断线追平、`CURSOR_EXPIRED` 恢复、409 不自动重提、版本未知必须显式整体评分、`client_request_id` 幂等与回执查询。
 - [x] M4 测试与构建：JVM 80 suites / 554 tests（NSFW 新增 56）；`assembleDebug` 通过；`compileDebugAndroidTestKotlin` 通过；lint 0 errors / 37 warnings。
+- [x] 五入口仪器测试：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` 在 `MediaReview_Test` AVD 通过（`OK (2 tests)`）。
 - [ ] 真实 Bridge v2 接口实现（NSFW 维护者）→ 之后才能做真实手机联调与「正式可用」验收。
-- [ ] 真机/模拟器五入口布局测试：`adb devices` 无设备，仪器测试已编译但未执行。
 
 ## 2026-10-24 进度统一与产品方向评估
 - [x] 建立 `docs/PROJECT_STATUS.md` 为唯一活状态源；修订 README/TAKEOVER_READ_FIRST/HANDOVER/REVIEW_SUMMARY/ACCEPTANCE/PRODUCTION_READINESS/deployment README 等 S 级口径漂移。

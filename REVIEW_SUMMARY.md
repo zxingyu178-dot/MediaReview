@@ -27,7 +27,7 @@
 - JVM：`./gradlew :app:testDebugUnitTest` → 80 suites / 554 tests / 0 failures（NSFW 新增 56）。
 - `:app:assembleDebug` 通过；`:app:compileDebugAndroidTestKotlin` 通过。
 - `:app:lintDebug` → 0 errors / 37 warnings（基线历史为 42 warnings）。
-- 仪器测试 `NsfwBottomNavFiveTabsTest` 已编写并编译；`adb devices` 无设备，**未执行**。
+- 仪器测试：`NsfwBottomNavFiveTabsTest`（360dp 下五入口全部显示）与 `NsfwBottomNavStateTest`（Tab 切换 saveState/restoreState）在 `MediaReview_Test` AVD 执行通过：`OK (2 tests)`，7.233s。
 - 未执行真实 Bridge 联调：当前 `/mobile/system/health` 为 `api_contract=1`，缺 5 项 v2 能力，客户端在配对门禁处阻断（预期行为）。
 
 ## 已知问题 / 遗留

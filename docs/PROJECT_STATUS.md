@@ -147,8 +147,8 @@
 ## 10. 2026-10-29 分支：NSFW 生图审核 V2（客户端）
 
 - **范围**：只在 MediaReview Android 客户端新增「生图审核」一级页面；不改 NSFW Studio 仓库、Bridge、数据库或部署，不改 MediaReview Server/Jellyfin 接口，不加端口。
-- **状态**：客户端契约冻结、独立配对与凭据隔离、feed/详情/审核/评分 UI 与模拟接口测试已完成；JVM 80 suites / 554 tests 全绿，`assembleDebug` 通过，lint 0 errors / 37 warnings。
+- **状态**：客户端契约冻结、独立配对与凭据隔离、feed/详情/审核/评分 UI 与模拟接口测试已完成；JVM 80 suites / 554 tests 全绿，`assembleDebug` 通过，lint 0 errors / 37 warnings；五入口与 Tab 状态恢复仪器测试在 `MediaReview_Test` AVD 通过（`OK (2 tests)`）。
 - **真实联调：BLOCKED**。当前 NSFW Bridge `/mobile/system/health` 为 `api_contract=1`，能力集不含 `mobile_feed_v2 / mobile_image_details_v2 / mobile_image_decision_v2 / mobile_prompt_review_v2 / mobile_prompt_evaluation_v2`；客户端按契约在配对前阻断并列出缺失能力。
-- **未验证**：无 ADB 设备，五入口 360dp 仪器测试已编译未执行；无真实 Bridge，未做手机端到端、未生成真机截图、未声明正式可用。
+- **未验证**：无真实 Bridge，未做手机端到端、未生成真机截图、未声明正式可用；真机（非模拟器）未连接。
 - **版本**：Android 仍为 `2.0.0-alpha15 / code22`；未发版、未改生产服务与数据。
 - 契约细节见 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`；审查摘要见 `REVIEW_SUMMARY.md` 顶部。
