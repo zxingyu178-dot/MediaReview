@@ -60,7 +60,9 @@ internal fun ReviewScopeSheet(state: ReviewScopeSheetState, vm: V2ReviewViewMode
                             Row(Modifier.fillMaxWidth().clickable(enabled = !state.creating) { vm.toggleScopeFolder(node.id) }, verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = node.id in state.scope.folderIds,
                                     onCheckedChange = { vm.toggleScopeFolder(node.id) }, enabled = !state.creating, modifier = Modifier.size(48.dp).testTag("review_scope_checkbox_${node.id}"))
-                                Text(folderBreadcrumbs(state.folders, node.id).joinToString("/") { it.name })
+                                Text(folderBreadcrumbs(state.folders, node.id).joinToString("/") { it.name },
+                                    modifier = Modifier.weight(1f), maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             }
                             FolderCard(node, HomeDisplayMode.ONE_COLUMN,
                                 { vm.toggleScopeFolder(node.id) }, Modifier.testTag("review_scope_folder_${node.id}"))

@@ -309,6 +309,13 @@ data class CommitResultDto(
     val failed_count: Int? = null,
 )
 
+@Serializable
+data class DeleteResultLookupDto(
+    val state: String = "unknown",
+    val result: CommitResultDto? = null,
+    val confirmed_partial_result: CommitResultDto? = null,
+)
+
 /** 最终删除预备信息(POST /delete-queue/commit/prepare):一次性 nonce + 队列快照摘要。 */
 @Serializable
 data class DeleteCommitPrepDto(

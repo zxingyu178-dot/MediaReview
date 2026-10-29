@@ -30,9 +30,14 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  * Stage 8C.1 §47/§55 + Stage 8C.2 §34：版本 / 更新日志目录合同。
  */
 class ReleaseNotesContractTest {
-    @Test fun `Alpha21 当前版本和更新说明匹配`() {
-        assertEquals(28, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha21", BuildConfig.VERSION_NAME)
+    @Test fun `当前版本和更新说明匹配`() {
+        assertEquals(29, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha22", BuildConfig.VERSION_NAME)
+        val current = requireNotNull(ReleaseNotesCatalog.forVersionCode(BuildConfig.VERSION_CODE))
+        assertEquals(BuildConfig.VERSION_NAME, current.versionName)
+    }
+
+    @Test fun `Alpha21 历史说明保持可查看`() {
         val note = requireNotNull(ReleaseNotesCatalog.forVersionCode(28))
         assertEquals("MediaReview 2.0 Alpha 21", note.title)
         assertEquals(listOf(

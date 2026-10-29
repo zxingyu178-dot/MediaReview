@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.RateReview
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,7 +35,7 @@ import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 
 /** V2 主导航 Tab。 */
-enum class V2MainTab { HOME, REVIEW, FAVORITES, ORGANIZE }
+enum class V2MainTab { HOME, REVIEW, GENERATED, FAVORITES, ORGANIZE }
 
 /** 底部主导航：首页 / 批阅 / 收藏 / 整理。 */
 @Composable
@@ -53,6 +54,7 @@ fun V2BottomNavBar(
     ) {
         NavItem(Icons.Default.Home, "首页", current == V2MainTab.HOME, Modifier.weight(1f)) { onSelect(V2MainTab.HOME) }
         NavItem(Icons.Default.RateReview, "批阅", current == V2MainTab.REVIEW, Modifier.weight(1f)) { onSelect(V2MainTab.REVIEW) }
+        NavItem(Icons.Default.Image, "生图审核", current == V2MainTab.GENERATED, Modifier.weight(1f)) { onSelect(V2MainTab.GENERATED) }
         NavItem(Icons.Default.Favorite, "收藏", current == V2MainTab.FAVORITES, Modifier.weight(1f)) { onSelect(V2MainTab.FAVORITES) }
         NavItem(Icons.Default.DeleteSweep, "整理", current == V2MainTab.ORGANIZE, Modifier.weight(1f)) { onSelect(V2MainTab.ORGANIZE) }
     }

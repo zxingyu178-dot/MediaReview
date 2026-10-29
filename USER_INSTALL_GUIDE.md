@@ -1,24 +1,11 @@
-# MediaReview 当前安装入口
+# MediaReview 1.6.4 候选安装入口
 
-唯一当前配套：**Server1.6.3 / API Contract2 / 数据库0017 + Android Alpha21 / code28**。
+本轮目标配套为Server1.6.4 / API Contract2 / 数据库0018 + Android Alpha22/code29。只有完成产物验证并更新deploy_handoff/CURRENT_RELEASE.json后，才作为当前交付版本；实际运行状态见docs/PROJECT_STATUS.md。
 
-## 防止装错版本
+1. 从CURRENT_RELEASE.json读取包路径、版本、SHA256，不按文件日期猜包。Server的RELEASE_MANIFEST.json及SHA256SUMS.txt必须逐项匹配；APK版本应为Alpha22/code29。
+2. 生产升级经ControlHub停止AIHome.MediaReview，确认端口释放，完整备份程序、配置、配对和活动数据；校验备份后替换程序，不清除媒体库或配对。
+3. 新程序执行0018回执迁移。重新通过ControlHub启动，核对health版本1.6.4、Contract2、delete_result_v1、database=ok及windows_service身份；仅HTTP200不算成功。
+4. 手机覆盖安装前核对APK版本、哈希和原发布证书；签名不一致就停止，不卸载或清数据。本轮未连接手机，覆盖安装及视觉交互待验收。
+5. 删除保持两阶段确认；超时后查询原批次。结果未知不等于失败或成功，不自动再次删除。生图入口目前明确显示能力尚未提供，连接配置独立于视频服务，上游HTTP尚未启用。
 
-1. 从项目 `deploy_handoff/CURRENT_RELEASE.json` 读取当前包路径、版本与SHA256；不要按目录排序或文件日期选择包。
-2. Server包必须包含 `RELEASE_MANIFEST.json` 和 `SHA256SUMS.txt`，Server为1.6.3；逐文件校验不通过就停止。该既有包内附Alpha18，手机应另装CURRENT_RELEASE指向的独立Alpha21/code28 APK，核对其独立SHA256，不要从Server包回装旧APK。本轮未重建Server。
-3. 安装前核对当前服务真实程序路径、已装版本与端口归属；同一时间仅允许既有Windows服务实例。旧包、`.old-*`和备份只用于有明确决定的回滚，不作为启动入口。
-4. 运行目标固定为ControlHub已有的`mediareview`接入和`AIHome.MediaReview`服务。不要双击EXE或旧`start_server.cmd`制造交互式实例。
-
-## 电脑端升级
-
-生产升级需要本次明确授权及Windows管理员权限。经ControlHub停服，确认服务停止且端口释放；完整备份有效程序与全部活动数据（历史备份不重复套娃复制），校验副本，随后替换程序并逐文件核对。配置、配对和现有库选择保留，0017迁移由新程序处理，不手动编辑数据库。
-
-经ControlHub启动后必须同时满足：health版本1.6.3、Contract2、14项能力、database=ok、instance_mode=windows_service、lifecycle_target=AIHome.MediaReview，安装EXE哈希与manifest一致。仍显示1.5.2或其他版本就不算部署完成；不能只看HTTP200。
-
-## 手机端
-
-安装Alpha21前核对APK哈希。它与已交付Alpha20使用同一发布证书，正常覆盖升级，无需卸载或清数据。真实手机上的既有包签名若不匹配，先停止，不自行卸载。Alpha21已完成同证书覆盖安装及真实服务下的批阅/主页/范围抽样，长期网络稳定性仍待观察。正式包不含内置演示素材，原配对及服务器设置保留。
-
-回家后手机与电脑使用同一Wi-Fi，保留已有配对；若需重新配对，从电脑管理页取得配对码。按 `USER_LAN_VALIDATION.md` 进行短验证，真实媒体删除不属于这次加载验证。
-
-当前运行版本和部署/邮件结果以 `docs/PROJECT_STATUS.md` 最新记录为准；旧版本完整文档已保存在 `docs/history/20261027-before-release-closure/`，不可照旧文档执行部署。
+本轮只准备交付，不部署或安装。回滚见UPGRADE_ROLLBACK.md，人工验证见USER_LAN_VALIDATION.md。

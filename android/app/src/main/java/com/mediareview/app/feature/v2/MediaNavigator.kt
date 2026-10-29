@@ -8,6 +8,7 @@ import com.mediareview.app.feature.v2.model.V2Media
 object MediaNavigator {
     const val ROUTE_HOME = "home"
     const val ROUTE_REVIEW = "review"
+    const val ROUTE_GENERATED = "generated"
     const val ROUTE_FAVORITES = "favorites"
     const val ROUTE_ORGANIZE = "organize"
     const val ROUTE_ALBUM = "album/{albumId}"
@@ -54,6 +55,7 @@ object MediaNavigator {
     fun tabRoute(tab: V2MainTab): String = when (tab) {
         V2MainTab.HOME -> ROUTE_HOME
         V2MainTab.REVIEW -> ROUTE_REVIEW
+        V2MainTab.GENERATED -> ROUTE_GENERATED
         V2MainTab.FAVORITES -> ROUTE_FAVORITES
         V2MainTab.ORGANIZE -> ROUTE_ORGANIZE
     }
@@ -61,7 +63,7 @@ object MediaNavigator {
     /** Player / Viewer 等详情页不显示底部导航。 */
     fun isTabRoute(currentRoute: String?): Boolean =
         currentRoute == ROUTE_HOME || currentRoute == ROUTE_REVIEW ||
-            currentRoute == ROUTE_FAVORITES || currentRoute == ROUTE_ORGANIZE
+            currentRoute == ROUTE_FAVORITES || currentRoute == ROUTE_ORGANIZE || currentRoute == ROUTE_GENERATED
 }
 
 /** 批阅虽然是一级入口，但进入内容后与图片查看器一样使用沉浸式全屏。 */

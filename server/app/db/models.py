@@ -477,6 +477,9 @@ class DeleteCommitNonce(Base):
     media_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
     total_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    owner_device_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    receipt_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class DuplicateGroup(Base):

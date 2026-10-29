@@ -47,6 +47,19 @@ fun fakeMedia(id: String, name: String = "媒体 $id"): V2Media = V2Media(
 class FakeOrganizeRepository : V2OrganizeRepository {
 
     override var mode: V2DataMode = V2DataMode.SERVER
+    override var supportsDeleteRecovery = false
+    var pendingNonce: String? = null
+    var lookupResult: com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup =
+        com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup.Unknown
+    var lookupCalls = 0
+    override suspend fun pendingDeleteNonce() = pendingNonce
+    override suspend fun deleteResult(nonce: String): com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup {
+        lookupCalls++
+        return lookupResult
+    }
+    override suspend fun acknowledgeDeleteResult(nonce: String) {
+        if (pendingNonce == nonce) pendingNonce = null
+    }
 
     /**
      * 让"数据源切换前的旧请求"挂起（Stage 8C.1 §26 迟到请求测试）：

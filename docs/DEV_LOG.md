@@ -3231,3 +3231,6 @@ Alpha18真实MIME附件43,655,762字节及SHA256匹配CURRENT_RELEASE，Defender
 ### 2026-10-27 — Alpha19签名交付与批阅真机收口
 
 Release构建成功，同Alpha18证书，43,655,762字节；SHA256与安装入口详见REVIEW_REPAIR_20261027.md。源码1abbeb0已push，手机install -r成功且版本26/Alpha19，保留数据。实际Server1.6.3下，第5/6项上下换片且进度前进、暂停后拖到70%仍暂停、画面横向不换片/不跳进度、单击恢复、播放中进度条拖动后继续均已抽样确认。未遍历3987视频或逐帧验收，真实旧会话错误页未重造，仅隔离404用例通过。无真实删除、Server重建/部署或邮件发送。唯一CURRENT_RELEASE切独立Alpha19，ServerZIP仍附Alpha18，安装文档明确区分。辅助会话与本轮模拟器已关闭、ADB forward为空。
+
+## 2026-10-29 删除恢复与生图入口（待发布）
+已完成Server1.6.4/0018与Alpha22/code29源码：持久批次回执、设备归属、执行/恢复互斥、有界客户端核对、页面状态打磨及生图独立入口/合同准备。69项相关JVM通过；Server定向回归及环境失败复测详情见docs/EXPERIENCE_GENERATED_RESULT_20261029.md。未构建交付包、未部署、未连接手机；NSFW未改，上游HTTP未接通。

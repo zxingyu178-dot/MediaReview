@@ -18,7 +18,8 @@ def test_server_version_matches_declared_release() -> None:
 
     root = Path(__file__).resolve().parent.parent.parent
     body = (root / "deployment" / "version.ps1").read_text(encoding="utf-8")
-    assert __version__ == "1.6.0"
+    import tomllib
+    assert __version__ == tomllib.loads((root / "server" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     assert f'$ExpectedServerVersion = "{__version__}"' in body
 
 
@@ -46,6 +47,7 @@ def test_health_exposes_api_contract_and_capabilities(client: TestClient) -> Non
         "thumbnail_profiles_v1",
         "review_folder_filter_v1",
         "delete_receipt_v1",
+        "delete_result_v1",
         # 本地源两阶段安全删除能力；native_read_only_v1 仅作历史兼容名保留。
         "native_delete_v1",
         "native_read_only_v1",
@@ -53,9 +55,10 @@ def test_health_exposes_api_contract_and_capabilities(client: TestClient) -> Non
         assert expected in data["capabilities"], f"缺少能力 {expected}"
 
 
-def test_capability_count_is_14_with_legacy_read_only_name() -> None:
-    """能力清单 13→14：新增 native_delete_v1，legacy 只读能力名不得被删除。"""
-    assert len(SERVER_CAPABILITIES) == 14
+def test_capability_count_is_15_with_queryable_delete_result() -> None:
+    """新增只读删除回执能力，保留旧客户端能力声明。"""
+    assert len(SERVER_CAPABILITIES) == 15
+    assert "delete_result_v1" in SERVER_CAPABILITIES
     assert "native_delete_v1" in SERVER_CAPABILITIES
     assert "native_read_only_v1" in SERVER_CAPABILITIES
 

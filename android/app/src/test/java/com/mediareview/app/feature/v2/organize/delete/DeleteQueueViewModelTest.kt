@@ -40,6 +40,45 @@ class DeleteQueueViewModelTest {
     private fun prepare(count: Int = 2, bytes: Long = 2_000) =
         DeleteCommitPrepare("nonce-1", "2026-10-01T12:10:00", count, bytes, listOf("aaa", "bbb"))
 
+    @Test fun `提交超时仅查询结果不重发删除`() = runTest(main.dispatcher) {
+        val response = com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse(
+            mapOf("aaa" to DeleteOutcomeStatus.Success),
+            com.mediareview.app.feature.v2.organize.data.DiskDeletionReceipt(1, 7, 0, 0),
+        )
+        val repo = FakeOrganizeRepository().apply {
+            supportsDeleteRecovery = true
+            deleteQueueResult = Result.success(listOf(entry("aaa")))
+            prepareResult = Result.success(prepare())
+            commitResult = Result.failure(java.io.IOException("lost response"))
+            lookupResult = DeleteResultLookup.Completed(response)
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        vm.requestFinalDelete(); advanceUntilIdle()
+        repo.pendingNonce = "nonce-1"
+        vm.confirmFinalDelete(); advanceUntilIdle()
+        assertEquals(1, repo.commitCalls)
+        assertEquals(1, repo.lookupCalls)
+        assertEquals(7L, (vm.ui.value.phase as DeleteCommitPhase.Result).result.diskReceipt!!.deletedBytes)
+        assertEquals("nonce-1", repo.pendingNonce)
+        vm.dismissResult(); advanceUntilIdle()
+        assertNull(repo.pendingNonce)
+    }
+
+    @Test fun `重建页面找回批次未知结果不自动删除`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            supportsDeleteRecovery = true
+            pendingNonce = "previous-batch"
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        assertTrue(vm.ui.value.phase is DeleteCommitPhase.Unconfirmed)
+        vm.requestFinalDelete(); advanceUntilIdle()
+        assertEquals(0, repo.prepareCalls)
+        assertEquals(0, repo.commitCalls)
+        assertEquals("previous-batch", repo.pendingNonce)
+    }
+
     @Test
     fun `真实Receipt不借用prepare估算且刷新失败保留队列`() = runTest(main.dispatcher) {
         val repo = FakeOrganizeRepository().apply {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -115,7 +116,7 @@ fun AlbumScreen(
         onDispose { vm.closeAlbum(opened) }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(MediaBackground)) {
+    Column(modifier = modifier.fillMaxSize().background(MediaBackground).navigationBarsPadding()) {
         // 顶部栏
         Row(
             modifier = Modifier
@@ -140,7 +141,11 @@ fun AlbumScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${if (total > 0) total else images.size} 张照片",
+                    text = when {
+                        window == null || window.status == AlbumLoadStatus.Loading -> "正在加载照片…"
+                        window.status == AlbumLoadStatus.Error -> "照片数量暂不可用"
+                        else -> "$total 张照片"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MediaTextSecondary,
                 )

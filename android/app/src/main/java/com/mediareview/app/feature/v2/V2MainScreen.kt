@@ -219,6 +219,9 @@ fun V2MainScreen(
                     onBack = { navController.popBackStack() },
                 )
             }
+            composable(MediaNavigator.ROUTE_GENERATED) {
+                com.mediareview.app.feature.v2.nsfw.GeneratedReviewScreen()
+            }
             composable(MediaNavigator.ROUTE_FAVORITES) {
                 FavoritesPage(
                     vm = vm,
@@ -345,6 +348,7 @@ private fun currentTab(route: String?): V2MainTab = when (route) {
     MediaNavigator.ROUTE_REVIEW -> V2MainTab.REVIEW
     MediaNavigator.ROUTE_FAVORITES -> V2MainTab.FAVORITES
     MediaNavigator.ROUTE_ORGANIZE -> V2MainTab.ORGANIZE
+    MediaNavigator.ROUTE_GENERATED -> V2MainTab.GENERATED
     else -> V2MainTab.HOME
 }
 

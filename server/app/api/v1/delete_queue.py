@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -25,6 +26,7 @@ from app.api.v1.media import (
 from app.core.errors import ConflictError, MediaNotFoundError, NotFoundError
 from app.core.responses import Envelope, ok
 from app.db.session import get_db
+from app.db.models import DeleteCommitNonce
 from app.services import delete_queue, media_index
 
 router = APIRouter(prefix="/delete-queue", tags=["delete-queue"])
@@ -65,7 +67,7 @@ class CommitBody(BaseModel):
 
 
 @router.get("", response_model=Envelope[list[dict]])
-async def list_queue(
+def list_queue(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[list[dict]]:
     delete_queue.recover_interrupted_deletes(db)
@@ -98,7 +100,7 @@ async def list_queue(
 
 
 @router.get("/summary", response_model=Envelope[QueueSummaryView])
-async def queue_summary(
+def queue_summary(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[QueueSummaryView]:
     """待删除队列摘要: 单条 SQL 聚合 pending 的 count / total_bytes。"""
@@ -107,11 +109,11 @@ async def queue_summary(
 
 
 @router.post("/commit/prepare", response_model=Envelope[CommitPrepView])
-async def prepare_commit(
+def prepare_commit(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[CommitPrepView]:
     delete_queue.recover_interrupted_deletes(db)
-    prep = delete_queue.prepare_commit(db)
+    prep = delete_queue.prepare_commit(db, owner_device_id=_device_identity(_auth))
     db.commit()
     return ok(
         CommitPrepView(
@@ -126,11 +128,14 @@ async def prepare_commit(
 
 
 @router.post("/commit", response_model=Envelope[CommitResult])
-async def commit(
+def commit(
     body: CommitBody,
     _auth=Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> Envelope[CommitResult]:
+    existing = db.get(DeleteCommitNonce, body.nonce)
+    if existing is not None and existing.owner_device_id is not None:
+        _require_receipt_owner(existing, _auth)
     try:
         outcome = delete_queue.commit_with_nonce(db, body.nonce)
     except delete_queue.NonceMissingError:
@@ -140,6 +145,8 @@ async def commit(
     except delete_queue.NonceExpiredError:
         raise ConflictError(message="该删除确认已过期,请重新发起") from None
     db.commit()
+    if db.get(DeleteCommitNonce, body.nonce).receipt_state == "unknown":
+        raise ConflictError(message="部分删除结果未确认，请核对原批次；不要重新提交")
     return ok(
         CommitResult(
             outcome=outcome,
@@ -151,8 +158,32 @@ async def commit(
     )
 
 
+def _device_identity(auth) -> str:
+    return auth.device_id if auth is not None else "__unpaired_development__"
+
+
+def _require_receipt_owner(row, auth) -> None:
+    if row.owner_device_id != _device_identity(auth):
+        raise NotFoundError(message="删除批次不存在或不可访问")
+
+
+@router.get("/commit/{nonce}/result", response_model=Envelope[dict])
+def deletion_result(nonce: str, _auth=Depends(require_auth), db: Session = Depends(get_db)):
+    row = db.get(DeleteCommitNonce, nonce)
+    if row is None:
+        raise NotFoundError(message="删除批次不存在或不可访问")
+    _require_receipt_owner(row, _auth)
+    state = row.receipt_state or "unknown"
+    payload = json.loads(row.result_json) if row.result_json else None
+    return ok({
+        "state": state,
+        "result": payload if state == "completed" else None,
+        "confirmed_partial_result": payload if state != "completed" else None,
+    })
+
+
 @router.post("/{media_id}", response_model=Envelope[dict])
-async def enqueue(
+def enqueue(
     media_id: str, _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[dict]:
     media = media_index.get_cached_media(db, media_id)
@@ -166,7 +197,7 @@ async def enqueue(
 
 
 @router.delete("/{media_id}", response_model=Envelope[dict])
-async def dequeue(
+def dequeue(
     media_id: str, _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[dict]:
     removed = delete_queue.dequeue(db, media_id)

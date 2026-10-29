@@ -256,6 +256,17 @@ object ReleaseNotesCatalog {
                 "正式安装包移除内置演示图片和视频",
             ),
         ),
+        ReleaseNote(
+            versionCode = 29,
+            versionName = "2.0.0-alpha22",
+            title = "MediaReview 2.0 Alpha 22",
+            highlights = listOf(
+                "配合新版电脑端，删除超时后可继续核对原批次结果，不自动重复删除",
+                "明确区分删除完成与结果未确认，重新打开待删除页可继续核对",
+                "优化相册加载提示、长目录名称和底部操作区",
+                "新增独立生图审核入口与连接设置，图片和评分待生图服务接口接入",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

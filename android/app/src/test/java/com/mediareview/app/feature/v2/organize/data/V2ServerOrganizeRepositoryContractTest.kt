@@ -36,6 +36,56 @@ import org.junit.Test
  * 失败语义（§45）：所有失败必须**上抛异常**，绝不返回空列表/0 冒充成功。
  */
 class V2ServerOrganizeRepositoryContractTest {
+    private class Journal : com.mediareview.app.feature.v2.organize.delete.DeleteRecoveryJournal {
+        var identity = "server-a-token-a"
+        val batches = mutableMapOf<String, String>()
+        override suspend fun scope() = identity
+        override suspend fun read(scope: String) = batches[scope]
+        override suspend fun save(scope: String, nonce: String) { batches[scope] = nonce }
+        override suspend fun acknowledge(scope: String, nonce: String) {
+            if (batches[scope] == nonce) batches.remove(scope)
+        }
+    }
+
+    private fun recoveringRepository(journal: Journal): V2ServerOrganizeRepository {
+        val http = OkHttpClient()
+        return V2ServerOrganizeRepository(
+            profilePort = object : V2ServerProfilePort { override suspend fun baseUrl() = server.url("/").toString() },
+            apiFactory = ApiFactory(http, http, Json { ignoreUnknownKeys = true }),
+            mapper = V2MediaMapper(MediaUrlResolver()), resources = V2ServerResourceCache(),
+            statusStore = onlineServerStatus().apply { recordCompatible("1.6.4", 2, listOf("delete_result_v1")) },
+            deleteJournal = journal,
+        )
+    }
+
+    @Test fun `切换服务器或凭据后不能提交旧确认或读取旧批次`() = runTest {
+        val journal = Journal()
+        val repo = recoveringRepository(journal)
+        val nonce = repo.prepareDeleteCommit().nonce
+        journal.batches[journal.identity] = nonce
+        journal.identity = "server-a-token-b"
+        val before = server.requestCount
+        assertTrue(runCatching { repo.commitDelete(nonce) }.isFailure)
+        assertNull(repo.pendingDeleteNonce())
+        assertEquals(com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup.Unknown, repo.deleteResult(nonce))
+        assertEquals(before, server.requestCount)
+        assertEquals(nonce, journal.batches["server-a-token-a"])
+    }
+
+    @Test fun `提交失败仍保存批次且只查询结果不重发删除`() = runTest {
+        val journal = Journal()
+        val repo = recoveringRepository(journal)
+        val nonce = repo.prepareDeleteCommit().nonce
+        router.commitErrorCode = "CONFLICT"
+        assertTrue(runCatching { repo.commitDelete(nonce) }.isFailure)
+        assertEquals(nonce, repo.pendingDeleteNonce())
+        assertEquals(1, router.paths().count { it == "/api/v1/delete-queue/commit" })
+        // 模拟进程重建：新的Repository仍读同一持久journal，不重新prepare。
+        assertEquals(nonce, recoveringRepository(journal).pendingDeleteNonce())
+        repo.acknowledgeDeleteResult(nonce)
+        assertNull(repo.pendingDeleteNonce())
+    }
+
     @Test fun `未知大小沿摘要确认和队列保留`() = runTest {
         router.unknownSizeFields = ",\"unknown_size_count\":1"
         router.queueOverride = """{"success":true,"data":[{"media_id":"unknown","status":"pending","size_bytes":null}]}"""

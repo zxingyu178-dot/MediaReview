@@ -1,6 +1,6 @@
 """MediaReview 中间层服务。"""
 
-__version__ = "1.6.3"
+__version__ = "1.6.4"
 
 # API Contract:给 App 判断兼容性的正式字段(与人类可读的 __version__ 分开管理)。
 # - Server 版本给"给人看 / 部署 / 回滚"用;
@@ -22,6 +22,7 @@ SERVER_CAPABILITIES: tuple[str, ...] = (
     "thumbnail_profiles_v1",
     "review_folder_filter_v1",
     "delete_receipt_v1",
+    "delete_result_v1",
     "review_session",
     "review_nearest",
     "organize",

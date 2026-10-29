@@ -682,3 +682,6 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] Lead 全量回归：Server 721/723（2 项本机 ffmpeg 环境限制，换 basetemp 单独 2 通过）；Android 511/511；ruff 改动文件通过。
 - [ ] **二次独立复审（Codex）**：等待额度复位（2026-10-25 05:44）后执行；通过后 commit/push。
 - [ ] 通过后评估 P5 发版（Server 1.6.0 / Android alpha16-code23）。
+
+## 2026-10-29 删除恢复与生图入口（待发布）
+已完成Server1.6.4/0018与Alpha22/code29源码：持久批次回执、设备归属、执行/恢复互斥、有界客户端核对、页面状态打磨及生图独立入口/合同准备。69项相关JVM通过；Server定向回归及环境失败复测详情见docs/EXPERIENCE_GENERATED_RESULT_20261029.md。未构建交付包、未部署、未连接手机；NSFW未改，上游HTTP未接通。

@@ -50,6 +50,12 @@ interface V2OrganizeRepository {
     /** 最终删除第二步：用 prepare 的 nonce 提交（`POST /delete-queue/commit`），禁止重新 prepare。 */
     suspend fun commitDelete(nonce: String): DeleteCommitResponse
 
+    val supportsDeleteRecovery: Boolean get() = false
+    suspend fun pendingDeleteNonce(): String? = null
+    suspend fun deleteResult(nonce: String): com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup =
+        com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup.Unsupported
+    suspend fun acknowledgeDeleteResult(nonce: String) = Unit
+
     // ---------- 重复媒体 ----------
 
     /**

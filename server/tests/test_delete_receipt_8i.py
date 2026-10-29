@@ -788,12 +788,23 @@ def test_authenticated_api_nonce_receipt(tmp_path, data_root):
             "failed_count": 0,
         }
         assert not path.exists()
+        receipt_url = f"/api/v1/delete-queue/commit/{nonce}/result"
+        assert client.get(receipt_url).status_code == 401
+        other = _pair(client, device_id="receipt-other-device")
+        assert client.get(receipt_url, headers={"Authorization": f"Bearer {other}"}).status_code == 404
+        recovered = client.get(receipt_url, headers=headers)
+        assert recovered.status_code == 200
+        assert recovered.json()["data"]["result"] == response.json()["data"]
         assert (
             client.post(
                 "/api/v1/delete-queue/commit", json={"nonce": nonce}, headers=headers
             ).status_code
             == 409
         )
+        assert client.post(
+            "/api/v1/pairing/revoke", json={"device_id": "receipt-device"}, headers=headers
+        ).status_code == 200
+        assert client.get(receipt_url, headers=headers).status_code == 401
 
 
 

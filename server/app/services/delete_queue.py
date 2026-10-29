@@ -511,7 +511,7 @@ def _deletion_guard(
     return None
 
 
-def prepare_commit(session: Session) -> DeleteCommitPrep:
+def prepare_commit(session: Session, *, owner_device_id: str | None = None) -> DeleteCommitPrep:
     """生成一次性删除确认 nonce,绑定当前 pending 队列快照。
 
     返回的 nonce 只能使用一次、10 分钟过期;media_ids 快照防止 nonce 生成后
@@ -533,6 +533,8 @@ def prepare_commit(session: Session) -> DeleteCommitPrep:
             used=False,
             media_ids_json=json.dumps(snapshot),
             total_bytes=total_bytes,
+            owner_device_id=owner_device_id,
+            receipt_state="prepared",
         )
     )
     session.flush()
@@ -589,7 +591,7 @@ def _claim_nonce(session: Session, nonce: str) -> list[_ClaimResult]:
             DeleteCommitNonce.used.is_(False),
             DeleteCommitNonce.expires_at >= utc_now(),
         )
-        .values(used=True),
+        .values(used=True, receipt_state="running"),
         execution_options={"synchronize_session": False},
     ).rowcount
     if claimed != 1:
@@ -632,13 +634,36 @@ def commit_with_nonce(
     _force_posix_unsupported: bool = False,
 ) -> DeleteReceipt:
     """使用 nonce 删除快照媒体，逐项返回 success/missing/failed。"""
-    claims = _claim_nonce(session, nonce)
-    return _commit_claims(
-        session,
-        claims,
-        _local_delete_hook=_local_delete_hook,
-        _force_posix_unsupported=_force_posix_unsupported,
-    )
+    from app.core.errors import ConflictError
+    from app.services.delete_execution import exclusive_deletion
+
+    with exclusive_deletion(session) as acquired:
+        if not acquired:
+            raise ConflictError(message="已有删除正在处理，请稍后核对结果")
+        claims = _claim_nonce(session, nonce)
+        outcome = _commit_claims(
+            session,
+            claims,
+            _local_delete_hook=_local_delete_hook,
+            _force_posix_unsupported=_force_posix_unsupported,
+            receipt_nonce=nonce,
+        )
+        row = session.get(DeleteCommitNonce, nonce)
+        row.result_json = json.dumps(receipt_payload(outcome))
+        if row.receipt_state != "unknown":
+            row.receipt_state = "completed"
+        session.commit()
+        return outcome
+
+
+def receipt_payload(outcome: DeleteReceipt) -> dict:
+    return {
+        "outcome": dict(outcome),
+        "deleted_count": outcome.deleted_count,
+        "deleted_bytes": outcome.deleted_bytes,
+        "missing_count": outcome.missing_count,
+        "failed_count": outcome.failed_count,
+    }
 
 
 def _commit_media_ids(
@@ -934,6 +959,7 @@ def _commit_claims(
     *,
     _local_delete_hook=None,
     _force_posix_unsupported: bool = False,
+    receipt_nonce: str | None = None,
 ) -> DeleteReceipt:
     """逐项执行已持久化 claim；任一异常均不得中断其余项。"""
     outcome = DeleteReceipt()
@@ -958,8 +984,23 @@ def _commit_claims(
             session.rollback()
             _record_internal_error(session, media_id, claim.entry.queue_token)
             result, deleted_bytes = "failed", 0
+        if receipt_nonce is not None and result == "failed":
+            queued = session.get(DeleteQueue, media_id)
+            if queued is not None and queued.status == "committing":
+                # Unexpected exceptions can occur after unlink: failed is not a
+                # confirmed filesystem fact while the intent is unresolved.
+                receipt_row = session.get(DeleteCommitNonce, receipt_nonce)
+                receipt_row.receipt_state = "unknown"
+                receipt_row.result_json = json.dumps(receipt_payload(outcome))
+                session.commit()
+                continue
         outcome[media_id] = result
         outcome.deleted_bytes += deleted_bytes
+        if receipt_nonce is not None:
+            # 已返回的逐项事实才能写入回执；崩溃窗口中缺失事实保持未知。
+            receipt_row = session.get(DeleteCommitNonce, receipt_nonce)
+            receipt_row.result_json = json.dumps(receipt_payload(outcome))
+            session.commit()
     return outcome
 
 
@@ -1027,6 +1068,30 @@ def _observe_recovery_state(
 
 
 def recover_interrupted_deletes(
+    session: Session,
+    *,
+    _jellyfin_observation_hook: Callable[[], None] | None = None,
+    _jellyfin_ntstatus_override: int | None = None,
+) -> None:
+    from app.services.delete_execution import exclusive_deletion
+
+    with exclusive_deletion(session) as acquired:
+        if not acquired:
+            return
+        session.execute(
+            sa.update(DeleteCommitNonce)
+            .where(DeleteCommitNonce.receipt_state == "running")
+            .values(receipt_state="unknown")
+        )
+        session.commit()
+        _recover_interrupted_deletes_locked(
+            session,
+            _jellyfin_observation_hook=_jellyfin_observation_hook,
+            _jellyfin_ntstatus_override=_jellyfin_ntstatus_override,
+        )
+
+
+def _recover_interrupted_deletes_locked(
     session: Session,
     *,
     _jellyfin_observation_hook: Callable[[], None] | None = None,
