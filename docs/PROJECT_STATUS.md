@@ -144,12 +144,14 @@
 | 2026-10-24 | 建立本文件为唯一活状态源；修订 README/TAKEOVER/HANDOVER/REVIEW_SUMMARY/TASKS/deployment 等 S 级漂移；完成跳过 Jellyfin 可行性评估；GitHub 恢复后推送 `2dd9ff2..5786f8f` | `review_meta/ops-20261024/progress-audit.md`、`jellyfin-skip-assessment.md`；`git push` |
 | 2026-10-29 | 新增 NSFW Studio 生图审核 V2 客户端（独立配对 / feed / 详情 / 按 image_id 审核 / 提示词版本评分）；真实 Bridge 缺 v2 能力，联调 BLOCKED；生产版本与产物未变 | 分支 `feature/nsfw-image-review-v2`；`docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`；`REVIEW_SUMMARY.md` |
 | 2026-10-29 | 阶段 A 客户端加固：favorite-only、revision 防旧覆新、前台轮询、游标异常、恢复重验、评分幂等冻结、异步 generation 守卫、REMOVE tombstone、同源图片 URL、404/409/410 错误码；v2 契约与 OpenAPI 提案更新 | 分支同上；`NSFW_MOBILE_API_CONTRACT_V2.md` §5 差异表；NSFW JVM 88 tests |
+| 2026-10-29 | V2A.1 边界补漏：REMOVE/tombstone revision 顺序、非法 revision 拒绝、统一游标恢复、空队列、首次历史计数、评分多 pending 与上限、兼容性 Unknown、connection epoch、取消语义、旧审核结果与 image_id 校验、关联严格失败关闭 | 分支同上；契约 §2.1/§2.6；NSFW JVM 106 tests |
 
 ## 10. 2026-10-29 分支：NSFW 生图审核 V2（客户端）
 
 - **范围**：只在 MediaReview Android 客户端新增「生图审核」一级页面；不改 NSFW Studio 仓库、Bridge、数据库或部署，不改 MediaReview Server/Jellyfin 接口，不加端口。
-- **状态**：客户端契约冻结、独立配对与凭据隔离、feed/详情/审核/评分 UI 与模拟接口测试已完成；全量 JVM 81 suites / 586 tests 全绿，`assembleDebug` 通过，lint 0 errors / 37 warnings；五入口与 Tab 状态恢复仪器测试在 `MediaReview_Test` AVD 通过（`OK (2 tests)`）。
+- **状态**：客户端契约冻结、独立配对与凭据隔离、feed/详情/审核/评分 UI 与模拟接口测试已完成；全量 JVM 81 suites / 604 tests 全绿，`assembleDebug` 通过，lint 0 errors / 37 warnings；五入口与 Tab 状态恢复仪器测试在 `MediaReview_Test` AVD 通过（`OK (2 tests)`）。
 - **阶段 A 加固（2026-10-29）**：favorite-only 不改审核状态；revision 单调防旧覆新；前台可见有界轮询；410 单次重置与游标不推进保护；恢复配对重验 capability；评分载荷冻结 + SavedStateHandle 恢复提示；detail/panel generation 防跨图污染；feed REMOVE tombstone；图片 URL 仅同源；404/409/410 与旧 401 码映射。NSFW JVM 88 tests 全绿。
+- **V2A.1 边界补漏（2026-10-29）**：REMOVE tombstone revision 顺序、非法 revision/未知事件拒绝、sync/loadMore 共用游标恢复、终态缺少 next_cursor、REMOVE 空队列、首次历史不计数、评分 pending 多记录/上限/旧记录保留、兼容性 Unknown 不启动 feed、connection epoch、CancellationException、旧审核结果不显示成功、详情 image_id 校验、关联状态严格失败关闭。NSFW JVM 106 tests 全绿。
 - **真实联调：BLOCKED**。当前 NSFW Bridge `/mobile/system/health` 为 `api_contract=1`，能力集不含 `mobile_feed_v2 / mobile_image_details_v2 / mobile_image_decision_v2 / mobile_prompt_review_v2 / mobile_prompt_evaluation_v2`；客户端按契约在配对前阻断并列出缺失能力。
 - **未验证**：无真实 Bridge，未做手机端到端、未生成真机截图、未声明正式可用；真机（非模拟器）未连接。
 - **版本**：Android 仍为 `2.0.0-alpha15 / code22`；未发版、未改生产服务与数据。

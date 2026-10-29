@@ -56,7 +56,14 @@ class NsfwRepository internal constructor(
 
     override suspend fun details(imageId: String): NsfwImageDetails {
         require(imageId.isNotBlank()) { "image_id 不能为空" }
-        return call { api().imageDetails(imageId) }
+        val detail = call { api().imageDetails(imageId) }
+        if (detail.imageId != imageId) {
+            throw NsfwApiException(
+                NsfwErrorCodes.VALIDATION_ERROR,
+                "图片详情身份不一致：请求 $imageId，返回 ${detail.imageId}",
+            )
+        }
+        return detail
     }
 
     override suspend fun decide(

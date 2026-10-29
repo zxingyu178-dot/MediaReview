@@ -2,6 +2,17 @@
 
 > **当前状态以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为准。** 本文件是任务与阶段流水；下方 Stage8H/8I/8J/9 等段落均为历史记录，不代表当前进度。
 
+## 2026-10-29 V2A.1：边界缺陷补漏（`feature/nsfw-image-review-v2`）
+
+- [x] feed 事件顺序：REMOVE 参与 revision 校验并保留 tombstone；旧 REMOVE 不删新图、旧 UPSERT 不复活已移除图；非法 revision/未知 event 拒绝；超过 Long 的十进制可靠比较。
+- [x] 统一分页游标：`fetchPageWithRecovery` 供 sync/loadMore 共用；410 仅重置一次；`CURSOR_MISSING`/`CURSOR_STALLED` 明确停止；终态缺 next_cursor 清空游标并提示；空队列不触发越界；恢复成功清除过期提示；首次历史不计新到。
+- [x] 评分待确认：pending 记录按 server_origin + prompt + version + request_id 保存；互不覆盖；上限 5 条；换 ID 不清旧记录；SavedStateHandle 仅覆盖系统重建，DataStore 方案已写入契约。
+- [x] 健康检查与生命周期：兼容性三态（Compatible/Incompatible/Unknown）；Unknown 保留 token 但不启动 feed/轮询；connection epoch 防止旧请求在断开后恢复 READY；CancellationException 不被当作网络错误。
+- [x] 审核结果与关联：旧 revision 审核结果不显示成功，改为刷新权威状态；详情 image_id 不一致拒绝；EXACT/UNRESOLVED/未知状态严格失败关闭；修正 store 过时注释。
+- [x] 针对性测试：NSFW 6 suites / 106 tests / 0 failures；全量 JVM 81 suites / 604 tests / 0 failures；lint 0 errors / 37 warnings；Debug/AndroidTest 构建通过。
+- [x] 两项导航仪器测试复跑：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` → OK (2 tests) / 9.587s。
+- [ ] 真实 Bridge v2 与真实手机联调仍 BLOCKED；等待 ChatGPT 阶段 A 验收放行后再进入 V2B。
+
 ## 2026-10-29 阶段 A：MediaReview 客户端加固（`feature/nsfw-image-review-v2`）
 
 - [x] C-01 收藏独立于审核：decision 允许 `action=null` 的 favorite-only；NEW/KEEP/REJECT 状态不被收藏改写；客户端拒绝 action 与 favorite 同时缺失。

@@ -154,14 +154,15 @@ class NsfwReviewViewModelTest {
             if (calls == 1) {
                 throw NsfwApiException(NsfwErrorCodes.CURSOR_EXPIRED, "游标已过期", 410)
             }
-            nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_b")))
+            nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_b")), nextCursor = "c_after", hasMore = false)
         }
         data.detailsResponder = { id -> nsfwDetails(id) }
         val vm = vm()
-        assertTrue(vm.state.value.cursorExpired)
+        assertFalse(vm.state.value.cursorExpired)
         assertEquals(listOf("img_a", "img_b"), vm.state.value.items.map { it.imageId })
         assertEquals("img_a", vm.state.value.currentId)
         assertEquals(2, data.feedCalls)
+        assertTrue(vm.state.value.message!!.contains("从头重新同步"))
     }
 
     @Test
@@ -365,13 +366,13 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
-    fun `完成评分后清除持久化的未确认请求`() = runTest {
+    fun `完成评分后清除该请求的持久化记录`() = runTest {
         val saved = SavedStateHandle()
         val vm = bootstrapPaired(savedState = saved)
         data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
         vm.openPromptPanel()
         vm.submitEvaluation(4, emptyMap(), "")
-        assertNull(saved.get<String>("nsfw_pending_evaluation"))
+        assertTrue(vm.pendingRequestIds().isEmpty())
         assertNotNull(vm.state.value.panel!!.submitted)
     }
 
@@ -454,7 +455,7 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
-    fun `未确认评分修改内容必须换新请求号`() = runTest {
+    fun `未确认评分修改内容必须换新请求号且旧记录保留`() = runTest {
         val vm = bootstrapPaired()
         data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
         data.createEvaluationResponder = { _, _ -> throw NsfwApiException("NETWORK_ERROR", "超时") }
@@ -471,14 +472,20 @@ class NsfwReviewViewModelTest {
         vm.resetEvaluationDraft()
         val newId = vm.state.value.panel!!.requestId
         assertTrue(newId != firstId)
+        assertTrue(vm.state.value.panel!!.message!!.contains("旧请求"))
+        assertTrue(vm.pendingRequestIds().contains(firstId))
+
         vm.submitEvaluation(2, emptyMap(), "")
         assertEquals(2, data.createEvaluationCalls)
         assertEquals(newId, data.lastEvaluationRequest!!.clientRequestId)
+        // 新请求成功只清除自己的记录，旧未确认请求仍保留可查回执
+        assertTrue(vm.pendingRequestIds().contains(firstId))
     }
 
     @Test
     fun `进程重启后未确认评分只提示不自动重发`() = runTest {
         val pending = NsfwPendingEvaluation(
+            serverOrigin = "http://nsfw.test:8767",
             promptId = "prm_1",
             versionId = "prmv_1",
             request = NsfwEvaluationRequest(
@@ -489,11 +496,15 @@ class NsfwReviewViewModelTest {
                 clientRequestId = "req-pending",
             ),
         )
-        val pendingJson = Json { ignoreUnknownKeys = true }
-            .encodeToString(NsfwPendingEvaluation.serializer(), pending)
-        val saved = SavedStateHandle(mapOf("nsfw_pending_evaluation" to pendingJson))
+        val json = Json { ignoreUnknownKeys = true }
+        val pendingJson = json.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(NsfwPendingEvaluation.serializer()),
+            listOf(pending),
+        )
+        val saved = SavedStateHandle(mapOf("nsfw_pending_evaluations" to pendingJson))
         val vm = bootstrapPaired(savedState = saved)
-        assertTrue(vm.state.value.evaluationRecoveryHint!!.contains("req-pending"))
+        assertTrue(vm.state.value.evaluationRecoveryHint!!.contains("未确认"))
+        assertTrue(vm.pendingRequestIds().contains("req-pending"))
         assertEquals(0, data.createEvaluationCalls)
         assertEquals(0, data.receiptCalls)
     }
@@ -532,5 +543,241 @@ class NsfwReviewViewModelTest {
         vm.closePromptPanel()
         summaryDeferred.complete(NsfwPromptSummary(promptId = "prm_1", promptVersionId = "prmv_1"))
         assertNull(vm.state.value.panel)
+    }
+
+    @Test
+    fun `初次历史加载不计入新到图片数后续增量才计数`() = runTest {
+        val vm = bootstrapPaired(page = nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_b"))))
+        assertEquals(0, vm.state.value.newImageCount)
+
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c"))) }
+        vm.refresh()
+        assertEquals(1, vm.state.value.newImageCount)
+    }
+
+    @Test
+    fun `hasMore为true但缺少nextCursor时停止并报错`() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_a")), nextCursor = null, hasMore = true) }
+        val vm = vm()
+        assertEquals(1, data.feedCalls)
+        assertFalse(vm.state.value.hasMore)
+        assertNull(vm.state.value.nextCursor)
+        assertTrue(vm.state.value.message!!.contains("next_cursor"))
+    }
+
+    @Test
+    fun `加载更多遇到410只重置一次并从空游标完成`() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        var calls = 0
+        data.feedResponder = { cursor ->
+            calls += 1
+            if (calls <= 10) {
+                nsfwPage(listOf(nsfwItem("img_$calls")), nextCursor = "c$calls", hasMore = true)
+            } else if (calls == 11) {
+                throw NsfwApiException(NsfwErrorCodes.CURSOR_EXPIRED, "过期", 410)
+            } else {
+                nsfwPage(emptyList(), nextCursor = null, hasMore = false)
+            }
+        }
+        val vm = vm()
+        assertEquals(10, data.feedCalls)
+        assertTrue(vm.state.value.hasMore)
+
+        vm.loadMore()
+
+        assertEquals(12, data.feedCalls)
+        assertFalse(vm.state.value.hasMore)
+        assertFalse(vm.state.value.cursorExpired)
+        // 空页未返回 next_cursor：明确提示从头同步，不沿用旧游标
+        assertTrue(vm.state.value.message!!.contains("next_cursor"))
+    }
+
+    @Test
+    fun `加载更多游标不推进时停止并报错`() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        var calls = 0
+        data.feedResponder = { cursor ->
+            calls += 1
+            if (calls <= 10) {
+                nsfwPage(listOf(nsfwItem("img_$calls")), nextCursor = "c$calls", hasMore = true)
+            } else {
+                nsfwPage(listOf(nsfwItem("img_extra")), nextCursor = cursor ?: "c10", hasMore = true)
+            }
+        }
+        val vm = vm()
+        vm.loadMore()
+        assertFalse(vm.state.value.hasMore)
+        assertTrue(vm.state.value.message!!.contains("游标未推进"))
+        assertEquals(11, data.feedCalls)
+    }
+
+    @Test
+    fun `REMOVE最后一张图片安全进入空状态`() = runTest {
+        val vm = bootstrapPaired(page = nsfwPage(listOf(nsfwItem("only"))))
+        data.feedResponder = {
+            nsfwPage(listOf(nsfwItem("only", revision = "2").copy(event = "REMOVE")))
+        }
+        vm.refresh()
+        assertTrue(vm.state.value.items.isEmpty())
+        assertNull(vm.state.value.currentId)
+        assertNull(vm.state.value.detail)
+    }
+
+    @Test
+    fun `健康检查无法确认兼容性时不启动feed和轮询`() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(
+            baseUrl = "http://nsfw.test:8767",
+            paired = true,
+            compatible = null,
+            message = "暂时无法校验 Bridge 版本，请检查连接",
+        )
+        val vm = vm()
+        assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)
+        assertEquals(0, data.feedCalls)
+
+        vm.setScreenVisible(true)
+        dispatcher.scheduler.advanceTimeBy(20_000)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(0, data.feedCalls)
+    }
+
+    @Test
+    fun `断开配对后延迟返回的旧feed不得恢复READY`() = runTest {
+        val delayedFeed = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage>()
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        data.feedResponder = { delayedFeed.await() }
+        data.detailsResponder = { id -> nsfwDetails(id) }
+        val vm = vm()
+        assertTrue(vm.state.value.busy)
+
+        vm.clearPairing()
+        assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)
+        delayedFeed.complete(nsfwPage(listOf(nsfwItem("img_a"))))
+
+        assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)
+        assertTrue(vm.state.value.items.isEmpty())
+    }
+
+    @Test
+    fun `离开页面取消轮询不产生普通错误提示`() = runTest {
+        val vm = bootstrapPaired(
+            page = nsfwPage(listOf(nsfwItem("img_a")), nextCursor = "c_next", hasMore = false),
+        )
+        assertEquals(null, vm.state.value.message)
+        val delayedFeed = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage>()
+        data.feedResponder = { delayedFeed.await() }
+        vm.pollIntervalMs = 1_000
+
+        vm.setScreenVisible(true)
+        dispatcher.scheduler.advanceTimeBy(1_100)
+        dispatcher.scheduler.runCurrent()
+
+        vm.setScreenVisible(false)
+        dispatcher.scheduler.runCurrent()
+        assertNull(vm.state.value.message)
+        assertFalse(vm.state.value.busy)
+    }
+
+    @Test
+    fun `提示词A的未确认评分不能被提示词B覆盖`() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        data.feedResponder = {
+            nsfwPage(
+                listOf(
+                    nsfwItem("img_a", promptId = "prm_1", versionId = "prmv_1"),
+                    nsfwItem("img_b", promptId = "prm_2", versionId = "prmv_2"),
+                ),
+            )
+        }
+        data.detailsResponder = { id ->
+            if (id == "img_a") nsfwDetails("img_a", promptId = "prm_1", versionId = "prmv_1")
+            else nsfwDetails("img_b", promptId = "prm_2", versionId = "prmv_2")
+        }
+        data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
+        data.receiptResponder = { NsfwEvaluationReceipt(found = false) }
+        data.createEvaluationResponder = { id, request ->
+            if (id == "prm_1") throw NsfwApiException("NETWORK_ERROR", "超时")
+            com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult(
+                evaluationId = "pev_b", promptId = id, promptVersionId = request.promptVersionId,
+                overallScore = request.overallScore, clientRequestId = request.clientRequestId,
+            )
+        }
+        val vm = vm()
+        vm.openPromptPanel()
+        vm.submitEvaluation(4, emptyMap(), "")
+        val pendingA = vm.pendingRequestIds().single()
+        vm.closePromptPanel()
+
+        vm.select("img_b")
+        vm.openPromptPanel()
+        vm.submitEvaluation(5, emptyMap(), "")
+        assertNotNull(vm.state.value.panel!!.submitted)
+        assertTrue(vm.pendingRequestIds().contains(pendingA))
+        assertEquals(1, vm.pendingRequestIds().size)
+    }
+
+    @Test
+    fun `未确认请求达到上限时拒绝继续堆积`() = runTest {
+        val json = Json { ignoreUnknownKeys = true }
+        val pending = (1..5).map { index ->
+            NsfwPendingEvaluation(
+                serverOrigin = "http://nsfw.test:8767",
+                promptId = "prm_other_$index",
+                versionId = "prmv_other_$index",
+                request = NsfwEvaluationRequest(
+                    promptVersionId = "prmv_other_$index",
+                    overallScore = 4,
+                    clientRequestId = "req-other-$index",
+                ),
+            )
+        }
+        val saved = SavedStateHandle(
+            mapOf(
+                "nsfw_pending_evaluations" to json.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(NsfwPendingEvaluation.serializer()),
+                    pending,
+                ),
+            ),
+        )
+        val vm = bootstrapPaired(savedState = saved)
+        data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
+        vm.openPromptPanel()
+        vm.submitEvaluation(5, emptyMap(), "")
+        assertEquals(0, data.createEvaluationCalls)
+        assertTrue(vm.state.value.panel!!.message!!.contains("未确认"))
+    }
+
+    @Test
+    fun `较旧审核回包不显示成功结论并刷新权威状态`() = runTest {
+        val vm = bootstrapPaired(page = nsfwPage(listOf(nsfwItem("img_a", revision = "5"))))
+        data.decisionResponder = { id, _, favorite ->
+            NsfwDecisionResult(id, "KEEP", favorite ?: false, "2026-10-28T12:00:00Z", "2")
+        }
+        val before = data.detailCalls
+        vm.decision("REJECT")
+        assertNotNull(vm.state.value.conflictMessage)
+        assertTrue(vm.state.value.message == null || !vm.state.value.message!!.contains("已淘汰"))
+        assertEquals(before + 1, data.detailCalls)
+        assertEquals("NEW", vm.state.value.items.first().status)
+    }
+
+    @Test
+    fun `EXACT缺少版本和未知关联状态都拒绝评分`() = runTest {
+        var vm = bootstrapPaired(
+            details = nsfwDetails("img_a", promptId = "prm_1", versionId = null, linkState = "EXACT"),
+        )
+        vm.openPromptPanel()
+        assertNull(vm.state.value.panel)
+        assertTrue(vm.state.value.message!!.contains("缺少提示词或版本"))
+
+        data = FakeNsfwDataSource()
+        gateway = FakePairingGateway()
+        vm = bootstrapPaired(
+            details = nsfwDetails("img_a", promptId = "prm_1", versionId = null, linkState = "WEIRD"),
+        )
+        vm.openPromptPanel()
+        assertNull(vm.state.value.panel)
+        assertTrue(vm.state.value.message!!.contains("未知的提示词关联状态"))
     }
 }

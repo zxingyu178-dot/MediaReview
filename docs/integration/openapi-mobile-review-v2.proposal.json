@@ -69,7 +69,7 @@
         "required": ["image_id", "revision", "status", "event"],
         "properties": {
           "image_id": { "type": "string" },
-          "revision": { "type": "string", "description": "十进制单调递增" },
+          "revision": { "type": "string", "pattern": "^[0-9]+$", "description": "十进制非负整数字符串，可超过 Long；单调递增" },
           "event": { "type": "string", "enum": ["UPSERT", "REMOVE"], "default": "UPSERT" },
           "status": { "type": "string", "enum": ["NEW", "KEEP", "REJECT"] },
           "is_favorite": { "type": "boolean" },
@@ -88,7 +88,7 @@
       },
       "FeedPage": {
         "type": "object",
-        "required": ["items", "has_more"],
+        "required": ["items", "has_more", "next_cursor"],
         "properties": {
           "items": { "type": "array", "items": { "$ref": "#/components/schemas/FeedItem" } },
           "next_cursor": { "type": ["string", "null"] },

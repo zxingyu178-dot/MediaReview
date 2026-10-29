@@ -2957,3 +2957,23 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 
 剩余风险：cursor 仅内存，进程重启会从头分页（额外风险，未在本阶段落盘）；旧 Bridge 恢复时标记 incompatible 需要 UI 再次配对升级；真实服务端 revision/事件语义仍需阶段 B/C 对账。
 
+## 2026-10-29 V2A.1：客户端边界缺陷补漏
+
+背景：V2A 审查发现事件顺序、分页恢复、评分 pending、连接生命周期与审核结果校验的边界缺陷；本轮仅改 MediaReview 客户端与冻结契约，不开发 Bridge、不连接真实服务、不做生产写入。
+
+根因与修复：
+- feed 事件顺序：`NsfwFeedStore` 原先 REMOVE 不参与 revision 校验、无 tombstone，旧 REMOVE 可删新图、旧 UPSERT 可复活已移除图；非法 revision/未知 event 会被当作 UPSERT。改为十进制任意长度 revision 比较、tombstone revision、非法值/未知事件拒绝；补 6 组乱序与幂等测试。
+- 分页游标：sync 与 loadMore 处理不一致，loadMore 无 410/缺失/停滞保护，终态缺 next_cursor 沿用旧值，空数组 `coerceIn(0,-1)` 风险。抽出 `fetchPageWithRecovery` 共用；410 仅重置一次；`CURSOR_MISSING`/`CURSOR_STALLED` 明确停止；终态清空游标并提示；空队列安全；恢复成功清 cursorExpired；首次历史/重建不计新到。
+- 评分 pending：单一 pending 会被下一条提示词覆盖，换 ID 即清除记录被误当取消。改为按 `server_origin + prompt_id + version_id + client_request_id` 的多记录列表（上限 5，满则拒绝新提交），换 ID 保留旧记录；SavedStateHandle 持久化边界与 DataStore 提案写入契约。
+- 连接生命周期：健康检查失败被默认视为 compatible；断开后旧请求可把页面改回 READY；取消被当普通错误。改为兼容性三态（true/false/null），Unknown 保留 token 但不启动 feed/轮询；引入 connection epoch 守卫；所有 catch 先透传 CancellationException；轮询取消不产生错误提示。
+- 审核结果与关联：旧 revision 审核结果仍显示成功；详情不校验 image_id；EXACT/UNRESOLVED/未知关联可被误开放。改为旧结果转为"已过期，已刷新"提示并刷新详情；Repository 拒绝 image_id 不一致；关联状态严格失败关闭。
+
+验证（本机 JDK17 / Gradle 8.9 离线缓存，MediaReview_Test AVD）：
+- NSFW 定向：6 suites / 106 tests / 0 failures。
+- 全量 JVM：81 suites / 604 tests / 0 failures。
+- `assembleDebug`、`assembleDebugAndroidTest` 通过；lint 0 errors / 37 warnings。
+- 两项导航仪器测试复跑结果见 TASKS/REVIEW_SUMMARY（模拟器执行）。
+- 未执行：真实 Bridge v2 联调、真实手机、真实评分写入；未改生产服务/数据库；未执行真实 remove/轮询服务端行为。
+
+剩余风险：pending 与 cursor 仍受 SavedStateHandle 边界限制（强制停止不保证恢复）；旧 Bridge 恢复后需重新配对升级；真实服务端事件顺序/退出语义需阶段 B/C 对账。
+

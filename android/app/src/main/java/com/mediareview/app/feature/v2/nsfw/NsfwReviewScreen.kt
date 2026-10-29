@@ -644,7 +644,7 @@ private fun PromptScoreDialog(
                 }
                 if (panel.unconfirmed || panel.message?.contains("新建评分请求") == true) {
                     TextButton(onClick = vm::resetEvaluationDraft) {
-                        Text("新建评分请求（旧请求号作废）", color = V2Colors.Accent)
+                        Text("新建评分请求（旧请求保留回执）", color = V2Colors.Accent)
                     }
                 }
                 panel.submitted?.let {

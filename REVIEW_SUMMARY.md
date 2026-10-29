@@ -37,19 +37,30 @@
 - C-10 图片 URL：仅同源 `/mobile/images/` 相对路径；拒绝外部 Origin/穿越/query。
 - C-11 错误码：404/409/410 按路由映射；旧 `UNAUTHORIZED`/`DEVICE_REVOKED` 规范化。
 
+## V2A.1 边界补漏（2026-10-29）
+
+针对 V2A 审查发现的边界缺陷：
+
+- **feed 事件顺序**：REMOVE 参与 revision 校验，保存 tombstone；旧 REMOVE 不删新图、旧 UPSERT 不复活已移除图；非法 revision/未知事件拒绝；超过 Long 的十进制按长度+字典序比较。
+- **分页/游标**：sync 与 loadMore 共用 `fetchPageWithRecovery`；410 只重置一次；`CURSOR_MISSING`/`CURSOR_STALLED` 明确停止；终态缺 next_cursor 清空并提示；空队列安全；恢复成功清除过期提示；首次历史不计新到。
+- **评分 pending**：多记录按 server_origin + prompt + version + request_id 绑定，互不覆盖；上限 5；换 ID 保留旧回执；SavedStateHandle 边界与 DataStore 提案写入契约。
+- **连接生命周期**：兼容性三态（Unknown 不启动 feed/轮询）；connection epoch 防止断开后的旧 feed/审核恢复 READY；CancellationException 不转普通错误。
+- **审核与关联**：旧 revision 审核结果改为"已过期，已刷新"；详情 image_id 不一致拒绝；EXACT/UNRESOLVED/未知关联严格失败关闭。
+
 ## 测试与构建（实际结果）
 
-- NSFW 定向：6 suites / 88 tests / 0 failures。
-- JVM 全量：81 suites / 586 tests / 0 failures。
+- NSFW 定向：6 suites / 106 tests / 0 failures。
+- JVM 全量：81 suites / 604 tests / 0 failures。
 - `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
 - `:app:lintDebug` → 0 errors / 37 warnings（基线历史为 42 warnings）。
-- 仪器测试：`NsfwBottomNavFiveTabsTest`（360dp 下五入口全部显示）与 `NsfwBottomNavStateTest`（Tab 切换 saveState/restoreState）在 `MediaReview_Test` AVD 执行通过：`OK (2 tests)`，25.865s。
+- 仪器测试：五入口 360dp 显示 + Tab 状态恢复在 `MediaReview_Test` AVD → `OK (2 tests)`，9.587s。
 - 未执行真实 Bridge 联调：当前 `/mobile/system/health` 为 `api_contract=1`，缺 5 项 v2 能力，客户端在配对门禁处阻断（预期行为）。
 
 ## 已知问题 / 遗留
 
 - 真实 Bridge v2 接口未实现（NSFW 维护者负责）；真实端到端、真机截图、正式可用均未验收。
 - 游标仅保存在内存：进程终止后从头分页，可能重新混入旧图；持久化水位需绑定 `server_origin + epoch`，本阶段未落盘。
+- 评分未确认记录保存在 SavedStateHandle：覆盖系统重建/进程回收，不保证强制停止后恢复；阶段 B 后可改为独立 DataStore。
 - 评分面板当前用 AlertDialog 承载，未做分页加载更多；首期只展示该版本有界图片。
 - 未实现图片手势缩放（复用需要 MediaReview 的图片 URL 规则，NSFW 路径不同）；当前为整图 Fit 展示。
 - 未提供从 NSFW 图片跳转 MediaReview 媒体的能力（本轮不需要）。

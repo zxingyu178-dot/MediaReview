@@ -7,6 +7,7 @@ data class NsfwMergeResult(
     val total: Int,
     val removedIds: List<String> = emptyList(),
     val ignoredStaleIds: List<String> = emptyList(),
+    val rejectedIds: List<String> = emptyList(),
 )
 
 /**
@@ -14,39 +15,69 @@ data class NsfwMergeResult(
  *
  * - `image_id` 是唯一身份；同 ID 的元数据更新**原位替换**，绝不清空、绝不重排；
  * - 新 ID 只追加到队尾；不在当前浏览位置之前插入；
- * - 空增量不代表删除；v2 不处理 remove 事件。
+ * - 空增量（has_more=false、items 空）只表示"本轮无变化"，删除只通过 REMOVE 事件表达；
+ * - REMOVE 是队列 tombstone：从客户端队列移除，不删除文件；其 revision 参与顺序校验，
+ *   旧 UPSERT 不得复活已移除图片，旧 REMOVE 不得删除较新图片；
+ * - revision 必须是十进制非负整数（可超过 Long 上限），非法 revision 与未知 event 一律拒绝。
  */
 class NsfwFeedStore {
     private val order = mutableListOf<String>()
     private val byId = mutableMapOf<String, NsfwFeedItem>()
+    private val tombstones = mutableMapOf<String, String>()
 
     fun merge(page: NsfwFeedPage): NsfwMergeResult {
         val added = mutableListOf<String>()
         val updated = mutableListOf<String>()
         val removed = mutableListOf<String>()
         val ignored = mutableListOf<String>()
+        val rejected = mutableListOf<String>()
         page.items.forEach { item ->
             val id = item.imageId
             if (id.isBlank()) return@forEach
-            if (item.event == NsfwFeedEvents.REMOVE) {
-                // REMOVE 是队列 tombstone：只从客户端队列移除，不删除任何文件。
-                if (remove(id)) removed += id
+            val revision = normalizedRevision(item.revision)
+            if (revision == null) {
+                rejected += id
                 return@forEach
             }
-            val existing = byId[id]
-            if (existing == null) {
-                byId[id] = item
-                order += id
-                added += id
-            } else {
-                when (revisionCompare(item.revision, existing.revision)) {
-                    in 1..Int.MAX_VALUE -> {
-                        byId[id] = item
-                        updated += id
+            when (item.event) {
+                NsfwFeedEvents.UPSERT -> {
+                    val tombstone = tombstones[id]
+                    if (tombstone != null && compareRevision(revision, tombstone) <= 0) {
+                        // 已移除的图片只能由更新的 revision 复活
+                        ignored += id
+                        return@forEach
                     }
-                    // 同版本重复回放幂等；旧版本绝不覆盖新状态
-                    else -> ignored += id
+                    if (tombstone != null) tombstones.remove(id)
+                    val existing = byId[id]
+                    if (existing == null) {
+                        byId[id] = item.withCanonicalRevision(revision)
+                        order += id
+                        added += id
+                    } else if (compareRevision(revision, normalizedRevision(existing.revision) ?: "0") > 0) {
+                        byId[id] = item.withCanonicalRevision(revision)
+                        updated += id
+                    } else {
+                        // 同版本重复回放幂等；旧版本绝不覆盖新状态
+                        ignored += id
+                    }
                 }
+                NsfwFeedEvents.REMOVE -> {
+                    val existing = byId[id]
+                    val existingRevision = existing?.let { normalizedRevision(it.revision) ?: "0" }
+                    if (existing != null && existingRevision != null &&
+                        compareRevision(revision, existingRevision) < 0
+                    ) {
+                        // 旧 REMOVE 不得删除后来更新的图片
+                        ignored += id
+                        return@forEach
+                    }
+                    val tombstone = tombstones[id]
+                    if (tombstone == null || compareRevision(revision, tombstone) > 0) {
+                        tombstones[id] = revision
+                    }
+                    if (remove(id)) removed += id
+                }
+                else -> rejected += id
             }
         }
         return NsfwMergeResult(
@@ -55,6 +86,7 @@ class NsfwFeedStore {
             total = order.size,
             removedIds = removed,
             ignoredStaleIds = ignored,
+            rejectedIds = rejected,
         )
     }
 
@@ -63,6 +95,8 @@ class NsfwFeedStore {
     fun find(imageId: String): NsfwFeedItem? = byId[imageId]
 
     fun indexOf(imageId: String): Int = order.indexOf(imageId)
+
+    fun tombstoneRevision(imageId: String): String? = tombstones[imageId]
 
     fun update(imageId: String, transform: (NsfwFeedItem) -> NsfwFeedItem) {
         val current = byId[imageId] ?: return
@@ -80,13 +114,15 @@ class NsfwFeedStore {
         updatedAt: String,
         revision: String,
     ): Boolean {
+        val canonical = normalizedRevision(revision) ?: return false
         val current = byId[imageId] ?: return false
-        if (revisionCompare(revision, current.revision) <= 0) return false
+        val currentRevision = normalizedRevision(current.revision) ?: return false
+        if (compareRevision(canonical, currentRevision) <= 0) return false
         byId[imageId] = current.copy(
             status = status,
             isFavorite = favorite,
             updatedAt = updatedAt,
-            revision = revision,
+            revision = canonical,
         )
         return true
     }
@@ -102,12 +138,25 @@ class NsfwFeedStore {
     fun clear() {
         order.clear()
         byId.clear()
+        tombstones.clear()
     }
 
-    /** revision 是服务端单调递增的十进制字符串；无法解析时退化为字典序（仍保持确定性）。 */
-    private fun revisionCompare(left: String, right: String): Int {
-        val l = left.toLongOrNull()
-        val r = right.toLongOrNull()
-        return if (l != null && r != null) l.compareTo(r) else left.compareTo(right)
+    private fun NsfwFeedItem.withCanonicalRevision(revision: String): NsfwFeedItem =
+        if (this.revision == revision) this else copy(revision = revision)
+
+    /** 只接受十进制非负整数；去前导零后作为规范形式。 */
+    internal fun normalizedRevision(raw: String): String? {
+        val value = raw.trim()
+        if (value.isEmpty() || value.any { it !in '0'..'9' }) return null
+        val trimmed = value.trimStart('0')
+        return trimmed.ifEmpty { "0" }
+    }
+
+    /** 任意长度十进制比较：先比长度再比字典序，避免 Long 溢出。 */
+    internal fun compareRevision(left: String, right: String): Int {
+        val a = normalizedRevision(left) ?: return -1
+        val b = normalizedRevision(right) ?: return 1
+        if (a.length != b.length) return a.length.compareTo(b.length)
+        return a.compareTo(b)
     }
 }

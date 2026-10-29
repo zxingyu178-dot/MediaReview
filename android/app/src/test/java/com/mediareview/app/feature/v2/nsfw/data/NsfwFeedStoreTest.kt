@@ -128,18 +128,93 @@ class NsfwFeedStoreTest {
     }
 
     @Test
-    fun `REMOVE移除对应图片且未知移除幂等`() {
+    fun `旧REMOVE不得删除较新图片`() {
         val store = NsfwFeedStore()
-        store.merge(page(item("a"), item("b")))
-        val remove = store.merge(
-            page(item("a", revision = "2").copy(event = NsfwFeedEvents.REMOVE)),
+        store.merge(page(item("a", revision = "5", status = "KEEP")))
+        val merge = store.merge(
+            page(item("a", revision = "4").copy(event = NsfwFeedEvents.REMOVE)),
         )
-        assertEquals(listOf("a"), remove.removedIds)
-        assertEquals(listOf("b"), store.snapshot().map { it.imageId })
-        val repeated = store.merge(
-            page(item("a", revision = "3").copy(event = NsfwFeedEvents.REMOVE)),
+        assertEquals(listOf("a"), store.snapshot().map { it.imageId })
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals(listOf("a"), merge.ignoredStaleIds)
+        assertTrue(merge.removedIds.isEmpty())
+    }
+
+    @Test
+    fun `旧UPSERT不得复活已移除图片`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "2")))
+        store.merge(page(item("a", revision = "3").copy(event = NsfwFeedEvents.REMOVE)))
+        assertEquals(0, store.size())
+
+        val stale = store.merge(page(item("a", revision = "2", status = "KEEP")))
+        assertEquals(0, store.size())
+        assertEquals(listOf("a"), stale.ignoredStaleIds)
+        assertEquals("3", store.tombstoneRevision("a"))
+
+        // 只有更新的 revision 可以复活
+        store.merge(page(item("a", revision = "4", status = "KEEP")))
+        assertEquals(listOf("a"), store.snapshot().map { it.imageId })
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals(null, store.tombstoneRevision("a"))
+    }
+
+    @Test
+    fun `同revision的REMOVE重放幂等`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "2")))
+        store.merge(page(item("a", revision = "3").copy(event = NsfwFeedEvents.REMOVE)))
+        val replay = store.merge(page(item("a", revision = "3").copy(event = NsfwFeedEvents.REMOVE)))
+        assertEquals(0, store.size())
+        assertTrue(replay.removedIds.isEmpty())
+        assertEquals("3", store.tombstoneRevision("a"))
+    }
+
+    @Test
+    fun `非法revision与未知event被拒绝且不污染状态`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "2", status = "KEEP")))
+        val bad = store.merge(
+            page(
+                item("a", revision = "not-a-number", status = "NEW"),
+                item("b", revision = "-1"),
+                item("c", revision = "1").copy(event = "SOMETHING_NEW"),
+            ),
         )
-        assertTrue(repeated.removedIds.isEmpty())
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals("2", store.find("a")?.revision)
         assertEquals(1, store.size())
+        assertEquals(listOf("a", "b", "c"), bad.rejectedIds.take(3))
+        assertEquals(null, store.find("b"))
+        assertEquals(null, store.find("c"))
+    }
+
+    @Test
+    fun `超过Long上限的revision按十进制长度可靠比较`() {
+        val store = NsfwFeedStore()
+        val huge = "999999999999999999999999999999"
+        val huger = "1000000000000000000000000000000"
+        store.merge(page(item("a", revision = huge, status = "KEEP")))
+        store.merge(page(item("a", revision = huge, status = "REJECT")))
+        assertEquals("KEEP", store.find("a")?.status)
+
+        store.merge(page(item("a", revision = huger, status = "REJECT")))
+        assertEquals("REJECT", store.find("a")?.status)
+        assertEquals(huger, store.find("a")?.revision)
+
+        store.merge(page(item("a", revision = huge, status = "NEW")))
+        assertEquals("REJECT", store.find("a")?.status)
+    }
+
+    @Test
+    fun `REMOVE最后一张图片进入空状态`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("only")))
+        val merge = store.merge(
+            page(item("only", revision = "2").copy(event = NsfwFeedEvents.REMOVE)),
+        )
+        assertEquals(0, store.size())
+        assertTrue(store.snapshot().isEmpty())
+        assertEquals(listOf("only"), merge.removedIds)
     }
 }

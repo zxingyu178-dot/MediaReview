@@ -217,7 +217,7 @@ class NsfwPairingRepositoryTest {
         val repo = repository(store, tokenProvider)
         val snapshot = repo.load()
         assertTrue(snapshot.paired)
-        assertTrue(snapshot.compatible)
+        assertEquals(true, snapshot.compatible)
         assertEquals("persisted-token", tokenProvider.token)
         assertEquals(baseUrl, tokenProvider.pairedOrigin)
         assertEquals("/mobile/system/health", server.takeRequest().requestUrl?.encodedPath)
@@ -235,7 +235,7 @@ class NsfwPairingRepositoryTest {
         val snapshot = repo.load()
 
         assertTrue(snapshot.paired)
-        assertTrue(!snapshot.compatible)
+        assertEquals(false, snapshot.compatible)
         assertEquals(NSFW_REQUIRED_CAPABILITIES, snapshot.missingCapabilities)
         assertEquals(1, snapshot.apiContract)
         // 只标记不兼容，绝不因版本旧而清 token
@@ -250,7 +250,7 @@ class NsfwPairingRepositoryTest {
         val repo = repository(store, tokenProvider)
         val snapshot = repo.load()
         assertTrue(snapshot.paired)
-        assertTrue(snapshot.compatible)
+        assertNull(snapshot.compatible)
         assertTrue(!snapshot.message.isNullOrBlank())
         assertEquals("persisted-token", store.token)
     }

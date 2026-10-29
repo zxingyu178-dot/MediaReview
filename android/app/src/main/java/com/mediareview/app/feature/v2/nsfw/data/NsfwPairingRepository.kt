@@ -31,8 +31,8 @@ data class NsfwConnectionSnapshot(
     val paired: Boolean = false,
     val rejected: Boolean = false,
     val message: String? = null,
-    /** 恢复已保存配对后重新执行 capability gate 的结果；false 表示旧 Bridge 或缺能力。 */
-    val compatible: Boolean = true,
+    /** 恢复已保存配对后重新执行 capability gate 的结果；null 表示未能确认（不得当作 compatible）。 */
+    val compatible: Boolean? = true,
     val product: String = "",
     val apiContract: Int = 0,
     val missingCapabilities: List<String> = emptyList(),
@@ -105,12 +105,14 @@ class NsfwPairingRepository internal constructor(
             return NsfwConnectionSnapshot(
                 baseUrl = profile.baseUrl,
                 paired = true,
+                compatible = null,
                 message = "暂时无法校验 Bridge 版本，请检查连接",
             )
         } catch (error: Exception) {
             return NsfwConnectionSnapshot(
                 baseUrl = profile.baseUrl,
                 paired = true,
+                compatible = null,
                 message = "Bridge 健康检查失败：${error.message ?: "未知错误"}",
             )
         }

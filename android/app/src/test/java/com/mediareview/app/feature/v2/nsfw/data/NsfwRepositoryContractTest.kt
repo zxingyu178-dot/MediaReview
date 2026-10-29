@@ -183,6 +183,15 @@ class NsfwRepositoryContractTest {
     }
 
     @Test
+    fun `详情返回的image_id与请求不一致时拒绝`() = runTest {
+        server.enqueue(okay(NsfwJson.DETAILS_EXACT)) // 返回 img_a
+        val failure = runCatching { repository.details("img_expected_other") }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.VALIDATION_ERROR, (failure as NsfwApiException).code)
+        assertTrue(failure.message.contains("身份不一致"))
+    }
+
+    @Test
     fun `未关联图片详情仍可查看但prompt为null`() = runTest {
         server.enqueue(okay(NsfwJson.DETAILS_UNLINKED))
         val detail = repository.details("img_c")

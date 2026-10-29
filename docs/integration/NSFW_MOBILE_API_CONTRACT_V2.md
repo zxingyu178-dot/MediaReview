@@ -39,6 +39,8 @@
 
 已保存配对恢复时（App 启动）同样重新执行本条能力门禁：旧 Bridge/降级服务端保留 token，
 但标记 `Incompatible` 并阻止进入审核页；只有明确的 401/吊销才清除 NSFW token。
+若健康检查因断网等原因失败，兼容性标记为 **Unknown**（不是 Compatible）：保留 token，
+但不得启动 feed 与轮询；用户重试健康检查成功后才允许进入审核页。
 
 ### 1.2 错误码（客户端冻结）
 
@@ -108,18 +110,24 @@
 游标与顺序：
 
 - 顺序由服务端定义（建议 `(in_epoch_ms, monotonic_seq)` 编码为 opaque 字符串），客户端**不解析**、不按手机本地时间排序。
-- 同一个 `image_id` 是唯一身份；`revision` 单调递增（十进制字符串），用于判断"同 ID 元数据更新"。
+- 同一个 `image_id` 是唯一身份；`revision` 必须是**十进制非负整数字符串**（可超过 Long 上限），单调递增。
+  - 客户端按十进制长度/字典序可靠比较；非法 revision（负数、字母、空串）记录直接拒绝，不污染状态。
+  - 未知 `event` 值一律拒绝，不得默认当作 `UPSERT`。
 - `event`：`UPSERT`（默认，创建或更新）或 `REMOVE`（队列 tombstone）。
   - `REMOVE` 只表示该图从手机队列移除；**不删除文件、不改变数据库审核记录**。
+  - tombstone revision 参与顺序校验：旧 `REMOVE` 不得删除较新图片；旧 `UPSERT` 不得复活已移除图片；
+    只有 revision 更大的 UPSERT 才能重新加入。
   - 移除未知 ID 幂等；重复 REMOVE 不报错。
   - 当前图片被移除时，客户端保持索引位置选择下一条（无则上一条 / 空态）；移除位置在当前图之前时当前图片不变。
 - 新 ID 追加到队尾；已存在 ID 原位替换，**不得插到当前浏览位置之前**，不得清空或跳转。
 - 客户端只接受 `revision` 前进的更新；同 revision 幂等忽略，旧 revision 绝不覆盖新状态。
 - 空增量（items 为空、has_more=false）表示"本轮没有变化"，不代表任何旧图被删除；删除只通过 REMOVE 事件表达。
 - `has_more=true` 时客户端可用同一 `next_cursor` 继续追平（有界、可恢复）；`next_cursor` 在 `has_more=false` 时仍应返回，供下一轮增量轮询。
-- `has_more=true` 但 `next_cursor` 缺失或等于本轮 cursor = 服务端游标未推进，客户端停止本轮并提示错误。
-- 游标过期 → `410 CURSOR_EXPIRED`；客户端只重置一次，再次 410 明确报错，不无限重试。
+- `has_more=true` 但 `next_cursor` 缺失或等于本轮 cursor = 服务端游标未推进，客户端停止本轮并提示错误（`CURSOR_MISSING` / `CURSOR_STALLED`）。
+- 终态 `has_more=false` 且未返回 `next_cursor`：客户端清空游标并提示"下次从头同步"，**不得静默沿用旧游标**。
+- 游标过期 → `410 CURSOR_EXPIRED`；客户端只重置一次，再次 410 明确报错，不无限重试；成功后清除过期提示。
 - 断线重放：客户端保存最后成功 `next_cursor`（当前仅内存）；重连后用该游标继续；重复卡片按 `image_id` 去重。
+- 首次历史同步（空游标）与 410 重建历史都不计入"新到图片"计数；只有真正增量（调用方游标非空且未重置）才计数。
 
 ### 2.2 `GET /mobile/images/{image_id}/details`
 
@@ -220,7 +228,12 @@
 - 追加历史，不覆盖旧评分；评分不改变 prompt 状态。
 - 同一 `client_request_id` 重试必须幂等；载荷不一致 → `409 IDEMPOTENCY_CONFLICT`。
 - 客户端在首次发送后**冻结请求载荷与 requestId**：重试必须复用同一载荷；用户改分必须显式"新建评分请求"生成新 ID，禁止同键改 payload。
-- 未确认请求写入 `SavedStateHandle`（进程重启后仅提示、不自动重发）；提交成功或用户新建请求后清除。
+- 未确认请求以 `server_origin + prompt_id + version_id + client_request_id` 绑定保存，互不覆盖；客户端最多保留 5 条未确认记录，
+  达到上限时拒绝继续提交并要求先核对旧回执（保证请求不会丢失）。
+- "新建评分请求"只更换新请求号，**旧未确认记录继续保留**：客户端清除记录不代表服务端取消旧请求，不能把换 ID 当作已取消。
+- 未确认请求写入 `SavedStateHandle`（进程重启后仅提示、不自动重发）；提交成功或回执确认后清除。
+  `SavedStateHandle` 只覆盖系统重建/进程回收，不保证强制停止后的持久化；若需要更强恢复，服务端阶段 B 后改为独立 DataStore
+  （按 origin + epoch 绑定），本阶段不实现。
 - 成功 `data`：`{ evaluation_id, prompt_id, prompt_version_id, overall_score, created_at, client_request_id }`。
 
 ### 2.7 `GET /mobile/prompts/evaluations/{client_request_id}`（回执查询）
