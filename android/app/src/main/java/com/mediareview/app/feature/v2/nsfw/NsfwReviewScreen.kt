@@ -117,7 +117,7 @@ fun NsfwReviewScreen(
                 onBaseUrlChange = { baseUrlInput = it },
                 onCodeChange = { codeInput = it },
                 onPair = { vm.pair(baseUrlInput, codeInput) },
-                onRetry = { vm.pair(baseUrlInput, codeInput) },
+                onRetryConnection = vm::retryConnectionCheck,
             )
             NsfwPhase.READY -> ReadyPane(
                 state = state,
@@ -166,7 +166,7 @@ private fun PairingPane(
     onBaseUrlChange: (String) -> Unit,
     onCodeChange: (String) -> Unit,
     onPair: () -> Unit,
-    onRetry: () -> Unit,
+    onRetryConnection: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -206,8 +206,15 @@ private fun PairingPane(
             ) {
                 Text(if (state.pairingBusy) "检查中…" else "检查能力并配对")
             }
-            OutlinedButton(onClick = onRetry, enabled = !state.pairingBusy && baseUrl.isNotBlank()) {
-                Text("重试")
+        }
+
+        if (state.hasSavedPairing) {
+            OutlinedButton(
+                onClick = onRetryConnection,
+                enabled = !state.pairingBusy,
+                modifier = Modifier.fillMaxWidth().padding(top = V2Spacing.Md),
+            ) {
+                Text("重新检查已保存连接（无需配对码）")
             }
         }
 
@@ -641,6 +648,37 @@ private fun PromptScoreDialog(
                         color = if (panel.unconfirmed) V2Colors.Warning else MediaTextSecondary,
                         modifier = Modifier.padding(top = V2Spacing.Sm),
                     )
+                }
+                if (panel.pendingRequests.isNotEmpty()) {
+                    val currentIndex = panel.pendingRequests.indexOfFirst {
+                        it.request.clientRequestId == panel.requestId
+                    }
+                    Text(
+                        if (currentIndex >= 0) {
+                            "该提示词有 ${panel.pendingRequests.size} 条未确认评分：第 ${currentIndex + 1} 条"
+                        } else {
+                            "该提示词有 ${panel.pendingRequests.size} 条未确认评分，可逐条核对"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = V2Colors.Warning,
+                        modifier = Modifier.padding(top = V2Spacing.Sm),
+                    )
+                    Row {
+                        if (currentIndex >= 0) {
+                            TextButton(
+                                onClick = { vm.selectPendingEvaluation(currentIndex - 1) },
+                                enabled = currentIndex > 0,
+                            ) { Text("上一条") }
+                            TextButton(
+                                onClick = { vm.selectPendingEvaluation(currentIndex + 1) },
+                                enabled = currentIndex < panel.pendingRequests.lastIndex,
+                            ) { Text("下一条") }
+                        } else {
+                            TextButton(onClick = { vm.selectPendingEvaluation(0) }) {
+                                Text("核对未确认记录", color = V2Colors.Accent)
+                            }
+                        }
+                    }
                 }
                 if (panel.unconfirmed || panel.message?.contains("新建评分请求") == true) {
                     TextButton(onClick = vm::resetEvaluationDraft) {

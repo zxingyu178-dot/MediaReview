@@ -10,6 +10,8 @@ import com.mediareview.app.core.datastore.InstallationIdCoordinator
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 private val Context.nsfwStudioDataStore by preferencesDataStore(name = "nsfw_studio_profile")
 
@@ -32,10 +34,12 @@ data class NsfwProfile(
 class NsfwProfileStore(
     private val context: Context,
     private val crypto: CredentialCipher = AndroidKeystoreCredentialCipher("nsfw_studio_pairing_token_v1"),
-) {
+    private val json: Json = Json { ignoreUnknownKeys = true },
+) : NsfwEvaluationJournal {
     private val keyBaseUrl = stringPreferencesKey("base_url")
     private val keyTokenCiphertext = stringPreferencesKey("token_ciphertext")
     private val keyInstallationId = stringPreferencesKey("installation_id")
+    private val keyPendingEvaluations = stringPreferencesKey("pending_evaluations")
 
     private val installationIds = InstallationIdCoordinator(
         read = { context.nsfwStudioDataStore.data.map { it[keyInstallationId].orEmpty() }.first() },
@@ -84,5 +88,18 @@ class NsfwProfileStore(
             prefs.remove(keyBaseUrl)
             prefs.remove(keyTokenCiphertext)
         }
+    }
+
+    override suspend fun loadPendingEvaluations(): List<NsfwPendingEvaluation> {
+        val raw = context.nsfwStudioDataStore.data.first()[keyPendingEvaluations].orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            json.decodeFromString(ListSerializer(NsfwPendingEvaluation.serializer()), raw)
+        }.getOrDefault(emptyList())
+    }
+
+    override suspend fun savePendingEvaluations(items: List<NsfwPendingEvaluation>) {
+        val raw = json.encodeToString(ListSerializer(NsfwPendingEvaluation.serializer()), items)
+        context.nsfwStudioDataStore.edit { prefs -> prefs[keyPendingEvaluations] = raw }
     }
 }

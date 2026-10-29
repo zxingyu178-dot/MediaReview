@@ -128,6 +128,32 @@ class NsfwFeedStoreTest {
     }
 
     @Test
+    fun `同revision的REMOVE不得删除图片`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "5", status = "KEEP")))
+        val merge = store.merge(
+            page(item("a", revision = "5").copy(event = NsfwFeedEvents.REMOVE)),
+        )
+        assertEquals(listOf("a"), store.snapshot().map { it.imageId })
+        assertEquals("KEEP", store.find("a")?.status)
+        assertTrue(merge.removedIds.isEmpty())
+        assertEquals(listOf("a"), merge.ignoredStaleIds)
+        assertEquals(null, store.tombstoneRevision("a"))
+    }
+
+    @Test
+    fun `同revisionREMOVE带前导零也幂等忽略`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "5")))
+        val merge = store.merge(
+            page(item("a", revision = "0005").copy(event = NsfwFeedEvents.REMOVE)),
+        )
+        assertEquals(1, store.size())
+        assertTrue(merge.removedIds.isEmpty())
+        assertEquals(listOf("a"), merge.ignoredStaleIds)
+    }
+
+    @Test
     fun `旧REMOVE不得删除较新图片`() {
         val store = NsfwFeedStore()
         store.merge(page(item("a", revision = "5", status = "KEEP")))

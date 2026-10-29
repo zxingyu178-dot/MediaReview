@@ -45,6 +45,9 @@ object NsfwErrorCodes {
     const val IMAGE_NOT_FOUND = "IMAGE_NOT_FOUND"
     const val PROMPT_NOT_FOUND = "PROMPT_NOT_FOUND"
 
+    /** 客户端校验：响应中的身份字段与请求不一致，响应被拒绝，不得静默修正。 */
+    const val RESPONSE_MISMATCH = "RESPONSE_MISMATCH"
+
     /** Bridge v1 旧码映射（双端兼容）：不能把有效旧配对误判为已吊销。 */
     const val LEGACY_UNAUTHORIZED = "UNAUTHORIZED"
     const val LEGACY_DEVICE_REVOKED = "DEVICE_REVOKED"
@@ -270,6 +273,21 @@ data class NsfwEvaluationReceipt(
     val found: Boolean = false,
     val evaluation: NsfwEvaluationResult? = null,
 )
+
+/** 已发出但结果未确认的评分请求；按服务器来源隔离，重启后不自动重发。 */
+@Serializable
+data class NsfwPendingEvaluation(
+    val serverOrigin: String = "",
+    val promptId: String,
+    val versionId: String? = null,
+    val request: NsfwEvaluationRequest,
+)
+
+/** 未确认评分记录的持久化端口（DataStore 实现；测试用内存假实现）。 */
+interface NsfwEvaluationJournal {
+    suspend fun loadPendingEvaluations(): List<NsfwPendingEvaluation>
+    suspend fun savePendingEvaluations(items: List<NsfwPendingEvaluation>)
+}
 
 /** 401 / 409 / 410 等业务错误在客户端统一成该异常，UI 不解析原始 JSON。 */
 class NsfwApiException(

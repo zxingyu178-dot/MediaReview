@@ -2,6 +2,7 @@ package com.mediareview.app.feature.v2.nsfw.di
 
 import android.content.Context
 import coil.ImageLoader
+import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationJournal
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairingGateway
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairingRepository
 import com.mediareview.app.feature.v2.nsfw.data.NsfwProfileStore
@@ -35,8 +36,14 @@ object NsfwModule {
 
     @Provides
     @Singleton
-    fun provideNsfwProfileStore(@ApplicationContext context: Context): NsfwProfileStore =
-        NsfwProfileStore(context)
+    fun provideNsfwProfileStore(
+        @ApplicationContext context: Context,
+        json: Json,
+    ): NsfwProfileStore = NsfwProfileStore(context, json = json)
+
+    @Provides
+    @Singleton
+    fun provideNsfwEvaluationJournal(store: NsfwProfileStore): NsfwEvaluationJournal = store
 
     @Provides
     @Singleton

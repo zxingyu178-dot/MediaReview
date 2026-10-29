@@ -65,9 +65,9 @@ class NsfwFeedStore {
                     val existing = byId[id]
                     val existingRevision = existing?.let { normalizedRevision(it.revision) ?: "0" }
                     if (existing != null && existingRevision != null &&
-                        compareRevision(revision, existingRevision) < 0
+                        compareRevision(revision, existingRevision) <= 0
                     ) {
-                        // 旧 REMOVE 不得删除后来更新的图片
+                        // 只有严格更新的 REMOVE 才能移除；同版本重复 REMOVE 必须幂等忽略。
                         ignored += id
                         return@forEach
                     }

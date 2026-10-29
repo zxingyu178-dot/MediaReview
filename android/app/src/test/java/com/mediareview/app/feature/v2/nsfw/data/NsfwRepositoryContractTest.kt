@@ -318,7 +318,11 @@ class NsfwRepositoryContractTest {
 
     @Test
     fun `仅总分时dimensions为null`() = runTest {
-        server.enqueue(okay(NsfwJson.EVALUATION_CREATED))
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"evaluation_id":"pev_2","prompt_id":"prm_1","prompt_version_id":null,"overall_score":5,"created_at":"2026-10-28T12:10:00Z","client_request_id":"req-eval-2"},"request_id":"req_eval"}""",
+            ),
+        )
         repository.createEvaluation(
             "prm_1",
             NsfwEvaluationRequest(
@@ -392,6 +396,118 @@ class NsfwRepositoryContractTest {
         val failure = runCatching { repository.details("") }.exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)
         assertEquals(0, server.requestCount)
+    }
+
+    // ---------- 响应身份校验 ----------
+
+    @Test
+    fun `审核响应image_id与请求不一致时拒绝`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"image_id":"img_b","status":"KEEP","is_favorite":false,"updated_at":"2026-10-28T12:06:00Z","revision":"3"},"request_id":"r"}""",
+            ),
+        )
+        val failure = runCatching {
+            repository.decide("img_a", "KEEP", null, "2026-10-28T12:00:03Z", "req-identity")
+        }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (failure as NsfwApiException).code)
+        assertTrue(failure.message.contains("身份不一致"))
+    }
+
+    @Test
+    fun `评分响应prompt_id不一致时拒绝`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"evaluation_id":"pev_1","prompt_id":"prm_other","prompt_version_id":"prmv_1","overall_score":4,"created_at":"2026-10-28T12:10:00Z","client_request_id":"req-eval-identity"},"request_id":"r"}""",
+            ),
+        )
+        val failure = runCatching {
+            repository.createEvaluation(
+                "prm_1",
+                NsfwEvaluationRequest(
+                    promptVersionId = "prmv_1",
+                    overallScore = 4,
+                    clientRequestId = "req-eval-identity",
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (failure as NsfwApiException).code)
+    }
+
+    @Test
+    fun `评分响应client_request_id不一致时拒绝`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"evaluation_id":"pev_1","prompt_id":"prm_1","prompt_version_id":"prmv_1","overall_score":4,"created_at":"2026-10-28T12:10:00Z","client_request_id":"req-other"},"request_id":"r"}""",
+            ),
+        )
+        val failure = runCatching {
+            repository.createEvaluation(
+                "prm_1",
+                NsfwEvaluationRequest(
+                    promptVersionId = "prmv_1",
+                    overallScore = 4,
+                    clientRequestId = "req-eval-identity",
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (failure as NsfwApiException).code)
+        assertTrue(failure.message.contains("请求号不一致"))
+    }
+
+    @Test
+    fun `评分响应版本不一致时拒绝`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"evaluation_id":"pev_1","prompt_id":"prm_1","prompt_version_id":"prmv_2","overall_score":4,"created_at":"2026-10-28T12:10:00Z","client_request_id":"req-eval-identity"},"request_id":"r"}""",
+            ),
+        )
+        val failure = runCatching {
+            repository.createEvaluation(
+                "prm_1",
+                NsfwEvaluationRequest(
+                    promptVersionId = "prmv_1",
+                    overallScore = 4,
+                    clientRequestId = "req-eval-identity",
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (failure as NsfwApiException).code)
+        assertTrue(failure.message.contains("版本不一致"))
+    }
+
+    @Test
+    fun `回执client_request_id不一致时拒绝`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"found":true,"evaluation":{"evaluation_id":"pev_1","prompt_id":"prm_1","prompt_version_id":"prmv_1","overall_score":4,"created_at":"2026-10-28T12:10:00Z","client_request_id":"req-other"}},"request_id":"r"}""",
+            ),
+        )
+        val failure = runCatching { repository.evaluationReceipt("req-eval-1") }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (failure as NsfwApiException).code)
+    }
+
+    @Test
+    fun `提示词汇总prompt_id或版本不一致时拒绝`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"prompt_id":"prm_other","prompt_version_id":"prmv_1","link_state":"EXACT","evaluation_count":0},"request_id":"r"}""",
+            ),
+        )
+        val promptFailure = runCatching { repository.promptSummary("prm_1", "prmv_1") }.exceptionOrNull()
+        assertTrue(promptFailure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (promptFailure as NsfwApiException).code)
+
+        server.enqueue(okay(NsfwJson.PROMPT_SUMMARY))
+        val versionFailure = runCatching { repository.promptSummary("prm_1", null) }.exceptionOrNull()
+        assertTrue(versionFailure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.RESPONSE_MISMATCH, (versionFailure as NsfwApiException).code)
+        assertTrue(versionFailure.message.contains("版本不一致"))
     }
 
     @Test

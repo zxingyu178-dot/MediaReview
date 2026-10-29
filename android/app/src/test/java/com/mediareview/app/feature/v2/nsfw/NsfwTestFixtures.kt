@@ -4,11 +4,13 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwApiException
 import com.mediareview.app.feature.v2.nsfw.data.NsfwConnectionSnapshot
 import com.mediareview.app.feature.v2.nsfw.data.NsfwDecisionResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationReceipt
+import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationJournal
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationRequest
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairResult
+import com.mediareview.app.feature.v2.nsfw.data.NsfwPendingEvaluation
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairingGateway
 import com.mediareview.app.feature.v2.nsfw.data.NsfwProfile
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptImagesPage
@@ -219,6 +221,21 @@ class FakePairingGateway(
     override suspend fun handleAuthRejected() {
         authRejectedCalls += 1
         snapshot = NsfwConnectionSnapshot(rejected = true)
+    }
+}
+
+class FakeNsfwEvaluationJournal(
+    var items: List<NsfwPendingEvaluation> = emptyList(),
+) : NsfwEvaluationJournal {
+    var saveCalls = 0
+    var failSave = false
+
+    override suspend fun loadPendingEvaluations(): List<NsfwPendingEvaluation> = items
+
+    override suspend fun savePendingEvaluations(items: List<NsfwPendingEvaluation>) {
+        saveCalls += 1
+        if (failSave) throw IllegalStateException("disk full")
+        this.items = items
     }
 }
 

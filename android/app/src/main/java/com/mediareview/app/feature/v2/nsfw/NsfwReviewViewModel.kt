@@ -4,8 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mediareview.app.feature.v2.nsfw.data.NsfwApiException
+import com.mediareview.app.feature.v2.nsfw.data.NsfwConnectionSnapshot
 import com.mediareview.app.feature.v2.nsfw.data.NsfwDecisionResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwErrorCodes
+import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationJournal
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationRequest
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
@@ -14,6 +16,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedStore
 import com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairingGateway
+import com.mediareview.app.feature.v2.nsfw.data.NsfwPendingEvaluation
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptImageItem
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptLink
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptSummary
@@ -29,7 +32,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -57,18 +59,13 @@ data class NsfwPromptPanel(
     val pendingRequest: NsfwEvaluationRequest? = null,
     /** 用户已显式新建请求号：忽略旧 pending，但仍保留其回执记录。 */
     val freshDraft: Boolean = false,
+    /** 同一提示词版本下的全部未确认记录；多条时必须能逐条切换核对。 */
+    val pendingRequests: List<NsfwPendingEvaluation> = emptyList(),
+    val pendingIndex: Int = 0,
 ) {
     val scoringEnabled: Boolean
         get() = versionId != null || wholePromptScopeConfirmed
 }
-
-@Serializable
-data class NsfwPendingEvaluation(
-    val serverOrigin: String = "",
-    val promptId: String,
-    val versionId: String? = null,
-    val request: NsfwEvaluationRequest,
-)
 
 data class NsfwUiState(
     val phase: NsfwPhase = NsfwPhase.LOADING,
@@ -87,6 +84,8 @@ data class NsfwUiState(
     val newImageCount: Int = 0,
     val panel: NsfwPromptPanel? = null,
     val pairingBusy: Boolean = false,
+    /** 本地仍有已保存配对：兼容性未知时可重新检查连接，不必重新生成配对码。 */
+    val hasSavedPairing: Boolean = false,
     /** 进程重启后发现上次评分未确认时的提示（不自动重发）。 */
     val evaluationRecoveryHint: String? = null,
 ) {
@@ -111,6 +110,7 @@ class NsfwReviewViewModel @Inject constructor(
     private val pairing: NsfwPairingGateway,
     private val savedState: SavedStateHandle,
     private val json: Json,
+    private val journal: NsfwEvaluationJournal,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(NsfwUiState())
@@ -134,49 +134,78 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun bootstrap() {
         viewModelScope.launch {
-            val snapshot = runCatching { pairing.load() }.getOrNull()
-            if (snapshot == null || !snapshot.paired) {
-                _state.update {
-                    it.copy(
-                        phase = NsfwPhase.UNPAIRED,
-                        baseUrl = snapshot?.baseUrl.orEmpty(),
-                        message = snapshot?.message,
-                        busy = false,
-                    )
-                }
-                return@launch
-            }
-            if (snapshot.compatible == null) {
-                // 兼容性未知：保留 token，但不启动 feed/轮询，也不把 UNKNOWN 当成 compatible。
-                _state.update {
-                    it.copy(
-                        phase = NsfwPhase.UNPAIRED,
-                        baseUrl = snapshot.baseUrl,
-                        message = snapshot.message ?: "无法确认 NSFW Bridge 版本，请检查连接后重试",
-                        missingCapabilities = emptyList(),
-                        busy = false,
-                    )
-                }
-                return@launch
-            }
-            if (snapshot.compatible == false) {
-                // 保留已保存 token，但旧 Bridge 不能进入审核页：必须重新升级/配对。
-                _state.update {
-                    it.copy(
-                        phase = NsfwPhase.UNPAIRED,
-                        baseUrl = snapshot.baseUrl,
-                        message = snapshot.message,
-                        missingCapabilities = snapshot.missingCapabilities,
-                        busy = false,
-                    )
-                }
-                return@launch
-            }
-            updateRecoveryHint(snapshot.baseUrl)
-            _state.update { it.copy(phase = NsfwPhase.READY, baseUrl = snapshot.baseUrl) }
-            syncFromCursor(reset = true)
-            maybeStartPolling()
+            hydratePending()
+            applyConnectionSnapshot(runCatching { pairing.load() }.getOrNull())
         }
+    }
+
+    /** 已保存配对遇到临时断网时，重新执行健康检查；不需要用户重新输入配对码。 */
+    fun retryConnectionCheck() {
+        val state = _state.value
+        if (state.phase == NsfwPhase.READY || state.pairingBusy) return
+        if (state.baseUrl.isBlank() && !state.hasSavedPairing) return
+        _state.update { it.copy(pairingBusy = true, message = "正在重新检查已保存的 NSFW 连接…") }
+        viewModelScope.launch {
+            applyConnectionSnapshot(runCatching { pairing.load() }.getOrNull())
+        }
+    }
+
+    private suspend fun applyConnectionSnapshot(snapshot: NsfwConnectionSnapshot?) {
+        if (snapshot == null || !snapshot.paired) {
+            _state.update {
+                it.copy(
+                    phase = NsfwPhase.UNPAIRED,
+                    baseUrl = snapshot?.baseUrl.orEmpty(),
+                    message = snapshot?.message,
+                    busy = false,
+                    pairingBusy = false,
+                    hasSavedPairing = false,
+                )
+            }
+            return
+        }
+        if (snapshot.compatible == null) {
+            // 兼容性未知：保留 token，但不启动 feed/轮询，也不把 UNKNOWN 当成 compatible。
+            _state.update {
+                it.copy(
+                    phase = NsfwPhase.UNPAIRED,
+                    baseUrl = snapshot.baseUrl,
+                    message = snapshot.message ?: "无法确认 NSFW Bridge 版本，请检查连接后重试",
+                    missingCapabilities = emptyList(),
+                    busy = false,
+                    pairingBusy = false,
+                    hasSavedPairing = true,
+                )
+            }
+            return
+        }
+        if (snapshot.compatible == false) {
+            // 保留已保存 token，但旧 Bridge 不能进入审核页：必须重新升级/配对。
+            _state.update {
+                it.copy(
+                    phase = NsfwPhase.UNPAIRED,
+                    baseUrl = snapshot.baseUrl,
+                    message = snapshot.message,
+                    missingCapabilities = snapshot.missingCapabilities,
+                    busy = false,
+                    pairingBusy = false,
+                    hasSavedPairing = true,
+                )
+            }
+            return
+        }
+        updateRecoveryHint(snapshot.baseUrl)
+        _state.update {
+            it.copy(
+                phase = NsfwPhase.READY,
+                baseUrl = snapshot.baseUrl,
+                pairingBusy = false,
+                hasSavedPairing = true,
+                missingCapabilities = emptyList(),
+            )
+        }
+        syncFromCursor(reset = true)
+        maybeStartPolling()
     }
 
     fun pair(baseUrl: String, code: String) {
@@ -193,6 +222,7 @@ class NsfwReviewViewModel @Inject constructor(
                             phase = NsfwPhase.READY,
                             baseUrl = result.baseUrl,
                             pairingBusy = false,
+                            hasSavedPairing = true,
                             message = "已连接 NSFW Studio",
                             items = emptyList(),
                             currentId = null,
@@ -273,7 +303,7 @@ class NsfwReviewViewModel @Inject constructor(
     fun loadMore() {
         val state = _state.value
         if (state.phase != NsfwPhase.READY || state.busy || !state.hasMore) return
-        val cursor = lastCursor
+        val cursor = lastCursor?.takeIf { it.isNotBlank() }
         if (cursor == null) {
             _state.update {
                 it.copy(hasMore = false, nextCursor = null, message = "缺少 next_cursor，无法继续加载；已停止本轮")
@@ -411,11 +441,7 @@ class NsfwReviewViewModel @Inject constructor(
         }
         val promptId = detail.promptId ?: return
         val explicitVersion = if (link.linkState == NsfwPromptLink.LINK_EXACT) detail.promptVersionId else null
-        val matching = pendingEvaluations.filter {
-            it.promptId == promptId &&
-                it.versionId == explicitVersion &&
-                it.serverOrigin == originOf(_state.value.baseUrl)
-        }
+        val matching = pendingListFor(promptId, explicitVersion, originOf(_state.value.baseUrl))
         val existingPending = matching.firstOrNull()
         val panel = NsfwPromptPanel(
             promptId = promptId,
@@ -427,13 +453,42 @@ class NsfwReviewViewModel @Inject constructor(
                 (existingPending != null && existingPending.request.promptVersionId == null),
             pendingRequest = existingPending?.request,
             unconfirmed = existingPending != null,
+            pendingRequests = matching,
+            pendingIndex = 0,
             message = existingPending?.let {
-                "上次提交结果未确认，已冻结原评分（请求号 ${it.request.clientRequestId}）；可直接重试或查询回执。" +
-                    if (matching.size > 1) "该提示词还有 ${matching.size - 1} 条未确认记录。" else ""
+                if (matching.size > 1) {
+                    "有 ${matching.size} 条评分结果未确认；当前第 1 条（请求号 ${it.request.clientRequestId}），" +
+                        "可切换核对其他记录，或直接重试当前记录。"
+                } else {
+                    "上次提交结果未确认，已冻结原评分（请求号 ${it.request.clientRequestId}）；可直接重试或查询回执。"
+                }
             },
         )
         _state.update { it.copy(panel = panel) }
         refreshPromptPanel(panel)
+    }
+
+    /** 同一提示词版本存在多条未确认记录时，逐条切换核对，避免旧记录永久无法访问。 */
+    fun selectPendingEvaluation(index: Int) {
+        val panel = _state.value.panel ?: return
+        val pending = panel.pendingRequests.getOrNull(index) ?: return
+        panelSeq += 1
+        _state.update {
+            it.copy(
+                panel = panel.copy(
+                    requestId = pending.request.clientRequestId,
+                    pendingRequest = pending.request,
+                    pendingIndex = index,
+                    submitted = null,
+                    unconfirmed = true,
+                    freshDraft = false,
+                    wholePromptScopeConfirmed = pending.versionId != null ||
+                        pending.request.promptVersionId == null,
+                    message = "正在核对第 ${index + 1}/${panel.pendingRequests.size} 条未确认评分" +
+                        "（请求号 ${pending.request.clientRequestId}）",
+                ),
+            )
+        }
     }
 
     /** 版本未知时，用户必须显式选择"对提示词整体评分"才允许提交。 */
@@ -516,74 +571,100 @@ class NsfwReviewViewModel @Inject constructor(
             notes = notes,
             clientRequestId = panel.requestId,
         )
+        val origin = originOf(_state.value.baseUrl)
         val pending = NsfwPendingEvaluation(
-            serverOrigin = originOf(_state.value.baseUrl),
+            serverOrigin = origin,
             promptId = panel.promptId,
             versionId = panel.versionId,
             request = request,
         )
-        upsertPending(pending)
         val epoch = connectionEpoch
         _state.update {
             it.copy(
-                panel = panel.copy(pendingRequest = request, submitting = true, message = null, unconfirmed = false),
+                panel = panel.copy(pendingRequest = request, submitting = true, message = null, unconfirmed = true),
             )
         }
         viewModelScope.launch {
-            try {
-                val result = dataSource.createEvaluation(panel.promptId, request)
-                if (_state.value.panel?.requestId != panel.requestId || epoch != connectionEpoch) return@launch
-                removePending(request.clientRequestId)
+            // 必须先持久化冻结载荷，再发网络请求：强制停止后仍能按原请求号核对回执。
+            if (!persistPending(pending)) {
                 _state.update {
                     val current = it.panel ?: return@update it
-                    it.copy(
+                    if (current.requestId != panel.requestId) it
+                    else it.copy(
                         panel = current.copy(
                             submitting = false,
-                            submitted = result,
-                            pendingRequest = request,
-                            message = "评分已保存",
+                            unconfirmed = false,
+                            message = "无法保存未确认评分记录，本次未发送（不会产生重复评分）",
                         ),
-                        message = "提示词评分已保存",
-                        evaluationRecoveryHint = null,
                     )
                 }
+                return@launch
+            }
+            try {
+                // 重启/重试时先查回执，绝不盲目重发；确认未写入后才提交。
+                if (frozen != null) {
+                    val receipt = runCatching {
+                        dataSource.evaluationReceipt(request.clientRequestId)
+                    }.getOrNull()
+                    if (receipt == null) {
+                        if (epoch == connectionEpoch) {
+                            _state.update {
+                                val current = it.panel ?: return@update it
+                                if (current.requestId != panel.requestId) it
+                                else it.copy(
+                                    panel = current.copy(
+                                        submitting = false,
+                                        message = "无法确认上次提交结果，本次未重发；请稍后再试或继续保留未确认记录",
+                                    ),
+                                )
+                            }
+                        }
+                        return@launch
+                    }
+                    val existing = receipt.takeIf { it.found }?.evaluation
+                    if (existing != null) {
+                        completePendingSuccess(origin, epoch, panel, request, existing, "评分已保存（回执核对）")
+                        return@launch
+                    }
+                }
+                val result = dataSource.createEvaluation(panel.promptId, request)
+                completePendingSuccess(origin, epoch, panel, request, result, "评分已保存")
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                // 超时/结果未知：先用同一 client_request_id 查回执，绝不盲目重复提交
-                val receipt = runCatching { dataSource.evaluationReceipt(request.clientRequestId) }.getOrNull()
-                val existing = receipt?.takeIf { it.found }?.evaluation
-                if (_state.value.panel?.requestId != panel.requestId || epoch != connectionEpoch) return@launch
+                val apiError = error as? NsfwApiException
+                // 响应身份不一致时不得用回执自动"修正"，保留未确认记录并明确报错。
+                val existing = if (apiError?.code == NsfwErrorCodes.RESPONSE_MISMATCH) {
+                    null
+                } else {
+                    // 超时/结果未知：先用同一 client_request_id 查回执，绝不盲目重复提交
+                    runCatching { dataSource.evaluationReceipt(request.clientRequestId) }
+                        .getOrNull()
+                        ?.takeIf { it.found }
+                        ?.evaluation
+                }
                 if (existing != null) {
-                    removePending(request.clientRequestId)
-                    _state.update {
-                        val current = it.panel ?: return@update it
-                        it.copy(
-                            panel = current.copy(
-                                submitting = false,
-                                submitted = existing,
-                                pendingRequest = request,
-                                message = "评分已保存（回执核对）",
-                            ),
-                            evaluationRecoveryHint = null,
-                        )
-                    }
+                    completePendingSuccess(origin, epoch, panel, request, existing, "评分已保存（回执核对）")
                     return@launch
                 }
-                val apiError = error as? NsfwApiException
                 val text = when (apiError?.code) {
                     NsfwErrorCodes.PROMPT_VERSION_UNKNOWN ->
                         "该提示词版本未知，请改为对提示词整体评分"
                     NsfwErrorCodes.VALIDATION_ERROR -> apiError.message
                     NsfwErrorCodes.IDEMPOTENCY_CONFLICT -> "同一请求号已提交过不同内容，请点“新建评分请求”"
+                    NsfwErrorCodes.RESPONSE_MISMATCH ->
+                        "服务端返回的评分结果与请求身份不一致，已拒绝；未确认记录已保留，请稍后查询回执或重试"
                     else -> "评分结果未确认，可安全重试（同一请求号，不会重复计分）"
                 }
+                if (epoch != connectionEpoch) return@launch
                 _state.update {
                     val current = it.panel ?: return@update it
+                    if (current.requestId != panel.requestId) return@update it
                     it.copy(
                         panel = current.copy(
                             submitting = false,
                             pendingRequest = request,
+                            pendingRequests = pendingListFor(panel.promptId, panel.versionId, origin),
                             unconfirmed = apiError?.code !in setOf(
                                 NsfwErrorCodes.PROMPT_VERSION_UNKNOWN,
                                 NsfwErrorCodes.VALIDATION_ERROR,
@@ -594,6 +675,40 @@ class NsfwReviewViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    private suspend fun completePendingSuccess(
+        origin: String,
+        epoch: Int,
+        panel: NsfwPromptPanel,
+        request: NsfwEvaluationRequest,
+        result: NsfwEvaluationResult,
+        note: String,
+    ) {
+        removePending(origin, request.clientRequestId)
+        if (epoch != connectionEpoch) return
+        _state.update {
+            val current = it.panel ?: return@update it
+            if (current.requestId != panel.requestId) return@update it
+            val remaining = pendingListFor(panel.promptId, panel.versionId, origin)
+            it.copy(
+                panel = current.copy(
+                    submitting = false,
+                    submitted = result,
+                    pendingRequest = request,
+                    pendingRequests = remaining,
+                    pendingIndex = 0,
+                    freshDraft = false,
+                    unconfirmed = remaining.isNotEmpty(),
+                    message = if (remaining.isEmpty()) {
+                        note
+                    } else {
+                        "$note；该提示词还有 ${remaining.size} 条未确认记录，可切换核对"
+                    },
+                ),
+                message = "提示词评分已保存",
+            )
         }
     }
 
@@ -651,13 +766,14 @@ class NsfwReviewViewModel @Inject constructor(
      * - has_more=true 但 next_cursor 缺失/不推进 → 抛 CURSOR_MISSING / CURSOR_STALLED。
      */
     private suspend fun fetchPageWithRecovery(initialCursor: String?): PageFetchResult {
-        var cursor = initialCursor
+        // 空字符串游标等同"从头开始"，绝不能发给服务端，否则可能反复读取历史第一页。
+        var cursor = initialCursor?.takeIf { it.isNotBlank() }
         var resetApplied = false
         while (true) {
             try {
                 val page = dataSource.feed(cursor, PAGE_SIZE)
-                if (page.hasMore && page.nextCursor == null) {
-                    throw NsfwApiException("CURSOR_MISSING", "服务端未返回 next_cursor", 0)
+                if (page.hasMore && page.nextCursor.isNullOrBlank()) {
+                    throw NsfwApiException("CURSOR_MISSING", "服务端未返回有效 next_cursor", 0)
                 }
                 if (page.hasMore && page.nextCursor == cursor) {
                     throw NsfwApiException("CURSOR_STALLED", "服务端游标未推进", 0)
@@ -704,19 +820,23 @@ class NsfwReviewViewModel @Inject constructor(
             val page = result.page
             if (result.resetApplied) recovered = true
             val merge = feed.merge(page)
-            // 首次历史同步与 410 重建历史都不算"新到"；只有真正增量才计数。
-            if (!reset && !result.resetApplied) countedNew += merge.addedIds.size
+            // 首次历史同步与 410 后整段历史重建都不算"新到"；只有真正增量才计数。
+            if (!reset && !recovered) countedNew += merge.addedIds.size
             pages += 1
             finalHasMore = page.hasMore
-            finalNextCursor = page.nextCursor
-            if (!page.hasMore && page.nextCursor == null) {
+            finalNextCursor = page.nextCursor?.takeIf { it.isNotBlank() }
+            if (!page.hasMore && page.nextCursor.isNullOrBlank()) {
                 terminalMissingCursor = true
                 lastCursor = null
             } else {
                 lastCursor = page.nextCursor
             }
             _state.update {
-                it.copy(items = feed.snapshot(), hasMore = page.hasMore, nextCursor = page.nextCursor)
+                it.copy(
+                    items = feed.snapshot(),
+                    hasMore = page.hasMore,
+                    nextCursor = page.nextCursor?.takeIf { it.isNotBlank() },
+                )
             }
             if (!page.hasMore) break
             cursor = page.nextCursor
@@ -734,8 +854,8 @@ class NsfwReviewViewModel @Inject constructor(
                 ?: snapshotNow.first().imageId
         }
         val message = when {
-            terminalMissingCursor -> "服务端未返回 next_cursor，下次将从头同步"
             recovered -> "游标已过期，已从头重新同步"
+            terminalMissingCursor -> "服务端未返回 next_cursor，下次将从头同步"
             manual && countedNew > 0 -> "已同步 $countedNew 张新图"
             else -> _state.value.message
         }
@@ -762,7 +882,7 @@ class NsfwReviewViewModel @Inject constructor(
         val page = fetch.page
         val indexBefore = _state.value.currentIndex
         val merge = feed.merge(page)
-        val missingTerminalCursor = !page.hasMore && page.nextCursor == null
+        val missingTerminalCursor = !page.hasMore && page.nextCursor.isNullOrBlank()
         lastCursor = if (missingTerminalCursor) null else page.nextCursor
         val currentId = _state.value.currentId
         val currentAlive = currentId != null && feed.find(currentId) != null
@@ -780,11 +900,12 @@ class NsfwReviewViewModel @Inject constructor(
                 items = feed.snapshot(),
                 currentId = targetId,
                 hasMore = page.hasMore,
-                nextCursor = page.nextCursor,
+                nextCursor = page.nextCursor?.takeIf { it.isNotBlank() },
                 cursorExpired = false,
                 detail = it.detail?.takeIf { d -> d.imageId == targetId },
                 detailLoading = it.detailLoading && it.detail?.imageId == targetId,
                 message = when {
+                    fetch.resetApplied -> "游标已过期，已从头重新同步"
                     missingTerminalCursor -> "服务端未返回 next_cursor，下次将从头同步"
                     manual && merge.addedIds.isNotEmpty() -> "已加载 ${merge.addedIds.size} 张图片"
                     else -> it.message
@@ -796,16 +917,22 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun handleFetchFailure(error: Exception) {
         if (error is NsfwApiException && error.code == NsfwErrorCodes.CURSOR_EXPIRED) {
+            // 失效游标不能继续留在内部水位，否则下次手动刷新会再次命中同一 410。
+            lastCursor = null
             _state.update {
                 it.copy(
                     busy = false,
                     cursorExpired = true,
+                    hasMore = false,
+                    nextCursor = null,
                     message = "游标已过期且从头同步失败，请稍后手动刷新",
                 )
             }
             return
         }
         if (error is NsfwApiException && error.code in setOf("CURSOR_MISSING", "CURSOR_STALLED")) {
+            // 游标缺失/停滞同样必须清理内部水位，让用户可通过刷新从头恢复。
+            lastCursor = null
             _state.update {
                 it.copy(
                     busy = false,
@@ -908,28 +1035,58 @@ class NsfwReviewViewModel @Inject constructor(
         else -> "收藏状态已更新"
     }
 
-    private fun pendingForPanel(promptId: String, versionId: String?): NsfwPendingEvaluation? {
-        val origin = originOf(_state.value.baseUrl)
-        return pendingEvaluations.firstOrNull {
-            it.promptId == promptId && it.versionId == versionId && it.serverOrigin == origin
-        }
+    private fun pendingForPanel(promptId: String, versionId: String?): NsfwPendingEvaluation? =
+        pendingListFor(promptId, versionId, originOf(_state.value.baseUrl)).firstOrNull()
+
+    private fun pendingListFor(
+        promptId: String,
+        versionId: String?,
+        origin: String,
+    ): List<NsfwPendingEvaluation> = pendingEvaluations.filter {
+        it.promptId == promptId && it.versionId == versionId && it.serverOrigin == origin
     }
 
     private fun originOf(url: String): String = url.toHttpUrlOrNull()
         ?.let { "${it.scheme}://${it.host}:${it.port}" }
         .orEmpty()
 
-    private fun upsertPending(pending: NsfwPendingEvaluation) {
-        pendingEvaluations.removeAll { it.request.clientRequestId == pending.request.clientRequestId }
-        pendingEvaluations += pending
+    /**
+     * 先写 DataStore 再入内存：失败时不得发送网络请求，否则强制停止后会留下无法核对的新请求。
+     */
+    private suspend fun persistPending(pending: NsfwPendingEvaluation): Boolean {
+        val next = pendingEvaluations.filterNot {
+            it.serverOrigin == pending.serverOrigin &&
+                it.request.clientRequestId == pending.request.clientRequestId
+        } + pending
+        val saved = runCatching { journal.savePendingEvaluations(next) }.isSuccess
+        if (!saved) return false
+        pendingEvaluations.clear()
+        pendingEvaluations += next
+        savePendingEvaluations()
+        updateRecoveryHint(_state.value.baseUrl)
+        return true
+    }
+
+    private suspend fun removePending(origin: String, clientRequestId: String) {
+        pendingEvaluations.removeAll {
+            it.serverOrigin == origin && it.request.clientRequestId == clientRequestId
+        }
+        runCatching { journal.savePendingEvaluations(pendingEvaluations) }
         savePendingEvaluations()
         updateRecoveryHint(_state.value.baseUrl)
     }
 
-    private fun removePending(clientRequestId: String) {
-        pendingEvaluations.removeAll { it.request.clientRequestId == clientRequestId }
+    /** 启动时以 DataStore 为准恢复；旧版本 SavedState 记录只作为一次性迁移来源。 */
+    private suspend fun hydratePending() {
+        val legacy = readPendingEvaluations()
+        val persisted = runCatching { journal.loadPendingEvaluations() }.getOrNull()
+        val source = persisted?.takeIf { it.isNotEmpty() } ?: legacy
+        pendingEvaluations.clear()
+        pendingEvaluations += source
+        if (persisted.isNullOrEmpty() && legacy.isNotEmpty()) {
+            runCatching { journal.savePendingEvaluations(pendingEvaluations) }
+        }
         savePendingEvaluations()
-        updateRecoveryHint(_state.value.baseUrl)
     }
 
     private fun updateRecoveryHint(baseUrl: String) {

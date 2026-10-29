@@ -47,20 +47,31 @@
 - **连接生命周期**：兼容性三态（Unknown 不启动 feed/轮询）；connection epoch 防止断开后的旧 feed/审核恢复 READY；CancellationException 不转普通错误。
 - **审核与关联**：旧 revision 审核结果改为"已过期，已刷新"；详情 image_id 不一致拒绝；EXACT/UNRESOLVED/未知关联严格失败关闭。
 
+## V2A.2 最终客户端补漏（2026-10-29）
+
+针对 V2A.1 审查给出的 4 组缺陷与 2 项发布前能力：
+
+- **REMOVE 幂等**：只允许严格更大 revision 删除；同 revision（含前导零）一律忽略；补同版本/旧 REMOVE/重复 REMOVE/旧 UPSERT-tombstone 回归。
+- **游标恢复**：空字符串/缺失/停滞 `next_cursor` 明确拒绝；410 后整段历史重建全程不计新图；`loadMore()` 使用 `resetApplied` 显示恢复提示；`CURSOR_EXPIRED/MISSING/STALLED` 清理内部水位，刷新从空游标恢复。
+- **响应身份**：Repository 校验 decision `image_id`、evaluation `prompt_id/client_request_id/prompt_version_id`、receipt `client_request_id`、summary `prompt_id/version`；新增 `RESPONSE_MISMATCH`，不静默修正、不清 pending、不显示成功。
+- **pending 生命周期**：成功回执与面板显隐解耦；成功一条后按剩余记录重算提示；删除按 `server_origin + client_request_id`；同一 prompt+version 多条记录可逐条切换核对。
+- **持久化与恢复**：新增 `NsfwEvaluationJournal`（DataStore `pending_evaluations`），发送前先落盘；重启不自动重发，重试先查回执；旧 SavedState 记录一次性迁移。
+- **连接恢复**：新增 `hasSavedPairing` + `retryConnectionCheck()`，已有配对健康检查失败后无需重新生成配对码。
+
 ## 测试与构建（实际结果）
 
-- NSFW 定向：6 suites / 106 tests / 0 failures。
-- JVM 全量：81 suites / 604 tests / 0 failures。
+- NSFW 定向：6 suites / 126 tests / 0 failures。
+- JVM 全量：81 suites / 624 tests / 0 failures。
 - `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
-- `:app:lintDebug` → 0 errors / 37 warnings（基线历史为 42 warnings）。
-- 仪器测试：五入口 360dp 显示 + Tab 状态恢复在 `MediaReview_Test` AVD → `OK (2 tests)`，9.587s。
+- `:app:lintDebug` → 0 errors / 40 warnings / 17 information。
+- 仪器测试：五入口 360dp 显示 + Tab 状态恢复在 `MediaReview_Test` AVD → `OK (2 tests)`，9.587s（V2A.1 既有结果，本轮未复跑设备）。
 - 未执行真实 Bridge 联调：当前 `/mobile/system/health` 为 `api_contract=1`，缺 5 项 v2 能力，客户端在配对门禁处阻断（预期行为）。
 
 ## 已知问题 / 遗留
 
 - 真实 Bridge v2 接口未实现（NSFW 维护者负责）；真实端到端、真机截图、正式可用均未验收。
 - 游标仅保存在内存：进程终止后从头分页，可能重新混入旧图；持久化水位需绑定 `server_origin + epoch`，本阶段未落盘。
-- 评分未确认记录保存在 SavedStateHandle：覆盖系统重建/进程回收，不保证强制停止后恢复；阶段 B 后可改为独立 DataStore。
+- 评分未确认记录已落 DataStore，但撤销配对不会删除旧来源记录；记录不会自动重发，需用户逐条核对。
 - 评分面板当前用 AlertDialog 承载，未做分页加载更多；首期只展示该版本有界图片。
 - 未实现图片手势缩放（复用需要 MediaReview 的图片 URL 规则，NSFW 路径不同）；当前为整图 Fit 展示。
 - 未提供从 NSFW 图片跳转 MediaReview 媒体的能力（本轮不需要）。

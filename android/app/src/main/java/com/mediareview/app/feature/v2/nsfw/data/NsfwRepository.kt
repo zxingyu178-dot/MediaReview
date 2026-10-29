@@ -77,7 +77,7 @@ class NsfwRepository internal constructor(
         require(action != null || favorite != null) { "action 与 favorite 不能同时为空" }
         require(expectedUpdatedAt.isNotBlank()) { "缺少 expected_updated_at" }
         require(clientRequestId.isNotBlank()) { "缺少 client_request_id" }
-        return call {
+        val result = call {
             api().decide(
                 imageId,
                 NsfwDecisionRequest(
@@ -88,11 +88,24 @@ class NsfwRepository internal constructor(
                 ),
             )
         }
+        if (result.imageId != imageId) {
+            throw mismatch("审核响应身份不一致：请求 $imageId，返回 ${result.imageId}")
+        }
+        return result
     }
 
     override suspend fun promptSummary(promptId: String, versionId: String?): NsfwPromptSummary {
         require(promptId.isNotBlank()) { "prompt_id 不能为空" }
-        return call { api().promptSummary(promptId, versionId) }
+        val summary = call { api().promptSummary(promptId, versionId) }
+        if (summary.promptId != promptId) {
+            throw mismatch("提示词汇总身份不一致：请求 $promptId，返回 ${summary.promptId}")
+        }
+        if (summary.promptVersionId != versionId) {
+            throw mismatch(
+                "提示词汇总版本不一致：请求 ${versionId ?: "整体"}，返回 ${summary.promptVersionId ?: "整体"}",
+            )
+        }
+        return summary
     }
 
     override suspend fun promptImages(
@@ -111,13 +124,40 @@ class NsfwRepository internal constructor(
     ): NsfwEvaluationResult {
         require(promptId.isNotBlank()) { "prompt_id 不能为空" }
         validateEvaluation(request)
-        return call { api().createEvaluation(promptId, request) }
+        val result = call { api().createEvaluation(promptId, request) }
+        if (result.promptId != promptId) {
+            throw mismatch("评分响应提示词不一致：请求 $promptId，返回 ${result.promptId}")
+        }
+        if (result.clientRequestId != request.clientRequestId) {
+            throw mismatch(
+                "评分响应请求号不一致：请求 ${request.clientRequestId}，返回 ${result.clientRequestId}",
+            )
+        }
+        if (result.promptVersionId != request.promptVersionId) {
+            throw mismatch(
+                "评分响应版本不一致：请求 ${request.promptVersionId ?: "整体"}，返回 ${result.promptVersionId ?: "整体"}",
+            )
+        }
+        return result
     }
 
     override suspend fun evaluationReceipt(clientRequestId: String): NsfwEvaluationReceipt {
         require(clientRequestId.isNotBlank()) { "client_request_id 不能为空" }
-        return call { api().evaluationReceipt(clientRequestId) }
+        val receipt = call { api().evaluationReceipt(clientRequestId) }
+        if (receipt.found) {
+            val evaluation = receipt.evaluation
+                ?: throw mismatch("回执标记 found 但缺少评分记录：$clientRequestId")
+            if (evaluation.clientRequestId != clientRequestId) {
+                throw mismatch(
+                    "回执请求号不一致：请求 $clientRequestId，返回 ${evaluation.clientRequestId}",
+                )
+            }
+        }
+        return receipt
     }
+
+    private fun mismatch(message: String): NsfwApiException =
+        NsfwApiException(NsfwErrorCodes.RESPONSE_MISMATCH, message)
 
     private suspend fun api() = apiFactory.create(baseUrlPort.baseUrl(), authenticated = true)
 

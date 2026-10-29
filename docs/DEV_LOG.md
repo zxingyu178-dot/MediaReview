@@ -2977,3 +2977,24 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 
 剩余风险：pending 与 cursor 仍受 SavedStateHandle 边界限制（强制停止不保证恢复）；旧 Bridge 恢复后需重新配对升级；真实服务端事件顺序/退出语义需阶段 B/C 对账。
 
+## 2026-10-29 V2A.2：客户端最终补漏与阶段 A 收尾
+
+背景：V2A.1 审查确认 4 组边界缺陷与 2 项发布前能力（评分持久化、已有配对健康检查重试）。本轮仅改 MediaReview 客户端，不触碰 NSFW Bridge、服务端与生产数据。
+
+修复：
+- REMOVE 幂等：`NsfwFeedStore` 只允许严格更大的 revision 删除；同 revision（含前导零）一律忽略，补同版本/前导零/旧 REMOVE/重复 REMOVE/旧 UPSERT-tombstone 测试。
+- 游标：`has_more=true` 时空字符串/缺失/停滞 `next_cursor` 明确拒绝；410 后整段历史重建全程不计 `newImageCount`；`loadMore()` 使用 `resetApplied` 显示恢复提示；`CURSOR_EXPIRED/CURSOR_MISSING/CURSOR_STALLED` 同步清理内部 `lastCursor`，刷新从空游标恢复。
+- 响应身份：`NsfwRepository` 校验 decision `image_id`、evaluation `prompt_id/client_request_id/prompt_version_id`、receipt `client_request_id` 与评价存在性、summary `prompt_id/version`；新增 `RESPONSE_MISMATCH`，ViewModel 不静默修正、不清 pending、不显示成功。
+- pending 生命周期：成功回执与面板显隐解耦（关闭面板仍清理记录）；成功一条后按剩余记录重算恢复提示；删除按 `server_origin + client_request_id`；同一 prompt+version 多条未确认记录可在面板逐条切换核对（上一条/下一条）。
+- 持久化：新增 `NsfwEvaluationJournal`（DataStore `nsfw_studio_profile` 的 `pending_evaluations`），发送前先落盘；启动以 DataStore 为准并迁移旧 SavedState；重试先查回执，确认未写入才用同一请求号重发。
+- 健康检查重试：`NsfwUiState.hasSavedPairing` + `retryConnectionCheck()`，已有配对在临时断网后无需重新输入配对码。
+
+验证（本机 JDK17 / Gradle 8.10.2；GRADLE_USER_HOME、ANDROID_USER_HOME 指向工作树内以规避沙箱写限制）：
+- NSFW 定向：6 suites / 126 tests / 0 failures。
+- JVM 全量：81 suites / 624 tests / 0 failures。
+- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
+- `:app:lintDebug` → 0 errors / 40 warnings / 17 information。
+- 未执行：真实 Bridge v2 联调、真实手机、真实评分写入；未改生产服务/数据库。
+
+剩余风险：游标水位仍只在内存（进程重启从头分页，可能重新混入旧图）；DataStore 记录依赖 NSFW DataStore 可用性；真实服务端事件顺序与 410 语义仍需阶段 B/C 对账。
+
