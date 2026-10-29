@@ -80,4 +80,66 @@ class NsfwFeedStoreTest {
         assertEquals(1, store.size())
         assertFalse(store.snapshot().any { it.imageId.isBlank() })
     }
+
+    @Test
+    fun `旧revision的重复页不能覆盖较新状态`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "2", status = "KEEP")))
+        val merge = store.merge(page(item("a", revision = "1", status = "NEW")))
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals("2", store.find("a")?.revision)
+        assertEquals(listOf("a"), merge.ignoredStaleIds)
+    }
+
+    @Test
+    fun `审核结果之后的旧feed页必须被忽略`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "1")))
+        val applied = store.applyDecision("a", "KEEP", false, "2026-10-28T12:06:00Z", "3")
+        assertTrue(applied)
+        assertEquals("KEEP", store.find("a")?.status)
+
+        store.merge(page(item("a", revision = "2", status = "NEW")))
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals("3", store.find("a")?.revision)
+
+        store.merge(page(item("a", revision = "4", status = "REJECT")))
+        assertEquals("REJECT", store.find("a")?.status)
+        assertEquals("4", store.find("a")?.revision)
+    }
+
+    @Test
+    fun `同revision重复响应幂等且不改变状态`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "2", status = "KEEP")))
+        store.merge(page(item("a", revision = "2", status = "KEEP")))
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals(1, store.size())
+    }
+
+    @Test
+    fun `审核结果也必须按revision前进`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a", revision = "3", status = "KEEP")))
+        val stale = store.applyDecision("a", "NEW", false, "2026-10-28T12:00:00Z", "2")
+        assertFalse(stale)
+        assertEquals("KEEP", store.find("a")?.status)
+        assertEquals("3", store.find("a")?.revision)
+    }
+
+    @Test
+    fun `REMOVE移除对应图片且未知移除幂等`() {
+        val store = NsfwFeedStore()
+        store.merge(page(item("a"), item("b")))
+        val remove = store.merge(
+            page(item("a", revision = "2").copy(event = NsfwFeedEvents.REMOVE)),
+        )
+        assertEquals(listOf("a"), remove.removedIds)
+        assertEquals(listOf("b"), store.snapshot().map { it.imageId })
+        val repeated = store.merge(
+            page(item("a", revision = "3").copy(event = NsfwFeedEvents.REMOVE)),
+        )
+        assertTrue(repeated.removedIds.isEmpty())
+        assertEquals(1, store.size())
+    }
 }

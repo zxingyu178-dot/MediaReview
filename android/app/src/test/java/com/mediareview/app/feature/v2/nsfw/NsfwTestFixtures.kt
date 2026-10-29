@@ -225,8 +225,8 @@ class FakePairingGateway(
 class FakeNsfwDataSource : NsfwReviewDataSource {
     var feedResponder: suspend (String?) -> NsfwFeedPage = { NsfwFeedPage() }
     var detailsResponder: suspend (String) -> NsfwImageDetails = { NsfwImageDetails(imageId = it) }
-    var decisionResponder: suspend (String, String, Boolean?) -> NsfwDecisionResult = { id, status, favorite ->
-        NsfwDecisionResult(imageId = id, status = status, isFavorite = favorite ?: false, updatedAt = "2026-10-28T12:06:00Z", revision = "2")
+    var decisionResponder: suspend (String, String?, Boolean?) -> NsfwDecisionResult = { id, status, favorite ->
+        NsfwDecisionResult(imageId = id, status = status ?: "NEW", isFavorite = favorite ?: false, updatedAt = "2026-10-28T12:06:00Z", revision = "2")
     }
 
     var summaryResponder: suspend (String, String?) -> NsfwPromptSummary = { id, version ->
@@ -243,6 +243,7 @@ class FakeNsfwDataSource : NsfwReviewDataSource {
     var createEvaluationCalls = 0
     var receiptCalls = 0
     var lastDecisionAction = ""
+    var lastDecisionActionNullable: String? = null
     var lastDecisionRequestId = ""
     var lastEvaluationRequest: NsfwEvaluationRequest? = null
     var lastFeedCursor: String? = ""
@@ -260,13 +261,14 @@ class FakeNsfwDataSource : NsfwReviewDataSource {
 
     override suspend fun decide(
         imageId: String,
-        action: String,
+        action: String?,
         favorite: Boolean?,
         expectedUpdatedAt: String,
         clientRequestId: String,
     ): NsfwDecisionResult {
         decisionCalls += 1
-        lastDecisionAction = action
+        lastDecisionAction = action.orEmpty()
+        lastDecisionActionNullable = action
         lastDecisionRequestId = clientRequestId
         return decisionResponder(imageId, action, favorite)
     }

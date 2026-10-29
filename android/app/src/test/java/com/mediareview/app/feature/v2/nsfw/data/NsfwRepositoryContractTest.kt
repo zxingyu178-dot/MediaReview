@@ -86,12 +86,78 @@ class NsfwRepositoryContractTest {
     }
 
     @Test
+    fun `feed解析REMOVE墓碑事件`() = runTest {
+        server.enqueue(
+            okay(
+                """{"success":true,"data":{"items":[{"image_id":"img_a","revision":"2","event":"REMOVE","status":"NEW","is_favorite":false,"kind":"original","created_at":"2026-10-28T12:00:00Z","updated_at":"2026-10-28T12:05:00Z","thumbnail_url":"","preview_url":"","original_url":""}],"next_cursor":"c2","has_more":false,"resumed":true},"request_id":"r"}""",
+            ),
+        )
+        val page = repository.feed("c1", 50)
+        assertEquals(NsfwFeedEvents.REMOVE, page.items.single().event)
+    }
+
+    @Test
     fun `游标过期映射为CURSOR_EXPIRED且状态410`() = runTest {
         server.enqueue(error(410, NsfwJson.ERROR_CURSOR_EXPIRED))
         val failure = runCatching { repository.feed("old", 50) }.exceptionOrNull()
         assertTrue(failure is NsfwApiException)
         assertEquals(NsfwErrorCodes.CURSOR_EXPIRED, (failure as NsfwApiException).code)
         assertEquals(410, failure.httpStatus)
+    }
+
+    @Test
+    fun `404按路由区分图片和提示词不存在而不是能力缺失`() = runTest {
+        server.enqueue(error(404, """{"success":false,"error":{"code":"","message":"not found"},"request_id":"r"}"""))
+        val imageFailure = runCatching { repository.details("img_missing") }.exceptionOrNull()
+        assertTrue(imageFailure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.IMAGE_NOT_FOUND, (imageFailure as NsfwApiException).code)
+
+        server.enqueue(error(404, """{"success":false,"error":{"code":"","message":"not found"},"request_id":"r"}"""))
+        val promptFailure = runCatching { repository.promptSummary("prm_missing", null) }.exceptionOrNull()
+        assertTrue(promptFailure is NsfwApiException)
+        assertEquals(NsfwErrorCodes.PROMPT_NOT_FOUND, (promptFailure as NsfwApiException).code)
+
+        server.enqueue(error(404, """{"success":false,"error":{"code":"","message":"not found"},"request_id":"r"}"""))
+        val feedFailure = runCatching { repository.feed(null, 50) }.exceptionOrNull()
+        assertTrue(feedFailure is NsfwApiException)
+        assertEquals("HTTP_404", (feedFailure as NsfwApiException).code)
+    }
+
+    @Test
+    fun `Bridge旧401码映射为AUTH_REQUIRED或AUTH_REVOKED`() = runTest {
+        server.enqueue(error(401, """{"success":false,"error":{"code":"UNAUTHORIZED","message":"未授权"},"request_id":"r"}"""))
+        val unauthorized = runCatching { repository.feed(null, 50) }.exceptionOrNull()
+        assertTrue(unauthorized is NsfwApiException)
+        assertEquals(NsfwErrorCodes.AUTH_REQUIRED, (unauthorized as NsfwApiException).code)
+        assertTrue(unauthorized.isAuthRejected)
+
+        server.enqueue(error(401, """{"success":false,"error":{"code":"DEVICE_REVOKED","message":"设备吊销"},"request_id":"r"}"""))
+        val revoked = runCatching { repository.feed(null, 50) }.exceptionOrNull()
+        assertTrue(revoked is NsfwApiException)
+        assertEquals(NsfwErrorCodes.AUTH_REVOKED, (revoked as NsfwApiException).code)
+        assertTrue((revoked as NsfwApiException).isAuthRejected)
+    }
+
+    @Test
+    fun `409按路由区分审核冲突与评分幂等冲突`() = runTest {
+        server.enqueue(error(409, """{"success":false,"error":{"code":"","message":"conflict"},"request_id":"r"}"""))
+        val decision = runCatching {
+            repository.decide("img_a", "KEEP", null, "2026-10-28T12:00:03Z", "req-3")
+        }.exceptionOrNull()
+        assertEquals(NsfwErrorCodes.REVIEW_CONFLICT, (decision as NsfwApiException).code)
+
+        server.enqueue(error(409, """{"success":false,"error":{"code":"","message":"conflict"},"request_id":"r"}"""))
+        val evaluation = runCatching {
+            repository.createEvaluation(
+                "prm_1",
+                NsfwEvaluationRequest(
+                    promptVersionId = "prmv_1",
+                    overallScore = 4,
+                    clientRequestId = "req-eval-9",
+                ),
+            )
+        }.exceptionOrNull()
+        assertEquals(NsfwErrorCodes.IDEMPOTENCY_CONFLICT, (evaluation as NsfwApiException).code)
     }
 
     @Test
@@ -146,6 +212,32 @@ class NsfwRepositoryContractTest {
         assertTrue(body.contains("\"expected_updated_at\":\"2026-10-28T12:00:03Z\""))
         assertTrue(body.contains("\"client_request_id\":\"req-decision-1\""))
         assertFalse(body.contains("DELETE"))
+    }
+
+    @Test
+    fun `favorite-only请求不带action且保留审核状态`() = runTest {
+        server.enqueue(okay("""{"success":true,"data":{"image_id":"img_a","status":"REJECT","is_favorite":true,"updated_at":"2026-10-28T12:06:00Z","revision":"4"},"request_id":"req"}"""))
+        val result = repository.decide(
+            imageId = "img_a",
+            action = null,
+            favorite = true,
+            expectedUpdatedAt = "2026-10-28T12:00:03Z",
+            clientRequestId = "req-fav-1",
+        )
+        assertEquals("REJECT", result.status)
+        assertTrue(result.isFavorite)
+        val body = server.takeRequest().body.readUtf8()
+        assertFalse("body=$body", body.contains("\"action\""))
+        assertTrue("body=$body", body.contains("\"favorite\":true"))
+    }
+
+    @Test
+    fun `action和favorite同时为空时客户端拒绝`() = runTest {
+        val failure = runCatching {
+            repository.decide("img_a", null, null, "2026-10-28T12:00:03Z", "req-x")
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals(0, server.requestCount)
     }
 
     @Test

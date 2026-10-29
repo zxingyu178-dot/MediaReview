@@ -37,6 +37,9 @@
 
 任一不满足 → **不发起配对**，UI 展示缺失项；不得把"旧 Bridge 可连"当作可审核。
 
+已保存配对恢复时（App 启动）同样重新执行本条能力门禁：旧 Bridge/降级服务端保留 token，
+但标记 `Incompatible` 并阻止进入审核页；只有明确的 401/吊销才清除 NSFW token。
+
 ### 1.2 错误码（客户端冻结）
 
 | code | HTTP | 含义 | 客户端行为 |
@@ -48,8 +51,18 @@
 | `PROMPT_VERSION_UNKNOWN` | 422 | 版本未知且请求强行指定 | 拒绝提交；要求用户显式选择"对提示词整体评分" |
 | `VALIDATION_ERROR` | 422 | 参数越界（分数/维度等） | 展示服务端消息，不重试 |
 | `IDEMPOTENCY_CONFLICT` | 409 | 同一 `client_request_id` 载荷不一致 | 查询回执，不重复提交 |
-| `CAPABILITY_MISSING` | 404/501 | 服务端未实现该能力 | 阻断该动作，提示 Bridge 版本过旧 |
+| `IMAGE_NOT_FOUND` | 404 | 图片不存在 | 提示并从队列移除/刷新；不得当作"Bridge 缺能力" |
+| `PROMPT_NOT_FOUND` | 404 | 提示词不存在 | 禁用评分入口并说明 |
+| `CAPABILITY_MISSING` | 404/501 | 服务端显式未实现该能力 | 阻断该动作，提示 Bridge 版本过旧 |
 | `INTERNAL_ERROR` | 5xx | 服务端错误 | 可重试；标注"未确认"而不是成功 |
+
+错误码映射规则（双端兼容）：
+
+- Bridge v1 旧码 `UNAUTHORIZED` → 客户端规范化为 `AUTH_REQUIRED`；`DEVICE_REVOKED` → `AUTH_REVOKED`。旧配对有效时不得误判为已吊销。
+- 无业务 code 的 404：`/mobile/images/*`（feed 除外）→ `IMAGE_NOT_FOUND`；`/mobile/prompts/*` → `PROMPT_NOT_FOUND`；
+  其它路由（含 `/mobile/system/health`）→ 原样 `HTTP_404`，**不得捏造 `CAPABILITY_MISSING`**。
+- 无业务 code 的 409：`/decision` → `REVIEW_CONFLICT`；`/evaluations` → `IDEMPOTENCY_CONFLICT`；其它 → `HTTP_409`。
+- 无业务 code 的 410：仅 `/mobile/images/feed` → `CURSOR_EXPIRED`；其它路由 → `HTTP_410`。
 
 ## 2. 端点（客户端冻结）
 
@@ -67,6 +80,7 @@
   "items": [{
     "image_id": "img_...",
     "revision": "17",
+    "event": "UPSERT",
     "status": "NEW",
     "is_favorite": false,
     "kind": "original",
@@ -94,12 +108,18 @@
 游标与顺序：
 
 - 顺序由服务端定义（建议 `(in_epoch_ms, monotonic_seq)` 编码为 opaque 字符串），客户端**不解析**、不按手机本地时间排序。
-- 同一个 `image_id` 是唯一身份；`revision` 单调递增，用于判断"同 ID 元数据更新"。
+- 同一个 `image_id` 是唯一身份；`revision` 单调递增（十进制字符串），用于判断"同 ID 元数据更新"。
+- `event`：`UPSERT`（默认，创建或更新）或 `REMOVE`（队列 tombstone）。
+  - `REMOVE` 只表示该图从手机队列移除；**不删除文件、不改变数据库审核记录**。
+  - 移除未知 ID 幂等；重复 REMOVE 不报错。
+  - 当前图片被移除时，客户端保持索引位置选择下一条（无则上一条 / 空态）；移除位置在当前图之前时当前图片不变。
 - 新 ID 追加到队尾；已存在 ID 原位替换，**不得插到当前浏览位置之前**，不得清空或跳转。
-- 空增量（items 为空、has_more=false）**不代表任何旧图被删除**；v2 不定义 remove 事件。
-- `has_more=true` 时客户端可用同一 `next_cursor` 继续追平；`next_cursor` 在 `has_more=false` 时仍应返回，供下一轮增量轮询。
-- 游标过期 → `410 CURSOR_EXPIRED`。
-- 断线重放：客户端保存最后成功 `next_cursor`（内存，不落盘）；重连后用该游标继续；重复卡片按 `image_id` 去重。
+- 客户端只接受 `revision` 前进的更新；同 revision 幂等忽略，旧 revision 绝不覆盖新状态。
+- 空增量（items 为空、has_more=false）表示"本轮没有变化"，不代表任何旧图被删除；删除只通过 REMOVE 事件表达。
+- `has_more=true` 时客户端可用同一 `next_cursor` 继续追平（有界、可恢复）；`next_cursor` 在 `has_more=false` 时仍应返回，供下一轮增量轮询。
+- `has_more=true` 但 `next_cursor` 缺失或等于本轮 cursor = 服务端游标未推进，客户端停止本轮并提示错误。
+- 游标过期 → `410 CURSOR_EXPIRED`；客户端只重置一次，再次 410 明确报错，不无限重试。
+- 断线重放：客户端保存最后成功 `next_cursor`（当前仅内存）；重连后用该游标继续；重复卡片按 `image_id` 去重。
 
 ### 2.2 `GET /mobile/images/{image_id}/details`
 
@@ -138,10 +158,13 @@
 { "action": "KEEP", "favorite": true, "expected_updated_at": "2026-10-28T12:00:03Z", "client_request_id": "uuid" }
 ```
 
-- `action` ∈ `KEEP / REJECT / RESET`；`favorite` 可选（不传 = 不改）。
+- `action` ∈ `KEEP / REJECT / RESET` **或 null**。
+- **favorite-only**：`action` 缺失/为 null 且 `favorite` 有值；服务端只改收藏，**必须保留原 `status`**（NEW/KEEP/REJECT/ARCHIVED 均不变）。
+- `action` 与 `favorite` 不能同时缺失；客户端在发送前就拒绝这种请求。
 - `expected_updated_at` 必填（与 feed 的 `updated_at` 对齐）；不一致 → `409 REVIEW_CONFLICT`，返回权威 `data`。
 - `REJECT` 只改状态，不删除文件；客户端不提供永久删除入口。
-- 成功 `data`：`{ image_id, status, is_favorite, updated_at, revision }`。
+- 成功 `data`：`{ image_id, status, is_favorite, updated_at, revision }`；`status` 是权威值，favorite-only 时必须等于原状态。
+- `client_request_id` 用于写请求幂等：同 ID 同载荷重复提交返回原结果，不重复改状态。
 
 ### 2.4 `GET /mobile/prompts/{prompt_id}/review-summary?version_id=...`
 
@@ -196,6 +219,8 @@
 - `prompt_version_id` 允许 null，但只有在用户明确选择"对提示词整体评分（生成版本未知）"时才可以传 null。
 - 追加历史，不覆盖旧评分；评分不改变 prompt 状态。
 - 同一 `client_request_id` 重试必须幂等；载荷不一致 → `409 IDEMPOTENCY_CONFLICT`。
+- 客户端在首次发送后**冻结请求载荷与 requestId**：重试必须复用同一载荷；用户改分必须显式"新建评分请求"生成新 ID，禁止同键改 payload。
+- 未确认请求写入 `SavedStateHandle`（进程重启后仅提示、不自动重发）；提交成功或用户新建请求后清除。
 - 成功 `data`：`{ evaluation_id, prompt_id, prompt_version_id, overall_score, created_at, client_request_id }`。
 
 ### 2.7 `GET /mobile/prompts/evaluations/{client_request_id}`（回执查询）
@@ -217,3 +242,18 @@
 ## 4. 契约变更流程
 
 任何字段/路径变更必须先改本文件与 `docs/integration/fixtures/`，再改代码；客户端 DTO 与端点只在 `NsfwModels.kt` / `NsfwStudioApi.kt` 两处定义。
+
+## 5. 与原需求单的差异对照（阶段 A 冻结）
+
+| 议题 | 原需求单 | 当前冻结契约 | 理由 |
+| --- | --- | --- | --- |
+| 图片移除 | A.19 要求 create/update/remove 事件语义 | feed 增加 `event=REMOVE` tombstone；只移除队列，不删文件；未知/重复移除幂等 | 满足源需求，同时不扩大删除权限 |
+| 收藏与审核 | 收藏必须独立于审核结果 | decision `action` 允许 null；favorite-only 保留原 `status` | 防止收藏误改 NEW/REJECT |
+| revision | 只要求可去重 | 客户端只接受 revision 前进；同版本幂等、旧版本忽略 | 防止旧页覆盖审核结果 |
+| 游标异常 | 要求 410 与恢复 | 客户端只重置一次；再次 410 报错；`has_more` 但游标不推进 → 停止并报错 | 防无限循环与静默积压 |
+| 404 语义 | 未细化 | 无 code 的 404 按路由映射 IMAGE/PROMPT_NOT_FOUND，其它保持 HTTP_404 | 不把"图片不存在"误报为 Bridge 缺能力 |
+| 旧 401 码 | NSFW 现有 `UNAUTHORIZED` / `DEVICE_REVOKED` | 客户端规范化为 `AUTH_REQUIRED` / `AUTH_REVOKED` | 双端兼容，避免误清有效旧配对 |
+| 评分幂等 | 建议 client_request_id + 回执 | 首次发送冻结载荷与 ID；改分必须新建请求号；pending 持久化仅提示不自动重发 | 防止同键改 payload 与重复计分 |
+| 图片 URL | 仅同源相对 URL | 客户端只接受 `/mobile/images/` 相对路径，拒绝外部 Origin/协议相对/穿越/query | 防 SSRF 与外部资源加载 |
+
+配套提案：`docs/integration/openapi-mobile-review-v2.proposal.json` 与 `docs/integration/fixtures/`（含 `feed_remove.json`、`decision_favorite_only.json`）。

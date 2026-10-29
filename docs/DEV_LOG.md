@@ -2930,3 +2930,30 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 
 边界：未改 NSFW 任何文件；未改 MediaReview Server/Jellyfin；未改生产服务、真实媒体、数据库；未发版、未改版本号。
 
+## 2026-10-29 阶段 A：客户端 P0/P1 加固（feature/nsfw-image-review-v2）
+
+背景：ChatGPT 代码审查（`NSFW_MediaReview_20261029_Code_Review_Next_Development_Plan.md`）指出 C-01/C-02 P0 与 C-04…C-11 缺陷；本轮只改 MediaReview 客户端与双方 v2 契约，不实现 Bridge、不连真实服务写入。
+
+根因与修复：
+- C-01 收藏误改审核：`toggleFavorite()` 走 `decision("KEEP")`，把 REJECT/NEW 一并改成 KEEP。改为 favorite-only（`action=null`），契约允许并与服务端约定保留原 status；测试覆盖 NEW/KEEP/REJECT 与“action+favorite 同时缺失拒绝”。
+- C-02 旧 revision 覆盖：`NsfwFeedStore.merge` 无版本比较、`applyDecision` 盲写。改为十进制 revision 单调比较；同版本幂等、旧版本忽略；审核结果与乱序 feed 均有测试。
+- C-04 无持续同步：新增页面 START/STOP 生命周期驱动的 15s 有界轮询；离开页面/401/断开立即停止；测试验证启停。
+- C-05 游标异常：原 `continue` 在持续 410 时可死循环，MAX_PAGES 后沿用旧 hasMore。改为 410 只重置一次、再次报错；游标不推进即停止；每页刷新 hasMore/nextCursor；10 页 ×50 的 300 张追平测试。
+- C-06 恢复不重验：`load()` 直接以本地 token 视为 READY。改为启动执行 health capability gate；旧 Bridge 保留 token、标记 incompatible、阻止进入审核页；不可达保留 token 并提示。
+- C-07 评分幂等键复用改动：首次发送后冻结 `NsfwEvaluationRequest` 与 requestId；改分必须“新建评分请求”；pending 写入 SavedStateHandle，进程重启仅提示不自动重发；测试覆盖冻结、换号、回执。
+- C-08 异步回包污染：detail 与 prompt panel 引入 request generation；旧 image/prompt 回包被丢弃；快速切图与关面板测试。
+- C-09 remove 语义缺失：feed 增加 `REMOVE` tombstone；只移出队列不删文件；未知/重复移除幂等；当前图被移除按原索引选下一条。
+- C-10 外部 URL：新增 `safeNsfwImageUrl`，仅允许同源 `/mobile/images/` 相对路径，拒绝绝对/协议相对/穿越/query；6 组 URL 测试。
+- C-11 404 误映射：不再把所有 404 当 CAPABILITY_MISSING；按路由映射 IMAGE/PROMPT_NOT_FOUND，409/410 按路由区分，旧 `UNAUTHORIZED`/`DEVICE_REVOKED` 规范化。
+
+契约：`docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md` 增加 REMOVE、favorite-only、错误码映射、评分冻结、恢复重验，并新增 §5 差异对照表；新增 `openapi-mobile-review-v2.proposal.json` 与 `feed_remove.json` / `decision_favorite_only.json` fixtures。
+
+验证（本机 JDK17 / Gradle 8.9 离线缓存，模拟器 `MediaReview_Test` AVD）：
+- NSFW 定向：6 suites / 88 tests / 0 failures。
+- 全量 JVM：81 suites / 586 tests / 0 failures。
+- `assembleDebug`、`assembleDebugAndroidTest` 通过；lint 0 errors / 37 warnings。
+- 仪器导航：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` → OK (2 tests) / 25.865s。
+- 未执行：真实 Bridge v2 联调、真实手机；未改生产服务/数据库；未测未知服务端真实 remove/轮询行为（Bridge 未实现）。
+
+剩余风险：cursor 仅内存，进程重启会从头分页（额外风险，未在本阶段落盘）；旧 Bridge 恢复时标记 incompatible 需要 UI 再次配对升级；真实服务端 revision/事件语义仍需阶段 B/C 对账。
+

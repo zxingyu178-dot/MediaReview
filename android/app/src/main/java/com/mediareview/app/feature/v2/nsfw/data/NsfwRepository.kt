@@ -11,7 +11,7 @@ interface NsfwReviewDataSource {
     suspend fun details(imageId: String): NsfwImageDetails
     suspend fun decide(
         imageId: String,
-        action: String,
+        action: String?,
         favorite: Boolean?,
         expectedUpdatedAt: String,
         clientRequestId: String,
@@ -61,12 +61,13 @@ class NsfwRepository internal constructor(
 
     override suspend fun decide(
         imageId: String,
-        action: String,
+        action: String?,
         favorite: Boolean?,
         expectedUpdatedAt: String,
         clientRequestId: String,
     ): NsfwDecisionResult {
-        require(action in setOf("KEEP", "REJECT", "RESET")) { "非法审核动作：$action" }
+        require(action == null || action in setOf("KEEP", "REJECT", "RESET")) { "非法审核动作：$action" }
+        require(action != null || favorite != null) { "action 与 favorite 不能同时为空" }
         require(expectedUpdatedAt.isNotBlank()) { "缺少 expected_updated_at" }
         require(clientRequestId.isNotBlank()) { "缺少 client_request_id" }
         return call {

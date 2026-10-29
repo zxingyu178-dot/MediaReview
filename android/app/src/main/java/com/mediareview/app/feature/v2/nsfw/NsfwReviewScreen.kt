@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import dagger.hilt.android.EntryPointAccessors
@@ -77,6 +81,25 @@ fun NsfwReviewScreen(
     var baseUrlInput by rememberSaveable { mutableStateOf("") }
     var codeInput by rememberSaveable { mutableStateOf("") }
     var detailsOpen by rememberSaveable { mutableStateOf(false) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> vm.setScreenVisible(true)
+                Lifecycle.Event.ON_STOP -> vm.setScreenVisible(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            vm.setScreenVisible(true)
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            vm.setScreenVisible(false)
+        }
+    }
 
     LaunchedEffect(state.baseUrl) {
         if (baseUrlInput.isBlank() && state.baseUrl.isNotBlank()) baseUrlInput = state.baseUrl
@@ -267,6 +290,7 @@ private fun ReadyPane(
         state.message?.let { Banner(it, warning = false) }
         state.conflictMessage?.let { Banner(it, warning = true) }
         if (state.cursorExpired) Banner("游标已过期，已从头同步；当前图片位置保持不变", warning = true)
+        state.evaluationRecoveryHint?.let { Banner(it, warning = true) }
 
         Box(
             modifier = Modifier
@@ -283,7 +307,7 @@ private fun ReadyPane(
                 )
             } else {
                 AsyncImage(
-                    model = absoluteUrl(state.baseUrl, item.previewUrl),
+                    model = safeNsfwImageUrl(state.baseUrl, item.previewUrl),
                     imageLoader = imageLoader,
                     contentDescription = "待审核图片",
                     contentScale = ContentScale.Fit,
@@ -338,7 +362,7 @@ private fun ReadyPane(
         ) {
             items(state.items, key = { it.imageId }) { item ->
                 Thumbnail(
-                    url = absoluteUrl(state.baseUrl, item.thumbnailUrl),
+                    url = safeNsfwImageUrl(state.baseUrl, item.thumbnailUrl),
                     imageLoader = imageLoader,
                     selected = item.imageId == state.currentId,
                     onClick = { onSelect(item.imageId) },
@@ -481,9 +505,15 @@ private fun PromptScoreDialog(
     baseUrl: String,
     imageLoader: ImageLoader,
 ) {
-    var overall by remember(panel.requestId) { mutableStateOf(0) }
-    var dimensions by remember(panel.requestId) { mutableStateOf(emptyMap<String, Int>()) }
-    var notes by remember(panel.requestId) { mutableStateOf("") }
+    var overall by remember(panel.requestId) {
+        mutableStateOf(panel.pendingRequest?.overallScore ?: 0)
+    }
+    var dimensions by remember(panel.requestId) {
+        mutableStateOf(panel.pendingRequest?.dimensions.orEmpty())
+    }
+    var notes by remember(panel.requestId) {
+        mutableStateOf(panel.pendingRequest?.notes ?: "")
+    }
 
     AlertDialog(
         onDismissRequest = vm::closePromptPanel,
@@ -545,7 +575,7 @@ private fun PromptScoreDialog(
                                         .padding(2.dp),
                                 ) {
                                     AsyncImage(
-                                        model = absoluteUrl(baseUrl, image.thumbnailUrl),
+                                        model = safeNsfwImageUrl(baseUrl, image.thumbnailUrl),
                                         imageLoader = imageLoader,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
@@ -611,6 +641,11 @@ private fun PromptScoreDialog(
                         color = if (panel.unconfirmed) V2Colors.Warning else MediaTextSecondary,
                         modifier = Modifier.padding(top = V2Spacing.Sm),
                     )
+                }
+                if (panel.unconfirmed || panel.message?.contains("新建评分请求") == true) {
+                    TextButton(onClick = vm::resetEvaluationDraft) {
+                        Text("新建评分请求（旧请求号作废）", color = V2Colors.Accent)
+                    }
                 }
                 panel.submitted?.let {
                     Text(
@@ -695,9 +730,3 @@ private fun linkStateLabel(link: NsfwPromptLink?): String = when {
 
 private fun formatIso(value: String): String =
     if (value.isBlank()) "未知" else value.take(19).replace('T', ' ')
-
-private fun absoluteUrl(baseUrl: String, path: String): String = when {
-    path.isBlank() -> ""
-    path.startsWith("http://") || path.startsWith("https://") -> path
-    else -> baseUrl.trimEnd('/') + "/" + path.trimStart('/')
-}

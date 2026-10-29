@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.nsfw.network
 import com.mediareview.app.feature.v2.nsfw.data.NsfwApiException
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEnvelope
 import com.mediareview.app.feature.v2.nsfw.data.NsfwError
+import com.mediareview.app.feature.v2.nsfw.data.NsfwErrorCodes
 import com.mediareview.app.feature.v2.nsfw.data.NsfwErrorEnvelope
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,7 +32,11 @@ class NsfwApiFactory(
     fun toException(error: HttpException): NsfwApiException {
         val body = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
         val parsed = body?.let { runCatching { json.decodeFromString<NsfwErrorEnvelope>(it) }.getOrNull() }
-        val code = parsed?.error?.code?.takeIf { it.isNotBlank() } ?: defaultCode(error.code())
+        val path = runCatching {
+            error.response()?.raw()?.request?.url?.encodedPath.orEmpty()
+        }.getOrDefault("")
+        val rawCode = parsed?.error?.code?.takeIf { it.isNotBlank() } ?: defaultCode(error.code(), path)
+        val code = NsfwErrorCodes.canonical(rawCode)
         val message = parsed?.error?.message?.takeIf { it.isNotBlank() }
             ?: when (error.code()) {
                 401 -> "配对凭据已失效，请重新配对"
@@ -47,15 +52,24 @@ class NsfwApiFactory(
         val data = envelope.data
         if (envelope.success && data != null) return data
         val err = envelope.error ?: NsfwError("EMPTY_DATA", "服务端返回空数据")
-        throw NsfwApiException(err.code, err.message.ifBlank { "请求失败" })
+        throw NsfwApiException(NsfwErrorCodes.canonical(err.code), err.message.ifBlank { "请求失败" })
     }
 
-    private fun defaultCode(status: Int): String = when (status) {
-        401 -> "AUTH_REQUIRED"
-        409 -> "REVIEW_CONFLICT"
-        410 -> "CURSOR_EXPIRED"
-        422 -> "VALIDATION_ERROR"
-        404 -> "CAPABILITY_MISSING"
-        else -> if (status >= 500) "INTERNAL_ERROR" else "HTTP_$status"
+    private fun defaultCode(status: Int, path: String): String = when (status) {
+        401 -> NsfwErrorCodes.AUTH_REQUIRED
+        409 -> when {
+            "/decision" in path -> NsfwErrorCodes.REVIEW_CONFLICT
+            "/evaluations" in path -> NsfwErrorCodes.IDEMPOTENCY_CONFLICT
+            else -> "HTTP_409"
+        }
+        410 -> if ("/images/feed" in path) NsfwErrorCodes.CURSOR_EXPIRED else "HTTP_410"
+        422 -> NsfwErrorCodes.VALIDATION_ERROR
+        404 -> when {
+            // 兜底 404 不捏造"能力缺失"：只有路由语义明确时才映射业务不存在。
+            path.contains("/mobile/images/") && !path.endsWith("/feed") -> NsfwErrorCodes.IMAGE_NOT_FOUND
+            path.contains("/mobile/prompts/") -> NsfwErrorCodes.PROMPT_NOT_FOUND
+            else -> "HTTP_404"
+        }
+        else -> if (status >= 500) NsfwErrorCodes.INTERNAL_ERROR else "HTTP_$status"
     }
 }

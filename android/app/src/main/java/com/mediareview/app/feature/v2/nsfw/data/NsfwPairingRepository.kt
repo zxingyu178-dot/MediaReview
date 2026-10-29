@@ -31,6 +31,11 @@ data class NsfwConnectionSnapshot(
     val paired: Boolean = false,
     val rejected: Boolean = false,
     val message: String? = null,
+    /** 恢复已保存配对后重新执行 capability gate 的结果；false 表示旧 Bridge 或缺能力。 */
+    val compatible: Boolean = true,
+    val product: String = "",
+    val apiContract: Int = 0,
+    val missingCapabilities: List<String> = emptyList(),
 )
 
 sealed interface NsfwPairResult {
@@ -91,7 +96,44 @@ class NsfwPairingRepository internal constructor(
             return NsfwConnectionSnapshot(baseUrl = profile.baseUrl, paired = false)
         }
         tokenProvider.set(profile.token, profile.baseUrl)
-        return NsfwConnectionSnapshot(baseUrl = profile.baseUrl, paired = true)
+        // 恢复连接必须重新过 capability gate：旧 Bridge/降级服务端不能因为本地有 token 就当成可用。
+        val health = try {
+            apiFactory.unwrap(apiFactory.create(profile.baseUrl, authenticated = false).health())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IOException) {
+            return NsfwConnectionSnapshot(
+                baseUrl = profile.baseUrl,
+                paired = true,
+                message = "暂时无法校验 Bridge 版本，请检查连接",
+            )
+        } catch (error: Exception) {
+            return NsfwConnectionSnapshot(
+                baseUrl = profile.baseUrl,
+                paired = true,
+                message = "Bridge 健康检查失败：${error.message ?: "未知错误"}",
+            )
+        }
+        val missing = NSFW_REQUIRED_CAPABILITIES.filterNot { it in health.capabilities }
+        val productOk = health.product.startsWith(NSFW_PRODUCT_PREFIX)
+        val contractOk = health.apiContract >= NSFW_REQUIRED_API_CONTRACT
+        if (productOk && contractOk && missing.isEmpty()) {
+            return NsfwConnectionSnapshot(baseUrl = profile.baseUrl, paired = true, compatible = true)
+        }
+        val reasons = buildList {
+            if (!productOk) add("产品标识不匹配（${health.product.ifBlank { "未知" }}）")
+            if (!contractOk) add("api_contract=${health.apiContract}，要求 ≥ $NSFW_REQUIRED_API_CONTRACT")
+            if (missing.isNotEmpty()) add("缺少能力：${missing.joinToString("、")}")
+        }
+        return NsfwConnectionSnapshot(
+            baseUrl = profile.baseUrl,
+            paired = true,
+            compatible = false,
+            product = health.product,
+            apiContract = health.apiContract,
+            missingCapabilities = missing,
+            message = "已保存的配对仍然有效，但当前 Bridge 不支持生图审核 v2：" + reasons.joinToString("；"),
+        )
     }
 
     override suspend fun checkAndPair(baseUrlInput: String, code: String): NsfwPairResult {

@@ -2,6 +2,23 @@
 
 > **当前状态以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为准。** 本文件是任务与阶段流水；下方 Stage8H/8I/8J/9 等段落均为历史记录，不代表当前进度。
 
+## 2026-10-29 阶段 A：MediaReview 客户端加固（`feature/nsfw-image-review-v2`）
+
+- [x] C-01 收藏独立于审核：decision 允许 `action=null` 的 favorite-only；NEW/KEEP/REJECT 状态不被收藏改写；客户端拒绝 action 与 favorite 同时缺失。
+- [x] C-02 revision 单调：feed/store 只接受较新 revision；同版本幂等、旧回包忽略；审核结果与旧 feed 页有测试覆盖。
+- [x] C-04 前台增量轮询：生图审核页 START/STOP 生命周期控制，15 秒有界轮询，离开页面立即停止；手动刷新保留。
+- [x] C-05 游标异常：410 只重置一次，再次 410 明确报错；`has_more` 但游标不推进即停止；每次刷新 hasMore/nextCursor；>250 张跨页追平测试。
+- [x] C-06 恢复配对重验：App 启动执行 health capability gate；旧 Bridge 保留 token 但标记不可用并阻止进入审核页。
+- [x] C-07 评分幂等：发送后冻结载荷与 requestId；改分必须"新建评分请求"；pending 持久化到 SavedStateHandle，重启只提示不自动重发。
+- [x] C-08 异步防污染：detail / prompt panel 使用 request generation + image/prompt 结果守卫；快速切图与关面板旧回包被丢弃。
+- [x] C-09 移除语义：feed 增加 `REMOVE` tombstone，只移除队列不删文件；当前图被移除时按原索引选择下一条。
+- [x] C-10 图片 URL：仅同源 `/mobile/images/` 相对路径；拒绝外部 Origin、协议相对、路径穿越、query/fragment。
+- [x] C-11 错误码：404 按路由映射 IMAGE/PROMPT_NOT_FOUND；409/410 按路由区分；Bridge 旧 `UNAUTHORIZED`/`DEVICE_REVOKED` 规范化。
+- [x] 契约冻结：`docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md` 更新 remove/favorite-only/错误码/幂等语义 + 差异对照表；新增 OpenAPI 提案与 fixtures。
+- [x] 针对性测试：NSFW JVM 6 suites / 88 tests / 0 failures；全量 JVM 81 suites / 586 tests / 0 failures；`assembleDebug`、`assembleDebugAndroidTest` 通过；lint 0 errors / 37 warnings。
+- [x] Gate A 仪器导航测试：五入口布局 + Tab 状态恢复在 `MediaReview_Test` AVD 复跑通过（`OK (2 tests)` / 25.865s）。
+- [ ] 阶段 B：NSFW Bridge v2 受限服务端开发（真实联调仍 BLOCKED，等待阶段 A 验收放行）。
+
 ## 2026-10-29 NSFW 生图审核 V2 客户端（分支 `feature/nsfw-image-review-v2`）
 
 - [x] M0 契约冻结：需求单原文归档到 `docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`；冻结 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`（端点 / DTO / 能力标记 / 错误码 / 游标语义）与 `fixtures/`。

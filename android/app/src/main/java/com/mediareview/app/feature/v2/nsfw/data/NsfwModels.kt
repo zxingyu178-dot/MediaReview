@@ -42,6 +42,23 @@ object NsfwErrorCodes {
     const val IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     const val CAPABILITY_MISSING = "CAPABILITY_MISSING"
     const val INTERNAL_ERROR = "INTERNAL_ERROR"
+    const val IMAGE_NOT_FOUND = "IMAGE_NOT_FOUND"
+    const val PROMPT_NOT_FOUND = "PROMPT_NOT_FOUND"
+
+    /** Bridge v1 旧码映射（双端兼容）：不能把有效旧配对误判为已吊销。 */
+    const val LEGACY_UNAUTHORIZED = "UNAUTHORIZED"
+    const val LEGACY_DEVICE_REVOKED = "DEVICE_REVOKED"
+
+    fun canonical(raw: String): String = when (raw) {
+        LEGACY_UNAUTHORIZED -> AUTH_REQUIRED
+        LEGACY_DEVICE_REVOKED -> AUTH_REVOKED
+        else -> raw
+    }
+}
+
+object NsfwFeedEvents {
+    const val UPSERT = "UPSERT"
+    const val REMOVE = "REMOVE"
 }
 
 @Serializable
@@ -117,6 +134,8 @@ data class NsfwPromptLink(
 data class NsfwFeedItem(
     @SerialName("image_id") val imageId: String = "",
     val revision: String = "",
+    /** UPSERT（默认）或 REMOVE tombstone；REMOVE 只表示从队列移除，不删除文件。 */
+    val event: String = NsfwFeedEvents.UPSERT,
     val status: String = "NEW",
     @SerialName("is_favorite") val isFavorite: Boolean = false,
     val kind: String = "original",
@@ -170,7 +189,8 @@ data class NsfwImageDetails(
 
 @Serializable
 data class NsfwDecisionRequest(
-    val action: String,
+    /** null 表示 favorite-only：服务端必须保留原审核状态。 */
+    val action: String? = null,
     val favorite: Boolean? = null,
     @SerialName("expected_updated_at") val expectedUpdatedAt: String,
     @SerialName("client_request_id") val clientRequestId: String,
@@ -258,5 +278,9 @@ class NsfwApiException(
     val httpStatus: Int = 0,
 ) : Exception(message) {
     val isAuthRejected: Boolean
-        get() = httpStatus == 401 || code == NsfwErrorCodes.AUTH_REQUIRED || code == NsfwErrorCodes.AUTH_REVOKED
+        get() = httpStatus == 401 ||
+            code == NsfwErrorCodes.AUTH_REQUIRED ||
+            code == NsfwErrorCodes.AUTH_REVOKED ||
+            code == NsfwErrorCodes.LEGACY_UNAUTHORIZED ||
+            code == NsfwErrorCodes.LEGACY_DEVICE_REVOKED
 }

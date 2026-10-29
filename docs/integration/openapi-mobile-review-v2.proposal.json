@@ -1,0 +1,325 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NSFW Studio Mobile Review Bridge v2 (proposal)",
+    "version": "2.0.0-proposal",
+    "description": "MediaReview 冻结的 v2 客户端契约提案，供 NSFW Studio 维护者实现；不代表服务端已实现或已联调。"
+  },
+  "servers": [
+    { "url": "http://{bridgeHost}:8767", "variables": { "bridgeHost": { "default": "192.168.1.20" } } }
+  ],
+  "security": [ { "bearerAuth": [] } ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "required": ["success"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "data": {},
+          "error": { "$ref": "#/components/schemas/Error" },
+          "request_id": { "type": "string" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "AUTH_REQUIRED", "AUTH_REVOKED", "CURSOR_EXPIRED", "REVIEW_CONFLICT",
+              "PROMPT_UNLINKED", "PROMPT_VERSION_UNKNOWN", "VALIDATION_ERROR",
+              "IDEMPOTENCY_CONFLICT", "CAPABILITY_MISSING", "IMAGE_NOT_FOUND",
+              "PROMPT_NOT_FOUND", "INTERNAL_ERROR"
+            ]
+          },
+          "message": { "type": "string" },
+          "details": {}
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": ["status", "product", "api_contract", "capabilities"],
+        "properties": {
+          "status": { "type": "string" },
+          "product": { "type": "string" },
+          "version": { "type": "string" },
+          "api_contract": { "type": "integer", "minimum": 2 },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string" },
+            "contains": { "const": "mobile_feed_v2" }
+          }
+        }
+      },
+      "PromptLink": {
+        "type": "object",
+        "properties": {
+          "prompt_id": { "type": ["string", "null"] },
+          "prompt_version_id": { "type": ["string", "null"] },
+          "link_state": { "type": "string", "enum": ["EXACT", "UNRESOLVED", "UNLINKED"] }
+        }
+      },
+      "FeedItem": {
+        "type": "object",
+        "required": ["image_id", "revision", "status", "event"],
+        "properties": {
+          "image_id": { "type": "string" },
+          "revision": { "type": "string", "description": "十进制单调递增" },
+          "event": { "type": "string", "enum": ["UPSERT", "REMOVE"], "default": "UPSERT" },
+          "status": { "type": "string", "enum": ["NEW", "KEEP", "REJECT"] },
+          "is_favorite": { "type": "boolean" },
+          "kind": { "type": "string" },
+          "job_id": { "type": ["string", "null"] },
+          "seed": { "type": ["integer", "null"] },
+          "width": { "type": ["integer", "null"] },
+          "height": { "type": ["integer", "null"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "prompt": { "anyOf": [{ "$ref": "#/components/schemas/PromptLink" }, { "type": "null" }] },
+          "thumbnail_url": { "type": "string", "pattern": "^/mobile/images/" },
+          "preview_url": { "type": "string", "pattern": "^/mobile/images/" },
+          "original_url": { "type": "string", "pattern": "^/mobile/images/" }
+        }
+      },
+      "FeedPage": {
+        "type": "object",
+        "required": ["items", "has_more"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/FeedItem" } },
+          "next_cursor": { "type": ["string", "null"] },
+          "has_more": { "type": "boolean" },
+          "resumed": { "type": "boolean" }
+        }
+      },
+      "ImageDetails": {
+        "type": "object",
+        "required": ["image_id", "link_state", "updated_at", "revision"],
+        "properties": {
+          "image_id": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "generated_at": { "type": ["string", "null"], "format": "date-time" },
+          "width": { "type": ["integer", "null"] },
+          "height": { "type": ["integer", "null"] },
+          "positive_prompt": { "type": ["string", "null"], "description": "生成时快照；null=未知，\"\"=明确为空" },
+          "negative_prompt": { "type": ["string", "null"] },
+          "prompt_id": { "type": ["string", "null"] },
+          "prompt_version_id": { "type": ["string", "null"] },
+          "link_state": { "type": "string", "enum": ["EXACT", "UNRESOLVED", "UNLINKED"] },
+          "job_id": { "type": ["string", "null"] },
+          "module_id": { "type": ["string", "null"] },
+          "seed": { "type": ["integer", "null"] },
+          "model": { "type": ["string", "null"] },
+          "size_bytes": { "type": ["integer", "null"] },
+          "mime": { "type": ["string", "null"] },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "revision": { "type": "string" }
+        }
+      },
+      "DecisionRequest": {
+        "type": "object",
+        "required": ["expected_updated_at", "client_request_id"],
+        "properties": {
+          "action": { "type": ["string", "null"], "enum": ["KEEP", "REJECT", "RESET", null], "description": "null = favorite-only，服务端保留原 status" },
+          "favorite": { "type": ["boolean", "null"] },
+          "expected_updated_at": { "type": "string" },
+          "client_request_id": { "type": "string" }
+        },
+        "anyOf": [
+          { "required": ["action"] },
+          { "required": ["favorite"] }
+        ]
+      },
+      "DecisionResult": {
+        "type": "object",
+        "required": ["image_id", "status", "is_favorite", "updated_at", "revision"],
+        "properties": {
+          "image_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["NEW", "KEEP", "REJECT"] },
+          "is_favorite": { "type": "boolean" },
+          "updated_at": { "type": "string" },
+          "revision": { "type": "string" }
+        }
+      },
+      "PromptEvaluation": {
+        "type": "object",
+        "properties": {
+          "evaluation_id": { "type": "string" },
+          "overall_score": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "prompt_version_id": { "type": ["string", "null"] },
+          "created_at": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      },
+      "PromptSummary": {
+        "type": "object",
+        "properties": {
+          "prompt_id": { "type": "string" },
+          "prompt_version_id": { "type": ["string", "null"] },
+          "link_state": { "type": "string", "enum": ["EXACT", "UNRESOLVED", "UNLINKED"] },
+          "evaluation_count": { "type": "integer" },
+          "version_latest": { "anyOf": [{ "$ref": "#/components/schemas/PromptEvaluation" }, { "type": "null" }] },
+          "prompt_latest": { "anyOf": [{ "$ref": "#/components/schemas/PromptEvaluation" }, { "type": "null" }] },
+          "images_total": { "type": "integer" },
+          "seen_count": { "type": "integer" },
+          "keep_count": { "type": "integer" },
+          "reject_count": { "type": "integer" },
+          "has_new_samples": { "type": "boolean" }
+        }
+      },
+      "PromptImagesPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "image_id": { "type": "string" },
+                "thumbnail_url": { "type": "string", "pattern": "^/mobile/images/" },
+                "status": { "type": "string" },
+                "is_current": { "type": "boolean" }
+              }
+            }
+          },
+          "total": { "type": "integer" },
+          "current_index": { "type": "integer" },
+          "next_cursor": { "type": ["string", "null"] },
+          "has_more": { "type": "boolean" }
+        }
+      },
+      "EvaluationRequest": {
+        "type": "object",
+        "required": ["overall_score", "client_request_id"],
+        "properties": {
+          "prompt_version_id": { "type": ["string", "null"], "description": "null 仅在用户显式选择整体评分时允许" },
+          "overall_score": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "dimensions": {
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "propertyNames": { "enum": ["subject", "clothing", "scene", "composition", "lighting", "style", "quality"] }
+          },
+          "notes": { "type": "string" },
+          "client_request_id": { "type": "string" }
+        }
+      },
+      "EvaluationResult": {
+        "type": "object",
+        "properties": {
+          "evaluation_id": { "type": "string" },
+          "prompt_id": { "type": "string" },
+          "prompt_version_id": { "type": ["string", "null"] },
+          "overall_score": { "type": "integer" },
+          "created_at": { "type": "string" },
+          "client_request_id": { "type": "string" }
+        }
+      },
+      "EvaluationReceipt": {
+        "type": "object",
+        "properties": {
+          "found": { "type": "boolean" },
+          "evaluation": { "anyOf": [{ "$ref": "#/components/schemas/EvaluationResult" }, { "type": "null" }] }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/mobile/system/health": {
+      "get": {
+        "security": [],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/Health" } } }] } } } }
+        }
+      }
+    },
+    "/mobile/pairing/status": {
+      "get": { "security": [], "responses": { "200": { "description": "OK" } } }
+    },
+    "/mobile/pairing/verify": {
+      "post": {
+        "security": [],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["installation_id", "code"], "properties": { "installation_id": { "type": "string" }, "device_name": { "type": "string" }, "code": { "type": "string", "minLength": 6, "maxLength": 6 } } } } } },
+        "responses": { "200": { "description": "token" }, "401": { "description": "配对失败" } }
+      }
+    },
+    "/mobile/images/feed": {
+      "get": {
+        "parameters": [
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "opaque；空=从头" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } }
+        ],
+        "responses": {
+          "200": { "description": "页", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/FeedPage" } } }] } } } },
+          "410": { "description": "CURSOR_EXPIRED" }
+        }
+      }
+    },
+    "/mobile/images/{image_id}/details": {
+      "get": {
+        "parameters": [ { "name": "image_id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+        "responses": {
+          "200": { "description": "详情", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/ImageDetails" } } }] } } } },
+          "404": { "description": "IMAGE_NOT_FOUND" }
+        }
+      }
+    },
+    "/mobile/review/images/{image_id}/decision": {
+      "post": {
+        "parameters": [ { "name": "image_id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DecisionRequest" } } } },
+        "responses": {
+          "200": { "description": "权威结果", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/DecisionResult" } } }] } } } },
+          "409": { "description": "REVIEW_CONFLICT" }
+        }
+      }
+    },
+    "/mobile/prompts/{prompt_id}/review-summary": {
+      "get": {
+        "parameters": [
+          { "name": "prompt_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "version_id", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "摘要", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/PromptSummary" } } }] } } } },
+          "404": { "description": "PROMPT_NOT_FOUND" }
+        }
+      }
+    },
+    "/mobile/prompts/{prompt_id}/images": {
+      "get": {
+        "parameters": [
+          { "name": "prompt_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "version_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 } }
+        ],
+        "responses": {
+          "200": { "description": "图组页", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/PromptImagesPage" } } }] } } } }
+        }
+      }
+    },
+    "/mobile/prompts/{prompt_id}/evaluations": {
+      "post": {
+        "parameters": [ { "name": "prompt_id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EvaluationRequest" } } } },
+        "responses": {
+          "200": { "description": "已创建", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/EvaluationResult" } } }] } } } },
+          "409": { "description": "IDEMPOTENCY_CONFLICT" },
+          "422": { "description": "VALIDATION_ERROR / PROMPT_VERSION_UNKNOWN / PROMPT_UNLINKED" }
+        }
+      }
+    },
+    "/mobile/prompts/evaluations/{client_request_id}": {
+      "get": {
+        "parameters": [ { "name": "client_request_id", "in": "path", "required": true, "schema": { "type": "string" } } ],
+        "responses": {
+          "200": { "description": "回执", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/Envelope" }, { "properties": { "data": { "$ref": "#/components/schemas/EvaluationReceipt" } } }] } } } }
+        }
+      }
+    }
+  }
+}

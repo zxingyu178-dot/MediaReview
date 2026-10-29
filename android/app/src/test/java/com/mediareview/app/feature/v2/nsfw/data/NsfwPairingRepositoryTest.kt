@@ -208,14 +208,51 @@ class NsfwPairingRepositoryTest {
     }
 
     @Test
-    fun `load恢复已保存配对并注入内存token`() = runTest {
-        val store = FakeNsfwStore(baseUrl = "http://nsfw.test:8767", token = "persisted-token")
+    fun `load恢复已保存配对并重新校验能力`() = runTest {
+        val server = server()
+        server.enqueue(okay(NsfwJson.HEALTH_COMPATIBLE))
+        val baseUrl = "http://nsfw.test:${server.port}"
+        val store = FakeNsfwStore(baseUrl = baseUrl, token = "persisted-token")
         val tokenProvider = NsfwTokenProvider()
         val repo = repository(store, tokenProvider)
         val snapshot = repo.load()
         assertTrue(snapshot.paired)
+        assertTrue(snapshot.compatible)
         assertEquals("persisted-token", tokenProvider.token)
-        assertEquals("http://nsfw.test:8767", tokenProvider.pairedOrigin)
+        assertEquals(baseUrl, tokenProvider.pairedOrigin)
+        assertEquals("/mobile/system/health", server.takeRequest().requestUrl?.encodedPath)
+    }
+
+    @Test
+    fun `load发现旧Bridge缺能力时保留token但标记不可用`() = runTest {
+        val server = server()
+        server.enqueue(okay(NsfwJson.HEALTH_CURRENT_BRIDGE))
+        val baseUrl = "http://nsfw.test:${server.port}"
+        val store = FakeNsfwStore(baseUrl = baseUrl, token = "persisted-token")
+        val tokenProvider = NsfwTokenProvider()
+        val repo = repository(store, tokenProvider)
+
+        val snapshot = repo.load()
+
+        assertTrue(snapshot.paired)
+        assertTrue(!snapshot.compatible)
+        assertEquals(NSFW_REQUIRED_CAPABILITIES, snapshot.missingCapabilities)
+        assertEquals(1, snapshot.apiContract)
+        // 只标记不兼容，绝不因版本旧而清 token
+        assertEquals("persisted-token", store.token)
+        assertEquals("persisted-token", tokenProvider.token)
+    }
+
+    @Test
+    fun `load时Bridge不可达保留token并提示而不清凭据`() = runTest {
+        val store = FakeNsfwStore(baseUrl = "http://127.0.0.1:1", token = "persisted-token")
+        val tokenProvider = NsfwTokenProvider()
+        val repo = repository(store, tokenProvider)
+        val snapshot = repo.load()
+        assertTrue(snapshot.paired)
+        assertTrue(snapshot.compatible)
+        assertTrue(!snapshot.message.isNullOrBlank())
+        assertEquals("persisted-token", store.token)
     }
 
     @Test

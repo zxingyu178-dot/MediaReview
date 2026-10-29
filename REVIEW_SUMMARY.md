@@ -22,17 +22,34 @@
 - 图片详情展示生成快照与关联状态；`UNLINKED` 禁用评分；`UNRESOLVED` 必须显式选择「整体评分（版本未知）」。
 - 评分 1–5，仅提交填写维度（白名单 7 项），`client_request_id` 幂等，超时先查回执再决定是否重试。
 
+## 阶段 A 客户端加固（2026-10-29）
+
+针对审查计划 C-01…C-11 的修复（C-12 体验项按计划留待后续，不阻塞 P0/P1）：
+
+- C-01 favorite-only：收藏不再发 `action=KEEP`，NEW/KEEP/REJECT 状态保持不变。
+- C-02 revision 单调：旧 feed 页/重复回包不覆盖审核后的新状态；同版本幂等。
+- C-04 前台轮询：仅生图审核页 START 状态每 15 秒增量同步，STOP/离开页即停止。
+- C-05 游标：410 只重置一次，再次明确报错；游标不推进停止；300 张跨页追平与尾态 hasMore 正确。
+- C-06 恢复重验：启动执行 health capability gate；旧 Bridge 保留 token 但阻止进入审核页。
+- C-07 评分幂等：首次发送冻结 payload + requestId；改分必须新建请求号；pending 持久化仅提示不自动重发。
+- C-08 generation 守卫：快速切图/关闭面板后旧 detail/summary 回包被丢弃。
+- C-09 REMOVE tombstone：只移除队列不删文件；当前图被移除自动选下一条。
+- C-10 图片 URL：仅同源 `/mobile/images/` 相对路径；拒绝外部 Origin/穿越/query。
+- C-11 错误码：404/409/410 按路由映射；旧 `UNAUTHORIZED`/`DEVICE_REVOKED` 规范化。
+
 ## 测试与构建（实际结果）
 
-- JVM：`./gradlew :app:testDebugUnitTest` → 80 suites / 554 tests / 0 failures（NSFW 新增 56）。
-- `:app:assembleDebug` 通过；`:app:compileDebugAndroidTestKotlin` 通过。
+- NSFW 定向：6 suites / 88 tests / 0 failures。
+- JVM 全量：81 suites / 586 tests / 0 failures。
+- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
 - `:app:lintDebug` → 0 errors / 37 warnings（基线历史为 42 warnings）。
-- 仪器测试：`NsfwBottomNavFiveTabsTest`（360dp 下五入口全部显示）与 `NsfwBottomNavStateTest`（Tab 切换 saveState/restoreState）在 `MediaReview_Test` AVD 执行通过：`OK (2 tests)`，7.233s。
+- 仪器测试：`NsfwBottomNavFiveTabsTest`（360dp 下五入口全部显示）与 `NsfwBottomNavStateTest`（Tab 切换 saveState/restoreState）在 `MediaReview_Test` AVD 执行通过：`OK (2 tests)`，25.865s。
 - 未执行真实 Bridge 联调：当前 `/mobile/system/health` 为 `api_contract=1`，缺 5 项 v2 能力，客户端在配对门禁处阻断（预期行为）。
 
 ## 已知问题 / 遗留
 
 - 真实 Bridge v2 接口未实现（NSFW 维护者负责）；真实端到端、真机截图、正式可用均未验收。
+- 游标仅保存在内存：进程终止后从头分页，可能重新混入旧图；持久化水位需绑定 `server_origin + epoch`，本阶段未落盘。
 - 评分面板当前用 AlertDialog 承载，未做分页加载更多；首期只展示该版本有界图片。
 - 未实现图片手势缩放（复用需要 MediaReview 的图片 URL 规则，NSFW 路径不同）；当前为整图 Fit 展示。
 - 未提供从 NSFW 图片跳转 MediaReview 媒体的能力（本轮不需要）。
@@ -43,7 +60,7 @@
 2. 五入口在极窄屏 / 大字体下的布局只做了 360dp 仪器测试源码，尚未真机验证。
 3. 评分版本绑定依赖服务端返回可靠 `prompt_id + prompt_version_id`；`UNRESOLVED` 的交互已显式限制，但若服务端错报 `EXACT` 会误绑版本。
 
-阶段结论：有条件合格（客户端契约、隔离配对、模拟接口测试与构建通过；真实 Bridge v2 未实现，真实联调与正式可用未验收）。
+阶段结论：有条件合格（阶段 A 客户端加固与模拟接口测试通过；真实 Bridge v2 未实现，真实联调、真机与正式可用未验收）。
 
 ---
 
