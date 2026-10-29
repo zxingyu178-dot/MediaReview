@@ -25,3 +25,11 @@
 服务端：api/v1/delete_queue.py、services/delete_queue.py、delete_execution.py、db/models.py、0018_delete_receipt.py。Android：organize/delete、V2ServerOrganizeRepository、feature/v2/nsfw、MediaNavigator/V2MainScreen、AlbumScreen、ReviewScopeSheet。具体协议与回滚边界见DELETE_RESULT_API.md；上游需求仍见NSFW_MOBILE_API_REQUEST_V2.md。
 
 尚待：一次发布构建、签名/版本/完整性核验、唯一发布入口更新、提交push与最终逐条审查。网络故障、进程中断仍可能导致结果未知；本轮避免把未知说成失败或成功，不承诺永不发生异常。真实设备视觉、家庭网络稳定性、生图真实HTTP联通均未验证。
+
+## 2026-10-29 产物收口
+Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alpha21一致，演示资源检查0项。Server1.6.4增量EXE构建及隔离health通过，Contract2/15项能力含delete_result_v1；发布包184项SHA256完整性校验通过。CURRENT_RELEASE已指向新配套并标记未部署，旧包保留。
+
+- APK：deploy_handoff/MediaReview_2.0.0-alpha22_stage9.apk；SHA256 810816787356725e256949abcd23261b62f5f143c8e6096f989cd23f95f38e36。
+- Server：deploy_handoff/MediaReview_Server_1.6.4_stage9.zip；111,898,934字节；SHA256 0ee9d634e9c97d9decaa7f7bbfc10978bbddca53c71cba0bf24245c1bc4321bb。
+- 业务源码aa441a1，构建/审查基线17cd886，均已push。本节为产物后续记录，不重建相同包。完整证据在review_meta/experience-20261028和标准构建receipt。
+- 未部署、未邮件发送、未连接手机或模拟器；生图HTTP和评分写回仍待上游合同。UI仅静态检查；这些边界不属于已验证结果。

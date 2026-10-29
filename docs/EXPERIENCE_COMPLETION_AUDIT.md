@@ -1,4 +1,4 @@
-# 本轮完成审查（进行中）
+# 本轮完成审查（离线交付范围）
 
 依据：2026-10-28-experience-and-generated-interface-design.md；源码aa441a1。
 
@@ -13,7 +13,7 @@
 | 队尾追加/去重/当前位置/空增量/过期游标 | GeneratedImageQueue4、GeneratedReview5 | 已验证领域逻辑 |
 | 独立凭据、同源图片、版本评分 | 独立DataStore+Keystore、同源/重定向/评分边界JVM用例 | 合同准备完成；未做真实配对 |
 | 版本一致与更新说明 | ReleaseNotes17、Server health7通过；Alpha22/code29、Server1.6.4 | 源码一致 |
-| APK/EXE/唯一发布入口 | Release构建进行中；后续需实际产物证据 | 未完成 |
+| APK/EXE/唯一发布入口 | Release成功、APK同证书、EXE health1.6.4、184项包哈希通过、CURRENT_RELEASE更新 | 已验证；未部署 |
 | GitHub同步 | aa441a1已push feature/mediareview-local-only | 源码已同步 |
 
 生成图片wire字段解析、HTTP端点、真实预览及评分写回须等上游合同冻结；本轮仅准备，不以合成测试冒充联通。没有手机/模拟器操作、没有NSFW变更、没有生产部署。

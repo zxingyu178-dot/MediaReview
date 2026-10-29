@@ -8,6 +8,9 @@
 
 ## 0. 一句话状态
 
+**本轮已交付、未部署**：Alpha22/code29与Server1.6.4/0018产物核验通过，CURRENT_RELEASE已更新。69项定向JVM、Server分轮安全回归及184项包哈希校验记录见[本轮报告](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码aa441a1、构建基线17cd886已push。手机/生产仍未升级；生图仅接口准备，真实HTTP未接通。下方为过程中和历史快照。
+
+
 **2026-10-29开发进展（尚未发布）**：删除持久回执与Android恢复、UI状态优化、生图独立入口及客户端合同已实现；69项相关JVM通过，服务端安全与环境复测记录见[本轮结果](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码目标Server1.6.4/0018、Alpha22/code29，尚未生成发布包或部署。CURRENT_RELEASE仍为上一轮已验证产物；本轮不连接手机、不改NSFW。下方删除超时未修复描述是上一轮生产基线，不代表本轮源码。
 
 

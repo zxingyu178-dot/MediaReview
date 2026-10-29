@@ -685,3 +685,11 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 
 ## 2026-10-29 删除恢复与生图入口（待发布）
 已完成Server1.6.4/0018与Alpha22/code29源码：持久批次回执、设备归属、执行/恢复互斥、有界客户端核对、页面状态打磨及生图独立入口/合同准备。69项相关JVM通过；Server定向回归及环境失败复测详情见docs/EXPERIENCE_GENERATED_RESULT_20261029.md。未构建交付包、未部署、未连接手机；NSFW未改，上游HTTP未接通。
+
+## 2026-10-29 产物收口
+Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alpha21一致，演示资源检查0项。Server1.6.4增量EXE构建及隔离health通过，Contract2/15项能力含delete_result_v1；发布包184项SHA256完整性校验通过。CURRENT_RELEASE已指向新配套并标记未部署，旧包保留。
+
+- APK：deploy_handoff/MediaReview_2.0.0-alpha22_stage9.apk；SHA256 810816787356725e256949abcd23261b62f5f143c8e6096f989cd23f95f38e36。
+- Server：deploy_handoff/MediaReview_Server_1.6.4_stage9.zip；111,898,934字节；SHA256 0ee9d634e9c97d9decaa7f7bbfc10978bbddca53c71cba0bf24245c1bc4321bb。
+- 业务源码aa441a1，构建/审查基线17cd886，均已push。本节为产物后续记录，不重建相同包。完整证据在review_meta/experience-20261028和标准构建receipt。
+- 未部署、未邮件发送、未连接手机或模拟器；生图HTTP和评分写回仍待上游合同。UI仅静态检查；这些边界不属于已验证结果。
