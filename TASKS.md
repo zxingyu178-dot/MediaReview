@@ -708,5 +708,5 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] pending 生命周期与面板解耦；按服务器身份+请求号删除；多条未确认记录可逐条切换核对。
 - [x] 评分冻结载荷发送前写入 DataStore；重启不自动重发，重试先查回执。
 - [x] 已有配对健康检查失败后可无需配对码重试。
-- [x] 定向 126 / 全量 624 JVM 通过；Debug 与 AndroidTest 构建通过；lint 0 errors。
+- [x] 定向 128 / 全量 626 JVM 通过；Debug 与 AndroidTest 构建通过；lint 0 errors。
 - [ ] 真实 Bridge v2 联调、真实手机验收：待服务端实现与设备连接。

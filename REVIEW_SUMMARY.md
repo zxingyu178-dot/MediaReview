@@ -60,9 +60,9 @@
 
 ## 测试与构建（实际结果）
 
-- NSFW 定向：6 suites / 126 tests / 0 failures。
-- JVM 全量：81 suites / 624 tests / 0 failures。
-- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
+- NSFW 定向：6 suites / 128 tests / 0 failures。
+- JVM 全量：81 suites / 626 tests / 0 failures。
+- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过（产品源码最终版本）。
 - `:app:lintDebug` → 0 errors / 40 warnings / 17 information。
 - 仪器测试：五入口 360dp 显示 + Tab 状态恢复在 `MediaReview_Test` AVD → `OK (2 tests)`，9.587s（V2A.1 既有结果，本轮未复跑设备）。
 - 未执行真实 Bridge 联调：当前 `/mobile/system/health` 为 `api_contract=1`，缺 5 项 v2 能力，客户端在配对门禁处阻断（预期行为）。

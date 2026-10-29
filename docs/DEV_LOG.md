@@ -2990,9 +2990,9 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 - 健康检查重试：`NsfwUiState.hasSavedPairing` + `retryConnectionCheck()`，已有配对在临时断网后无需重新输入配对码。
 
 验证（本机 JDK17 / Gradle 8.10.2；GRADLE_USER_HOME、ANDROID_USER_HOME 指向工作树内以规避沙箱写限制）：
-- NSFW 定向：6 suites / 126 tests / 0 failures。
-- JVM 全量：81 suites / 624 tests / 0 failures。
-- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过。
+- NSFW 定向：6 suites / 128 tests / 0 failures。
+- JVM 全量：81 suites / 626 tests / 0 failures。
+- `:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过（产品源码最终版本）。
 - `:app:lintDebug` → 0 errors / 40 warnings / 17 information。
 - 未执行：真实 Bridge v2 联调、真实手机、真实评分写入；未改生产服务/数据库。
 

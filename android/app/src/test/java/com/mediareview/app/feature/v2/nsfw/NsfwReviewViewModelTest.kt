@@ -946,6 +946,41 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun `评分响应身份不一致时保留未确认记录且不显示成功`() = runTest {
+        val vm = bootstrapPaired()
+        data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
+        data.createEvaluationResponder = { _, _ ->
+            throw NsfwApiException(NsfwErrorCodes.RESPONSE_MISMATCH, "评分响应请求号不一致")
+        }
+        vm.openPromptPanel()
+        vm.submitEvaluation(4, emptyMap(), "")
+
+        assertNull(vm.state.value.panel!!.submitted)
+        assertTrue(vm.state.value.panel!!.unconfirmed)
+        assertTrue(vm.state.value.panel!!.message!!.contains("不一致"))
+        assertEquals(1, vm.pendingRequestIds().size)
+        assertEquals(0, data.receiptCalls)
+    }
+
+    @Test
+    fun `成功评分只清除当前服务器来源的未确认记录`() = runTest {
+        val journal = FakeNsfwEvaluationJournal(
+            items = listOf(
+                pendingEvaluation("req-shared").copy(serverOrigin = "http://nsfw.test:8767"),
+                pendingEvaluation("req-shared").copy(serverOrigin = "http://other.test:8767"),
+            ),
+        )
+        data.receiptResponder = { NsfwEvaluationReceipt(found = false) }
+        val vm = bootstrapPaired(journal = journal)
+        data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
+        vm.openPromptPanel()
+        vm.submitEvaluation(4, emptyMap(), "")
+
+        assertEquals(listOf("req-shared"), vm.pendingRequestIds())
+        assertNotNull(vm.state.value.panel!!.submitted)
+    }
+
+    @Test
     fun `持久化失败时拒绝发送评分请求`() = runTest {
         val journal = FakeNsfwEvaluationJournal().apply { failSave = true }
         val vm = bootstrapPaired(journal = journal)
