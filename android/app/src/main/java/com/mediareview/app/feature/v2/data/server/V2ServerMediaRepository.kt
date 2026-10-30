@@ -226,6 +226,10 @@ class V2ServerMediaRepository internal constructor(
         resources.clear()
     }
 
+    override fun invalidateAlbumCache() {
+        foldersCacheEntry = null
+    }
+
     /** Stage 8C §24：最终删除 success/missing 后，缓存不得继续命中已不存在的媒体。 */
     override fun dropCachedMedia(mediaIds: List<String>) {
         foldersCacheEntry = null

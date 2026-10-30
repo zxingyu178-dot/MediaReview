@@ -27,6 +27,9 @@ interface MediaRepository {
      */
     fun invalidateAuxiliaryCache() {}
 
+    /** 用户主动刷新书架时只失效相册摘要，不丢弃其他页面的媒体资源。 */
+    fun invalidateAlbumCache() {}
+
     /**
      * 丢弃已删除媒体的本地缓存（Stage 8C §24）。
      *

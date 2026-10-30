@@ -64,7 +64,8 @@ fun ShelfGrid(
     if (albums.isEmpty()) {
         if (loading) SkeletonCards(modifier, aspectRatio = 4f / 3f)
         else if (error != null) ErrorState(error, onRetry, modifier.fillMaxSize())
-        else EmptyState("暂无相册", "有图片的文件夹会显示在这里", modifier.fillMaxSize())
+        else EmptyState("暂无相册", "有图片的文件夹会显示在这里", modifier.fillMaxSize(),
+            actionLabel = "重新加载相册", onAction = onRetry)
         return
     }
     val grid = rememberLazyGridState()

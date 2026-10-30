@@ -817,6 +817,7 @@ class V2HomeViewModel @Inject constructor(
             return
         }
         _albumLoading.value = true
+        repository.invalidateAlbumCache()
         albumJob = viewModelScope.launch { refreshAlbumsNow() }
     }
 

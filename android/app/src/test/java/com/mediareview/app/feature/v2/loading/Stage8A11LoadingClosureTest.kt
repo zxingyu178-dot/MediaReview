@@ -176,4 +176,13 @@ class Stage8A11LoadingClosureTest {
         assertEquals(1, foldersRequests())
         assertTrue(foldersRequests() >= 1)
     }
+
+    @Test
+    fun `手动刷新相册在TTL内也重新取摘要`() = runTest {
+        repository.albums()
+        assertEquals(1, foldersRequests())
+        repository.invalidateAlbumCache()
+        repository.albums()
+        assertEquals(2, foldersRequests())
+    }
 }
