@@ -389,6 +389,10 @@ class NsfwReviewViewModel @Inject constructor(
                     return@launch
                 }
                 _state.update { it.copy(busy = false, message = decisionMessage(action)) }
+                // 只有回执已接受且用户仍停留在提交图片时才前进。
+                if (action in setOf("KEEP", "REJECT") && _state.value.currentId == detail.imageId) {
+                    next()
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

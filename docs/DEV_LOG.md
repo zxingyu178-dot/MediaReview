@@ -3345,3 +3345,7 @@ Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alph
 修复跨有界同步批次的历史图片新图计数，纠正入库时间和未知尺寸文案，增加队尾新图导航。回归曾观察到0/10失败；补跑结果待确认，不将中断构建计为通过。手机不可用；Studio受管状态offline。见NSFW_INTEGRATION_RESULT_20261030.md。
 
 2026-10-30定向验证终态：`:app:testDebugUnitTest --tests com.mediareview.app.feature.v2.nsfw.NsfwReviewViewModelTest`，56项、0失败、0错误，BUILD SUCCESSFUL（5m48s）。日志history-counter-green-1030.log。修正版Release及手机验证尚未完成。
+
+## 2026-10-30 连续审核第一步
+
+成功保留/淘汰仅在回执通过revision校验、用户仍停留原图时进入下一张；失败或冲突不前进。新增3项覆盖回执前停留、成功后前进、失败停留及用户主动切图不被旧回包抢走。RED观察到img_b/img_a失败后修复，相关ViewModel 59项通过（experience-green-1030.log）。撤销和页面布局仍待实现。

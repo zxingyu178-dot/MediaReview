@@ -73,6 +73,38 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun confirmedDecisionAdvancesOnlyAfterReceipt() = runTest {
+        val vm = bootstrapPaired()
+        val receipt = CompletableDeferred<NsfwDecisionResult>()
+        data.decisionResponder = { _, _, _ -> receipt.await() }
+        vm.decision("KEEP")
+        assertEquals("img_a", vm.state.value.currentId)
+        receipt.complete(NsfwDecisionResult("img_a", "KEEP", false, "2026-10-30T10:00:00Z", "3"))
+        assertEquals("img_b", vm.state.value.currentId)
+    }
+
+    @Test
+    fun failedDecisionKeepsCurrentImage() = runTest {
+        val vm = bootstrapPaired()
+        data.decisionResponder = { _, _, _ -> throw java.io.IOException("offline") }
+        vm.decision("REJECT")
+        assertEquals("img_a", vm.state.value.currentId)
+        assertEquals("NEW", vm.state.value.currentItem?.status)
+        assertFalse(vm.state.value.busy)
+    }
+
+    @Test
+    fun lateDecisionDoesNotStealUserSelection() = runTest {
+        val vm = bootstrapPaired(page = nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_b"), nsfwItem("img_c"))))
+        val receipt = CompletableDeferred<NsfwDecisionResult>()
+        data.decisionResponder = { _, _, _ -> receipt.await() }
+        vm.decision("KEEP")
+        vm.select("img_c")
+        receipt.complete(NsfwDecisionResult("img_a", "KEEP", false, "2026-10-30T10:00:00Z", "3"))
+        assertEquals("img_c", vm.state.value.currentId)
+    }
+
+    @Test
     fun `未配对时进入配对页`() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot()
         val vm = vm()
