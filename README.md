@@ -129,8 +129,8 @@ cp deployment/config.example.json <data_root>/config.json
 
 ### 加载与资源专项（Alpha24）
 
-生图审核增加有界下一张预取、配对身份隔离缓存、空闲退避和加载失败重试；审核桥批量读取与桌面轮询源码已优化，尚未部署。独立APK以deploy_handoff/CURRENT_RELEASE.json为准；[结果与验证边界](docs/LOADING_RESOURCE_RESULT_20261030.md)。视频字节预缓冲未启用，手机性能待实测。
+生图审核增加有界下一张预取、配对身份隔离缓存、空闲退避和加载失败重试；审核桥批量读取与桌面轮询源码已优化，尚未部署。独立APK以deploy_handoff/CURRENT_RELEASE.json为准；[结果与验证边界](docs/LOADING_RESOURCE_RESULT_20261030.md)。Alpha24未启用视频字节预缓冲，后续Alpha25见下。
 
-### 视频加载专项（Alpha25候选）
+### 视频加载专项（Alpha25）
 
-批阅稳定后预缓冲下一条兼容的视频，最多2MiB/项、4MiB缓存预算；播放前复验权限与文件版本，拖动、暂停、后台及退出取消请求。70项相关JVM通过，版本合同分轮闭环；APK待构建，当前交付仍Alpha24，手机体验待实测。[专项结果](docs/VIDEO_PREFIX_RESULT_20261030.md)。
+批阅稳定后预缓冲下一条兼容的视频，最多2MiB/项、4MiB缓存预算；播放前复验权限与文件版本，拖动、暂停、后台及退出取消请求。70项相关JVM通过，版本合同分轮闭环；Release APK版本/签名/哈希已核验，CURRENT_RELEASE已更新，手机体验待实测。[专项结果](docs/VIDEO_PREFIX_RESULT_20261030.md)。
