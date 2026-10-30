@@ -67,6 +67,8 @@ data class NsfwPromptPanel(
         get() = versionId != null || wholePromptScopeConfirmed
 }
 
+data class NsfwUndoDecision(val imageId: String, val restoreAction: String, val expectedUpdatedAt: String)
+
 data class NsfwUiState(
     val phase: NsfwPhase = NsfwPhase.LOADING,
     val baseUrl: String = "",
@@ -82,6 +84,7 @@ data class NsfwUiState(
     val nextCursor: String? = null,
     val hasMore: Boolean = false,
     val newImageCount: Int = 0,
+    val undoDecision: NsfwUndoDecision? = null,
     val panel: NsfwPromptPanel? = null,
     val pairingBusy: Boolean = false,
     /** 本地仍有已保存配对：兼容性未知时可重新检查连接，不必重新生成配对码。 */
@@ -230,6 +233,7 @@ class NsfwReviewViewModel @Inject constructor(
                             currentId = null,
                             detail = null,
                             newImageCount = 0,
+                            undoDecision = null,
                         )
                     }
                     syncFromCursor(reset = true)
@@ -358,9 +362,16 @@ class NsfwReviewViewModel @Inject constructor(
         if (index > 0) select(state.items[index - 1].imageId)
     }
 
-    fun decision(action: String?, favorite: Boolean? = null) {
+    fun decision(action: String?, favorite: Boolean? = null) = submitDecision(action, favorite)
+
+    private fun submitDecision(action: String?, favorite: Boolean?, undo: NsfwUndoDecision? = null) {
         val state = _state.value
-        val detail = state.detail ?: return
+        val detail = if (undo != null) NsfwImageDetails(imageId = undo.imageId, updatedAt = undo.expectedUpdatedAt)
+            else state.detail?.takeIf { it.imageId == state.currentId } ?: return
+        val previousItem = state.items.firstOrNull { it.imageId == detail.imageId }
+        val restoreAction = previousItem?.takeIf { it.updatedAt == detail.updatedAt && it.revision == detail.revision }?.let {
+            when (it.status) { "NEW" -> "RESET"; "KEEP" -> "KEEP"; "REJECT" -> "REJECT"; else -> null }
+        }
         if (state.busy) return
         if (action != null && action !in setOf("KEEP", "REJECT", "RESET")) return
         if (action == null && favorite == null) return
@@ -385,12 +396,22 @@ class NsfwReviewViewModel @Inject constructor(
                             conflictMessage = "该审核结果已过期，状态已被更新；已刷新权威状态（不会重复提交）",
                         )
                     }
-                    loadDetails(detail.imageId)
+                    if (_state.value.currentId == detail.imageId) loadDetails(detail.imageId)
+                    if (undo != null) _state.update { it.copy(undoDecision = null) }
                     return@launch
                 }
-                _state.update { it.copy(busy = false, message = decisionMessage(action)) }
+                _state.update {
+                    it.copy(busy = false, message = if (undo != null) "已撤销上一次审核" else decisionMessage(action),
+                        undoDecision = when {
+                            undo != null -> null
+                            action in setOf("KEEP", "REJECT") -> restoreAction?.let { restore -> NsfwUndoDecision(detail.imageId, restore, result.updatedAt) }
+                            it.undoDecision?.imageId == detail.imageId -> null
+                            else -> it.undoDecision
+                        })
+                }
+                if (undo != null && _state.value.currentId == state.currentId) select(undo.imageId)
                 // 只有回执已接受且用户仍停留在提交图片时才前进。
-                if (action in setOf("KEEP", "REJECT") && _state.value.currentId == detail.imageId) {
+                if (undo == null && action in setOf("KEEP", "REJECT") && _state.value.currentId == detail.imageId) {
                     next()
                 }
             } catch (error: CancellationException) {
@@ -405,13 +426,25 @@ class NsfwReviewViewModel @Inject constructor(
                             conflictMessage = "图片状态已被他处修改，已刷新为最新状态（不会自动重提）",
                         )
                     }
-                    loadDetails(detail.imageId)
+                    if (_state.value.currentId == detail.imageId) loadDetails(detail.imageId)
+                    if (undo != null) _state.update { it.copy(undoDecision = null) }
                 } else {
                     handleError(error)
                     _state.update { it.copy(busy = false) }
                 }
             }
         }
+    }
+
+    fun undoLastDecision() {
+        val undo = _state.value.undoDecision ?: return
+        submitDecision(undo.restoreAction, null, undo)
+    }
+
+    fun viewLatestImages() {
+        val latest = _state.value.items.lastOrNull() ?: return
+        select(latest.imageId)
+        _state.update { it.copy(newImageCount = 0) }
     }
 
     fun toggleFavorite() {

@@ -73,6 +73,67 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun mismatchedSnapshotDoesNotOfferUnsafeUndo() = runTest {
+        val vm = bootstrapPaired()
+        vm.decision("KEEP")
+        assertNull(vm.state.value.undoDecision)
+    }
+
+    @Test
+    fun transientUndoFailurePreservesReceiptWithoutAutomaticRetry() = runTest {
+        val vm = bootstrapPaired(details = nsfwDetails("img_a", updatedAt = "2026-10-28T12:00:01Z"))
+        vm.decision("REJECT")
+        data.decisionResponder = { _, _, _ -> throw java.io.IOException("offline") }
+        vm.undoLastDecision()
+        assertEquals(2, data.decisionCalls)
+        assertNotNull(vm.state.value.undoDecision)
+        assertFalse(vm.state.value.busy)
+        assertEquals("REJECT", vm.state.value.items.first { it.imageId == "img_a" }.status)
+    }
+
+    @Test
+    fun undoRestoresPreviousStatusAndIsConsumed() = runTest {
+        val vm = bootstrapPaired(details = nsfwDetails("img_a", updatedAt = "2026-10-28T12:00:01Z"))
+        vm.decision("KEEP")
+        assertNotNull(vm.state.value.undoDecision)
+        data.decisionResponder = { id, action, favorite ->
+            NsfwDecisionResult(id, if (action == "RESET") "NEW" else action ?: "NEW", favorite ?: false, "2026-10-30T10:01:00Z", "3")
+        }
+        vm.undoLastDecision()
+        assertEquals("RESET", data.lastDecisionAction)
+        assertEquals("2026-10-28T12:06:00Z", data.lastDecisionExpectedUpdatedAt)
+        assertEquals("NEW", vm.state.value.items.first { it.imageId == "img_a" }.status)
+        assertNull(vm.state.value.undoDecision)
+        val calls = data.decisionCalls
+        vm.undoLastDecision()
+        assertEquals(calls, data.decisionCalls)
+    }
+
+    @Test
+    fun undoConflictNeverOverwritesOrRetries() = runTest {
+        val vm = bootstrapPaired(details = nsfwDetails("img_a", updatedAt = "2026-10-28T12:00:01Z"))
+        vm.decision("KEEP")
+        data.decisionResponder = { _, _, _ -> throw NsfwApiException(NsfwErrorCodes.REVIEW_CONFLICT, "冲突", 409) }
+        vm.undoLastDecision()
+        assertEquals(2, data.decisionCalls)
+        assertNotNull(vm.state.value.conflictMessage)
+        assertEquals("KEEP", vm.state.value.items.first { it.imageId == "img_a" }.status)
+        assertNull(vm.state.value.undoDecision)
+    }
+
+    @Test
+    fun viewingLatestConsumesBannerWithoutAutomaticJump() = runTest {
+        val vm = bootstrapPaired()
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c"))) }
+        vm.refresh()
+        assertEquals("img_a", vm.state.value.currentId)
+        assertEquals(1, vm.state.value.newImageCount)
+        vm.viewLatestImages()
+        assertEquals("img_c", vm.state.value.currentId)
+        assertEquals(0, vm.state.value.newImageCount)
+    }
+
+    @Test
     fun confirmedDecisionAdvancesOnlyAfterReceipt() = runTest {
         val vm = bootstrapPaired()
         val receipt = CompletableDeferred<NsfwDecisionResult>()

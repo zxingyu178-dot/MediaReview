@@ -262,6 +262,7 @@ class FakeNsfwDataSource : NsfwReviewDataSource {
     var lastDecisionAction = ""
     var lastDecisionActionNullable: String? = null
     var lastDecisionRequestId = ""
+    var lastDecisionExpectedUpdatedAt = ""
     var lastEvaluationRequest: NsfwEvaluationRequest? = null
     var lastFeedCursor: String? = ""
 
@@ -287,6 +288,7 @@ class FakeNsfwDataSource : NsfwReviewDataSource {
         lastDecisionAction = action.orEmpty()
         lastDecisionActionNullable = action
         lastDecisionRequestId = clientRequestId
+        lastDecisionExpectedUpdatedAt = expectedUpdatedAt
         return decisionResponder(imageId, action, favorite)
     }
 

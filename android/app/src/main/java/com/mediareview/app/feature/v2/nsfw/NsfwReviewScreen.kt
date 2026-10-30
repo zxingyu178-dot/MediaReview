@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -129,6 +130,8 @@ fun NsfwReviewScreen(
                 onNext = vm::next,
                 onDecision = vm::decision,
                 onToggleFavorite = vm::toggleFavorite,
+                onUndo = vm::undoLastDecision,
+                onViewLatest = vm::viewLatestImages,
                 onOpenDetails = { detailsOpen = true },
                 onDisconnect = vm::clearPairing,
             )
@@ -269,9 +272,15 @@ private fun ReadyPane(
     onNext: () -> Unit,
     onDecision: (String, Boolean?) -> Unit,
     onToggleFavorite: () -> Unit,
+    onUndo: () -> Unit,
+    onViewLatest: () -> Unit,
     onOpenDetails: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
+    val thumbnailState = rememberLazyListState()
+    LaunchedEffect(state.currentId, state.items.size) {
+        if (state.items.isNotEmpty()) thumbnailState.animateScrollToItem(state.currentIndex)
+    }
     Column(Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -358,12 +367,13 @@ private fun ReadyPane(
                 "队尾新增 ${state.newImageCount} 张 · 点击查看最新图片",
                 color = V2Colors.Accent,
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.clickable { state.items.lastOrNull()?.let { onSelect(it.imageId) } }
+                modifier = Modifier.clickable(onClick = onViewLatest)
                     .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
             )
         }
 
         LazyRow(
+            state = thumbnailState,
             modifier = Modifier.fillMaxWidth().height(76.dp),
             contentPadding = PaddingValues(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
             horizontalArrangement = Arrangement.spacedBy(V2Spacing.Xs),
@@ -392,6 +402,11 @@ private fun ReadyPane(
                 enabled = !state.busy && state.detail != null,
                 modifier = Modifier.weight(1f),
             ) { Text("淘汰", style = MaterialTheme.typography.labelLarge) }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Md),
+            horizontalArrangement = Arrangement.spacedBy(V2Spacing.Sm),
+        ) {
             OutlinedButton(
                 onClick = { onDecision("RESET", null) },
                 enabled = !state.busy && state.detail != null,
@@ -409,6 +424,9 @@ private fun ReadyPane(
             }
         }
 
+        if (state.undoDecision != null) {
+            TextButton(onClick = onUndo, enabled = !state.busy) { Text("撤销上一次审核") }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

@@ -8,7 +8,7 @@
 
 ## 0. 一句话状态
 
-**2026-10-30 生图审核进行中**：Alpha23整合与8877桥接已实现，曾完成真机配对和图片显示；历史新图计数修复正在定向验证。当前手机不可连接、Studio经ControlHub核对离线，尚未完成最终发布。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
+**2026-10-30 生图审核进行中**：Alpha23整合与8877桥接已实现，曾完成真机配对和图片显示；历史计数及连续审核/撤销已完成64项ViewModel回归，最终Release待重建。当前手机不可连接、Studio经ControlHub核对离线，尚未完成最终发布。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
 
 **本轮已交付、未部署**：Alpha22/code29与Server1.6.4/0018产物核验通过，CURRENT_RELEASE已更新。69项定向JVM、Server分轮安全回归及184项包哈希校验记录见[本轮报告](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码aa441a1、构建基线17cd886已push。手机/生产仍未升级；生图仅接口准备，真实HTTP未接通。下方为过程中和历史快照。
 
