@@ -3369,3 +3369,8 @@ Alpha23/code30 Release成功（18m2s），证书匹配，SHA256 b28ec7e3dc8958ba
 ## 2026-10-30 Alpha24收口准备
 
 versionCode31/Alpha24，新增加载中及失败手动重试反馈，所有加载策略沿用已验证实现。定向JVM首轮93项：91通过、2个历史WhatsNew预期仍固定code24；ViewModel本来按BuildConfig工作，不增生产测试参数，将两项改为验证到当前版本的完整连续区间后，仅WhatsNew子集7项重跑通过（loading-alpha24-notes-rerun.log）。属于分轮收口，不称单轮93全绿；不重跑其余已通过目标。生产Kotlin编译已通过。NSFW源码资源优化已push、后端19项和前端19项各自通过，tsc/vite通过，未部署。视频默认缓存核对见计划，未启用字节预缓冲。下一步只生成一次Alpha24 Release并核签名/哈希。
+
+
+## 2026-10-30 Alpha24产物核验
+
+Release一次构建成功（5m4s），aapt确认code31/Alpha24，apksigner证书592c...3564匹配旧版；最终APK20797240字节，SHA256 227af76b44d73fa5699a8bc0628efcdc23ce020c788f9ed0923d0710b5342b30，构建源码4cc2565。复制到deploy_handoff并复核哈希，CURRENT_RELEASE独立APK指针更新且旧指针保留备份；Server1.6.4 ZIP及其Alpha22附带包未动。APK内核对到新缓存命名空间和轮询策略。NSFW资源源码9115cb6已push，未部署。视频字节预缓冲未启用，公共数据源与认证缓存接入待单独验证；手机未连接，不声称实机性能提升。详见LOADING_RESOURCE_RESULT_20261030.md。

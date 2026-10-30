@@ -1,16 +1,16 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-30（Alpha23最终APK已核验，NSFW真实审核桥链路通过，最终手机验收待连接）
-> 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
+> 更新时间：2026-10-30（Alpha24/code31加载专项APK已核验；NSFW性能源码未部署，手机验收待连接）
+> 日常分支：`feature/mediareview-local-only`；专项：`codex/loading-resource-optimization`；APK构建源码`4cc2565`，NSFW性能源码`9115cb6`。
 > 加载源码提交`bb02671`已push；此前目录修复`6a74876`、交付记录`d18c31d`等本地提交亦一并推送成功。下方旧网络失败与运行态检查点按各自日期理解。
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
 ## 0. 一句话状态
 
-**2026-10-30加载资源专项开发中**：新分支codex/loading-resource-optimization；桥接批量查询源码7b8d9dd已push（隔离5/20图SELECT从12/42降为4/4），手机预算预取/缓存隔离/前台立即同步及空闲退避69项通过。当前生产与交付仍为上次Alpha23，专项尚未部署或生成新APK；后续桌面轮询及视频预缓冲按[专项计划](superpowers/plans/2026-10-30-loading-resource-optimization.md)推进。
+**2026-10-30加载资源专项交付**：Alpha24/code31独立APK构建、版本/签名/SHA256和复制核验通过，CURRENT_RELEASE已更新。隔离5/20图SELECT从12/42降为3/3，并修复状态/revision并发错配与历史事件扫描；NSFW最终feed/scoring14项、运行态适配19项、前端19项分别通过，tsc/vite通过。Android加载69项通过，版本门禁93项首轮91通过/2历史预期失败，相关7项修正后重跑通过，分轮记录。NSFW性能分支未部署，当前实例与手机保持原状；视频字节预缓冲未启用，接入分析及后续边界见[专项结果](LOADING_RESOURCE_RESULT_20261030.md)。手机首帧、布局/流畅度/耗电待实机。
 
-**2026-10-30 生图审核交付**：Alpha23/code30最终Release已核验，CURRENT_RELEASE已更新；两个开发分支统一84aada2，64项ViewModel回归通过。Studio与审核桥8877已恢复在线，自建样本真实认证图片与审核/幂等/冲突链路通过并清理。最终APK手机覆盖安装、布局与写入验收因设备不可连接仍待验证。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
+**2026-10-30早前生图审核交付（独立APK已由Alpha24替代）**：Alpha23/code30最终Release已核验，CURRENT_RELEASE已更新；两个开发分支统一84aada2，64项ViewModel回归通过。Studio与审核桥8877已恢复在线，自建样本真实认证图片与审核/幂等/冲突链路通过并清理。最终APK手机覆盖安装、布局与写入验收因设备不可连接仍待验证。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
 
 **2026-10-29历史交付快照（客户端已被上文Alpha23替代）**：Alpha22/code29与Server1.6.4/0018产物核验通过，CURRENT_RELEASE已更新。69项定向JVM、Server分轮安全回归及184项包哈希校验记录见[本轮报告](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码aa441a1、构建基线17cd886已push。手机/生产仍未升级；生图仅接口准备，真实HTTP未接通。下方为过程中和历史快照。
 
