@@ -60,18 +60,18 @@
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（源码目标） | `1.6.3` | `server/app/__init__.py:3`、`deployment/version.ps1:12`、`server/pyproject.toml:3`（三处一致） |
+| Server 版本（源码/现有包目标，未部署） | `1.6.4` | `server/app/__init__.py`、`deployment/version.ps1`、`server/pyproject.toml`三处本轮重查一致；不是生产已装版本 |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（源码/生产均14项） | `native_sources_v1`、`native_range_v1`、`native_read_only_v1`（legacy 名）、`native_delete_v1`、`folder_tree_v1`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection` | `server/app/__init__.py`、`scripts/build_deploy.py`；生产1.6.3实测14项 |
-| 数据库迁移 head | `0017_delete_queue_token` | `server/app/db/migrations/versions/0017_delete_queue_token.py`；`status` 历史兼容包含 `delete_done` / `delete_pending` |
-| Android 版本（源码/发布） | `versionCode 28` / `versionName 2.0.0-alpha21` | `android/app/build.gradle.kts:32-33`、`ReleaseNotesCatalog.kt`、实际APK元数据/签名 |
-| 手机最近核验版本 | `versionCode 28` / `2.0.0-alpha21` | 2026-10-28 install -r成功及dumpsys；批阅/范围/主页真机抽样 |
+| Server 能力（源码15项） | 前述生产14项另加`delete_result_v1`；完整列表以`SERVER_CAPABILITIES`为准 | 本轮重查`server/app/__init__.py`；生产1.6.3历史核验14项，本轮未重查生产，不得混同 |
+| 数据库迁移 head（源码） | `0018` | revision字段实值；文件`server/app/db/migrations/versions/0018_delete_receipt.py`，生产未据此升级 |
+| Android 版本（源码/当前独立APK） | `versionCode 33` / `versionName 2.0.0-alpha26` | 构建源码`85a551d`，最终aapt/签名/SHA256与CURRENT_RELEASE一致 |
+| 手机最近核验版本 | `versionCode 32` / `2.0.0-alpha25` | 2026-10-30 install -r及实际包检查；Alpha26仅隔离AVD复核，未安装手机 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
-| 生产已装版本 | `1.6.3` | 安装VERSION、实际health、EXE哈希与当前发布清单一致 |
+| 生产最近核验版本 | `1.6.3` | 历史安装VERSION/health/EXE核验；1.6.4为未部署包，当前发布清单不能替代生产实测，本轮未重查 |
 
 ## 2. 产物状态
 
-**当前独立Alpha21为20,649,784字节，同Alpha20证书，已安装手机/未发邮件；路径和哈希见CURRENT_RELEASE。历史Alpha20为43,655,758字节；Server1.6.3包仍附Alpha18。** Alpha16/Server1.6.0产物见§15；下表保留更早的1.5.2/Alpha15发布记录：
+**当前独立Alpha26为20,813,624字节，沿用既有证书，最终哈希0c0364…0f414e；隔离复核通过、手机待装、未发邮件，唯一入口为CURRENT_RELEASE。Server1.6.4包仍附历史Alpha22，不作为手机安装入口，且未部署。** 历史Alpha21为20,649,784字节、Alpha20为43,655,758字节；以下1.5.2/Alpha15表格仅保留历史，不作当前部署入口。Alpha16/Server1.6.0见§15：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |
