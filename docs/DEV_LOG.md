@@ -3384,3 +3384,7 @@ Release一次构建成功（5m4s），aapt确认code31/Alpha24，apksigner证书
 ## 2026-10-30 Alpha25产物收口
 
 源码cbe36c4已push；一次Release构建6m7s成功，含lintVital，无新增依赖。APK实际code32/Alpha25，20,813,628字节，SHA256 7acb2228a3db6479cadadd495e3161013643aeb8ecbf5f10e17512f426ce98e1，签名证书592c...3564匹配旧版；包内读取器/GSY消费者存在，复制交付后哈希一致。CURRENT_RELEASE指向独立Alpha25，Alpha24和旧指针备份保留；Server1.6.4 ZIP及内附Alpha22未重建，生产MediaReview/NSFW均未部署。手机首帧与拖动未测，不声称REAL_LAN_PASS/PRODUCTION_READY。上轮临时测试目录清理自动审批blocked by policy，保留未绕过；本轮未操作真实媒体或手机数据。收口只改文档，不重复测试/构建，随后ff同步日常分支。
+
+## 2026-10-30 用户视角流程检查（仅文档）
+
+用户在外无法实机，按Alpha25/e4eef2e现有源码核查五条用户路径。Product Design截图审计因无法捕获实际App未执行，转为明确标注的源码流程检查；不引用旧截图作当前证据。确认五项优先改进：生图“断开”实际清配对、后台同步与审核共用busy、图片未显示成功仍可能审核、首页刷新圈固定700ms、范围选择按钮重置勾选草稿。另记录原图缩放未接入、目录筛选/就地批阅、开发术语及长队列规模风险，建议小批修复而非改版重构。细节、源码位置和验证重点见UX_FLOW_REVIEW_20261030.md；待办未实现，未改NSFW/生产服务/媒体，无新APK，不重跑业务测试。仅文档diff检查及源码位置核对。
