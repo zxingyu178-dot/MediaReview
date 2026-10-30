@@ -30,6 +30,23 @@ class LibraryManagerViewModelTest {
     )
 
     @Test
+    fun `全选和清空只改草稿 应用时才提交且空选仍拒绝`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply { librariesResult = Result.success(serverState) }
+        val vm = LibraryManagerViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        vm.selectAll()
+        assertEquals(serverState.map { it.jellyfinId }.toSet(), vm.ui.value.draftSelected)
+        assertTrue(vm.ui.value.dirty)
+        assertEquals(0, repo.saveSelectionCalls)
+        vm.clearSelection()
+        assertTrue(vm.ui.value.draftSelected.isEmpty())
+        vm.apply(); advanceUntilIdle()
+        assertEquals(0, repo.saveSelectionCalls)
+        vm.selectAll(); vm.apply(); advanceUntilIdle()
+        assertEquals(listOf(serverState.map { it.jellyfinId }), repo.savedSelections)
+    }
+
+    @Test
     fun `加载后草稿等于服务端状态`() = runTest(main.dispatcher) {
         val repo = FakeOrganizeRepository().apply {
             librariesResult = Result.success(serverState)

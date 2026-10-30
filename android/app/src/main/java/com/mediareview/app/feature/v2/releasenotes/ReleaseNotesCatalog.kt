@@ -299,6 +299,17 @@ object ReleaseNotesCatalog {
                 "缓存按配对身份隔离，播放前核对权限与文件版本",
             ),
         ),
+        ReleaseNote(
+            versionCode = 33,
+            versionName = "2.0.0-alpha26",
+            title = "MediaReview 2.0 Alpha 26",
+            highlights = listOf(
+                "媒体库支持全选和清空草稿，点应用后保存",
+                "相册按进入页面和可见位置加载，减少后台封面请求",
+                "生图审核扩大图片区域，信息不再遮挡图片",
+                "图片显示成功后才能审核，评分1至5完整显示",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -24,6 +24,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -285,9 +291,11 @@ private fun ReadyPane(
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
-    var previewReadyFor by remember(state.currentId) { mutableStateOf<String?>(null) }
-    var previewFailureFor by remember(state.currentId) { mutableStateOf<String?>(null) }
-    var previewAttempt by remember(state.currentId) { mutableStateOf(0) }
+    var previewReadyFor by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf<String?>(null) }
+    var previewFailureFor by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf<String?>(null) }
+    var previewAttempt by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf(0) }
+    var showThumbnails by rememberSaveable { mutableStateOf(false) }
+    var moreOpen by remember { mutableStateOf(false) }
     val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
     LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -309,14 +317,7 @@ private fun ReadyPane(
                 .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("生图审核", style = MaterialTheme.typography.titleLarge, color = MediaTextPrimary)
-                Text(
-                    state.baseUrl.ifBlank { "已配对" },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MediaTextSecondary,
-                )
-            }
+            Text("生图审核", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MediaTextPrimary)
             TextButton(onClick = onRefresh, enabled = !state.busy) {
                 Text(if (state.busy) "同步中…" else "同步新图")
             }
@@ -362,30 +363,6 @@ private fun ReadyPane(
                 } else if (previewReadyFor != item.imageId) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(28.dp), color = V2Colors.Accent)
                 }
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .background(Color(0x99000000))
-                        .padding(V2Spacing.Md),
-                ) {
-                    Text(
-                        "提示词关联：" + linkStateLabel(item.prompt),
-                        color = MediaTextPrimary,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Text(
-                        item.prompt?.promptId ?: "无可靠提示词关联",
-                        color = MediaTextSecondary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Text(
-                        "入库时间：" + formatIso(item.createdAt) +
-                            " · " + if (item.width != null && item.height != null) "${item.width}×${item.height}" else "尺寸未提供",
-                        color = MediaTextSecondary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
                 if (state.detailLoading) {
                     CircularProgressIndicator(
                         color = V2Colors.Accent,
@@ -405,7 +382,7 @@ private fun ReadyPane(
             )
         }
 
-        LazyRow(
+        if (showThumbnails) LazyRow(
             state = thumbnailState,
             modifier = Modifier.fillMaxWidth().height(76.dp),
             contentPadding = PaddingValues(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
@@ -427,36 +404,15 @@ private fun ReadyPane(
         ) {
             Button(
                 onClick = { onDecision("KEEP", null) },
-                enabled = !state.busy && state.detail != null,
+                enabled = !state.busy && state.detail != null && previewReadyFor == state.currentId,
                 modifier = Modifier.weight(1f),
             ) { Text("保留", style = MaterialTheme.typography.labelLarge) }
             Button(
                 onClick = { onDecision("REJECT", null) },
-                enabled = !state.busy && state.detail != null,
+                enabled = !state.busy && state.detail != null && previewReadyFor == state.currentId,
                 modifier = Modifier.weight(1f),
             ) { Text("淘汰", style = MaterialTheme.typography.labelLarge) }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Md),
-            horizontalArrangement = Arrangement.spacedBy(V2Spacing.Sm),
-        ) {
-            OutlinedButton(
-                onClick = { onDecision("RESET", null) },
-                enabled = !state.busy && state.detail != null,
-                modifier = Modifier.weight(1f),
-            ) { Text("重置", style = MaterialTheme.typography.labelLarge) }
-            OutlinedButton(
-                onClick = onToggleFavorite,
-                enabled = !state.busy && state.detail != null,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    if (state.currentItem?.isFavorite == true) "取消收藏" else "收藏",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
-        }
-
         if (state.undoDecision != null) {
             TextButton(onClick = onUndo, enabled = !state.busy) { Text("撤销上一次审核") }
         }
@@ -473,13 +429,23 @@ private fun ReadyPane(
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.weight(1f),
             )
-            if (state.hasMore) {
-                TextButton(onClick = onLoadMore, enabled = !state.busy) {
-                    Text(if (state.busy) "加载中…" else "加载更多")
+            TextButton(onClick = onOpenDetails, enabled = state.detail != null,
+                contentPadding = PaddingValues(horizontal = 4.dp)) { Text("图片信息") }
+            TextButton(onClick = onNext, enabled = state.currentIndex + 1 < state.items.size) { Text("下一张") }
+            Box {
+                IconButton(onClick = { moreOpen = true }) { Icon(Icons.Default.MoreVert, "更多操作", tint = MediaTextPrimary) }
+                DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                    if (state.hasMore) DropdownMenuItem(text = { Text("加载更多") }, enabled = !state.busy,
+                        onClick = { moreOpen = false; onLoadMore() })
+                    DropdownMenuItem(text = { Text(if (showThumbnails) "收起缩略图" else "展开缩略图") },
+                        onClick = { showThumbnails = !showThumbnails; moreOpen = false })
+                    DropdownMenuItem(text = { Text(if (state.currentItem?.isFavorite == true) "取消收藏" else "收藏") },
+                        enabled = !state.busy && state.detail != null,
+                        onClick = { moreOpen = false; onToggleFavorite() })
+                    DropdownMenuItem(text = { Text("重置审核状态") }, enabled = !state.busy && state.detail != null,
+                        onClick = { moreOpen = false; onDecision("RESET", null) })
                 }
             }
-            TextButton(onClick = onOpenDetails, enabled = state.detail != null) { Text("图片信息") }
-            TextButton(onClick = onNext, enabled = state.currentIndex + 1 < state.items.size) { Text("下一张") }
         }
     }
 }
@@ -764,18 +730,19 @@ private fun PromptScoreDialog(
 
 @Composable
 private fun ScoreRow(label: String, value: Int, onChange: (Int) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
             color = MediaTextSecondary,
-            modifier = Modifier.width(48.dp),
         )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         (1..5).forEach { score ->
             val selected = value == score
             TextButton(
                 onClick = { onChange(if (selected) 0 else score) },
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp),
             ) {
                 Text(
                     score.toString(),
@@ -783,6 +750,7 @@ private fun ScoreRow(label: String, value: Int, onChange: (Int) -> Unit) {
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 )
             }
+        }
         }
     }
 }

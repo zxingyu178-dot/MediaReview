@@ -61,6 +61,7 @@ fun HomeScreen(
     val folders by vm.folders.collectAsState()
     val albums by vm.albums.collectAsState()
     val albumError by vm.albumError.collectAsState()
+    val albumLoading by vm.albumLoading.collectAsState()
     val list by vm.currentList.collectAsState()
     val sortSpec by vm.sortSpec.collectAsState()
     val displayMode by vm.displayMode.collectAsState()
@@ -76,9 +77,6 @@ fun HomeScreen(
     var refreshing by remember { mutableStateOf(false) }
     val refreshScope = rememberCoroutineScope()
 
-    WindowCoverPrefetch(albums.map {
-        it.coverUrl ?: vm.mediaById(it.coverImageId.orEmpty())?.let(vm::coverUri).orEmpty()
-    }, albumCovers = true)
     DisposableEffect(vm) {
         val pendingSession = vm.openViewerPendingDelete()
         vm.resumeHomeWindow()
@@ -162,13 +160,16 @@ fun HomeScreen(
             },
         ) { inset ->
             PullToRefreshBox(
-                isRefreshing = refreshing,
+                isRefreshing = if (vm.currentTab == V2HomeTab.SHELF) albumLoading else refreshing,
                 onRefresh = {
-                    refreshing = true
-                    if (vm.currentTab == V2HomeTab.MEDIA) vm.retryList() else vm.refreshAlbums()
-                    refreshScope.launch {
-                        delay(700L)
-                        refreshing = false
+                    if (vm.currentTab == V2HomeTab.SHELF) vm.refreshAlbums()
+                    else {
+                        refreshing = true
+                        vm.retryList()
+                        refreshScope.launch {
+                            delay(700L)
+                            refreshing = false
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxSize().testTag("home_pull_refresh"),
@@ -185,7 +186,7 @@ fun HomeScreen(
                     V2HomeTab.SHELF -> ShelfGrid(
                         albums, coverFor = { id -> vm.mediaById(id)?.let(vm::coverUri) },
                         onOpenAlbum = onOpenAlbum, modifier = Modifier.padding(top = inset.calculateTopPadding()),
-                        error = albumError, onRetry = vm::refreshAlbums,
+                        error = albumError, onRetry = vm::refreshAlbums, loading = albumLoading,
                     )
                 }
             }

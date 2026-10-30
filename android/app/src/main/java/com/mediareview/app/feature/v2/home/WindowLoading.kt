@@ -27,8 +27,8 @@ import kotlinx.coroutines.sync.withPermit
 private val coverPrefetchSlots = Semaphore(2)
 
 /** 元数据到达就给首屏和下一屏预热，有界16，最多2并发；离开浏览页自动取消。 */
-internal fun coverPrefetchIndices(count: Int, firstVisible: Int = 0): List<Int> =
-    (firstVisible.coerceAtLeast(0) until minOf(count, firstVisible.coerceAtLeast(0) + 16)).toList()
+internal fun coverPrefetchIndices(count: Int, firstVisible: Int = 0, windowSize: Int = 16): List<Int> =
+    (firstVisible.coerceAtLeast(0) until minOf(count, firstVisible.coerceAtLeast(0) + windowSize.coerceIn(0, 16))).toList()
 
 internal suspend fun prefetchBoundedCovers(urls: List<String>, request: suspend (String) -> Unit) {
     for (chunk in urls.filter { it.isNotBlank() }.distinct().take(16).chunked(2)) {
@@ -36,9 +36,9 @@ internal suspend fun prefetchBoundedCovers(urls: List<String>, request: suspend 
     }
 }
 
-internal suspend fun prefetchCoverWindows(urls: List<String>, positions: Flow<Int>, request: suspend (String) -> Unit) {
+internal suspend fun prefetchCoverWindows(urls: List<String>, positions: Flow<Int>, windowSize: Int = 16, request: suspend (String) -> Unit) {
     positions.distinctUntilChanged().collectLatest { first ->
-        prefetchBoundedCovers(coverPrefetchIndices(urls.size, first).map { urls[it] }, request)
+        prefetchBoundedCovers(coverPrefetchIndices(urls.size, first, windowSize).map { urls[it] }, request)
     }
 }
 
@@ -58,7 +58,7 @@ internal fun WindowCoverPrefetch(
             visibleIndexToMediaIndex?.invoke(grid.firstVisibleItemIndex)
                 ?: (grid.firstVisibleItemIndex - leadingItemCount).coerceAtLeast(0)
         }
-        prefetchCoverWindows(urls, positions) { url ->
+        prefetchCoverWindows(urls, positions, windowSize = if (albumCovers || squareCovers) 8 else 16) { url ->
             val profile = if (albumCovers) ThumbnailProfile.ALBUM else if (mode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
             context.imageLoader.execute(ImageRequest.Builder(context).data(thumbnailProfileUrl(url, profile)).crossfade(false)
                 .size(profile.width, profile.height)

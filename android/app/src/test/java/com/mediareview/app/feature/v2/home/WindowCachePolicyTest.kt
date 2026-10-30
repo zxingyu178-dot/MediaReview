@@ -76,6 +76,11 @@ class WindowCachePolicyTest {
         assertEquals((998..999).toList(), coverPrefetchIndices(1000, 998))
         assertTrue(coverPrefetchIndices(0).isEmpty())
     }
+    @Test fun albumWindowOnlyWarmsEightNearbyCoversAndClampsPastEnd() {
+        assertEquals((50..57).toList(), coverPrefetchIndices(1000, 50, windowSize = 8))
+        assertEquals(listOf(999), coverPrefetchIndices(1000, 999, windowSize = 8))
+        assertTrue(coverPrefetchIndices(2, 50, windowSize = 8).isEmpty())
+    }
     @Test fun prefetchRunsAtMostTwoRequestsAndNeverWarmsWholePage() = runTest {
         val gate = CompletableDeferred<Unit>()
         val started = java.util.concurrent.atomic.AtomicInteger()

@@ -89,10 +89,25 @@ class LibraryManagerViewModel @Inject constructor(
     /** 本地勾选（草稿）；不触发任何网络请求。 */
     fun toggle(jellyfinId: String) {
         _ui.update { state ->
+            if (state.loading || state.saving || state.libraries.none { it.jellyfinId == jellyfinId }) return@update state
             val draft = state.draftSelected
             state.copy(
                 draftSelected = if (jellyfinId in draft) draft - jellyfinId else draft + jellyfinId,
             )
+        }
+    }
+
+    /** 批量操作也仅编辑草稿，必须点“应用”才提交。 */
+    fun selectAll() {
+        _ui.update { state ->
+            if (state.loading || state.saving) state
+            else state.copy(draftSelected = state.libraries.map { it.jellyfinId }.toSet())
+        }
+    }
+
+    fun clearSelection() {
+        _ui.update { state ->
+            if (state.loading || state.saving) state else state.copy(draftSelected = emptySet())
         }
     }
 

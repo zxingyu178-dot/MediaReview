@@ -53,7 +53,7 @@ import androidx.compose.ui.semantics.semantics
 import coil.request.ImageRequest
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2SortField
 import com.mediareview.app.feature.v2.model.V2SortOrder
@@ -279,7 +279,7 @@ private fun AlbumImageCell(
     }
     val request = remember(context, imageUrl) {
         ImageRequest.Builder(context).data(imageUrl).crossfade(false).size(256, 144)
-            .memoryCacheKey("album-cell:$imageUrl").build()
+            .build()
     }
     Box(
         modifier = Modifier
@@ -292,7 +292,7 @@ private fun AlbumImageCell(
             }
             .clickable(role = Role.Button, onClick = onClick),
     ) {
-        SubcomposeAsyncImage(
+        AsyncImage(
             model = request,
             contentDescription = null,
             contentScale = ContentScale.Crop,

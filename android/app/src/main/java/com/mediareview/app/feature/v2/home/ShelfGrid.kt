@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,7 +34,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.ui.V2Radius
@@ -58,14 +59,19 @@ fun ShelfGrid(
     modifier: Modifier = Modifier,
     error: String? = null,
     onRetry: () -> Unit = {},
+    loading: Boolean = false,
 ) {
     if (albums.isEmpty()) {
-        if (error != null) ErrorState(error, onRetry, modifier.fillMaxSize())
+        if (loading) SkeletonCards(modifier, aspectRatio = 4f / 3f)
+        else if (error != null) ErrorState(error, onRetry, modifier.fillMaxSize())
         else EmptyState("暂无相册", "有图片的文件夹会显示在这里", modifier.fillMaxSize())
         return
     }
-    WindowCoverPrefetch(albums.map { it.coverUrl ?: coverFor(it.coverImageId.orEmpty()).orEmpty() }, albumCovers = true)
+    val grid = rememberLazyGridState()
+    val covers = remember(albums, coverFor) { albums.map { it.coverUrl ?: coverFor(it.coverImageId.orEmpty()).orEmpty() } }
+    WindowCoverPrefetch(covers, grid = grid, albumCovers = true)
     LazyVerticalGrid(
+        state = grid,
         columns = GridCells.Fixed(2),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -118,10 +124,9 @@ private fun AlbumBookCard(
                             coverUri,
                             com.mediareview.app.core.network.ThumbnailProfile.ALBUM,
                         )
-                        ImageRequest.Builder(context).data(data).crossfade(false).size(320, 240)
-                            .memoryCacheKey("album-book:$data").build()
+                        ImageRequest.Builder(context).data(data).crossfade(false).size(320, 427).build()
                     }
-                    SubcomposeAsyncImage(
+                    AsyncImage(
                         model = request,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,

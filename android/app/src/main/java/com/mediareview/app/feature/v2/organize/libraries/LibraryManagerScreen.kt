@@ -159,6 +159,18 @@ fun LibraryManagerScreen(
                     Text("服务器上还没有媒体库", color = MediaTextSecondary)
                 }
                 else -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("已选 ${ui.draftSelected.size} / ${ui.libraries.size}",
+                            modifier = Modifier.weight(1f), color = MediaTextSecondary,
+                            style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = vm::selectAll,
+                            enabled = !ui.saving && ui.draftSelected.size < ui.libraries.size) { Text("全选") }
+                        TextButton(onClick = vm::clearSelection,
+                            enabled = !ui.saving && ui.draftSelected.isNotEmpty()) { Text("清空选择") }
+                    }
                     LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(
@@ -174,6 +186,7 @@ fun LibraryManagerScreen(
                                 library = library,
                                 checked = library.jellyfinId in ui.draftSelected,
                                 onToggle = { vm.toggle(library.jellyfinId) },
+                                enabled = !ui.saving,
                             )
                         }
                     }
@@ -203,19 +216,21 @@ private fun LibraryRow(
     library: LibrarySelectionItem,
     checked: Boolean,
     onToggle: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(V2Radius.Card))
             .background(MediaSurfaceRaised)
-            .clickable(onClick = onToggle)
+            .clickable(enabled = enabled, onClick = onToggle)
             .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
             checked = checked,
             onCheckedChange = { onToggle() },
+            enabled = enabled,
             colors = CheckboxDefaults.colors(
                 checkedColor = MediaAccent,
                 uncheckedColor = MediaTextSecondary,

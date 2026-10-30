@@ -209,6 +209,10 @@ class V2HomeViewModel @Inject constructor(
 
     private val _albums = MutableStateFlow<List<V2Album>>(emptyList())
     val albums: StateFlow<List<V2Album>> = _albums.asStateFlow()
+    private val _albumLoading = MutableStateFlow(false)
+    val albumLoading: StateFlow<Boolean> = _albumLoading.asStateFlow()
+    private var albumsLoaded = false
+    private var albumJob: Job? = null
 
     /**
      * P1 辅助数据的独立错误态（阶段 8A.1.1 §2）。
@@ -334,6 +338,10 @@ class V2HomeViewModel @Inject constructor(
         albumViewerSession = null
     }
     private fun invalidateAlbumSource() {
+        albumJob?.cancel()
+        albumsLoaded = false
+        _albumLoading.value = false
+        _albums.value = emptyList()
         folderBrowserController.invalidate()
         browseCache.clear()
         homeWindowKey = null
@@ -538,6 +546,7 @@ class V2HomeViewModel @Inject constructor(
 
     fun setTab(tab: V2HomeTab) {
         currentTab = tab
+        if (tab == V2HomeTab.SHELF && !albumsLoaded) refreshAlbums()
     }
 
     fun setSortSpec(spec: V2SortSpec) {
@@ -802,7 +811,13 @@ class V2HomeViewModel @Inject constructor(
     // ---------- 相册能力 ----------
 
     fun refreshAlbums() {
-        viewModelScope.launch { refreshAlbumsNow() }
+        if (albumJob?.isActive == true) return
+        if (isServerMode && !shouldLoadServerBusinessData(statusStore.status.value)) {
+            _albumError.value = "请先连接可用的电脑端"
+            return
+        }
+        _albumLoading.value = true
+        albumJob = viewModelScope.launch { refreshAlbumsNow() }
     }
 
     /**
@@ -864,12 +879,13 @@ class V2HomeViewModel @Inject constructor(
         // P0: 首屏媒体最先开始,且绝不等待文件夹 / 书架 / 收藏
         refreshList()
 
-        // P1: 文件夹 + 书架后台并行补齐(albums 复用 folders 的短时缓存,不重复 HTTP)
+        // 目录独立补齐；相册仅在用户进入书架后加载，视频首页不做相册推测请求。
         folderJob?.cancel()
         folderJob = viewModelScope.launch {
             loadFolders()
-            refreshAlbumsNow()
         }
+        albumsLoaded = false
+        if (currentTab == V2HomeTab.SHELF) refreshAlbums()
     }
 
     /**
@@ -946,15 +962,22 @@ class V2HomeViewModel @Inject constructor(
 
     private suspend fun refreshAlbumsNow() {
         val source = albumSourceGeneration
+        _albumLoading.value = true
         try {
             val albums = repository.albums()
             if (source != albumSourceGeneration) return
             _albums.value = albums
+            albumsLoaded = true
             _albumError.value = null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            if (source == albumSourceGeneration) _albumError.value = "书架加载失败"
+            if (source == albumSourceGeneration) {
+                _albumError.value = "相册加载失败"
+                if (_albums.value.isNotEmpty()) emitMessage("相册刷新失败，已保留已有内容")
+            }
+        } finally {
+            if (source == albumSourceGeneration) _albumLoading.value = false
         }
     }
 
