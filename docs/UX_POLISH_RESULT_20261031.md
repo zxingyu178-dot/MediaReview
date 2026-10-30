@@ -2,6 +2,8 @@
 
 基线 `97ec56b`，目标 Android **2.0.0-alpha26/code33**。本轮按用户反馈修复媒体库批量选择、相册加载与生图图片占比；不改服务端、NSFW源码、数据库或真实媒体。目标“合格产品”仍在持续推进，本批不是整款产品的最终验收。
 
+**最终交付**：构建源码`85a551dfb99a7ac7f3b761fe0400d0ad3cf3730d`，最终Release 5m2s成功；既有证书与实际code33/Alpha26核验通过。APK `deploy_handoff/MediaReview_2.0.0-alpha26_album_review.apk`，20,813,624字节，SHA256 `0c0364607d12b0da1d7d54108517eb68beb523340de637cadb131746e30f414e`；CURRENT_RELEASE已更新并保留Alpha25指针备份。构建前49项与补漏后6项分轮通过，非单轮55全绿。手机未连接，Alpha26未安装手机；Git同步状态见下文。
+
 ## 修改及边界
 
 - 媒体库管理增加“全选 / 清空选择”和已选数量。只改草稿，点“应用”才提交；空选仍拦截，保存中禁止改单项或批量草稿。保留失败不假成功、以响应为正式状态的原有规则。
@@ -9,7 +11,7 @@
 - 相册首载显示加载轮廓，刷新提示跟随真实请求，重复刷新合并，刷新失败保留旧书架并提示。视频页原700ms刷新提示属于下一批待办，本轮未更改。
 - 生图去掉压在图片上的信息层，提示词/时间/尺寸从“图片信息”查看；缩略图默认折叠，可从“更多操作”展开。收藏、重置、加载更多移入菜单，主操作保留保留/淘汰及翻页；撤销入口仍可见。图片保持Fit完整显示，预览就绪才可保留/淘汰，换图/URL更新重置就绪状态。评分标签和1–5按钮分行，按钮均分宽度。
 
-生产文件均相对`android/`：`app/build.gradle.kts`；`feature/v2/organize/libraries/LibraryManager{Screen,ViewModel}.kt`；`feature/v2/home/{HomeScreen,ShelfGrid,AlbumScreen,WindowLoading,V2HomeViewModel}.kt`；`feature/v2/nsfw/NsfwReviewScreen.kt`；`feature/v2/releasenotes/ReleaseNotesCatalog.kt`（后十项位于`app/src/main/java/com/mediareview/app/`）。调整LibraryManagerViewModelTest、WindowCachePolicyTest和ReleaseNotes版本合同。
+生产文件均相对`android/`：`app/build.gradle.kts`；其余Kotlin文件位于`app/src/main/java/com/mediareview/app/`：`feature/v2/organize/libraries/LibraryManager{Screen,ViewModel}.kt`、`feature/v2/home/{HomeScreen,ShelfGrid,AlbumScreen,WindowLoading,V2HomeViewModel}.kt`、`feature/v2/nsfw/NsfwReviewScreen.kt`、`feature/v2/releasenotes/ReleaseNotesCatalog.kt`、`feature/v2/data/{MediaRepository,V2MediaRepositoryRouter}.kt`及`feature/v2/data/server/V2ServerMediaRepository.kt`。调整LibraryManagerViewModelTest、WindowCachePolicyTest、Stage8A11LoadingClosureTest和ReleaseNotes版本合同。
 
 ## 已执行验证
 
@@ -34,6 +36,10 @@ gradle :app:testDebugUnitTest --tests '*LibraryManagerViewModelTest' --tests '*W
 同时发现空书架没有可下拉的滚动子节点，滑动没有新摘要请求。夹具原先只有一个视频索引，最初“暂无相册”属正确空态；随后仅在该隔离DB补一张合成照片，空态仍无法靠下拉恢复。故首候选未进入CURRENT_RELEASE，已移入本轮忽略诊断目录保留。补“重新加载相册”操作，增加仅失效相册摘要的端口并经路由转发，避免使用清空全部媒体资源的全局失效。新定向命令仅`--tests '*Stage8A11LoadingClosureTest'`，**6项通过，6m6s**（含TTL内主动重新取摘要），与前49项分轮记录。最终包需重建并复核空态按钮恢复；此重建因新发现并修复缺陷，不是为重复收集报告。
 
 Git普通推送多次连接reset，GitHub连接器create_tree另返回403 Resource not accessible by integration；未成功同步，未创建替代远端提交。当前代码仍有本地未推送提交，网络恢复后需同步，不能写已push。
+
+最终包再次保留数据安装到隔离AVD，确认code33。空相册显示重新加载入口；仅在夹具DB重新开放那张合成图片后，点击按钮取得1张照片的相册，封面实际渲染为蓝色合成图；非空书架下拉新增1次摘要请求。空态手势本身未改成可滚动，恢复由明确按钮完成。启动时曾有一次Android **System UI**无响应弹窗，选择Wait后继续；未据此指称App崩溃，采样App日志无FATAL，不代表全时段无异常。最终复核只针对补漏，相同生图/评分组件复用首候选证据，不为日志重复测试。
+
+模拟器及临时后端均按已验证的PID/命令行关闭，uiautomator退出、ADB设备/forward及5584/5585/18766监听均为空；未启停生产服务。临时数据盘沿用此前审批拒绝清理的保留状态，本轮未重试删除；构建缓存用于后续增量构建。首候选APK在忽略诊断目录，交付目录只有最终Alpha26，唯一指针哈希复核通过。全部新图均为合成样本，无真实图片审核、评分、媒体删除或真实选择配置写入。
 
 ## 后续门槛
 
