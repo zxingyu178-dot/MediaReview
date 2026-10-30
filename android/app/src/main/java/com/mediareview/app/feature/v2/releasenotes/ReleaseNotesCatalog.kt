@@ -278,6 +278,17 @@ object ReleaseNotesCatalog {
                 "评分请求中断后可核对回执，避免重复记录",
             ),
         ),
+        ReleaseNote(
+            versionCode = 31,
+            versionName = "2.0.0-alpha24",
+            title = "MediaReview 2.0 Alpha 24",
+            highlights = listOf(
+                "生图审核预取下一张预览，切图和退后台时取消过期请求",
+                "生图图片缓存按配对身份隔离，并限制资源占用",
+                "空闲同步自动降频，回到前台立即同步",
+                "图片加载失败时可直接重试",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

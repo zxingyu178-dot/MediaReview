@@ -3364,3 +3364,8 @@ Alpha23/code30 Release成功（18m2s），证书匹配，SHA256 b28ec7e3dc8958ba
 ## 2026-10-30 加载专项：手机预算与同步
 
 新增单任务可取消预取，当前预览成功后才读取下一张预览；离开页面/切图/打开评分/审核忙时取消。显示与预取共用Coil单例、相同1536预览尺寸和凭据+URL散列键；缩略图解码256，专用内存32MB/磁盘128MB，未配对不读写缓存。前台同步立即执行，空闲/失败退避至60秒，有事件恢复；离开取消。NsfwLoadingPolicyTest4项+ViewModel65项全部通过（loading-policy-green.log），生产Kotlin编译通过。曾观察策略3项RED与前台刷新expected2/actual1；新增用例早期失败路径未清理轮询导致测试工作进程不退出，补finally并精确结束唯一已核对测试子进程后重跑正常，非生产故障。未部署、未重建Release、未声称手机性能收益。
+
+
+## 2026-10-30 Alpha24收口准备
+
+versionCode31/Alpha24，新增加载中及失败手动重试反馈，所有加载策略沿用已验证实现。定向JVM首轮93项：91通过、2个历史WhatsNew预期仍固定code24；ViewModel本来按BuildConfig工作，不增生产测试参数，将两项改为验证到当前版本的完整连续区间后，仅WhatsNew子集7项重跑通过（loading-alpha24-notes-rerun.log）。属于分轮收口，不称单轮93全绿；不重跑其余已通过目标。生产Kotlin编译已通过。NSFW源码资源优化已push、后端19项和前端19项各自通过，tsc/vite通过，未部署。视频默认缓存核对见计划，未启用字节预缓冲。下一步只生成一次Alpha24 Release并核签名/哈希。

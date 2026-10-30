@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.key
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -285,6 +286,8 @@ private fun ReadyPane(
     val scope = rememberCoroutineScope()
     val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
     var previewReadyFor by remember(state.currentId) { mutableStateOf<String?>(null) }
+    var previewFailureFor by remember(state.currentId) { mutableStateOf<String?>(null) }
+    var previewAttempt by remember(state.currentId) { mutableStateOf(0) }
     val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
     LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -339,14 +342,26 @@ private fun ReadyPane(
                     modifier = Modifier.align(Alignment.Center),
                 )
             } else {
-                AsyncImage(
-                    model = imageLoader.request(safeNsfwImageUrl(state.baseUrl, item.previewUrl)),
-                    imageLoader = imageLoader.loader,
-                    onSuccess = { previewReadyFor = item.imageId },
-                    contentDescription = "待审核图片",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                key(previewAttempt) {
+                    AsyncImage(
+                        model = imageLoader.request(safeNsfwImageUrl(state.baseUrl, item.previewUrl)),
+                        imageLoader = imageLoader.loader,
+                        onLoading = { previewReadyFor = null; previewFailureFor = null },
+                        onSuccess = { previewReadyFor = item.imageId; previewFailureFor = null },
+                        onError = { previewReadyFor = null; previewFailureFor = item.imageId },
+                        contentDescription = "待审核图片",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                if (previewFailureFor == item.imageId) {
+                    TextButton(
+                        onClick = { previewFailureFor = null; previewAttempt += 1 },
+                        modifier = Modifier.align(Alignment.Center).background(Color(0xCC000000)),
+                    ) { Text("图片加载失败 · 点击重试", color = MediaTextPrimary) }
+                } else if (previewReadyFor != item.imageId) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(28.dp), color = V2Colors.Accent)
+                }
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)

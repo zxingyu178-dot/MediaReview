@@ -31,8 +31,8 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  */
 class ReleaseNotesContractTest {
     @Test fun `当前版本和更新说明匹配`() {
-        assertEquals(30, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha23", BuildConfig.VERSION_NAME)
+        assertEquals(31, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha24", BuildConfig.VERSION_NAME)
         val current = requireNotNull(ReleaseNotesCatalog.forVersionCode(BuildConfig.VERSION_CODE))
         assertEquals(BuildConfig.VERSION_NAME, current.versionName)
     }
@@ -221,27 +221,27 @@ class WhatsNewViewModelTest {
     }
 
     @Test
-    fun `升级 8 到 24 一个 Sheet 同时包含 alpha2 到 alpha17`() = runTest(main.dispatcher) {
+    fun `升级8到当前版本在一个Sheet展示全部未读版本`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(8))
         advanceUntilIdle()
 
         val state = vm.state.value
         assertTrue(state.visible)
-        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24), state.notes.map { it.versionCode })
+        assertEquals((9..BuildConfig.VERSION_CODE).toList(), state.notes.map { it.versionCode })
         assertEquals(
-            listOf("2.0.0-alpha2", "2.0.0-alpha3", "2.0.0-alpha4", "2.0.0-alpha5", "2.0.0-alpha6", "2.0.0-alpha7", "2.0.0-alpha8", "2.0.0-alpha9", "2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12", "2.0.0-alpha13", "2.0.0-alpha14", "2.0.0-alpha15", "2.0.0-alpha16", "2.0.0-alpha17"),
+            (2..(BuildConfig.VERSION_CODE - 7)).map { "2.0.0-alpha$it" },
             state.notes.map { it.versionName },
         )
         assertTrue("跨版本必须聚合在一个 Sheet(不同版本分区显示)", state.isMultiVersion)
     }
 
     @Test
-    fun `升级 16 到 24 聚合 alpha10 到 alpha17`() = runTest(main.dispatcher) {
+    fun `升级16到当前版本聚合全部未读版本`() = runTest(main.dispatcher) {
         val vm = WhatsNewViewModel(FakeReleaseNotesStore(16))
         advanceUntilIdle()
         assertTrue(vm.state.value.visible)
-        assertEquals(listOf(17, 18, 19, 20, 21, 22, 23, 24), vm.state.value.notes.map { it.versionCode })
-        assertEquals(listOf("2.0.0-alpha10", "2.0.0-alpha11", "2.0.0-alpha12", "2.0.0-alpha13", "2.0.0-alpha14", "2.0.0-alpha15", "2.0.0-alpha16", "2.0.0-alpha17"), vm.state.value.notes.map { it.versionName })
+        assertEquals((17..BuildConfig.VERSION_CODE).toList(), vm.state.value.notes.map { it.versionCode })
+        assertEquals((10..(BuildConfig.VERSION_CODE - 7)).map { "2.0.0-alpha$it" }, vm.state.value.notes.map { it.versionName })
         assertTrue(vm.state.value.isMultiVersion)
     }
 
