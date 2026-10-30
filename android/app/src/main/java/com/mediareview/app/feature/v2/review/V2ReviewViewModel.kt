@@ -9,6 +9,7 @@ import com.mediareview.app.feature.v2.perf.V2Perf
 import com.mediareview.app.feature.v2.player.V2PlaybackDecision
 import com.mediareview.app.feature.v2.player.V2PlaybackSourceController
 import com.mediareview.app.feature.v2.player.V2PlaybackUiState
+import com.mediareview.app.feature.v2.player.VideoPrefetchPort
 import com.mediareview.app.feature.v2.review.data.ReviewQueuePageResult
 import com.mediareview.app.feature.v2.review.data.ReviewQueuePaging
 import com.mediareview.app.feature.v2.review.data.ReviewSessionInfo
@@ -53,6 +54,7 @@ import kotlinx.coroutines.launch
 class V2ReviewViewModel @Inject constructor(
     private val repository: MediaRepository,
     private val sessions: V2ReviewSessionRepository,
+    private val videoPrefetch: VideoPrefetchPort = VideoPrefetchPort.None,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<V2ReviewUiState>(V2ReviewUiState.Idle)
@@ -637,6 +639,12 @@ class V2ReviewViewModel @Inject constructor(
                     sources.activeMediaId != currentItem.mediaId || neighbor.mediaId !in latestNeighbors) return@launch
                 adjacentSources[neighbor.mediaId] = resolved
             }
+            if (generation != prefetchGeneration || token != sources.token || stableMediaId != currentItem.mediaId) return@launch
+            val next = ready.items.getOrNull(ready.localCurrentIndex + 1) ?: return@launch
+            val endpoint = adjacentSources[next.mediaId]?.direct ?: return@launch
+            try { videoPrefetch.prefetch(endpoint) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Optional byte warming never fails the active player. */ }
         }
     }
 

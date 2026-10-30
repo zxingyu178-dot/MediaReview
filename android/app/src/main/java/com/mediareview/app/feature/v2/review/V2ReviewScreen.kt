@@ -504,6 +504,7 @@ private fun ReviewPagerContent(
         detectHorizontalDragGestures(
             onDragStart = {
                 if (sourceIsCurrent()) {
+                    vm.onPlaybackUnstable()
                     seekLanding.clear(); seekLandingJob?.cancel()
                     bodySeekStart = kernelPosition(); bodySeekDx = 0f
                     if (scrub.begin(bodySeekStart, kernelDuration(), kernelPlaying())) pauseOwnedHost()
@@ -557,6 +558,7 @@ private fun ReviewPagerContent(
     }
     DisposableEffect(controller) {
         onDispose {
+            vm.onPlaybackUnstable()
             eofRecovery?.cancel()
             scrub.cancel(); speed.cancel()
             val host = ownedHost
@@ -678,9 +680,13 @@ private fun ReviewPagerContent(
             }
     }
 
+    LaunchedEffect(snapshot.isPlaying, seekPreview != null, userPaused, sheetOpen) {
+        if (!snapshot.isPlaying || seekPreview != null || userPaused || sheetOpen) vm.onPlaybackUnstable()
+    }
+
     // Observation is separate from resume/setup: a seek pause must never auto-resume on a snapshot change.
     LaunchedEffect(pagerState.settledPage, loadedUrl, loadedStage, sourceStarted, snapshot.isPlaying,
-        userPaused, sheetOpen, foreground, verticalSettling, pagerState.isScrollInProgress) {
+        userPaused, sheetOpen, foreground, verticalSettling, pagerState.isScrollInProgress, seekPreview != null) {
         val page = pagerState.settledPage
         val item = latestItems.getOrNull(page) ?: return@LaunchedEffect
         val ready = latestPlayback as? V2PlaybackUiState.Ready ?: return@LaunchedEffect
@@ -732,7 +738,7 @@ private fun ReviewPagerContent(
         }
         if (foreground && playReady == true && sourceIsCurrent()) {
             revealedPage = page
-            vm.onPlaybackStable(item.mediaId)
+            if (snapshot.isPlaying && seekPreview == null && !userPaused && !sheetOpen) vm.onPlaybackStable(item.mediaId)
         }
     }
 
@@ -1135,6 +1141,7 @@ private fun ReviewPagerContent(
                 enabled = foreground && sourceIsCurrent() && !sheetOpen,
                 tag = "review_seek_bar",
                 onDragStart = {
+                    vm.onPlaybackUnstable()
                     seekLanding.clear(); seekLandingJob?.cancel()
                     if (scrub.begin(kernelPosition(), kernelDuration(), kernelPlaying())) pauseOwnedHost()
                     seekPreview = scrub.previewMs

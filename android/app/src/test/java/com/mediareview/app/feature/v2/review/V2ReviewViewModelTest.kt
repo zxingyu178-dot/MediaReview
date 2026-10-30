@@ -55,6 +55,29 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class V2ReviewViewModelTest {
+    @Test fun `视频字节只在当前稳定后预取下一条并在拖动时取消`() = runTest {
+        val repo = FakeMediaRepository(10)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, currentIndex = 4) }
+        val requests = mutableListOf<String>()
+        var cancelled = false
+        val port = com.mediareview.app.feature.v2.player.VideoPrefetchPort { endpoint ->
+            requests += endpoint.url
+            try { kotlinx.coroutines.awaitCancellation() } finally { cancelled = true }
+        }
+        val vm = V2ReviewViewModel(repo, sessions, port)
+        vm.enterReview()
+        waitUntil("v5") { playbackMediaId(vm) == "v5" }
+        assertTrue(requests.isEmpty())
+        vm.onPlaybackStable("v4")
+        assertTrue(requests.isEmpty())
+        vm.onPlaybackStable("v5")
+        waitUntil("next bytes") { requests.size == 1 }
+        assertEquals(listOf("v6"), requests.map { it.substringAfterLast('/').substringBefore('?') })
+        vm.onPlaybackStable("v5")
+        assertEquals(1, requests.size)
+        vm.onPlaybackUnstable()
+        assertTrue(cancelled)
+    }
     @Test
     fun oldPageResponseCannotReplaceNewScopedWindow() = runTest {
         val gate = CompletableDeferred<Unit>()

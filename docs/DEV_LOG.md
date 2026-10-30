@@ -3374,3 +3374,9 @@ versionCode31/Alpha24，新增加载中及失败手动重试反馈，所有加�
 ## 2026-10-30 Alpha24产物核验
 
 Release一次构建成功（5m4s），aapt确认code31/Alpha24，apksigner证书592c...3564匹配旧版；最终APK20797240字节，SHA256 227af76b44d73fa5699a8bc0628efcdc23ce020c788f9ed0923d0710b5342b30，构建源码4cc2565。复制到deploy_handoff并复核哈希，CURRENT_RELEASE独立APK指针更新且旧指针保留备份；Server1.6.4 ZIP及其Alpha22附带包未动。APK内核对到新缓存命名空间和轮询策略。NSFW资源源码9115cb6已push，未部署。视频字节预缓冲未启用，公共数据源与认证缓存接入待单独验证；手机未连接，不声称实机性能提升。详见LOADING_RESOURCE_RESULT_20261030.md。
+
+## 2026-10-30 Alpha25视频有界预缓冲候选
+
+沿用GSY HTTP扩展与批阅稳定回调；单一可取消预取最多2MiB，仅下一项，缓存最多两项4MiB。按配对摘要/URL/请求头隔离；仅明确206范围/长度/强ETag响应写入，真实播放先校验实体与认证后复用前缀+原网络尾段。401/403不交付缓存，版本或范围不符回退原DataSpec；HLS/无验证器等沿原路径。补横向/进度条拖动、暂停/面板/后台/退出取消，保留原进度计算。版本候选Alpha25/code32。
+
+首次Gradle参数未引用失败，不算RED；补接入前测试编译因缺配对方法/构造参数失败（14m35s）。后续70项单轮通过（16m40s）；筛选漏掉ReleaseNotesContractTest，单独17项16通过/1固定Alpha24预期失败（3m9s），更新版本门禁后仅重跑该1项通过（2m21s），最终UI编译通过。没有单轮87全绿；不重跑已通过目标。一次只读HTTP/缓存代码审查无新增确定问题。详见VIDEO_PREFIX_RESULT_20261030.md，证据video-prefix-*.log/.xml及green-summary.json。APK待构建；未跑全量、模拟器或真机，生产服务和媒体不变。

@@ -289,6 +289,16 @@ object ReleaseNotesCatalog {
                 "图片加载失败时可直接重试",
             ),
         ),
+        ReleaseNote(
+            versionCode = 32,
+            versionName = "2.0.0-alpha25",
+            title = "MediaReview 2.0 Alpha 25",
+            highlights = listOf(
+                "批阅稳定播放后提前缓冲下一条兼容的视频",
+                "预缓冲限制内存和请求时长，切页、拖动及退后台取消",
+                "缓存按配对身份隔离，播放前核对权限与文件版本",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

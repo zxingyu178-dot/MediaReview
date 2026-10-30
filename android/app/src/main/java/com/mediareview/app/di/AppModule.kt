@@ -12,6 +12,9 @@ import com.mediareview.app.core.network.TokenProvider
 import com.mediareview.app.core.network.ThumbnailCacheInterceptor
 import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.core.pairing.PairingRepository
+import com.mediareview.app.feature.v2.player.VideoPrefetchPort
+import com.mediareview.app.feature.v2.player.VideoPrefixCache
+import com.mediareview.app.feature.v2.player.VideoPrefixPlayback
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -85,6 +88,18 @@ object AppModule {
         .writeTimeout(15, TimeUnit.SECONDS)
         .followRedirects(false)
         .build()
+
+    @Provides
+    @Singleton
+    fun provideVideoPrefetchPort(
+        @Named("public") publicHttp: OkHttpClient,
+        tokens: TokenProvider,
+    ): VideoPrefetchPort = VideoPrefixPlayback(VideoPrefixCache(
+        publicHttp.newBuilder().connectTimeout(2, TimeUnit.SECONDS).readTimeout(3, TimeUnit.SECONDS)
+            .callTimeout(3, TimeUnit.SECONDS).retryOnConnectionFailure(false).followRedirects(false)
+            .followSslRedirects(false).build(),
+        tokens::playbackCacheNamespace,
+    ))
 
     @Provides
     @Singleton

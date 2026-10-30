@@ -19,11 +19,17 @@ class TokenProvider @Inject constructor() {
     @Volatile
     var pairedOrigin: String = ""
         private set
+    private var playbackNamespace: String? = null
 
     @Synchronized fun set(newToken: String, baseUrl: String) {
         token = newToken
         pairedOrigin = normalizedOrigin(baseUrl).orEmpty()
+        playbackNamespace = token.takeIf { it.isNotBlank() && pairedOrigin.isNotBlank() }
+            ?.let { "$pairedOrigin\u0000$it".encodeUtf8().sha256().hex() }
     }
+
+    /** 视频读取逐块核对配对；摘要在配对变化时计算，不在每次read时散列。 */
+    @Synchronized internal fun playbackCacheNamespace(): String? = playbackNamespace
 
     @Synchronized fun tokenFor(requestUrl: String): String? =
         token.takeIf { it.isNotBlank() && normalizedOrigin(requestUrl) == pairedOrigin }
@@ -40,6 +46,7 @@ class TokenProvider @Inject constructor() {
     @Synchronized fun clear() {
         token = ""
         pairedOrigin = ""
+        playbackNamespace = null
     }
 
     private fun normalizedOrigin(value: String): String? = value.toHttpUrlOrNull()?.let {
