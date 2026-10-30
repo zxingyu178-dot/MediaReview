@@ -3359,3 +3359,8 @@ Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alph
 ## 2026-10-30 最终交付与真实桥接验证
 
 Alpha23/code30 Release成功（18m2s），证书匹配，SHA256 b28ec7e3dc8958ba51450203d5b49553b1dc4c8d781aa1fae108c22184db9428，20,797,240字节，复制哈希复核一致；CURRENT_RELEASE独立APK已更新，Server包内Alpha22事实保持。两个分支已ff统一84aada2并push。ControlHub首轮Studio就绪超时清理后重试成功，审核桥RUNNING/owned/8877。唯一自建样本验证真实配对、三类图片读取、KEEP/RESET/REJECT、相同回执重放与两类409；官方接口精确清理且临时设备吊销。手机无法连接，最终APK未安装/布局及手机写入未验证。旧部署main一致性门禁不符合分支cherry-pick形态，未伪称通过。
+
+
+## 2026-10-30 加载专项：手机预算与同步
+
+新增单任务可取消预取，当前预览成功后才读取下一张预览；离开页面/切图/打开评分/审核忙时取消。显示与预取共用Coil单例、相同1536预览尺寸和凭据+URL散列键；缩略图解码256，专用内存32MB/磁盘128MB，未配对不读写缓存。前台同步立即执行，空闲/失败退避至60秒，有事件恢复；离开取消。NsfwLoadingPolicyTest4项+ViewModel65项全部通过（loading-policy-green.log），生产Kotlin编译通过。曾观察策略3项RED与前台刷新expected2/actual1；新增用例早期失败路径未清理轮询导致测试工作进程不退出，补finally并精确结束唯一已核对测试子进程后重跑正常，非生产故障。未部署、未重建Release、未声称手机性能收益。

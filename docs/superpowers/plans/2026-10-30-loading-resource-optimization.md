@@ -8,16 +8,16 @@
 
 ## 1. 审核桥批量读取
 
-- [ ] tests/backend/test_mobile_v2_feed.py：增加不同图片数下SQL读取次数有界用例，先观察失败。覆盖重复事件、删除墓碑和可靠提示词归属。
-- [ ] backend/app/services/mobile_v2_service.py：一页批量读取Image/Job/Prompt/PromptVersion/最大revision；feed不再调用逐图完整详情。保留游标排序、每事件revision规则及UNLINKED/UNRESOLVED/EXACT语义，不新增迁移。
-- [ ] 只跑feed与受影响scoring合同测试；记录SQL次数及结果，提交push。
+- [x] tests/backend/test_mobile_v2_feed.py：增加不同图片数下SQL读取次数有界用例，先观察失败。覆盖重复事件、删除墓碑和可靠提示词归属。
+- [x] backend/app/services/mobile_v2_service.py：一页批量读取Image/Job/Prompt/PromptVersion/最大revision；feed不再调用逐图完整详情。保留游标排序、每事件revision规则及UNLINKED/UNRESOLVED/EXACT语义，不新增迁移。
+- [x] 只跑feed与受影响scoring合同测试；记录SQL次数及结果，提交push。
 
 ## 2. 手机图片预算与同步退避
 
-- [ ] NsfwReviewViewModelTest：验证当前页优先、相邻只预取下一张、切图取消旧请求、离开页面取消、空闲及失败退避、回焦立即同步。
-- [ ] 复用NsfwImageLoader单例和认证HTTP客户端，新增小型预取协调器；同一图片身份+服务来源+认证身份隔离缓存，预取尺寸与展示相容；不并发解码多张原图。
-- [ ] 默认先以单个下一张预览为上限；使用明确的内存/磁盘预算，退出配对取消未完成请求。同步间隔由15秒起步，连续空结果逐级退避至60秒，返回新图恢复；人工刷新立即执行。
-- [ ] 仅相关JVM及必要编译，完成后提交push。
+- [x] NsfwReviewViewModelTest：验证当前页优先、相邻只预取下一张、切图取消旧请求、离开页面取消、空闲及失败退避、回焦立即同步。
+- [x] 复用NsfwImageLoader单例和认证HTTP客户端，新增小型预取协调器；同一图片身份+服务来源+认证身份隔离缓存，预取尺寸与展示相容；不并发解码多张原图。
+- [x] 默认先以单个下一张预览为上限；使用明确的内存/磁盘预算，退出配对取消未完成请求。同步间隔由15秒起步，连续空结果逐级退避至60秒，返回新图恢复；人工刷新立即执行。
+- [x] 仅相关JVM及必要编译，完成后提交push。
 
 ## 3. 桌面后台资源
 

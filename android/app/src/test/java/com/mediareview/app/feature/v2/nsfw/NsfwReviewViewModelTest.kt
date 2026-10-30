@@ -73,6 +73,21 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun returningToForegroundSynchronizesImmediately() = runTest {
+        val vm = bootstrapPaired()
+        val before = data.feedCalls
+        try {
+            vm.setScreenVisible(true)
+            assertEquals(before + 1, data.feedCalls)
+            vm.setScreenVisible(false)
+            vm.setScreenVisible(true)
+            assertEquals(before + 2, data.feedCalls)
+        } finally {
+            vm.setScreenVisible(false)
+        }
+    }
+
+    @Test
     fun mismatchedSnapshotDoesNotOfferUnsafeUndo() = runTest {
         val vm = bootstrapPaired()
         vm.decision("KEEP")

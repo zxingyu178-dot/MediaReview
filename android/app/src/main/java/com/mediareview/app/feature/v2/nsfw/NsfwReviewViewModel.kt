@@ -23,6 +23,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptSummary
 import com.mediareview.app.feature.v2.nsfw.data.NsfwReviewDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -123,6 +124,7 @@ class NsfwReviewViewModel @Inject constructor(
     private var lastCursor: String? = null
     private var historyCatchup = true
     private var pollJob: Job? = null
+    private val pollBackoff = NsfwPollBackoff()
     private var screenVisible = false
     private var detailSeq = 0
     private var panelSeq = 0
@@ -275,6 +277,7 @@ class NsfwReviewViewModel @Inject constructor(
     /** 手动/回焦刷新：追平增量；不改变当前图片位置。 */
     fun refresh() {
         if (_state.value.phase != NsfwPhase.READY || _state.value.busy) return
+        pollBackoff.reset()
         viewModelScope.launch { syncFromCursor(reset = false, manual = true) }
     }
 
@@ -287,15 +290,19 @@ class NsfwReviewViewModel @Inject constructor(
         }
         if (_state.value.phase != NsfwPhase.READY) return
         if (pollJob?.isActive == true) return
-        pollJob = viewModelScope.launch {
+        pollBackoff.reset()
+        // 先保存LAZY任务再启动，避免测试dispatcher下同步回包重入启动轮询。
+        pollJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            syncFromCursor(reset = false)
             while (isActive) {
-                delay(pollIntervalMs)
+                delay(pollBackoff.interval(pollIntervalMs))
                 val snapshot = _state.value
                 if (snapshot.phase == NsfwPhase.READY && !snapshot.busy) {
                     syncFromCursor(reset = false)
                 }
             }
         }
+        pollJob?.start()
     }
 
     private fun maybeStartPolling() {
@@ -841,6 +848,7 @@ class NsfwReviewViewModel @Inject constructor(
         _state.update { it.copy(busy = true) }
         val indexBefore = _state.value.currentIndex
         var countedNew = 0
+        var receivedChanges = false
         var pages = 0
         var cursor = lastCursor
         var recovered = false
@@ -856,11 +864,13 @@ class NsfwReviewViewModel @Inject constructor(
             } catch (error: Exception) {
                 if (epoch != connectionEpoch) return
                 _state.update { it.copy(busy = false) }
+                pollBackoff.result(false)
                 handleFetchFailure(error)
                 return
             }
             if (epoch != connectionEpoch) return
             val page = result.page
+            receivedChanges = receivedChanges || page.items.isNotEmpty()
             if (result.resetApplied) {
                 recovered = true
                 historyCatchup = true
@@ -890,6 +900,7 @@ class NsfwReviewViewModel @Inject constructor(
             cursor = page.nextCursor
         }
         if (epoch != connectionEpoch) return
+        pollBackoff.result(receivedChanges)
         val state = _state.value
         val snapshotNow = feed.snapshot()
         val currentStillExists = state.currentId != null && feed.find(state.currentId!!) != null

@@ -8,6 +8,8 @@
 
 ## 0. 一句话状态
 
+**2026-10-30加载资源专项开发中**：新分支codex/loading-resource-optimization；桥接批量查询源码7b8d9dd已push（隔离5/20图SELECT从12/42降为4/4），手机预算预取/缓存隔离/前台立即同步及空闲退避69项通过。当前生产与交付仍为上次Alpha23，专项尚未部署或生成新APK；后续桌面轮询及视频预缓冲按[专项计划](superpowers/plans/2026-10-30-loading-resource-optimization.md)推进。
+
 **2026-10-30 生图审核交付**：Alpha23/code30最终Release已核验，CURRENT_RELEASE已更新；两个开发分支统一84aada2，64项ViewModel回归通过。Studio与审核桥8877已恢复在线，自建样本真实认证图片与审核/幂等/冲突链路通过并清理。最终APK手机覆盖安装、布局与写入验收因设备不可连接仍待验证。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
 
 **2026-10-29历史交付快照（客户端已被上文Alpha23替代）**：Alpha22/code29与Server1.6.4/0018产物核验通过，CURRENT_RELEASE已更新。69项定向JVM、Server分轮安全回归及184项包哈希校验记录见[本轮报告](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码aa441a1、构建基线17cd886已push。手机/生产仍未升级；生图仅接口准备，真实HTTP未接通。下方为过程中和历史快照。

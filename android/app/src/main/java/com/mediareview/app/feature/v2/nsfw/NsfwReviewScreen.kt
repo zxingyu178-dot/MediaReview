@@ -29,6 +29,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.awaitCancellation
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,7 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import coil.ImageLoader
+import com.mediareview.app.feature.v2.nsfw.di.NsfwImageLoader
 import coil.compose.AsyncImage
 import dagger.hilt.android.EntryPointAccessors
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
@@ -77,7 +80,7 @@ fun NsfwReviewScreen(
     val context = LocalContext.current
     val imageLoader = remember(context) {
         EntryPointAccessors.fromApplication(context, NsfwEntryPoint::class.java)
-            .nsfwImageLoader().loader
+            .nsfwImageLoader()
     }
     var baseUrlInput by rememberSaveable { mutableStateOf("") }
     var codeInput by rememberSaveable { mutableStateOf("") }
@@ -264,7 +267,7 @@ private fun PairingPane(
 @Composable
 private fun ReadyPane(
     state: NsfwUiState,
-    imageLoader: ImageLoader,
+    imageLoader: NsfwImageLoader,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onSelect: (String) -> Unit,
@@ -278,6 +281,20 @@ private fun ReadyPane(
     onDisconnect: () -> Unit,
 ) {
     val thumbnailState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
+    val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
+    var previewReadyFor by remember(state.currentId) { mutableStateOf<String?>(null) }
+    val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
+    LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                if (state.currentId != null && previewReadyFor == state.currentId && !state.busy && state.panel == null) prefetch.update(nextUrl)
+                else prefetch.stop()
+                awaitCancellation()
+            } finally { prefetch.stop() }
+        }
+    }
     LaunchedEffect(state.currentId, state.items.size) {
         if (state.items.isNotEmpty()) thumbnailState.animateScrollToItem(state.currentIndex)
     }
@@ -323,8 +340,9 @@ private fun ReadyPane(
                 )
             } else {
                 AsyncImage(
-                    model = safeNsfwImageUrl(state.baseUrl, item.previewUrl),
-                    imageLoader = imageLoader,
+                    model = imageLoader.request(safeNsfwImageUrl(state.baseUrl, item.previewUrl)),
+                    imageLoader = imageLoader.loader,
+                    onSuccess = { previewReadyFor = item.imageId },
                     contentDescription = "待审核图片",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
@@ -467,7 +485,7 @@ private fun Banner(text: String, warning: Boolean) {
 @Composable
 private fun Thumbnail(
     url: String,
-    imageLoader: ImageLoader,
+    imageLoader: NsfwImageLoader,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -479,8 +497,8 @@ private fun Thumbnail(
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
-            model = url,
-            imageLoader = imageLoader,
+            model = imageLoader.request(url),
+            imageLoader = imageLoader.loader,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -529,7 +547,7 @@ private fun PromptScoreDialog(
     panel: NsfwPromptPanel,
     vm: NsfwReviewViewModel,
     baseUrl: String,
-    imageLoader: ImageLoader,
+    imageLoader: NsfwImageLoader,
 ) {
     var overall by remember(panel.requestId) {
         mutableStateOf(panel.pendingRequest?.overallScore ?: 0)
@@ -601,8 +619,8 @@ private fun PromptScoreDialog(
                                         .padding(2.dp),
                                 ) {
                                     AsyncImage(
-                                        model = safeNsfwImageUrl(baseUrl, image.thumbnailUrl),
-                                        imageLoader = imageLoader,
+                                        model = imageLoader.request(safeNsfwImageUrl(baseUrl, image.thumbnailUrl)),
+                                        imageLoader = imageLoader.loader,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize(),
