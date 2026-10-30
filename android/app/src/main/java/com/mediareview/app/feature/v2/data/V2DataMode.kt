@@ -37,7 +37,8 @@ class V2DataModeStore @Inject constructor(
 ) {
     private val keyMode = stringPreferencesKey("data_mode")
 
-    private val _mode = MutableStateFlow(V2DataMode.DEMO)
+    private val defaultMode = if (com.mediareview.app.BuildConfig.DEBUG) V2DataMode.DEMO else V2DataMode.SERVER
+    private val _mode = MutableStateFlow(defaultMode)
     val mode: StateFlow<V2DataMode> = _mode.asStateFlow()
 
     private val _resolved = MutableStateFlow(false)
@@ -61,8 +62,9 @@ class V2DataModeStore @Inject constructor(
 
     /** 切换数据源并持久化。 */
     suspend fun set(mode: V2DataMode) {
-        context.v2ModeDataStore.edit { prefs -> prefs[keyMode] = mode.name }
-        _mode.value = mode
+        val allowed = if (!com.mediareview.app.BuildConfig.DEBUG) V2DataMode.SERVER else mode
+        context.v2ModeDataStore.edit { prefs -> prefs[keyMode] = allowed.name }
+        _mode.value = allowed
         _resolved.value = true
     }
 
@@ -72,5 +74,6 @@ class V2DataModeStore @Inject constructor(
             .first()
 
     private fun parse(raw: String?): V2DataMode =
-        V2DataMode.entries.firstOrNull { it.name == raw } ?: V2DataMode.DEMO
+        if (!com.mediareview.app.BuildConfig.DEBUG) V2DataMode.SERVER
+        else V2DataMode.entries.firstOrNull { it.name == raw } ?: defaultMode
 }

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Literal
@@ -165,13 +166,15 @@ def _require_user_id(request: Request, db: Session | None = None) -> str:
     user_id = request.app.state.settings.jellyfin.user_id
     if not user_id and db is not None:
         import sqlalchemy as sa
+
         from app.db.models import LibrarySelection
         if db.scalar(sa.select(LibrarySelection.jellyfin_id).where(
-                LibrarySelection.source_type == "local", LibrarySelection.selected.is_(True)).limit(1)):
+                LibrarySelection.source_type == "local",
+                LibrarySelection.selected.is_(True)).limit(1)):
             return ""
     if not user_id:
         raise ValidationFailedError(
-            "尚未确定 Jellyfin 用户,请先调用 /api/v1/libraries 完成媒体库配置"
+            "请先在电脑管理后台登记本地来源，或勾选 Jellyfin 媒体库"
         )
     return user_id
 
@@ -272,13 +275,17 @@ async def list_media(
 
     if source_type:
         import sqlalchemy as sa
+
         from app.db.models import LibrarySelection
         allowed = set(db.scalars(sa.select(LibrarySelection.jellyfin_id).where(
             LibrarySelection.source_type == source_type)))
         targets = [target for target in targets if target in allowed]
         if not targets:
-            return ok(MediaPage(items=[], total=0, page=page, page_size=page_size,
-                sync=MediaSyncSummary(state="idle", stale=False, processed=0, total=0, message="当前来源无媒体")))
+            return ok(MediaPage(
+                items=[], total=0, page=page, page_size=page_size,
+                sync=MediaSyncSummary(state="idle", stale=False, processed=0,
+                                      total=0, message="当前来源无媒体"),
+            ))
     folder_dirname: str | None = None
     folder_condition = None
     if folder_id:
@@ -365,7 +372,8 @@ async def refresh_media(
     if not targets or any(library_id not in set(selected) for library_id in targets):
         raise ValidationFailedError("只能刷新已勾选且存在的媒体库")
     from app.services import native_sources
-    scheduled = [native_sources.schedule_scan(db, target) for target in targets if target.startswith("local_")]
+    scheduled = [native_sources.schedule_scan(db, target)
+                 for target in targets if target.startswith("local_")]
     jf_targets = [target for target in targets if not target.startswith("local_")]
     if jf_targets:
         scheduled.append(media_index.schedule_media_refresh(db, jf_targets, force=body.force))
@@ -453,6 +461,9 @@ async def get_media_thumbnail(
         headers["X-MediaReview-Cache"] = "HIT"
         return Response(status_code=304, headers=headers)
 
+    # 已读取的 ORM 字段在 commit 后仍可用（expire_on_commit=False）。
+    # 慢缓存/上游 IO 不得占住有限连接池，否则后续同步 checkout 会卡住事件循环。
+    db.commit()
     if row.source_type == "local":
         from app.services.native_images import get_thumbnail
         result = await get_thumbnail(request.app.state.database, cache, row, selected_profile, key)
@@ -507,7 +518,9 @@ async def get_media_original(
         raise ValidationFailedError("仅图片支持原图读取")
     if row.source_type == "local":
         import os
+
         from starlette.background import BackgroundTask as CloseTask
+
         from app.services import native_images
         from app.services.native_sources import open_media
         file, info = open_media(db, row)
@@ -527,6 +540,7 @@ async def get_media_original(
             file.close()
             return Response(status_code=304, headers=headers)
         headers["Content-Length"] = str(info.st_size)
+        db.commit()
         def chunks():
             try:
                 remaining = info.st_size
@@ -540,6 +554,7 @@ async def get_media_original(
                 file.close()
         return StreamingResponse(chunks(), media_type=content_type, headers=headers,
                                  background=CloseTask(file.close))
+    db.commit()
     stream: ImageStream = await client.open_original_stream(row.jellyfin_id)
     log_perf("original_opened", start=started, media_id=media_id)
 
@@ -615,6 +630,7 @@ async def _resolve_stream_key(db: Session, device, client: JellyfinClient) -> st
     任何签发失败都抛 JellyfinError,由端点 fail-closed(不下发任何直连地址)。
     """
     name = _device_key_name(device.installation_id if device is not None else None)
+    db.commit()
     key = await client.ensure_device_stream_key(name)
     if device is not None and (
         device.jellyfin_key_value != key or device.jellyfin_key_name != name
@@ -664,7 +680,8 @@ async def get_playback_info(
         return ok(PlaybackInfo(source_type="local", media_id=row.media_id, title=row.name,
             direct=PlaybackEndpoint(url=url, headers=headers), stream_url=url,
             fallback_hls=None, resume_position_ms=progress.position_ms if progress else 0,
-            stream_url_authoritative=True, message="本地只读直连；使用已配对设备认证，不提供Jellyfin转码",
+            stream_url_authoritative=True,
+            message="本地直连；使用已配对设备认证，不提供Jellyfin转码",
             media_type=row.media_type, duration_ms=row.duration_ms, width=row.width,
             height=row.height, container=row.container))
     jellyfin_settings = request.app.state.settings.jellyfin
@@ -680,12 +697,24 @@ async def get_playback_info(
     authoritative = bool(jellyfin_settings.client_url)
 
     try:
+        key_started = perf_now()
         stream_key = await _resolve_stream_key(db, device, client)
     except JellyfinError as exc:
         raise ConfigError("无法为设备签发 Jellyfin 播放凭据,请稍后重试") from exc
 
+    log_perf("playback_credential", start=key_started)
+
     direct_url = client.video_stream_url(row.jellyfin_id, base_url=client_base)
-    source_id = await client.playback_media_source_id(row.jellyfin_id)
+    metadata_started = perf_now()
+    # 两个读取互不依赖；仍在设备凭据成功后执行。TaskGroup在取消/异常时回收兄弟任务。
+    async with asyncio.TaskGroup() as metadata:
+        source = metadata.create_task(client.playback_media_source_id(row.jellyfin_id))
+        resume = metadata.create_task(client.item_resume_position_ms(
+            jellyfin_settings.user_id or "", row.jellyfin_id
+        ))
+    source_id = source.result()
+    resume_position_ms = resume.result()
+    log_perf("playback_metadata", start=metadata_started)
     hls_url = (
         client.hls_stream_url(row.jellyfin_id, media_source_id=source_id, base_url=client_base)
         if source_id
@@ -700,9 +729,6 @@ async def get_playback_info(
             raise ConfigError("Jellyfin 播放配置存在凭据泄漏风险") from None
 
     stream_headers = {"X-Emby-Token": stream_key}
-    resume_position_ms = await client.item_resume_position_ms(
-        jellyfin_settings.user_id or "", row.jellyfin_id
-    )
     log_perf("playback_info", start=started, media_id=media_id)
     return ok(
         PlaybackInfo(
@@ -753,7 +779,8 @@ async def report_progress(
     if row.source_type == "local":
         from app.db.models import LocalPlaybackProgress
         position = min(body.position_ms, row.duration_ms) if row.duration_ms else body.position_ms
-        db.merge(LocalPlaybackProgress(media_id=media_id, position_ms=position, updated_at=utc_now()))
+        db.merge(LocalPlaybackProgress(
+            media_id=media_id, position_ms=position, updated_at=utc_now()))
         db.commit()
         return ok({"media_id": media_id, "reported": True, "source_type": "local"})
     user_id = request.app.state.settings.jellyfin.user_id
@@ -769,7 +796,9 @@ async def report_progress(
 
 
 @router.api_route("/{media_id}/file", methods=["GET", "HEAD"], response_class=Response)
-def native_file(media_id: str, request: Request, _auth=Depends(require_auth), db: Session = Depends(get_db)):
+def native_file(
+    media_id: str, request: Request, _auth=Depends(require_auth), db: Session = Depends(get_db)
+):
     from app.services.native_playback import file_response
     row = media_index.get_cached_media(db, media_id)
     if row is None or row.source_type != "local" or row.media_type != "video":

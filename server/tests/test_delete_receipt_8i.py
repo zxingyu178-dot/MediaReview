@@ -1,16 +1,18 @@
-"""Stage8I: 尺寸回填与真实删除回执；全部使用隔离文件/数据库。"""
+﻿"""Stage8I: 尺寸回填与真实删除回执；全部使用隔离文件/数据库。"""
 
 import os
 import sys
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
+import sqlalchemy as sa
 from test_delete_nonce_11 import _enqueue, _make_db, _seed_media
 
 from app.adapters.jellyfin.mapper import map_media_item
 from app.adapters.jellyfin.models import JFItem
-from app.db.models import DeleteQueue, MediaCacheIndex
-from app.services import delete_queue, media_index
+from app.db.models import AuditLog, DeleteCommitNonce, DeleteQueue, MediaCacheIndex
+from app.services import audit, delete_queue, media_index
 
 
 def test_stale_session_cannot_reuse_consumed_nonce(tmp_path):
@@ -52,7 +54,441 @@ def test_second_snapshot_does_not_retry_failed_item_without_requeue(tmp_path):
         assert result == {"guarded": "failed"}
         assert result.deleted_count == result.deleted_bytes == 0
         assert path.exists()
+        assert (
+            s.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == "guarded")
+                .order_by(AuditLog.id.desc())
+            )
+            == "failed:not_pending"
+        )
     db.dispose()
+
+
+def test_snapshot_missing_queue_entry_is_audited(tmp_path):
+    db = _make_db(tmp_path)
+    path = tmp_path / "withdrawn.mp4"
+    path.write_bytes(b"keep")
+    _seed_media(db, "withdrawn", str(path))
+    _enqueue(db, "withdrawn", 4)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.dequeue(session, "withdrawn") is True
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.commit_with_nonce(session, nonce) == {}
+    with db.session() as session:
+        assert (
+            session.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == "withdrawn")
+                .order_by(AuditLog.id.desc())
+            )
+            == "skipped:queue_entry_missing"
+        )
+    assert path.exists()
+    db.dispose()
+
+
+@pytest.mark.parametrize(
+    ("branch", "expected_detail", "expected_status"),
+    [
+        ("missing", "skipped:queue_entry_missing", None),
+        ("superseded", "failed:queue_entry_superseded", "pending"),
+        ("not_pending", "failed:not_pending", "failed"),
+    ],
+)
+def test_snapshot_audit_failure_rolls_back_nonce_claim(
+    tmp_path, monkeypatch, branch, expected_detail, expected_status
+):
+    """非执行快照审计与 nonce claim 必须同事务；审计失败不能消费 nonce。"""
+    db = _make_db(tmp_path)
+    path = tmp_path / f"{branch}.mp4"
+    path.write_bytes(b"keep")
+    media_id = f"snapshot-{branch}"
+    _seed_media(db, media_id, str(path), size=4)
+    _enqueue(db, media_id, 4)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        row = session.get(DeleteQueue, media_id)
+        if branch == "missing":
+            session.delete(row)
+        elif branch == "superseded":
+            session.delete(row)
+            session.flush()
+            assert delete_queue.enqueue(session, media_id, size_bytes=4) is True
+        else:
+            row.status = "failed"
+            row.error = "preexisting_failure"
+        session.commit()
+
+    original_log = audit.log_action
+
+    def fail_snapshot_audit(db_session, action, logged_media_id=None, detail=None):
+        if action == "delete_commit" and detail == expected_detail:
+            raise RuntimeError("injected snapshot audit failure")
+        return original_log(db_session, action, logged_media_id, detail)
+
+    monkeypatch.setattr(audit, "log_action", fail_snapshot_audit)
+    with db.session() as session:
+        with pytest.raises(RuntimeError, match="snapshot audit failure"):
+            delete_queue.commit_with_nonce(session, nonce)
+
+    with db.session() as session:
+        assert session.get(DeleteCommitNonce, nonce).used is False
+        queued = session.get(DeleteQueue, media_id)
+        assert (None if queued is None else queued.status) == expected_status
+        assert (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == media_id)
+            )
+            == 0
+        )
+    assert path.read_bytes() == b"keep"
+    db.dispose()
+
+
+def test_snapshot_audit_failure_returns_api_error_without_consuming_nonce(
+    tmp_path, client, monkeypatch
+):
+    """审计写失败必须由 API 返回错误，且不能留下已消费 nonce。"""
+    db = client.app.state.database
+    path = tmp_path / "api-missing.mp4"
+    path.write_bytes(b"keep")
+    media_id = "api-snapshot-missing"
+    _seed_media(db, media_id, str(path), size=4)
+    _enqueue(db, media_id, 4)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    with db.session() as session:
+        assert delete_queue.dequeue(session, media_id) is True
+        session.commit()
+
+    original_log = audit.log_action
+
+    def fail_snapshot_audit(db_session, action, logged_media_id=None, detail=None):
+        if detail == "skipped:queue_entry_missing":
+            raise RuntimeError("injected snapshot audit failure")
+        return original_log(db_session, action, logged_media_id, detail)
+
+    monkeypatch.setattr(audit, "log_action", fail_snapshot_audit)
+    transport = client._transport
+    previous_raise = transport.raise_server_exceptions
+    transport.raise_server_exceptions = False
+    try:
+        response = client.post("/api/v1/delete-queue/commit", json={"nonce": nonce})
+    finally:
+        transport.raise_server_exceptions = previous_raise
+    assert response.status_code == 500
+    with db.session() as session:
+        assert session.get(DeleteCommitNonce, nonce).used is False
+    assert path.read_bytes() == b"keep"
+
+
+@pytest.mark.parametrize("failure_point", ["audit", "index_flush"])
+def test_post_remove_failure_isolated_and_recoverable(tmp_path, monkeypatch, failure_point):
+    """文件已删后的意外异常不得回滚成 pending，也不得中断后续项。"""
+    db = _make_db(tmp_path)
+    first = tmp_path / "first.mp4"
+    second = tmp_path / "second.mp4"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    _seed_media(db, "first", str(first), size=5)
+    _seed_media(db, "second", str(second), size=6)
+    _enqueue(db, "first", 5)
+    _enqueue(db, "second", 6)
+    with db.session() as session:
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+
+    with db.session() as session:
+        if failure_point == "audit":
+            original_log = audit.log_action
+            failed_once = False
+
+            def fail_first_delete_audit(db_session, action, media_id=None, detail=None):
+                nonlocal failed_once
+                if action == "delete_commit" and media_id == "first" and not failed_once:
+                    failed_once = True
+                    raise RuntimeError("injected audit failure")
+                return original_log(db_session, action, media_id, detail)
+
+            monkeypatch.setattr(audit, "log_action", fail_first_delete_audit)
+        else:
+            original_flush = session.flush
+            failed_once = False
+
+            def fail_first_index_flush(*args, **kwargs):
+                nonlocal failed_once
+                deleting_index = any(isinstance(item, MediaCacheIndex) for item in session.deleted)
+                if not failed_once and not first.exists() and deleting_index:
+                    failed_once = True
+                    raise RuntimeError("injected index flush failure")
+                return original_flush(*args, **kwargs)
+
+            monkeypatch.setattr(session, "flush", fail_first_index_flush)
+
+        receipt = delete_queue.commit_with_nonce(session, nonce)
+
+    assert receipt == {"first": "success", "second": "success"}
+    assert not first.exists() and not second.exists()
+    with db.session() as session:
+        assert session.get(DeleteCommitNonce, nonce).used is True
+        assert session.get(DeleteQueue, "first").status == "delete_done"
+        assert session.get(DeleteQueue, "second") is None
+        assert session.get(MediaCacheIndex, "first") is not None
+
+    monkeypatch.undo()
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with db.session() as session:
+        assert session.get(DeleteQueue, "first") is None
+        assert session.get(MediaCacheIndex, "first") is None
+        assert (
+            session.scalar(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id == "first")
+                .order_by(AuditLog.id.desc())
+            )
+            == "metadata_cleanup_recovered"
+        )
+    db.dispose()
+
+
+def test_recover_interrupted_deletes_converges_and_is_idempotent(tmp_path):
+    db = _make_db(tmp_path)
+    deleted = tmp_path / "already-deleted.mp4"
+    present = tmp_path / "still-present.mp4"
+    deleted.write_bytes(b"gone")
+    present.write_bytes(b"stay")
+    _seed_media(db, "gone", str(deleted), size=4)
+    _seed_media(db, "stay", str(present), size=4)
+    with db.session() as session:
+        session.get(MediaCacheIndex, "stay").modified_at = datetime.fromtimestamp(
+            present.stat().st_mtime, UTC
+        ).replace(tzinfo=None)
+        session.commit()
+    _enqueue(db, "gone", 4)
+    _enqueue(db, "stay", 4)
+    with db.session() as session:
+        session.execute(
+            sa.update(DeleteQueue)
+            .values(status="committing")
+            .where(DeleteQueue.media_id.in_(["gone", "stay"]))
+        )
+        session.commit()
+    deleted.unlink()
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with db.session() as session:
+        assert session.get(DeleteQueue, "gone") is None
+        stayed = session.get(DeleteQueue, "stay")
+        assert stayed.status == "failed"
+        assert stayed.error == "interrupted_not_deleted"
+        details = list(
+            session.scalars(
+                sa.select(AuditLog.detail)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id.in_(["gone", "stay"]))
+                .order_by(AuditLog.id)
+            )
+        )
+        assert details == ["recovered_deleted", "failed:interrupted_not_deleted"]
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+    with db.session() as session:
+        assert (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "delete_commit", AuditLog.media_id.in_(["gone", "stay"]))
+            )
+            == 2
+        )
+    assert present.read_bytes() == b"stay"
+    db.dispose()
+
+
+def test_recover_jellyfin_unreachable_parent_keeps_committing(tmp_path):
+    """父链不可达不能被误认成叶文件已删除。"""
+    db = _make_db(tmp_path)
+    parent = tmp_path / "mounted-library"
+    parent.mkdir()
+    target = parent / "movie.mp4"
+    target.write_bytes(b"stay")
+    _seed_media(db, "unreachable-parent", str(target), size=4)
+    _enqueue(db, "unreachable-parent", 4)
+    with db.session() as session:
+        row = session.get(DeleteQueue, "unreachable-parent")
+        row.status = "committing"
+        session.commit()
+
+    parent.rename(tmp_path / "mounted-library-offline")
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+
+    with db.session() as session:
+        row = session.get(DeleteQueue, "unreachable-parent")
+        assert row is not None
+        assert row.status == "committing"
+        assert session.get(MediaCacheIndex, "unreachable-parent") is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "unreachable-parent",
+            )
+        ) == 0
+    db.dispose()
+
+
+def test_recover_jellyfin_parent_rename_after_validation_never_reports_missing(tmp_path):
+    """父目录验证后被改名时，句柄相对观察仍不能把原文件误报为缺失。"""
+    if os.name != "nt":
+        pytest.skip("仅 Windows 句柄相对观察适用")
+
+    db = _make_db(tmp_path)
+    parent = tmp_path / "mounted-library"
+    parked_parent = tmp_path / "mounted-library-offline"
+    parent.mkdir()
+    target = parent / "movie.mp4"
+    target.write_bytes(b"stay")
+    _seed_media(db, "renamed-parent", str(target), size=4)
+    _enqueue(db, "renamed-parent", 4)
+    with db.session() as session:
+        media = session.get(MediaCacheIndex, "renamed-parent")
+        media.modified_at = datetime.fromtimestamp(target.stat().st_mtime, UTC).replace(
+            tzinfo=None
+        )
+        row = session.get(DeleteQueue, "renamed-parent")
+        row.status = "committing"
+        session.commit()
+
+    hook_called = False
+
+    def rename_parent_after_validation():
+        nonlocal hook_called
+        parent.rename(parked_parent)
+        hook_called = True
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(
+            session,
+            _jellyfin_observation_hook=rename_parent_after_validation,
+        )
+
+    assert hook_called
+    assert (parked_parent / "movie.mp4").read_bytes() == b"stay"
+    with db.session() as session:
+        row = session.get(DeleteQueue, "renamed-parent")
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error == "interrupted_not_deleted"
+        assert session.get(MediaCacheIndex, "renamed-parent") is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "renamed-parent",
+                AuditLog.detail.in_(
+                    ["recovered_deleted", "recovered_original_gone"]
+                ),
+            )
+        ) == 0
+    db.dispose()
+
+
+@pytest.mark.parametrize("missing_evidence", ["size_bytes", "modified_at"])
+def test_recover_jellyfin_missing_identity_evidence_keeps_committing(
+    tmp_path, missing_evidence
+):
+    """size/mtime 任一缺失时只能保留 UNKNOWN，不能积极判定原文件仍在。"""
+    db = _make_db(tmp_path)
+    target = tmp_path / f"missing-{missing_evidence}.mp4"
+    target.write_bytes(b"stay")
+    media_id = f"missing-{missing_evidence}"
+    _seed_media(db, media_id, str(target), size=4)
+    _enqueue(db, media_id, 4)
+    with db.session() as session:
+        media = session.get(MediaCacheIndex, media_id)
+        media.modified_at = datetime.fromtimestamp(target.stat().st_mtime, UTC).replace(
+            tzinfo=None
+        )
+        setattr(media, missing_evidence, None)
+        row = session.get(DeleteQueue, media_id)
+        row.status = "committing"
+        session.commit()
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+
+    with db.session() as session:
+        row = session.get(DeleteQueue, media_id)
+        assert row is not None
+        assert row.status == "committing"
+        assert session.get(MediaCacheIndex, media_id) is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "delete_commit", AuditLog.media_id == media_id)
+        ) == 0
+    assert target.read_bytes() == b"stay"
+    db.dispose()
+
+
+def test_recover_jellyfin_replacement_cleans_metadata_without_deleting_file(tmp_path):
+    """Jellyfin 绝对路径身份变化时只收敛旧行，不删除当前文件。"""
+    db = _make_db(tmp_path)
+    target = tmp_path / "jellyfin-rebuilt.mp4"
+    target.write_bytes(b"old!")
+    _seed_media(db, "jellyfin-rebuilt", str(target), size=4)
+    _enqueue(db, "jellyfin-rebuilt", 4)
+    with db.session() as session:
+        session.get(MediaCacheIndex, "jellyfin-rebuilt").modified_at = datetime.fromtimestamp(
+            target.stat().st_mtime, UTC
+        ).replace(tzinfo=None)
+        row = session.get(DeleteQueue, "jellyfin-rebuilt")
+        row.status = "committing"
+        session.commit()
+
+    target.write_bytes(b"replacement")
+    with patch("app.services.delete_queue.os.remove") as remove:
+        with db.session() as session:
+            delete_queue.recover_interrupted_deletes(session)
+        remove.assert_not_called()
+
+    assert target.read_bytes() == b"replacement"
+    with db.session() as session:
+        assert session.get(DeleteQueue, "jellyfin-rebuilt") is None
+        assert session.get(MediaCacheIndex, "jellyfin-rebuilt") is None
+        assert session.scalar(
+            sa.select(AuditLog.detail)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "jellyfin-rebuilt",
+            )
+            .order_by(AuditLog.id.desc())
+        ) == "recovered_original_gone"
+    db.dispose()
+
+
+def test_delete_receipt_contract_only_has_stable_terminal_outcomes():
+    receipt = delete_queue.DeleteReceipt()
+    receipt.update(ok="success", gone="missing", bad="failed")
+    assert receipt.deleted_count == 1
+    assert receipt.missing_count == 1
+    assert receipt.failed_count == 1
+    assert not hasattr(receipt, "pending_count")
 
 
 @pytest.mark.parametrize("kind", ["relative", "parent_traversal", "unc", "uri"])
@@ -352,9 +788,68 @@ def test_authenticated_api_nonce_receipt(tmp_path, data_root):
             "failed_count": 0,
         }
         assert not path.exists()
+        receipt_url = f"/api/v1/delete-queue/commit/{nonce}/result"
+        assert client.get(receipt_url).status_code == 401
+        other = _pair(client, device_id="receipt-other-device")
+        assert client.get(receipt_url, headers={"Authorization": f"Bearer {other}"}).status_code == 404
+        recovered = client.get(receipt_url, headers=headers)
+        assert recovered.status_code == 200
+        assert recovered.json()["data"]["result"] == response.json()["data"]
         assert (
             client.post(
                 "/api/v1/delete-queue/commit", json={"nonce": nonce}, headers=headers
             ).status_code
             == 409
         )
+        assert client.post(
+            "/api/v1/pairing/revoke", json={"device_id": "receipt-device"}, headers=headers
+        ).status_code == 200
+        assert client.get(receipt_url, headers=headers).status_code == 401
+
+
+
+def test_recover_jellyfin_object_path_not_found_is_unknown(tmp_path):
+    """STATUS_OBJECT_PATH_NOT_FOUND 不是叶缺失证据；必须保持 committing 等待重试。"""
+    if os.name != "nt":
+        pytest.skip("仅 Windows 句柄相对观察适用")
+
+    db = _make_db(tmp_path)
+    parent = tmp_path / "mounted-library-path-nf"
+    parent.mkdir()
+    target = parent / "movie.mp4"
+    target.write_bytes(b"stay")
+    _seed_media(db, "path-not-found", str(target), size=4)
+    _enqueue(db, "path-not-found", 4)
+    with db.session() as session:
+        media = session.get(MediaCacheIndex, "path-not-found")
+        media.modified_at = datetime.fromtimestamp(target.stat().st_mtime, UTC).replace(
+            tzinfo=None
+        )
+        row = session.get(DeleteQueue, "path-not-found")
+        row.status = "committing"
+        session.commit()
+
+    with db.session() as session:
+        delete_queue.recover_interrupted_deletes(
+            session, _jellyfin_ntstatus_override=0xC000003A
+        )
+
+    assert target.read_bytes() == b"stay"
+    with db.session() as session:
+        row = session.get(DeleteQueue, "path-not-found")
+        assert row is not None
+        assert row.status == "committing"
+        assert row.error is None
+        assert session.get(MediaCacheIndex, "path-not-found") is not None
+        assert session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.action == "delete_commit",
+                AuditLog.media_id == "path-not-found",
+                AuditLog.detail.in_(
+                    ["recovered_deleted", "recovered_original_gone"]
+                ),
+            )
+        ) == 0
+    db.dispose()

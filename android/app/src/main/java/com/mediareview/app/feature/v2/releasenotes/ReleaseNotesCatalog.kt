@@ -187,6 +187,97 @@ object ReleaseNotesCatalog {
                 "电脑端更新至 Server 1.5.2 并刷新索引后，可恢复重叠媒体库的目录内容",
             ),
         ),
+        ReleaseNote(
+            versionCode = 23,
+            versionName = "2.0.0-alpha16",
+            title = "MediaReview 2.0 Alpha 16",
+            highlights = listOf(
+                "本地来源支持先加入待删除队列、再二次确认的两阶段安全删除",
+                "Windows 仅使用 POSIX 安全删除语义，不支持时返回 delete_not_supported 且文件保持不变",
+                "只有电脑端明确返回 can_delete=true 的来源才允许执行删除",
+                "本版本尚未完成真实手机与家庭局域网验收",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 24,
+            versionName = "2.0.0-alpha17",
+            title = "MediaReview 2.0 Alpha 17",
+            highlights = listOf(
+                "首页收敛顶栏，搜索改为全屏，并加入分类标签、无边框大图网格和下拉刷新",
+                "目录页支持折叠顶栏与横滑面包屑，包含子文件夹选项移入菜单",
+                "相册按日期分节；查看器支持沉浸大图、横滑翻页、双击或双指缩放、下滑关闭和信息层",
+                "批阅采用极简顶栏与进度、底部五项动作，支持手势切换、保留或标记待删除、撤销和快进一屏",
+                "本版本仍是 Alpha，尚未完成真实手机与家庭局域网验收",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 25,
+            versionName = "2.0.0-alpha18",
+            title = "MediaReview 2.0 Alpha 18",
+            highlights = listOf(
+                "图片墙、相册和图片查看共享缩略图缓存，减少重复加载",
+                "快速滚动时取消过期预取，优先加载当前区域",
+                "改善切换服务器或重新配对时的图片缓存隔离",
+                "本版本仍是 Alpha，加载效果待真实手机与家庭局域网验证",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 26,
+            versionName = "2.0.0-alpha19",
+            title = "MediaReview 2.0 Alpha 19",
+            highlights = listOf(
+                "批阅改为上下滑切换视频，单击暂停或继续",
+                "取消滑动保留和待删除，保留明确操作按钮",
+                "取消双击跳进度和长按快捷操作，进度条仍可左右拖动",
+                "批阅播放失败时显示错误与重试，并可重新选择批阅范围",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 27,
+            versionName = "2.0.0-alpha20",
+            title = "MediaReview 2.0 Alpha 20",
+            highlights = listOf(
+                "文件夹默认只显示当前目录媒体，保留直接存放的图片和视频",
+                "文件夹新增全部、视频、图片快捷筛选和独立排序",
+                "支持按文件名、最近添加、时长、大小正倒序浏览目录媒体",
+                "可选择包含子文件夹媒体，目录总数与当前目录数量明确区分",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 28,
+            versionName = "2.0.0-alpha21",
+            title = "MediaReview 2.0 Alpha 21",
+            highlights = listOf(
+                "首页仅显示视频，照片集中从相册进入",
+                "批阅支持画面左右滑动快进或倒退，上下滑动切换",
+                "改善进度条松手后的显示，避免旧位置短暂回跳",
+                "文件夹批阅支持直接勾选，移除上一项和下一项按钮",
+                "网络短暂断开后有界重试连接，配对信息保留",
+                "正式安装包移除内置演示图片和视频",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 29,
+            versionName = "2.0.0-alpha22",
+            title = "MediaReview 2.0 Alpha 22",
+            highlights = listOf(
+                "配合新版电脑端，删除超时后可继续核对原批次结果，不自动重复删除",
+                "明确区分删除完成与结果未确认，重新打开待删除页可继续核对",
+                "优化相册加载提示、长目录名称和底部操作区",
+                "新增独立生图审核入口与连接设置，图片和评分待生图服务接口接入",
+            ),
+        ),
+        ReleaseNote(
+            versionCode = 30,
+            versionName = "2.0.0-alpha23",
+            title = "MediaReview 2.0 Alpha 23",
+            highlights = listOf(
+                "生图审核支持独立配对、持续发现新图并追加到队尾",
+                "可查看生成提示词和图片信息，保留、驳回与收藏分别操作",
+                "提示词按生成版本评分，多张图片共享评分与历史记录",
+                "评分请求中断后可核对回执，避免重复记录",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

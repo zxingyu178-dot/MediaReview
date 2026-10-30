@@ -63,7 +63,7 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
 
 /**
  * 「生图审核」一级页面（独立于视频批阅）：
- * - 未配对：独立 NSFW Bridge 配对（默认 8767），能力门禁不通过时明确列出缺失项；
+ * - 未配对：独立 NSFW Bridge 配对（默认 8877），能力门禁不通过时明确列出缺失项；
  * - 已配对：单图浏览 + 队尾追加 + 原位更新 + 详情 + 提示词版本评分；
  * - 不提供永久删除；401 只清 NSFW 凭据。
  */
@@ -176,7 +176,7 @@ private fun PairingPane(
     ) {
         Text("生图审核", style = MaterialTheme.typography.titleLarge, color = MediaTextPrimary)
         Text(
-            "连接 NSFW Studio 手机审核桥（默认端口 8767）。它与 MediaReview 服务器完全独立，凭据互不影响。",
+            "连接 NSFW Studio 手机审核桥（默认端口 8877）。它与 MediaReview 服务器完全独立，凭据互不影响。",
             style = MaterialTheme.typography.bodySmall,
             color = MediaTextSecondary,
             modifier = Modifier.padding(top = V2Spacing.Sm, bottom = V2Spacing.Lg),
@@ -184,7 +184,7 @@ private fun PairingPane(
         OutlinedTextField(
             value = baseUrl,
             onValueChange = onBaseUrlChange,
-            label = { Text("Bridge 地址（如 192.168.1.20:8767）") },
+            label = { Text("Bridge 地址（如 192.168.1.20:8877）") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -338,8 +338,8 @@ private fun ReadyPane(
                         style = MaterialTheme.typography.labelSmall,
                     )
                     Text(
-                        "生成时间：" + formatIso(item.createdAt) +
-                            " · " + (item.width ?: 0) + "×" + (item.height ?: 0),
+                        "入库时间：" + formatIso(item.createdAt) +
+                            " · " + if (item.width != null && item.height != null) "${item.width}×${item.height}" else "尺寸未提供",
                         color = MediaTextSecondary,
                         style = MaterialTheme.typography.labelSmall,
                     )
@@ -355,10 +355,11 @@ private fun ReadyPane(
 
         if (state.newImageCount > 0) {
             Text(
-                "已追加 ${state.newImageCount} 张新图到队尾（当前图片位置不变）",
+                "队尾新增 ${state.newImageCount} 张 · 点击查看最新图片",
                 color = V2Colors.Accent,
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
+                modifier = Modifier.clickable { state.items.lastOrNull()?.let { onSelect(it.imageId) } }
+                    .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
             )
         }
 
@@ -483,7 +484,7 @@ private fun DetailsDialog(
             Column(Modifier.height(420.dp).verticalScroll(rememberScrollState())) {
                 InfoLine("图片 ID", detail.imageId)
                 InfoLine("审核状态", item?.status ?: "未知")
-                InfoLine("尺寸", "${detail.width ?: 0}×${detail.height ?: 0}")
+                InfoLine("尺寸", if (detail.width != null && detail.height != null) "${detail.width}×${detail.height}" else "未提供")
                 InfoLine("入库时间", formatIso(detail.createdAt))
                 InfoLine("生成时间", formatIso(detail.generatedAt ?: "未知"))
                 InfoLine("提示词关联", linkStateText(detail.linkState))

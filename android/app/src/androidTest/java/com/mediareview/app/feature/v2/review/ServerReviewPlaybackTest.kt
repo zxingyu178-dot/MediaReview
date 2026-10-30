@@ -3,7 +3,10 @@ package com.mediareview.app.feature.v2.review
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.mediareview.app.HiltTestActivity
 import com.mediareview.app.feature.v2.data.AlbumCoverStore
@@ -32,6 +35,31 @@ class ServerReviewPlaybackTest {
     private fun launch(vm: V2ReviewViewModel) {
         compose.activity.viewModelStore.put("http-review", vm)
         compose.setContent { MediaReviewTheme { V2ReviewScreen(vm, {}, {}) } }
+    }
+
+    @Test fun missingVideoLeavesPosterAndShowsRetryableFailure() {
+        val live = RealHttpPlaybackFixture(failVideo = true).also { fixture = it }
+        val vm = V2ReviewViewModel(live.repository, live.sessions)
+        launch(vm)
+        compose.waitUntil(30_000) { live.videos.any { it.mediaId == "first" } }
+        compose.waitUntil(15_000) { vm.playback.value is V2PlaybackUiState.Failed }
+        assertTrue("失败不得标记为已看", (vm.state.value as V2ReviewUiState.Ready).seenCount == 0)
+        assertTrue("不得修改待删除队列", live.pendingWrites.isEmpty())
+    }
+
+    @Test fun verticalSwipesNavigateWithoutDecisionWritesAndHorizontalDoesNotNavigate() {
+        val live = RealHttpPlaybackFixture().also { fixture = it }
+        val vm = V2ReviewViewModel(live.repository, live.sessions)
+        launch(vm)
+        compose.waitUntil(30_000) { vm.playback.value is V2PlaybackUiState.Ready }
+        compose.onNodeWithTag("review_gesture_surface").performTouchInput { swipeUp(durationMillis = 500) }
+        compose.waitUntil(10_000) { (vm.state.value as? V2ReviewUiState.Ready)?.absoluteCurrentIndex == 1 }
+        compose.onNodeWithTag("review_gesture_surface").performTouchInput { swipeDown(durationMillis = 500) }
+        compose.waitUntil(10_000) { (vm.state.value as? V2ReviewUiState.Ready)?.absoluteCurrentIndex == 0 }
+        compose.onNodeWithTag("review_gesture_surface").performTouchInput { swipeLeft(durationMillis = 500) }
+        compose.waitForIdle()
+        assertTrue("横向拖动不得切换视频", (vm.state.value as V2ReviewUiState.Ready).absoluteCurrentIndex == 0)
+        assertTrue("上下滑动不得标记待删除", live.pendingWrites.isEmpty())
     }
 
     @Test fun server批阅上滑后第二个真实Source持续播放且认证正确() {

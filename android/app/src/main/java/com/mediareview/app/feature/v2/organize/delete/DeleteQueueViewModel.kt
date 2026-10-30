@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 /**
  * 最终删除状态机（Stage 8C §19~§23）：
@@ -44,6 +45,8 @@ sealed interface DeleteCommitPhase {
     data class Committing(val prepare: DeleteCommitPrepare) : DeleteCommitPhase
 
     data class Result(val result: DeleteCommitResult) : DeleteCommitPhase
+    data class Checking(val nonce: String, val attempt: Int) : DeleteCommitPhase
+    data class Unconfirmed(val nonce: String, val message: String) : DeleteCommitPhase
 }
 
 /** 最终删除结果（逐类显示；失败项仍留在待删除队列）。 */
@@ -69,11 +72,16 @@ sealed interface DeleteQueueEvent {
 }
 
 /**
- * 服务端 failed 原因（guard 代码）→ 简短中文（Stage 8C.1 §23）。
+ * 服务端 failed 原因（guard 代码）→ 简短中文（Stage 8C.1 §23；Stage 9 追加本地源失败码）。
  *
  * Server 侧 error 形如 `file_size_changed` / `file_modified_changed` /
- * `library_not_allowed` / `stat_failed:[Errno ...]` —— 只取前缀映射，
- * 绝不把原始 Python 异常/堆栈直接展示给用户。
+ * `library_not_allowed` / `stat_failed:[Errno ...]`，本地源（native_delete_v1）追加
+ * `local_root_disabled` / `local_root_missing` / `path_rejected` /
+ * `file_identity_changed` / `file_in_use` / `delete_access_denied` /
+ * `delete_not_supported` / `delete_not_verified`。
+ *
+ * 只做**前缀 → 固定中文**映射：绝不把原始 Python 异常/堆栈/服务端绝对路径展示给用户
+ * （未知码统一回退"删除失败"）。
  */
 internal fun deleteFailureReason(error: String?): String? = when {
     error.isNullOrBlank() -> null
@@ -81,6 +89,16 @@ internal fun deleteFailureReason(error: String?): String? = when {
     error.startsWith("file_modified_changed") -> "文件已发生变化"
     error.startsWith("library_not_allowed") -> "文件已不在允许的媒体库，无法确认身份"
     error.startsWith("stat_failed") -> "文件访问失败"
+    // Stage 9：本地源两阶段安全删除的失败码（只显示原因，不显示任何路径）
+    error.startsWith("local_root_disabled") -> "本地媒体源已停用，无法删除"
+    error.startsWith("local_root_missing") -> "本地媒体源目录不存在或不可访问"
+    error.startsWith("path_rejected") -> "文件不在允许的媒体库内，已拒绝删除"
+    error.startsWith("file_identity_changed") -> "文件身份已变化，请刷新队列后重新标记"
+    error.startsWith("file_in_use") -> "文件正在被占用，请稍后重试"
+    error.startsWith("delete_access_denied") -> "没有权限删除该文件"
+    error.startsWith("delete_not_supported") ->
+        "当前 Windows 版本不支持安全本地删除，请升级系统或使用电脑端删除"
+    error.startsWith("delete_not_verified") -> "删除结果未通过校验，请刷新队列核对"
     else -> "删除失败"
 }
 
@@ -116,6 +134,7 @@ class DeleteQueueViewModel @Inject constructor(
 
     /** 同一个 nonce 只允许 commit 一次（§21）；成功/失败后都不复用。 */
     private var committedNonce: String? = null
+    private var recoveryJob: Job? = null
 
     /** 恢复单项的 in-flight 防重。 */
     private val restoringIds = mutableSetOf<String>()
@@ -126,6 +145,7 @@ class DeleteQueueViewModel @Inject constructor(
             try {
                 val entries = repository.loadDeleteQueue()
                 _ui.update { it.copy(loading = false, entries = entries, error = null) }
+                if (_ui.value.phase == DeleteCommitPhase.Idle) resumeRecovery()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -156,6 +176,7 @@ class DeleteQueueViewModel @Inject constructor(
 
     /** 第一步：准备删除确认（拿到服务端锁定的快照后**才**弹确认框）。 */
     fun requestFinalDelete() {
+        if (_ui.value.phase is DeleteCommitPhase.Checking || _ui.value.phase is DeleteCommitPhase.Unconfirmed) return
         val phase = _ui.value.phase
         if (phase is DeleteCommitPhase.Preparing || phase is DeleteCommitPhase.Committing) return
         viewModelScope.launch {
@@ -207,10 +228,18 @@ class DeleteQueueViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: DeleteAlreadyProcessedException) {
+                if (repository.supportsDeleteRecovery) {
+                    startRecovery(prepare.nonce)
+                    return@launch
+                }
                 _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
                 _events.tryEmit(DeleteQueueEvent.Info("删除请求已处理，请刷新队列核对结果，勿重复提交"))
                 load()
             } catch (_: Throwable) {
+                if (repository.supportsDeleteRecovery) {
+                    startRecovery(prepare.nonce)
+                    return@launch
+                }
                 _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
                 _events.tryEmit(DeleteQueueEvent.Info("删除结果未确认，请刷新队列核对，勿重复提交"))
                 load()
@@ -219,15 +248,82 @@ class DeleteQueueViewModel @Inject constructor(
     }
 
     fun dismissResult() {
-        _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
+        val nonce = when (val phase = _ui.value.phase) {
+            is DeleteCommitPhase.Unconfirmed -> phase.nonce
+            else -> committedNonce
+        }
+        viewModelScope.launch {
+            try {
+                nonce?.let { repository.acknowledgeDeleteResult(it) }
+                _ui.update { it.copy(phase = DeleteCommitPhase.Idle) }
+                load()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _events.tryEmit(DeleteQueueEvent.Info("结果确认未保存，请重试"))
+            }
+        }
     }
 
-    /** 按服务端合同汇总：success 计成功；missing 单列；failed/未知计失败（失败项留队列）。 */
+    fun resumeRecovery() {
+        if (recoveryJob?.isActive == true || _ui.value.phase is DeleteCommitPhase.Committing ||
+            _ui.value.phase is DeleteCommitPhase.Result || _ui.value.phase is DeleteCommitPhase.ReadyToConfirm) return
+        recoveryJob = viewModelScope.launch {
+            try {
+                val nonce = repository.pendingDeleteNonce() ?: return@launch
+                checkResult(nonce)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _events.tryEmit(DeleteQueueEvent.Info("无法读取待核对批次，请稍后重试"))
+            }
+        }
+    }
+
+    fun pauseRecovery() {
+        val checking = _ui.value.phase as? DeleteCommitPhase.Checking ?: return
+        recoveryJob?.cancel()
+        _ui.update { it.copy(phase = DeleteCommitPhase.Unconfirmed(checking.nonce, "删除结果待核对，返回页面后继续")) }
+    }
+
+    private fun startRecovery(nonce: String) {
+        if (recoveryJob?.isActive == true) return
+        recoveryJob = viewModelScope.launch { checkResult(nonce) }
+    }
+
+    private suspend fun checkResult(nonce: String) {
+        committedNonce = nonce
+        val lookup = recoverDeleteResult(nonce, onChecking = { attempt ->
+            _ui.update { it.copy(phase = DeleteCommitPhase.Checking(nonce, attempt)) }
+        }, query = repository::deleteResult)
+        when (lookup) {
+            is DeleteResultLookup.Completed -> {
+                val result = summarize(lookup.response)
+                _ui.update { it.copy(phase = DeleteCommitPhase.Result(result)) }
+                if (result.changedMediaIds.isNotEmpty()) {
+                    _events.tryEmit(DeleteQueueEvent.FinalDeleteCompleted(result.changedMediaIds))
+                }
+                load()
+            }
+            else -> {
+                val message = when (lookup) {
+                    DeleteResultLookup.Unsupported -> "当前服务器不支持查询删除结果，请刷新列表并核对"
+                    DeleteResultLookup.NotSubmitted -> "该批次尚未开始删除，关闭此提示后可重新确认"
+                    else -> "删除结果尚未确认，请稍后继续核对，勿重复提交"
+                }
+                _ui.update { it.copy(phase = DeleteCommitPhase.Unconfirmed(nonce, message)) }
+            }
+        }
+    }
+
+    /** 按服务端稳定三值合同汇总。 */
     private fun summarize(response: DeleteCommitResponse): DeleteCommitResult {
         val outcome = response.outcome
         val success = outcome.count { (_, status) -> status.successful }
         val missing = outcome.count { (_, status) -> status == DeleteOutcomeStatus.Missing }
-        val failedIds = outcome.filter { (_, status) -> !status.changed }.keys.toList()
+        val failedIds = outcome.filter { (_, status) ->
+            status == DeleteOutcomeStatus.Failed || status == DeleteOutcomeStatus.Unknown
+        }.keys.toList()
         val changed = outcome.filter { (_, status) -> status.changed }.keys.toList()
         val nameById = _ui.value.entries.associate { it.mediaId to (it.media?.name ?: it.mediaId) }
         return DeleteCommitResult(

@@ -1,6 +1,7 @@
 package com.mediareview.app.feature.v2.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -9,8 +10,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,10 +26,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -52,28 +58,41 @@ fun FolderChipRow(
     modifier: Modifier = Modifier,
     folderFlowEnabled: Boolean = true,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Chip(text = "全部", selected = !selectedRecent && selectedFolderId == null, onClick = onSelectAll)
-        Spacer(modifier = Modifier.size(V2Spacing.Sm))
-        Chip(text = "最近", selected = selectedRecent, onClick = onSelectRecent)
-        folders.take(4).forEach { folder ->
+    val scrollState = rememberScrollState()
+    val showStartFade by remember { derivedStateOf { scrollState.value > 0 } }
+    val showEndFade by remember { derivedStateOf { scrollState.value < scrollState.maxValue } }
+    Box(modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scrollState)
+                .padding(horizontal = V2Spacing.Lg, vertical = V2Spacing.Sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Chip(text = "全部", selected = !selectedRecent && selectedFolderId == null, onClick = onSelectAll)
             Spacer(modifier = Modifier.size(V2Spacing.Sm))
-            Chip(
-                text = folder.name,
-                selected = !selectedRecent && selectedFolderId == folder.id,
-                onClick = { onSelectFolder(folder.id) },
-                enabled = folderFlowEnabled,
-            )
+            Chip(text = "最近", selected = selectedRecent, onClick = onSelectRecent)
+            folders.take(4).forEach { folder ->
+                Spacer(modifier = Modifier.size(V2Spacing.Sm))
+                Chip(
+                    text = folder.name,
+                    selected = !selectedRecent && selectedFolderId == folder.id,
+                    onClick = { onSelectFolder(folder.id) },
+                    enabled = folderFlowEnabled,
+                )
+            }
+            Spacer(modifier = Modifier.size(V2Spacing.Sm))
+            Chip(text = "全部分类", selected = false, onClick = onMore, enabled = folderFlowEnabled)
+            Spacer(modifier = Modifier.size(V2Spacing.Md))
         }
-        Spacer(modifier = Modifier.size(V2Spacing.Sm))
-        Chip(text = "全部分类", selected = false, onClick = onMore, enabled = folderFlowEnabled)
-        Spacer(modifier = Modifier.size(V2Spacing.Md))
+        if (showStartFade) Box(
+            Modifier.align(Alignment.CenterStart).width(28.dp).height(48.dp)
+                .background(Brush.horizontalGradient(listOf(MediaBackground, Color.Transparent))),
+        )
+        if (showEndFade) Box(
+            Modifier.align(Alignment.CenterEnd).width(28.dp).height(48.dp)
+                .background(Brush.horizontalGradient(listOf(Color.Transparent, MediaBackground))),
+        )
     }
 }
 
@@ -87,14 +106,17 @@ private fun Chip(
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(V2Radius.Chip))
-            .background(if (selected) V2Colors.Accent else MediaSurfaceRaised)
+            .background(if (selected) V2Colors.Accent.copy(alpha = 0.32f) else MediaSurfaceRaised.copy(alpha = 0.7f))
+            .then(if (selected) Modifier.border(1.dp, V2Colors.Accent.copy(alpha = 0.72f), RoundedCornerShape(V2Radius.Chip)) else Modifier)
             .clickable(enabled = enabled, onClick = onClick)
+            .heightIn(min = 48.dp)
             .padding(horizontal = V2Spacing.Lg, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelLarge,
-            color = if (selected) MediaBackground else MediaTextPrimary,
+            color = if (selected) MediaTextPrimary else MediaTextSecondary,
         )
     }
 }

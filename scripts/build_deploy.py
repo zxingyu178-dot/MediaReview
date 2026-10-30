@@ -30,10 +30,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.5.2"
+VERSION = "1.6.4"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha15"
-ANDROID_CODE = 22
+ANDROID_VERSION = "2.0.0-alpha23"
+ANDROID_CODE = 30
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
@@ -46,9 +46,11 @@ REQUIRED_CAPABILITIES = (
     "thumbnail_profiles_v1",
     "review_folder_filter_v1",
     "delete_receipt_v1",
+    "delete_result_v1",
     "native_sources_v1",
     "native_range_v1",
     "native_read_only_v1",
+    "native_delete_v1",
 )
 ALL_SCRIPTS = (
     "install.ps1",

@@ -5,10 +5,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mediareview.app.feature.v2.model.V2SortField
+import com.mediareview.app.feature.v2.model.V2SortOrder
 import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import com.mediareview.app.core.pairing.normalizeBaseUrl
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.PendingDeleteText
 import com.mediareview.app.feature.v2.data.SearchHistoryStore
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.data.V2DataModeStore
@@ -96,12 +99,15 @@ class V2HomeViewModel @Inject constructor(
     private val browseCache = BrowseWindowCache()
     private val folderBrowserController = FolderPagingController(viewModelScope, browseCache, { albumSourceGeneration }, ::emitMessage, repository::mediaPage)
     val folderBrowserState = folderBrowserController.state
-    fun openFolderBrowser(folderId: String?, includeDescendants: Boolean = true) {
+    private val _folderSortSpec = MutableStateFlow(V2SortSpec(field = V2SortField.NAME, order = V2SortOrder.ASC))
+    val folderSortSpec = _folderSortSpec.asStateFlow()
+    fun setFolderSortSpec(spec: V2SortSpec) { _folderSortSpec.value = spec.copy(sourceType = null) }
+    fun openFolderBrowser(folderId: String?, includeDescendants: Boolean = false) {
         if (isServerMode && !statusStore.supportsFolderTree) {
             folderBrowserController.close()
             return
         }
-        folderBrowserController.open(folderId, _sortSpec.value, includeDescendants)
+        folderBrowserController.open(folderId, _folderSortSpec.value, includeDescendants)
     }
     fun closeFolderBrowser() = folderBrowserController.close()
     fun updateFolderAnchor(anchor: HomeGridAnchor?) = folderBrowserController.updateAnchor(anchor)
@@ -114,7 +120,8 @@ class V2HomeViewModel @Inject constructor(
     fun openFolderMedia(window: List<V2Media>, mediaId: String, folderId: String?): Boolean {
         val context = buildBrowseContext(window, mediaId) ?: return false
         invalidateAlbumViewer()
-        contextQueue = context.copy(folderId = folderId, sortField = _sortSpec.value.field, sortOrder = _sortSpec.value.order)
+        val sort = folderBrowserState.value.sortSpec
+        contextQueue = context.copy(folderId = folderId, sortField = sort.field, sortOrder = sort.order)
         return true
     }
 
@@ -242,7 +249,7 @@ class V2HomeViewModel @Inject constructor(
     var homeAnchor: HomeGridAnchor? = null
         private set
     private var homeLeft = false
-    private fun browseKey() = WindowKey(albumSourceGeneration, _selectedFolderId.value, _sortSpec.value)
+    private fun browseKey() = WindowKey(albumSourceGeneration, _selectedFolderId.value, _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO))
     private fun saveHomeWindow() {
         val key = homeWindowKey ?: return
         if (loadedPage > 0 && key.sourceGeneration == albumSourceGeneration && _listError.value == null)
@@ -284,8 +291,15 @@ class V2HomeViewModel @Inject constructor(
     fun closeViewerPendingDelete(session: Long) = viewerPendingController.close(session)
     fun retryViewerPendingDelete(session: Long) = viewerPendingController.retry(session)
     fun toggleViewerPendingDelete(session: Long, mediaId: String) {
-        if (mediaId.startsWith("loc_") || repository.mediaById(mediaId)?.canDelete == false) {
-            _viewerPendingDeleteMessages.tryEmit("本地来源为只读，不能加入待删除")
+        // Stage 9：是否可删除只信任服务端下发的 can_delete（本地源已可删除，不再有 loc_ 门禁）。
+        val media = repository.mediaById(mediaId)
+        if (media == null || !media.canDelete) {
+            val text = if (isServerMode) {
+                PendingDeleteText.rejected(statusStore.supportsNativeDelete)
+            } else {
+                PendingDeleteText.NOT_DELETABLE
+            }
+            _viewerPendingDeleteMessages.tryEmit(text)
             return
         }
         viewerPendingController.toggle(session, mediaId)
@@ -337,7 +351,12 @@ class V2HomeViewModel @Inject constructor(
         invalidateAlbumViewer()
     }
 
+    private var serverRecovery: ServerRecovery? = null
+    fun recoverServerOnWake() { viewModelScope.launch { serverRecovery?.retry() } }
     init {
+        serverRecovery = ServerRecovery(viewModelScope, statusStore.status,
+            { isServerMode && _serverSession.value.configured }, healthMonitor::probe,
+            { reloadAll() }, { albumSourceGeneration }).also { it.start() }
         V2Perf.openHome()
         viewModelScope.launch {
             try { homeDisplayModeStore.bootstrap() }
@@ -964,7 +983,7 @@ class V2HomeViewModel @Inject constructor(
         pageSize = V2MediaQuery.DEFAULT_PAGE_SIZE,
         folderId = _selectedFolderId.value,
         search = null,
-        spec = _sortSpec.value,
+        spec = _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO),
     )
 
     private fun resetPager() {

@@ -19,6 +19,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -34,6 +36,12 @@ internal suspend fun prefetchBoundedCovers(urls: List<String>, request: suspend 
     }
 }
 
+internal suspend fun prefetchCoverWindows(urls: List<String>, positions: Flow<Int>, request: suspend (String) -> Unit) {
+    positions.distinctUntilChanged().collectLatest { first ->
+        prefetchBoundedCovers(coverPrefetchIndices(urls.size, first).map { urls[it] }, request)
+    }
+}
+
 @Composable
 internal fun WindowCoverPrefetch(
     urls: List<String>,
@@ -42,20 +50,20 @@ internal fun WindowCoverPrefetch(
     albumCovers: Boolean = false,
     squareCovers: Boolean = false,
     leadingItemCount: Int = 0,
+    visibleIndexToMediaIndex: ((Int) -> Int)? = null,
 ) {
     val context = LocalContext.current
     LaunchedEffect(urls, grid, mode, albumCovers, squareCovers, leadingItemCount) {
-        suspend fun warm(first: Int) {
-            prefetchBoundedCovers(coverPrefetchIndices(urls.size, first).map { urls[it] }) { url ->
-                val profile = if (albumCovers) ThumbnailProfile.ALBUM else if (mode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
-                context.imageLoader.execute(ImageRequest.Builder(context).data(thumbnailProfileUrl(url, profile)).crossfade(false)
-                    .size(profile.width, profile.height)
-                    .build())
-            }
+        val positions = if (grid == null) flowOf(0) else snapshotFlow {
+            visibleIndexToMediaIndex?.invoke(grid.firstVisibleItemIndex)
+                ?: (grid.firstVisibleItemIndex - leadingItemCount).coerceAtLeast(0)
         }
-        warm(0)
-        if (grid != null) snapshotFlow { (grid.firstVisibleItemIndex - leadingItemCount).coerceAtLeast(0) }
-            .distinctUntilChanged().collectLatest { warm(it) }
+        prefetchCoverWindows(urls, positions) { url ->
+            val profile = if (albumCovers) ThumbnailProfile.ALBUM else if (mode == HomeDisplayMode.ONE_COLUMN) ThumbnailProfile.GRID_LARGE else ThumbnailProfile.GRID_SMALL
+            context.imageLoader.execute(ImageRequest.Builder(context).data(thumbnailProfileUrl(url, profile)).crossfade(false)
+                .size(profile.width, profile.height)
+                .build())
+        }
     }
 }
 

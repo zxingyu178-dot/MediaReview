@@ -40,6 +40,45 @@ class DeleteQueueViewModelTest {
     private fun prepare(count: Int = 2, bytes: Long = 2_000) =
         DeleteCommitPrepare("nonce-1", "2026-10-01T12:10:00", count, bytes, listOf("aaa", "bbb"))
 
+    @Test fun `提交超时仅查询结果不重发删除`() = runTest(main.dispatcher) {
+        val response = com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse(
+            mapOf("aaa" to DeleteOutcomeStatus.Success),
+            com.mediareview.app.feature.v2.organize.data.DiskDeletionReceipt(1, 7, 0, 0),
+        )
+        val repo = FakeOrganizeRepository().apply {
+            supportsDeleteRecovery = true
+            deleteQueueResult = Result.success(listOf(entry("aaa")))
+            prepareResult = Result.success(prepare())
+            commitResult = Result.failure(java.io.IOException("lost response"))
+            lookupResult = DeleteResultLookup.Completed(response)
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        vm.requestFinalDelete(); advanceUntilIdle()
+        repo.pendingNonce = "nonce-1"
+        vm.confirmFinalDelete(); advanceUntilIdle()
+        assertEquals(1, repo.commitCalls)
+        assertEquals(1, repo.lookupCalls)
+        assertEquals(7L, (vm.ui.value.phase as DeleteCommitPhase.Result).result.diskReceipt!!.deletedBytes)
+        assertEquals("nonce-1", repo.pendingNonce)
+        vm.dismissResult(); advanceUntilIdle()
+        assertNull(repo.pendingNonce)
+    }
+
+    @Test fun `重建页面找回批次未知结果不自动删除`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            supportsDeleteRecovery = true
+            pendingNonce = "previous-batch"
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        assertTrue(vm.ui.value.phase is DeleteCommitPhase.Unconfirmed)
+        vm.requestFinalDelete(); advanceUntilIdle()
+        assertEquals(0, repo.prepareCalls)
+        assertEquals(0, repo.commitCalls)
+        assertEquals("previous-batch", repo.pendingNonce)
+    }
+
     @Test
     fun `真实Receipt不借用prepare估算且刷新失败保留队列`() = runTest(main.dispatcher) {
         val repo = FakeOrganizeRepository().apply {
@@ -270,6 +309,47 @@ class DeleteQueueViewModelTest {
         assertEquals("删除失败", deleteFailureReason("some_unexpected_python_traceback"))
         assertNull(deleteFailureReason(null))
         assertNull(deleteFailureReason(""))
+    }
+
+    /** Stage 9：本地源两阶段安全删除的新失败码 → 中文，且绝不回显服务端绝对路径。 */
+    @Test
+    fun `本地源删除失败码映射为中文且不泄漏绝对路径`() {
+        assertEquals("本地媒体源已停用，无法删除", deleteFailureReason("local_root_disabled"))
+        assertEquals(
+            "本地媒体源目录不存在或不可访问",
+            deleteFailureReason("local_root_missing"),
+        )
+        assertEquals(
+            "文件不在允许的媒体库内，已拒绝删除",
+            deleteFailureReason("path_rejected:D:\\Media\\secret\\a.mp4"),
+        )
+        assertEquals(
+            "文件身份已变化，请刷新队列后重新标记",
+            deleteFailureReason("file_identity_changed"),
+        )
+        assertEquals(
+            "文件正在被占用，请稍后重试",
+            deleteFailureReason("file_in_use:[WinError 32] D:\\Media\\secret\\b.mp4"),
+        )
+        assertEquals(
+            "没有权限删除该文件",
+            deleteFailureReason("delete_access_denied:D:\\Media\\secret\\b.mp4"),
+        )
+        assertEquals(
+            "删除结果未通过校验，请刷新队列核对",
+            deleteFailureReason("delete_not_verified"),
+        )
+        // 未知码（可能带路径）不得原样展示
+        assertEquals("删除失败", deleteFailureReason("some_new_code:D:\\Media\\secret\\c.mp4"))
+        listOf(
+            "local_root_disabled", "local_root_missing", "path_rejected:D:\\Media\\secret\\a.mp4",
+            "file_identity_changed", "file_in_use:D:\\Media\\secret\\b.mp4",
+            "delete_access_denied:D:\\Media\\secret\\b.mp4", "delete_not_verified",
+            "some_new_code:D:\\Media\\secret\\c.mp4",
+        ).forEach { raw ->
+            val shown = deleteFailureReason(raw).orEmpty()
+            assertFalse("不得展示绝对路径: $shown", shown.contains(":\\"))
+        }
     }
 
     @Test

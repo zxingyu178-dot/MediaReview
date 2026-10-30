@@ -9,6 +9,7 @@ import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.network.AuthInterceptor
 import com.mediareview.app.core.network.CacheAuthInterceptor
 import com.mediareview.app.core.network.TokenProvider
+import com.mediareview.app.core.network.ThumbnailCacheInterceptor
 import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.core.pairing.PairingRepository
 import dagger.Module
@@ -102,8 +103,10 @@ object AppModule {
     fun provideImageLoader(
         @ApplicationContext context: Context,
         @Named("cache") cacheOkHttp: OkHttpClient,
+        tokenProvider: TokenProvider,
     ): ImageLoader = ImageLoader.Builder(context)
         .okHttpClient { cacheOkHttp }
+        .components { add(ThumbnailCacheInterceptor(tokenProvider)) }
         .build()
 
     /**

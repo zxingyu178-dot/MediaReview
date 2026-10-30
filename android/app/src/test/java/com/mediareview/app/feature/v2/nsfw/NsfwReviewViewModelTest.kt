@@ -567,6 +567,26 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun historyAcrossBoundedSyncsDoesNotBecomeNewImages() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true)
+        var calls = 0
+        data.feedResponder = {
+            calls += 1
+            nsfwPage(listOf(nsfwItem("history_$calls")), nextCursor = "history-c$calls", hasMore = calls < 21)
+        }
+        val vm = vm()
+        assertEquals(10, calls)
+        vm.refresh()
+        assertEquals(20, calls)
+        assertEquals(0, vm.state.value.newImageCount)
+        vm.loadMore()
+        assertEquals(21, calls)
+        assertEquals(0, vm.state.value.newImageCount)
+        vm.refresh()
+        assertEquals(1, vm.state.value.newImageCount)
+    }
+
+    @Test
     fun `hasMore为true但缺少nextCursor时停止并报错`() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
         data.feedResponder = { nsfwPage(listOf(nsfwItem("img_a")), nextCursor = null, hasMore = true) }

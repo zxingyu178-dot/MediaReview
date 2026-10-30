@@ -118,6 +118,7 @@ class NsfwReviewViewModel @Inject constructor(
 
     private val feed = NsfwFeedStore()
     private var lastCursor: String? = null
+    private var historyCatchup = true
     private var pollJob: Job? = null
     private var screenVisible = false
     private var detailSeq = 0
@@ -217,6 +218,7 @@ class NsfwReviewViewModel @Inject constructor(
                     connectionEpoch += 1
                     feed.clear()
                     lastCursor = null
+                historyCatchup = true
                     _state.update {
                         it.copy(
                             phase = NsfwPhase.READY,
@@ -261,6 +263,7 @@ class NsfwReviewViewModel @Inject constructor(
             pairing.clear()
             feed.clear()
             lastCursor = null
+            historyCatchup = true
             _state.value = NsfwUiState(phase = NsfwPhase.UNPAIRED)
         }
     }
@@ -794,7 +797,10 @@ class NsfwReviewViewModel @Inject constructor(
 
     private suspend fun syncFromCursor(reset: Boolean, manual: Boolean = false) {
         val epoch = connectionEpoch
-        if (reset) lastCursor = null
+        if (reset) {
+            lastCursor = null
+            historyCatchup = true
+        }
         _state.update { it.copy(busy = true) }
         val indexBefore = _state.value.currentIndex
         var countedNew = 0
@@ -818,18 +824,23 @@ class NsfwReviewViewModel @Inject constructor(
             }
             if (epoch != connectionEpoch) return
             val page = result.page
-            if (result.resetApplied) recovered = true
+            if (result.resetApplied) {
+                recovered = true
+                historyCatchup = true
+            }
             val merge = feed.merge(page)
             // 首次历史同步与 410 后整段历史重建都不算"新到"；只有真正增量才计数。
-            if (!reset && !recovered) countedNew += merge.addedIds.size
+            if (!historyCatchup) countedNew += merge.addedIds.size
             pages += 1
             finalHasMore = page.hasMore
             finalNextCursor = page.nextCursor?.takeIf { it.isNotBlank() }
             if (!page.hasMore && page.nextCursor.isNullOrBlank()) {
                 terminalMissingCursor = true
                 lastCursor = null
+                historyCatchup = true
             } else {
                 lastCursor = page.nextCursor
+                if (!page.hasMore) historyCatchup = false
             }
             _state.update {
                 it.copy(
@@ -882,7 +893,10 @@ class NsfwReviewViewModel @Inject constructor(
         val page = fetch.page
         val indexBefore = _state.value.currentIndex
         val merge = feed.merge(page)
+        if (fetch.resetApplied) historyCatchup = true
         val missingTerminalCursor = !page.hasMore && page.nextCursor.isNullOrBlank()
+        if (missingTerminalCursor) historyCatchup = true
+        else if (!page.hasMore) historyCatchup = false
         lastCursor = if (missingTerminalCursor) null else page.nextCursor
         val currentId = _state.value.currentId
         val currentAlive = currentId != null && feed.find(currentId) != null
@@ -919,6 +933,7 @@ class NsfwReviewViewModel @Inject constructor(
         if (error is NsfwApiException && error.code == NsfwErrorCodes.CURSOR_EXPIRED) {
             // 失效游标不能继续留在内部水位，否则下次手动刷新会再次命中同一 410。
             lastCursor = null
+            historyCatchup = true
             _state.update {
                 it.copy(
                     busy = false,
@@ -933,6 +948,7 @@ class NsfwReviewViewModel @Inject constructor(
         if (error is NsfwApiException && error.code in setOf("CURSOR_MISSING", "CURSOR_STALLED")) {
             // 游标缺失/停滞同样必须清理内部水位，让用户可通过刷新从头恢复。
             lastCursor = null
+            historyCatchup = true
             _state.update {
                 it.copy(
                     busy = false,
@@ -1021,6 +1037,7 @@ class NsfwReviewViewModel @Inject constructor(
             pairing.handleAuthRejected()
             feed.clear()
             lastCursor = null
+            historyCatchup = true
             _state.value = NsfwUiState(
                 phase = NsfwPhase.UNPAIRED,
                 message = "NSFW 配对已失效，请重新配对（MediaReview 服务器不受影响）",

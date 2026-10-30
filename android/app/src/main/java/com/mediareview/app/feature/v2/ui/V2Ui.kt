@@ -2,6 +2,8 @@ package com.mediareview.app.feature.v2.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.mediareview.app.ui.theme.MediaAccent
+import com.mediareview.app.ui.theme.MediaSkeleton
 
 /** V2 视觉常量：统一圆角、阴影、间距（大厂级简约风格）。 */
 object V2Radius {
@@ -23,7 +25,7 @@ object V2Spacing {
 }
 
 object V2Colors {
-    val Accent = Color(0xFF47D7E8)
+    val Accent = MediaAccent
     val Scrim = Color(0x66000000)
     val CardScrim = Color(0x99000000)
     val TimeCapsule = Color(0xCC000000)
@@ -31,5 +33,5 @@ object V2Colors {
     /** 警告色(如"服务器版本过旧"),区别于认证失败的红色。 */
     val Warning = Color(0xFFFFB020)
     /** 封面加载 Skeleton 底色（浅灰，非纯黑）。 */
-    val Skeleton = Color(0xFF2A2A30)
+    val Skeleton = MediaSkeleton
 }

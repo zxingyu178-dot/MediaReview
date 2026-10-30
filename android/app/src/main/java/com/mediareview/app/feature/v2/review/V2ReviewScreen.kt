@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.rememberPagerState
@@ -26,17 +29,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NavigateBefore
+import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
@@ -85,6 +92,9 @@ import com.mediareview.app.feature.v2.player.V2PlaybackUiState
 import com.mediareview.app.feature.v2.player.native.state.awaitPlayerHostReady
 import com.mediareview.app.feature.v2.review.data.ReviewQueueItemUi
 import com.mediareview.app.feature.v2.ui.V2Colors
+import com.mediareview.app.feature.v2.ui.components.EmptyState
+import com.mediareview.app.feature.v2.ui.components.ErrorState
+import com.mediareview.app.feature.v2.ui.components.LoadingSkeleton
 import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaImmersiveBackground
 import com.mediareview.app.ui.theme.MediaTextPrimary
@@ -97,11 +107,11 @@ import com.shuyu.gsyvideoplayer.utils.GSYVideoType
 import com.shuyu.gsyvideoplayer.video.base.GSYVideoView
 import kotlinx.coroutines.delay
 import com.mediareview.app.feature.v2.player.native.state.SeekDragEngine
+import com.mediareview.app.feature.v2.player.native.state.SeekPositionLatch
+import com.mediareview.app.feature.v2.player.native.state.PlayerSeekMapping
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureState
 import com.mediareview.app.feature.v2.player.native.state.SpeedGestureChange
-import com.mediareview.app.feature.v2.player.native.state.DoubleTapSeekState
-import com.mediareview.app.feature.v2.player.native.ui.PlayerBodyGestureCallbacks
-import com.mediareview.app.feature.v2.player.native.ui.rememberPlayerBodyGestures
 import com.mediareview.app.feature.v2.player.native.ui.PlayerSeekBar
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -163,6 +173,7 @@ fun V2ReviewScreen(
     val scopeSheet by vm.scopeSheet.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+    val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(Unit) { vm.enterReview() }
 
@@ -175,7 +186,10 @@ fun V2ReviewScreen(
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
-                message.undoMediaId?.let { vm.undoPendingDelete(it) }
+                message.undoMediaId?.let {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    vm.undoPendingDelete(it)
+                }
             }
         }
     }
@@ -298,15 +312,23 @@ private fun ReviewPagerContent(
 
     val speed = remember { SpeedGestureState() }
     val scrub = remember { SeekDragEngine() }
-    val bodySeek = remember { SeekDragEngine() }
-    val doubleTap = remember { DoubleTapSeekState() }
+    val seekLanding = remember { SeekPositionLatch() }
+    var seekLandingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var bodySeekStart by remember { mutableStateOf(0L) }
+    var bodySeekDx by remember { mutableStateOf(0f) }
     val haptic = LocalHapticFeedback.current
     var seekPreview by remember { mutableStateOf<Long?>(null) }
-    var bodyStartMs by remember { mutableStateOf(0L) }
-    var bodyDurationMs by remember { mutableStateOf(0L) }
     var feedback by remember { mutableStateOf<String?>(null) }
-    var verticalActive by remember { mutableStateOf(false) }
+    var lastDeleteMediaId by remember { mutableStateOf<String?>(null) }
     val verticalSettling = pagerState.isScrollInProgress
+
+    LaunchedEffect(state.sessionId) {
+        reviewResumeHint(state.absoluteCurrentIndex, state.totalCount)?.let { hint ->
+            feedback = hint
+            delay(2_400L)
+            if (feedback == hint) feedback = null
+        }
+    }
 
     fun sourceIsCurrent(): Boolean {
         val ready = latestPlayback as? V2PlaybackUiState.Ready ?: return false
@@ -334,8 +356,8 @@ private fun ReviewPagerContent(
     fun kernelPosition(): Long = currentOwnedSourceHost()?.getGSYVideoManager()?.currentPosition ?: 0L
     fun kernelDuration(): Long = currentOwnedSourceHost()?.getGSYVideoManager()?.duration ?: 0L
     fun resumeCurrent() {
-        if (foreground && sourceIsCurrent() && !sheetOpen && !verticalActive && !verticalSettling &&
-            !pagerState.isScrollInProgress && !scrub.active && !bodySeek.active && !userPaused) {
+        if (foreground && sourceIsCurrent() && !sheetOpen && !verticalSettling &&
+            !pagerState.isScrollInProgress && !scrub.active && !userPaused) {
             if (!sourceStarted) {
                 controller.withHost { host ->
                     if (host === ownedHost && host.isAttachedToWindow) {
@@ -357,7 +379,7 @@ private fun ReviewPagerContent(
         }
     }
     fun togglePlayPause() {
-        if (!foreground || !sourceIsCurrent() || sheetOpen || verticalActive || verticalSettling) return
+        if (!foreground || !sourceIsCurrent() || sheetOpen || verticalSettling) return
         // Preparing may report !isPlaying even though automatic start is requested.
         if (!userPaused) {
             eofRecovery?.cancel()
@@ -396,7 +418,7 @@ private fun ReviewPagerContent(
             val requestToken = playRequestToken
             fun stillOwned() = latestSessionId == session && loadedUrl == url && loadedStage == stage &&
                 playRequestToken == requestToken && pagerState.settledPage == page && foreground && !userPaused && !sheetOpen &&
-                !scrub.active && !bodySeek.active && !verticalActive && !verticalSettling && !pagerState.isScrollInProgress &&
+                !scrub.active && !verticalSettling && !pagerState.isScrollInProgress &&
                 currentOwnedSourceHost() === host && manager.player?.mediaPlayer === kernel &&
                 host.currentState != GSYVideoView.CURRENT_STATE_ERROR
             controller.setLooping(true)
@@ -431,56 +453,74 @@ private fun ReviewPagerContent(
         val result = engine.commit()
         if (result == null) return
         seekPreview = null
-        if (!foreground || !sourceIsCurrent() || sheetOpen || verticalActive) return
+        if (!foreground || !sourceIsCurrent() || sheetOpen) return
+        seekLanding.commit(result.targetMs)
+        seekLandingJob?.cancel()
         seekCurrent(result.targetMs, result.resumePlaying)
+        seekLandingJob = scope.launch {
+            delay(5_000)
+            if (seekLanding.pendingTarget != null) {
+                seekLanding.clear()
+                feedback = "定位尚未完成，请重试"
+            }
+        }
     }
     fun cancelSeek(engine: SeekDragEngine) {
         val resume = engine.cancel()
         seekPreview = null
         if (resume) resumeCurrent()
     }
-    val bodyModifier = rememberPlayerBodyGestures(
-        enabled = foreground && !sheetOpen && items.isNotEmpty(),
-        speed = speed,
-        handoffVerticalToPager = true,
-        callbacks = PlayerBodyGestureCallbacks(
-            isPlaying = ::kernelPlaying,
-            onTap = ::togglePlayPause,
-            onDoubleTap = { side ->
-                if (foreground && currentOwnedSourceHost() != null && !verticalActive) {
-                    val tap = doubleTap.tap(side, SystemClock.uptimeMillis(), kernelPosition(), kernelDuration())
-                    seekCurrent(tap.targetMs, !userPaused)
-                    feedback = "${if (tap.accumulatedDeltaMs > 0) "+" else ""}${tap.accumulatedDeltaMs / 1000}s"
+    fun navigateTo(page: Int) {
+        if (page !in items.indices || page == pagerState.settledPage) return
+        scope.launch { pagerState.animateScrollToPage(page) }
+    }
+    fun keepCurrent() {
+        val page = pagerState.settledPage
+        if (page !in items.indices) return
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        feedback = "已标记保留"
+        vm.markSeen(page)
+        if (canGoNext(page, items.size)) navigateTo(page + 1)
+    }
+    fun deleteCurrent() {
+        val page = pagerState.settledPage
+        val item = items.getOrNull(page) ?: return
+        if (!item.canDelete) {
+            vm.addPendingDelete(item.mediaId)
+            return
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        feedback = "已标记待删除 · 可撤销"
+        lastDeleteMediaId = item.mediaId
+        vm.addPendingDelete(item.mediaId)
+        if (canGoNext(page, items.size)) navigateTo(page + 1)
+    }
+    // VerticalPager owns vertical drags; horizontal drags seek without decisions.
+    val bodyModifier = Modifier.pointerInput(foreground, sheetOpen) {
+        if (!foreground || sheetOpen) return@pointerInput
+        detectTapGestures(onTap = { togglePlayPause() }, onLongPress = {})
+    }.pointerInput(foreground, sheetOpen) {
+        if (!foreground || sheetOpen) return@pointerInput
+        detectHorizontalDragGestures(
+            onDragStart = {
+                if (sourceIsCurrent()) {
+                    seekLanding.clear(); seekLandingJob?.cancel()
+                    bodySeekStart = kernelPosition(); bodySeekDx = 0f
+                    if (scrub.begin(bodySeekStart, kernelDuration(), kernelPlaying())) pauseOwnedHost()
+                    seekPreview = scrub.previewMs
                 }
             },
-            onSpeedChange = ::applySpeed,
-            onSeekStart = {
-                if (foreground && sourceIsCurrent() && !verticalActive && !verticalSettling) {
-                    bodyStartMs = kernelPosition()
-                    bodyDurationMs = kernelDuration()
-                    if (bodySeek.begin(bodyStartMs, bodyDurationMs, kernelPlaying())) pauseOwnedHost()
-                    seekPreview = bodySeek.previewMs
+            onHorizontalDrag = { change, dx ->
+                if (scrub.active) {
+                    change.consume(); bodySeekDx += dx
+                    scrub.preview(PlayerSeekMapping.horizontalTarget(bodySeekStart, bodySeekDx / size.width.coerceAtLeast(1), kernelDuration()))
+                    seekPreview = scrub.previewMs
                 }
             },
-            onSeekMove = { fraction ->
-                bodySeek.preview(com.mediareview.app.feature.v2.player.native.state.PlayerSeekMapping.horizontalTarget(bodyStartMs, fraction, bodyDurationMs))
-                seekPreview = bodySeek.previewMs
-            },
-            onSeekEnd = { commitSeek(bodySeek) },
-            onSeekCancel = { cancelSeek(bodySeek) },
-            onVerticalStart = {
-                if (foreground && !verticalActive) {
-                    verticalActive = true
-                    vm.onPlaybackUnstable()
-                    pauseOwnedHost()
-                }
-            },
-            onVerticalMove = { _, _, _ -> },
-            onVerticalEnd = { verticalActive = false },
-            onVerticalCancel = { verticalActive = false },
-            onActive = {},
-        ),
-    )
+            onDragEnd = { commitSeek(scrub) },
+            onDragCancel = { cancelSeek(scrub) },
+        )
+    }
     // Lifecycle callbacks stop sound synchronously; keeping the composition is not an exit.
     // userPaused remains the explicit user intent, never inferred from our temporary pause.
     DisposableEffect(lifecycleOwner, controller) {
@@ -494,13 +534,11 @@ private fun ReviewPagerContent(
                         if (host.getGSYVideoManager().listener() === host) host.onVideoPause()
                     }
                     scrub.cancel()
-                    bodySeek.cancel()
                     seekPreview = null
-                    doubleTap.reset()
+                    seekLanding.clear(); seekLandingJob?.cancel()
                     val restoredSpeed = speed.cancel().speed
                     if (currentOwnedSourceHost() != null) controller.setSpeed(restoredSpeed)
                     feedback = null
-                    verticalActive = false
                     vm.onPlaybackUnstable()
                     stableGate.reset()
                 }
@@ -520,7 +558,7 @@ private fun ReviewPagerContent(
     DisposableEffect(controller) {
         onDispose {
             eofRecovery?.cancel()
-            scrub.cancel(); bodySeek.cancel(); speed.cancel()
+            scrub.cancel(); speed.cancel()
             val host = ownedHost
             val manager = host?.getGSYVideoManager()
             if (host != null && manager?.listener() === host) {
@@ -539,8 +577,9 @@ private fun ReviewPagerContent(
             eofRecovery?.cancel()
             vm.onPlaybackUnstable()
             // No old-source resume after cancel/up when P0 is Loading or the page changed.
-            scrub.cancel(); bodySeek.cancel(); seekPreview = null
-            doubleTap.reset(); applySpeed(speed.cancel())
+            scrub.cancel(); seekPreview = null
+            seekLanding.clear(); seekLandingJob?.cancel()
+            applySpeed(speed.cancel())
             pauseOwnedHost()
             revealedPage = -1
         }
@@ -558,8 +597,8 @@ private fun ReviewPagerContent(
     }
 
     // ---------- 换页 / 源到达：setUp(headers) → 等 play 可用 → 揭示 ----------
-    LaunchedEffect(pagerState.settledPage, playRequestToken, playbackReady?.source?.mediaId, playbackReady?.stage, playbackReady?.endpoint?.url, verticalActive, verticalSettling, userPaused, sheetOpen, foreground, pagerState.isScrollInProgress) {
-        if (!foreground || verticalActive || verticalSettling || pagerState.isScrollInProgress) {
+    LaunchedEffect(pagerState.settledPage, playRequestToken, playbackReady?.source?.mediaId, playbackReady?.stage, playbackReady?.endpoint?.url, verticalSettling, userPaused, sheetOpen, foreground, pagerState.isScrollInProgress) {
+        if (!foreground || verticalSettling || pagerState.isScrollInProgress) {
             return@LaunchedEffect
         }
         val page = pagerState.settledPage
@@ -580,7 +619,7 @@ private fun ReviewPagerContent(
                 .setMapHeadData(ready.endpoint.headers.ifEmpty { null })
             if (!awaitPlayerHostReady(controller)) return@LaunchedEffect
             val latestReadyAfterWait = latestPlayback as? V2PlaybackUiState.Ready ?: return@LaunchedEffect
-            if (!foreground || verticalActive || verticalSettling || pagerState.isScrollInProgress ||
+            if (!foreground || verticalSettling || pagerState.isScrollInProgress ||
                 pagerState.settledPage != page || latestItems.getOrNull(page)?.mediaId != item.mediaId ||
                 latestReadyAfterWait.source.mediaId != item.mediaId ||
                 latestReadyAfterWait.endpoint.url != ready.endpoint.url ||
@@ -617,8 +656,8 @@ private fun ReviewPagerContent(
         controller.events.collect { event ->
             if (event is com.shuyu.gsyvideoplayer.compose.native_.GSYPlayerEvent.Prepared) {
                 val host = currentOwnedSourceHost() ?: return@collect
-                if (!foreground || userPaused || sheetOpen || verticalActive || verticalSettling ||
-                    scrub.active || bodySeek.active || pagerState.isScrollInProgress) host.onVideoPause()
+                if (!foreground || userPaused || sheetOpen || verticalSettling ||
+                    scrub.active || pagerState.isScrollInProgress) host.onVideoPause()
                 if (!foreground) return@collect
                 controller.setSpeed(speed.effectiveSpeed)
                 resumeCurrent()
@@ -626,13 +665,26 @@ private fun ReviewPagerContent(
         }
     }
 
+    // Feed current-source kernel failures into the existing one-fallback state machine.
+    // Media, endpoint and host ownership exclude errors from retired kernels.
+    LaunchedEffect(controller) {
+        snapshotFlow { controller.snapshot.value.state }
+            .distinctUntilChanged()
+            .collect { playState ->
+                if (playState == GSYPlayState.Error && foreground && sourceIsCurrent() &&
+                    currentOwnedSourceHost() != null) {
+                    vm.onPlaybackFailed(currentLoadedMediaId)
+                }
+            }
+    }
+
     // Observation is separate from resume/setup: a seek pause must never auto-resume on a snapshot change.
     LaunchedEffect(pagerState.settledPage, loadedUrl, loadedStage, sourceStarted, snapshot.isPlaying,
-        userPaused, sheetOpen, foreground, verticalActive, verticalSettling, pagerState.isScrollInProgress) {
+        userPaused, sheetOpen, foreground, verticalSettling, pagerState.isScrollInProgress) {
         val page = pagerState.settledPage
         val item = latestItems.getOrNull(page) ?: return@LaunchedEffect
         val ready = latestPlayback as? V2PlaybackUiState.Ready ?: return@LaunchedEffect
-        if (!foreground || !sourceIsCurrent() || !sourceStarted || userPaused || sheetOpen || verticalActive ||
+        if (!foreground || !sourceIsCurrent() || !sourceStarted || userPaused || sheetOpen ||
             verticalSettling || pagerState.isScrollInProgress) return@LaunchedEffect
         // 画面确实在输出后才淡出 Poster（避免 Playing 但首帧未渲染的黑帧窗口）。
         val playReady = withTimeoutOrNull(PLAYBACK_READY_TIMEOUT_MS) {
@@ -798,7 +850,7 @@ private fun ReviewPagerContent(
         }
 
         // 暂停态：中央轻量 ▶（单击 = 播放/暂停，抖音式，不整体隐藏 UI）。
-        if (userPaused && sourceIsCurrent() && !sheetOpen && !verticalActive) {
+        if (userPaused && sourceIsCurrent() && !sheetOpen) {
             Surface(
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.45f),
@@ -846,13 +898,17 @@ private fun ReviewPagerContent(
                     TextButton(onClick = { vm.retryPlayback() }) {
                         Text("重试", color = V2Colors.Accent)
                     }
+                    Text("文件移动或媒体库整理后，可重新选择批阅范围。", color = MediaTextSecondary)
+                    TextButton(onClick = { pauseOwnedHost(); vm.chooseReviewScope() }) {
+                        Text("重新选择批阅范围", color = V2Colors.Accent)
+                    }
                 }
             }
         }
 
         val currentItem = items.getOrNull(pagerState.settledPage)
 
-        // 顶部：返回 + 绝对进度（绝对索引 + 1 / total）。
+        // 顶部：返回 + 权威进度 + 更多；保持极简，不遮挡预览。
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -868,12 +924,35 @@ private fun ReviewPagerContent(
                     tint = MediaTextPrimary,
                 )
             }
-            val scopeTitle by vm.scopeTitle.collectAsState()
-            Column(Modifier.align(Alignment.Center).padding(horizontal = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                TextButton(vm::chooseReviewScope, Modifier.testTag("review_scope_reselect")) {
-                    Text("批阅 · $scopeTitle", color = MediaTextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(currentItem?.let { "${it.absoluteIndex + 1} / ${state.totalCount}" }.orEmpty(), color = MediaTextPrimary)
+            val progress = reviewProgress(
+                absoluteIndex = currentItem?.absoluteIndex ?: state.absoluteCurrentIndex,
+                totalCount = state.totalCount,
+                seenCount = state.seenCount,
+                remainingCount = state.remainingCount,
+            )
+            val animatedProgress by animateFloatAsState(
+                targetValue = progress.fraction,
+                animationSpec = tween(250),
+                label = "reviewProgress",
+            )
+            Column(
+                Modifier.align(Alignment.Center).padding(horizontal = 64.dp).testTag("review_progress"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(progress.positionLabel, color = MediaTextPrimary, style = MaterialTheme.typography.labelLarge)
+                Text(progress.summaryLabel, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 1.dp),
+                    color = V2Colors.Accent,
+                    trackColor = Color.White.copy(alpha = 0.18f),
+                )
+            }
+            IconButton(
+                onClick = { openSheetFlow(); moreSheet = true },
+                modifier = Modifier.align(Alignment.CenterEnd).testTag("review_more"),
+            ) {
+                Icon(Icons.Default.MoreVert, contentDescription = "更多", tint = MediaTextPrimary)
             }
         }
 
@@ -884,7 +963,7 @@ private fun ReviewPagerContent(
                     .fillMaxWidth()
                     .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 90.dp, top = 24.dp, bottom = 48.dp),
+                    .padding(horizontal = 20.dp, vertical = 112.dp),
             ) {
                 Text(
                     text = item.title,
@@ -903,42 +982,45 @@ private fun ReviewPagerContent(
                 )
             }
 
-            // 右侧动作栏：收藏 / 待删除(可撤销) / 更多（48dp 触控区）。
-            Column(
+            // 固定底部动作区：按钮均 >=48dp，按钮与手势语义一致。
+            Row(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 52.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .background(Color.Black.copy(alpha = 0.68f))
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .testTag("review_bottom_actions"),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 ReviewActionButton(
-                    icon = if (item.mediaId in favoriteIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    tint = if (item.mediaId in favoriteIds) V2Colors.Favorite else MediaTextPrimary,
-                    label = if (item.mediaId in favoriteIds) "已收藏" else "收藏",
-                    onClick = { vm.toggleFavorite(item.mediaId) },
+                    icon = Icons.Default.CheckCircle,
+                    tint = V2Colors.Accent,
+                    label = "保留",
+                    tag = "review_keep",
+                    onClick = ::keepCurrent,
                 )
                 ReviewActionButton(
-                    icon = if (item.mediaId in pendingDeleteIds) Icons.Default.Undo else Icons.Default.DeleteOutline,
-                    tint = if (item.mediaId in pendingDeleteIds) MediaDanger else MediaTextPrimary,
-                    label = if (!item.canDelete) "本地只读" else if (item.mediaId in pendingDeleteIds) "撤销" else "待删除",
+                    icon = Icons.Default.DeleteOutline,
+                    tint = MediaDanger,
+                    label = if (item.canDelete) "待删除" else "不可删除",
                     enabled = item.canDelete,
-                    onClick = {
-                        if (item.mediaId in pendingDeleteIds) {
-                            vm.undoPendingDelete(item.mediaId)
-                        } else {
-                            // 成功提示（含"撤销"）由 ViewModel 在服务端确认后发出
-                            vm.addPendingDelete(item.mediaId)
-                        }
-                    },
+                    tag = "review_delete",
+                    onClick = ::deleteCurrent,
                 )
+                val undoId = reviewUndoTarget(lastDeleteMediaId, pendingDeleteIds)
                 ReviewActionButton(
-                    icon = Icons.Default.MoreVert,
+                    icon = Icons.Default.Undo,
                     tint = MediaTextPrimary,
-                    label = "更多",
+                    label = "撤销",
+                    enabled = undoId != null,
+                    tag = "review_undo",
                     onClick = {
-                        openSheetFlow()
-                        moreSheet = true
+                        undoId?.let {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            vm.undoPendingDelete(it)
+                        }
                     },
                 )
             }
@@ -948,6 +1030,39 @@ private fun ReviewPagerContent(
         if (moreSheet) {
             ModalBottomSheet(onDismissRequest = { moreSheet = false; closeSheetAndResume() }) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                    MoreSheetItem(
+                        icon = Icons.Default.NavigateNext,
+                        label = "快进一屏",
+                        onClick = {
+                            moreSheet = false
+                            closeSheetAndResume()
+                            val currentIndex = pagerState.settledPage
+                            val targetIndex = fastForwardIndex(currentIndex, items.size)
+                            feedback = fastForwardHint(currentIndex, items.size)
+                            navigateTo(targetIndex)
+                        },
+                    )
+                    MoreSheetItem(
+                        icon = Icons.Default.CheckCircle,
+                        label = "重新选择批阅范围",
+                        tag = "review_scope_reselect",
+                        onClick = {
+                            moreSheet = false
+                            closeSheetWithoutResume()
+                            vm.chooseReviewScope()
+                        },
+                    )
+                    currentItem?.let { media ->
+                        MoreSheetItem(
+                            icon = if (media.mediaId in favoriteIds) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            label = if (media.mediaId in favoriteIds) "取消收藏" else "收藏",
+                            onClick = {
+                                vm.toggleFavorite(media.mediaId)
+                                moreSheet = false
+                                closeSheetAndResume()
+                            },
+                        )
+                    }
                     Text("播放倍速", Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         SpeedGestureState.FORMAL_SPEEDS.forEach { formal ->
@@ -1002,28 +1117,25 @@ private fun ReviewPagerContent(
             )
         }
 
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 76.dp),
+        ) {
             if (showSourceLoading && playbackFailure == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(20.dp)
                     .padding(bottom = 4.dp).testTag("review_source_loading"), color = Color.White, strokeWidth = 2.dp)
             }
-            (feedback ?: seekPreview?.let {
-                if (bodySeek.active) {
-                    val delta = it - bodyStartMs
-                    "${if (delta >= 0L) "+" else "−"}${com.mediareview.app.feature.v2.home.formatDuration(kotlin.math.abs(delta))}\n" +
-                        "${com.mediareview.app.feature.v2.home.formatDuration(bodyStartMs)} → ${com.mediareview.app.feature.v2.home.formatDuration(it)}"
-                } else "${it / 1000}s / ${kernelDuration() / 1000}s"
-            })?.let {
+            (feedback ?: seekPreview?.let { "${it / 1000}s / ${kernelDuration() / 1000}s" })?.let {
                 Text(it, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 4.dp), color = Color.White)
             }
             PlayerSeekBar(
-                positionMs = seekPreview ?: snapshot.currentPosition,
+                positionMs = seekPreview ?: seekLanding.display(snapshot.currentPosition),
                 durationMs = snapshot.duration,
                 bufferPercent = snapshot.bufferPercent,
                 trackHeight = 2.5.dp,
-                enabled = foreground && sourceIsCurrent() && !sheetOpen && !verticalActive,
+                enabled = foreground && sourceIsCurrent() && !sheetOpen,
                 tag = "review_seek_bar",
                 onDragStart = {
+                    seekLanding.clear(); seekLandingJob?.cancel()
                     if (scrub.begin(kernelPosition(), kernelDuration(), kernelPlaying())) pauseOwnedHost()
                     seekPreview = scrub.previewMs
                 },
@@ -1114,13 +1226,15 @@ private fun ReviewActionButton(
     label: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    tag: String? = null,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(
             onClick = onClick,
             enabled = enabled,
             modifier = Modifier
-                .size(44.dp)
+                .size(52.dp)
+                .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                 .background(V2Colors.CardScrim, CircleShape),
         ) {
             Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
@@ -1138,11 +1252,13 @@ private fun ReviewActionButton(
 private fun MoreSheetItem(
     icon: ImageVector,
     label: String,
+    tag: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1205,6 +1321,7 @@ private fun InfoSheetRow(label: String, value: String) {
 @Composable
 private fun ReviewLoadingPage(onBack: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        LoadingSkeleton(Modifier.fillMaxSize())
         IconButton(
             onClick = onBack,
             modifier = Modifier
@@ -1248,42 +1365,7 @@ private fun ReviewErrorPage(
                 tint = MediaTextPrimary,
             )
         }
-        Column(
-            modifier = Modifier.padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = Icons.Default.ErrorOutline,
-                contentDescription = null,
-                tint = MediaDanger,
-                modifier = Modifier.size(44.dp),
-            )
-            Text(
-                text = "无法恢复批阅",
-                style = MaterialTheme.typography.titleMedium,
-                color = MediaTextPrimary,
-                modifier = Modifier.padding(top = 14.dp),
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MediaTextSecondary,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = V2Colors.Accent,
-                onClick = onRetry,
-                modifier = Modifier.padding(top = 18.dp),
-            ) {
-                Text(
-                    text = "重新尝试",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
-                )
-            }
-        }
+        ErrorState(message = message, onRetry = onRetry, modifier = Modifier.fillMaxSize())
     }
 }
 
@@ -1313,7 +1395,15 @@ private fun ReviewCompletePage(
                 tint = MediaTextPrimary,
             )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (emptyQueue) {
+            EmptyState(
+                title = "没有待批阅的视频",
+                message = "全部视频都已批阅完成",
+                modifier = Modifier.fillMaxSize(),
+                actionLabel = "重新选择范围",
+                onAction = onRestart,
+            )
+        } else Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = null,

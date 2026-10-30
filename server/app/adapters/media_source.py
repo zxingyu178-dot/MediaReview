@@ -47,7 +47,12 @@ class MediaSource:
 
 SOURCES = {
     "jellyfin": MediaSource("jellyfin", True, "jellyfin", "jellyfin", "direct_hls", "jellyfin"),
-    "local": MediaSource("local", False, "local_scan", "local_thumbnail", "authenticated_range", "sqlite"),
+    # 2026-10-24 起本地源支持"两阶段安全删除"(能力名 native_delete_v1)。
+    # 历史能力名 native_read_only_v1 仅在 Server 能力表中作为兼容名保留，
+    # 删除安全边界由 native_sources/delete_queue 的路径与指纹复验保证。
+    "local": MediaSource(
+        "local", True, "local_scan", "local_thumbnail", "authenticated_range", "sqlite"
+    ),
 }
 
 

@@ -1,32 +1,11 @@
-# 当前修复交付与安装边界
+# MediaReview 1.6.4 候选安装入口
 
-> 2026-10-20：本轮目标 Android Alpha15/code22、Server 1.5.2 / Contract2。实际产物以包内 RELEASE_MANIFEST 和 SHA256 为准；没有本轮生产部署授权。安装同签名 APK 时保留数据；Server 需通过 ControlHub 停服并完整备份后再升级。0016 迁移后，确认已勾选目标库，在后台点“刷新媒体库”，成功后再复核缺失目录。回滚恢复成对的程序与数据备份，不能仅换旧 EXE。下文为 Alpha12 历史说明，不是当前版本/验收清单。
+本轮目标配套为Server1.6.4 / API Contract2 / 数据库0018 + Android Alpha22/code29。只有完成产物验证并更新deploy_handoff/CURRENT_RELEASE.json后，才作为当前交付版本；实际运行状态见docs/PROJECT_STATUS.md。
 
-## Alpha12 历史记录
+1. 从CURRENT_RELEASE.json读取包路径、版本、SHA256，不按文件日期猜包。Server的RELEASE_MANIFEST.json及SHA256SUMS.txt必须逐项匹配；APK版本应为Alpha22/code29。
+2. 生产升级经ControlHub停止AIHome.MediaReview，确认端口释放，完整备份程序、配置、配对和活动数据；校验备份后替换程序，不清除媒体库或配对。
+3. 新程序执行0018回执迁移。重新通过ControlHub启动，核对health版本1.6.4、Contract2、delete_result_v1、database=ok及windows_service身份；仅HTTP200不算成功。
+4. 手机覆盖安装前核对APK版本、哈希和原发布证书；签名不一致就停止，不卸载或清数据。本轮未连接手机，覆盖安装及视觉交互待验收。
+5. 删除保持两阶段确认；超时后查询原批次。结果未知不等于失败或成功，不自动再次删除。生图入口目前明确显示能力尚未提供，连接配置独立于视频服务，上游HTTP尚未启用。
 
-当前发布目标：Android code19 / `2.0.0-alpha12`；Server `1.4.0` / API Contract `2`。
-
-本次只交付离线产物，不部署生产服务器、不安装用户手机、不清手机数据，不操作 SCM 或 ControlHub 生命周期。生产升级桥仍为 `BLOCKED_EXTERNAL_CONTROLHUB_CONTRACT`。保留当前运行环境，等待官方入口具备条件后再安排安装与升级。
-
-## 收到产物后
-
-- Android：`MediaReview_2.0.0-alpha12_stage8i.apk`。
-- Server：`MediaReview_Server_1.4.0_stage8i.zip`。
-- 对照 `RELEASE_MANIFEST.json`、签名验证记录及 SHA256 清单核对文件；交接中有证据才认定产物已生成。
-- 全部自动化、签名、实际二进制隔离核验及产物一致性门禁通过后，可标记 `CODE_READY` / `READY_FOR_USER_VALIDATION`。这些状态不表示已安装、生产已升级或真实家庭 LAN 已通过。
-
-目标 Server 的 health 必须为 `status=ok`、`version=1.4.0`、`api_contract=2`，并包含十项能力：`folder_tree_v1`、`review_session`、`review_nearest`、`organize`、`delete_nonce`、`duplicates_paged`、`library_selection`、`thumbnail_profiles_v1`、`review_folder_filter_v1`、`delete_receipt_v1`。
-
-后续获准安装时保留 App 数据。首次安装只显示 Alpha12；18→19 只显示 Alpha12；17→19 在一个 Sheet 聚合 Alpha11/12。关闭保存19，重启不再自动弹出，设置页「本次更新」只显示当前版本。
-
-## 后续升级前提
-
-沿用既有 `AIHome.MediaReview` 身份，不创建平行服务或计划任务，不直接调用 SCM/Helper。官方升级桥开放且获得相应授权后，先确认完整安全备份、来源完整性与官方事务控制；回滚边界见 `UPGRADE_ROLLBACK.md`。
-
-`jellyfin.url` 用于电脑端访问；`jellyfin.client_url` 用于手机直连，必须在后续部署时确认实际家庭网络地址，保留代理路径前缀。不要复用历史电脑 IP，不记录凭据；电脑健康不能证明手机可播。本次不修改配置或防火墙。
-
-用户体验验收仅使用 [Stage8I路线](USER_LAN_VALIDATION.md)，前提是官方升级入口和后续安装条件已具备。该文件随服务器包一起交付，与项目 Stage8I 验收路线一致。
-
-## 历史记录
-
-Stage8E Alpha8：Android code15 / `2.0.0-alpha8`，Server `1.2.2` / Contract2 / 六项能力。其旧安装与服务操作说明属于历史，不构成本次部署授权。Stage8E.1/8E.2验证了隔离升级事务与可信来源门禁；正式生产桥仍因外部 ControlHub 合同阻塞。
+本轮只准备交付，不部署或安装。回滚见UPGRADE_ROLLBACK.md，人工验证见USER_LAN_VALIDATION.md。

@@ -33,17 +33,23 @@ fun ImageInfoSheet(
     sizeBytes: Long,
     dateMillis: Long,
     isFavorite: Boolean,
+    sourceType: String,
+    relativePath: String,
+    isPendingDelete: Boolean,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text(name, style = MaterialTheme.typography.titleMedium, color = MediaTextPrimary)
             InfoRow("编号", code)
-            InfoRow("文件夹", folderName)
+            InfoRow("库 / 文件夹", folderName.ifBlank { "未提供" })
+            InfoRow("来源", sourceLabel(sourceType))
+            InfoRow("相对路径", relativePath)
             InfoRow("尺寸", if (width > 0) "${width} × ${height}" else "未知")
-            InfoRow("大小", if (sizeBytes <= 0) "大小未知" else if (sizeBytes < 1024) "$sizeBytes B" else "${sizeBytes / 1024} KB")
-            InfoRow("日期", formatDate(dateMillis))
+            InfoRow("大小", formatSize(sizeBytes))
+            InfoRow("时间", formatDate(dateMillis))
             InfoRow("收藏", if (isFavorite) "是" else "否")
+            InfoRow("待删除", if (isPendingDelete) "已加入" else "否")
         }
     }
 }
@@ -59,5 +65,20 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-private fun formatDate(millis: Long): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(millis))
+private fun formatDate(millis: Long): String = if (millis <= 0L) "未知" else
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
+
+private fun formatSize(bytes: Long): String = when {
+    bytes <= 0L -> "未知"
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> String.format(Locale.CHINA, "%.1f KB", bytes / 1024.0)
+    bytes < 1024L * 1024L * 1024L -> String.format(Locale.CHINA, "%.1f MB", bytes / 1024.0 / 1024.0)
+    else -> String.format(Locale.CHINA, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
+}
+
+private fun sourceLabel(source: String): String = when (source.lowercase(Locale.ROOT)) {
+    "native", "local" -> "本地媒体库"
+    "jellyfin" -> "Jellyfin"
+    "demo" -> "演示数据"
+    else -> source.ifBlank { "未知" }
+}

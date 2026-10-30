@@ -98,6 +98,15 @@ class V2ServerReviewSessionRepository internal constructor(
     override val supportsFolderScope: Boolean
         get() = "review_folder_filter_v1" in statusStore.capabilities.value && statusStore.supportsFolderTree
 
+    /**
+     * Stage 9：服务端是否支持本地源删除（`native_delete_v1`）。
+     *
+     * 只用于把"该媒体不可删除"细化为"需要升级电脑端 Server"，**不参与可删除门禁**：
+     * 门禁永远是服务端下发的 `can_delete`。
+     */
+    override val supportsNativeDelete: Boolean
+        get() = statusStore.supportsNativeDelete
+
     override suspend fun prepareSession(): ReviewSessionOpen = pagingMutex.withLock {
         val info = try {
             call { api, _ -> unwrap(api.latestReviewSession()) }.toInfo()
@@ -359,7 +368,8 @@ class V2ServerReviewSessionRepository internal constructor(
             favorite = summary.is_favorite,
             seen = seen,
             sourceType = summary.source_type,
-            canDelete = summary.can_delete && summary.source_type == "jellyfin",
+            // Stage 9：直接信任服务端 can_delete（本地源可删除；旧 Server 仍下发 false 即拒绝）
+            canDelete = summary.can_delete == true,
         )
     }
 

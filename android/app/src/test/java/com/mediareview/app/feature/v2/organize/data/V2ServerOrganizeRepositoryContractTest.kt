@@ -36,6 +36,56 @@ import org.junit.Test
  * 失败语义（§45）：所有失败必须**上抛异常**，绝不返回空列表/0 冒充成功。
  */
 class V2ServerOrganizeRepositoryContractTest {
+    private class Journal : com.mediareview.app.feature.v2.organize.delete.DeleteRecoveryJournal {
+        var identity = "server-a-token-a"
+        val batches = mutableMapOf<String, String>()
+        override suspend fun scope() = identity
+        override suspend fun read(scope: String) = batches[scope]
+        override suspend fun save(scope: String, nonce: String) { batches[scope] = nonce }
+        override suspend fun acknowledge(scope: String, nonce: String) {
+            if (batches[scope] == nonce) batches.remove(scope)
+        }
+    }
+
+    private fun recoveringRepository(journal: Journal): V2ServerOrganizeRepository {
+        val http = OkHttpClient()
+        return V2ServerOrganizeRepository(
+            profilePort = object : V2ServerProfilePort { override suspend fun baseUrl() = server.url("/").toString() },
+            apiFactory = ApiFactory(http, http, Json { ignoreUnknownKeys = true }),
+            mapper = V2MediaMapper(MediaUrlResolver()), resources = V2ServerResourceCache(),
+            statusStore = onlineServerStatus().apply { recordCompatible("1.6.4", 2, listOf("delete_result_v1")) },
+            deleteJournal = journal,
+        )
+    }
+
+    @Test fun `切换服务器或凭据后不能提交旧确认或读取旧批次`() = runTest {
+        val journal = Journal()
+        val repo = recoveringRepository(journal)
+        val nonce = repo.prepareDeleteCommit().nonce
+        journal.batches[journal.identity] = nonce
+        journal.identity = "server-a-token-b"
+        val before = server.requestCount
+        assertTrue(runCatching { repo.commitDelete(nonce) }.isFailure)
+        assertNull(repo.pendingDeleteNonce())
+        assertEquals(com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup.Unknown, repo.deleteResult(nonce))
+        assertEquals(before, server.requestCount)
+        assertEquals(nonce, journal.batches["server-a-token-a"])
+    }
+
+    @Test fun `提交失败仍保存批次且只查询结果不重发删除`() = runTest {
+        val journal = Journal()
+        val repo = recoveringRepository(journal)
+        val nonce = repo.prepareDeleteCommit().nonce
+        router.commitErrorCode = "CONFLICT"
+        assertTrue(runCatching { repo.commitDelete(nonce) }.isFailure)
+        assertEquals(nonce, repo.pendingDeleteNonce())
+        assertEquals(1, router.paths().count { it == "/api/v1/delete-queue/commit" })
+        // 模拟进程重建：新的Repository仍读同一持久journal，不重新prepare。
+        assertEquals(nonce, recoveringRepository(journal).pendingDeleteNonce())
+        repo.acknowledgeDeleteResult(nonce)
+        assertNull(repo.pendingDeleteNonce())
+    }
+
     @Test fun `未知大小沿摘要确认和队列保留`() = runTest {
         router.unknownSizeFields = ",\"unknown_size_count\":1"
         router.queueOverride = """{"success":true,"data":[{"media_id":"unknown","status":"pending","size_bytes":null}]}"""
@@ -159,6 +209,35 @@ class V2ServerOrganizeRepositoryContractTest {
         assertFalse(router.paths().any { it.startsWith("/api/v1/media/") })
     }
 
+    /**
+     * Stage 9：本地源进入"两阶段安全删除"后，待删除队列里的本地媒体
+     * **直接信任服务端 can_delete**（不再按 source_type 判定），失败原因原样保留供 UI 映射。
+     */
+    @Test
+    fun `本地源队列项直接信任服务端can_delete且保留失败原因`() = runTest {
+        router.queueOverride = """
+            {"success":true,"data":[
+              {"media_id":"loc_1","status":"pending","size_bytes":500,"added_at":"2026-10-24T10:00:00",
+               "media":{"media_id":"loc_1","name":"本地视频","media_type":"video","library_id":"local_root",
+                        "size_bytes":500,"source_type":"local","can_delete":true,
+                        "cover_url":"/api/v1/media/loc_1/thumbnail?v=loc"}},
+              {"media_id":"loc_2","status":"failed","size_bytes":600,
+               "error":"file_in_use:[WinError 32] D:\\secret\\b.mp4",
+               "media":{"media_id":"loc_2","name":"本地视频2","media_type":"video","library_id":"local_root",
+                        "size_bytes":600,"source_type":"local","can_delete":false}}
+            ]}
+        """.trimIndent()
+
+        val entries = repository.loadDeleteQueue()
+
+        assertEquals(2, entries.size)
+        assertTrue("can_delete=true 的本地媒体必须可删除", entries[0].media!!.canDelete)
+        assertEquals("local", entries[0].media!!.sourceType)
+        assertFalse("can_delete=false 的本地媒体不得可删除", entries[1].media!!.canDelete)
+        // 原始失败原因原样保留（中文映射与"不展示绝对路径"由 DeleteQueueViewModel 负责）
+        assertEquals("file_in_use:[WinError 32] D:\\secret\\b.mp4", entries[1].error)
+    }
+
     @Test
     fun `恢复失败上抛且成功不再请求`() = runTest {
         router.restoreStatus = 409
@@ -181,7 +260,8 @@ class V2ServerOrganizeRepositoryContractTest {
         assertEquals(DeleteOutcomeStatus.Success, outcome["aaa"])
         assertEquals(DeleteOutcomeStatus.Missing, outcome["bbb"])
         assertEquals(DeleteOutcomeStatus.Failed, outcome["ccc"])
-        assertEquals(DeleteOutcomeStatus.Unknown, outcome["ddd"])
+        assertEquals(setOf("aaa", "bbb", "ccc"), outcome.keys)
+        assertEquals(DeleteOutcomeStatus.Unknown, DeleteOutcomeStatus.fromWire("weird"))
         // commit 请求体必须携带同一 nonce
         assertEquals("""{"nonce":"nonce-1"}""", router.lastBody("/api/v1/delete-queue/commit"))
     }
@@ -189,9 +269,9 @@ class V2ServerOrganizeRepositoryContractTest {
     @Test
     fun `新Server真实字节沿仓库保留且旧Server不推算`() = runTest {
         org.junit.Assert.assertNull(repository.commitDelete("old").diskReceipt)
-        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":4321,\"missing_count\":1,\"failed_count\":2"
+        router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":4321,\"missing_count\":1,\"failed_count\":1"
         val response = repository.commitDelete("new")
-        assertEquals(DiskDeletionReceipt(1, 4321L, 1, 2), response.diskReceipt)
+        assertEquals(DiskDeletionReceipt(1, 4321L, 1, 1), response.diskReceipt)
         router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":-1,\"missing_count\":1,\"failed_count\":2"
         org.junit.Assert.assertNull(repository.commitDelete("invalid").diskReceipt)
         router.receiptFields = ",\"deleted_count\":1,\"deleted_bytes\":0"
@@ -386,7 +466,7 @@ private class OrganizeDispatcher : Dispatcher() {
                 .setResponseCode(409).setHeader("Content-Type", "application/json")
                 .setBody("""{"success":false,"error":{"code":"$commitErrorCode","message":"conflict"}}""")
             path == "/api/v1/delete-queue/commit" -> json(
-                """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed","ddd":"weird"}$receiptFields}}""",
+                """{"success":true,"data":{"outcome":{"aaa":"success","bbb":"missing","ccc":"failed"}$receiptFields}}""",
             )
             path == "/api/v1/duplicates/summary" -> json(
                 """{"success":true,"data":{"exact_groups":3,"similar_groups":7,"scan_task_id":"task-9","scan_status":"succeeded","scan_progress":100,"last_successful_scan_at":"2026-10-02T08:00:00"}}""",

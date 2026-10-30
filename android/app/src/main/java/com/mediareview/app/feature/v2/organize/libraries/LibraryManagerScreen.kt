@@ -223,7 +223,7 @@ private fun LibraryRow(
             ),
         )
         Text(
-            text = (if (library.sourceType == "local") "[本地只读] " else "[Jellyfin] ") + library.name,
+            text = (if (library.sourceType == "local") "[本地] " else "[Jellyfin] ") + library.name,
             style = MaterialTheme.typography.titleSmall,
             color = MediaTextPrimary,
             maxLines = 1,

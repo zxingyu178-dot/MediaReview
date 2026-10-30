@@ -8,7 +8,6 @@ import com.mediareview.app.feature.v2.model.V2Media
 object MediaNavigator {
     const val ROUTE_HOME = "home"
     const val ROUTE_REVIEW = "review"
-    /** v0.37 生图审核：独立 NSFW Studio 页面，与批阅并列。 */
     const val ROUTE_NSFW_REVIEW = "nsfw-review"
     const val ROUTE_FAVORITES = "favorites"
     const val ROUTE_ORGANIZE = "organize"
@@ -64,6 +63,23 @@ object MediaNavigator {
     /** Player / Viewer 等详情页不显示底部导航。 */
     fun isTabRoute(currentRoute: String?): Boolean =
         currentRoute == ROUTE_HOME || currentRoute == ROUTE_REVIEW ||
-            currentRoute == ROUTE_NSFW_REVIEW || currentRoute == ROUTE_FAVORITES ||
-            currentRoute == ROUTE_ORGANIZE
+            currentRoute == ROUTE_FAVORITES || currentRoute == ROUTE_ORGANIZE || currentRoute == ROUTE_NSFW_REVIEW
 }
+
+/** 批阅虽然是一级入口，但进入内容后与图片查看器一样使用沉浸式全屏。 */
+fun shouldShowBottomNavigation(currentRoute: String?): Boolean =
+    MediaNavigator.isTabRoute(currentRoute) && currentRoute != MediaNavigator.ROUTE_REVIEW
+
+enum class BottomNavigationExitMode { ANIMATED, IMMEDIATE }
+
+/**
+ * Review owns a native GSY Surface. Its viewport must be final when the Surface is first
+ * composed: retaining the bottom bar during an exit animation changes Scaffold innerPadding
+ * after attachment and can leave the video renderer black. Other routes keep the P4 motion.
+ */
+fun bottomNavigationExitMode(currentRoute: String?): BottomNavigationExitMode =
+    if (currentRoute == MediaNavigator.ROUTE_REVIEW) {
+        BottomNavigationExitMode.IMMEDIATE
+    } else {
+        BottomNavigationExitMode.ANIMATED
+    }

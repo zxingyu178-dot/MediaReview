@@ -363,7 +363,7 @@ fun nsfwDetails(
 
 fun nsfwPage(
     items: List<com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem>,
-    nextCursor: String? = null,
+    nextCursor: String? = "terminal-cursor",
     hasMore: Boolean = false,
 ) = NsfwFeedPage(items = items, nextCursor = nextCursor, hasMore = hasMore)
 

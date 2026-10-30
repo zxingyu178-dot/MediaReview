@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.home
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -21,7 +22,7 @@ internal fun RuntimeDiagnosis(vm: V2HomeViewModel) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("runtime_diagnosis")) {
         Text("电脑端 ${version.ifBlank { "未探测" }} · ${if (expanded) "收起诊断" else "查看诊断"}",
             color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 8.dp))
+            modifier = Modifier.heightIn(min = 48.dp).clickable { expanded = !expanded }.padding(vertical = 8.dp))
         if (expanded) {
             Text("API Contract：${if (contract == 0) "未探测" else contract.toString()}",
                 color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)

@@ -42,6 +42,11 @@ class V2OrganizeRepositoryRouter @Inject constructor(
     override suspend fun commitDelete(nonce: String): DeleteCommitResponse =
         active().commitDelete(nonce)
 
+    override val supportsDeleteRecovery: Boolean get() = active().supportsDeleteRecovery
+    override suspend fun pendingDeleteNonce() = active().pendingDeleteNonce()
+    override suspend fun deleteResult(nonce: String) = active().deleteResult(nonce)
+    override suspend fun acknowledgeDeleteResult(nonce: String) = active().acknowledgeDeleteResult(nonce)
+
     override suspend fun loadDuplicateGroups(
         type: DuplicateGroupType,
         page: Int,

@@ -27,8 +27,8 @@ class Task4SourceContractTest {
         val dimensions = projectFile("src/main/java/com/mediareview/app/ui/theme/Dimensions.kt")
 
         listOf(
-            "0xFF0B1118", "0xFF141D27", "0xFF47D7E8", "0xFFF4F7FA",
-            "0xFFA9B4C0", "0xFF39D98A", "0xFFFF6B6B",
+            "0xFF090B0E", "0xFF12161B", "0xFF8AB4F8", "0xFFF4F7FA",
+            "0xFFA9B4C0", "0xFF39D98A", "0xFFFF6B6B", "0xFF242A31",
         ).forEach { assertTrue("缺少批准色值 $it", colors.contains(it)) }
         assertTrue(theme.contains("darkColorScheme"))
         assertFalse(theme.contains("lightColorScheme"))

@@ -26,7 +26,7 @@ data class LibraryItem(
     val selected: Boolean = false,
     val sort_order: Int = 0,
     val source_type: String = "jellyfin",
-    val can_delete: Boolean = true,
+    val can_delete: Boolean? = null,
 )
 
 /** 媒体墙分页请求体集合。 */
@@ -85,7 +85,7 @@ data class MediaSummary(
      */
     val is_favorite: Boolean = false,
     val source_type: String = "jellyfin",
-    val can_delete: Boolean = true,
+    val can_delete: Boolean? = null,
 ) {
     val isVideo: Boolean get() = media_type == "video"
 }

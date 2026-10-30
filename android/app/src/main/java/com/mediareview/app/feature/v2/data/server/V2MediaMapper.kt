@@ -64,7 +64,9 @@ class V2MediaMapper @Inject constructor(
             naturalWidth = summary.width ?: 0,
             naturalHeight = summary.height ?: 0,
             sourceType = summary.source_type,
-            canDelete = summary.can_delete && summary.source_type == "jellyfin",
+            // Stage 9：本地源已放开"两阶段安全删除"，是否可删除**只信任服务端下发的 can_delete**。
+            // 旧 Server 对本地仍下发 false → 这里自然拒绝；不再用 source_type / media_id 前缀做门禁。
+            canDelete = summary.can_delete == true,
         )
         return V2ServerResourceCache.Entry(media = media, coverUrl = coverUrl, originalUrl = originalUrl)
     }

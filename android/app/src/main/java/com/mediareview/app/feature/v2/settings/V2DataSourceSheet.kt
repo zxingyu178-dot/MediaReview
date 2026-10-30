@@ -88,7 +88,7 @@ fun V2DataSourceSheet(
                 modifier = Modifier.padding(bottom = V2Spacing.Sm),
             )
 
-            DataSourceOption(
+            if (com.mediareview.app.BuildConfig.DEBUG) DataSourceOption(
                 title = "演示数据",
                 subtitle = "APK 内置离线媒体，不需要电脑服务器",
                 selected = dataMode == V2DataMode.DEMO,

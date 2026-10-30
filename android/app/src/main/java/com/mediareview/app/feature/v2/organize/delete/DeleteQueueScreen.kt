@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,6 +80,18 @@ fun DeleteQueueScreen(
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { vm.load() }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(vm, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> vm.resumeRecovery()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> vm.pauseRecovery()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); vm.pauseRecovery() }
+    }
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
@@ -89,7 +103,7 @@ fun DeleteQueueScreen(
     }
 
     Box(modifier = modifier.fillMaxSize().background(MediaBackground).testTag("delete_queue_screen")) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
             // 顶部：返回 + 标题 + 摘要（摘要来自当前列表，实际删除数字以 prepare 为准）
             Row(
                 modifier = Modifier
@@ -112,7 +126,13 @@ fun DeleteQueueScreen(
                         color = MediaTextPrimary,
                     )
                     Text(
-                        text = if (ui.pendingCount > 0) {
+                        text = if (ui.phase is DeleteCommitPhase.Checking || ui.phase is DeleteCommitPhase.Unconfirmed) {
+                            "有一批删除结果待核对"
+                        } else if (ui.loading && ui.entries.isEmpty()) {
+                            "正在加载待删除列表…"
+                        } else if (ui.error != null && ui.entries.isEmpty()) {
+                            "待删除数量暂不可用"
+                        } else if (ui.pendingCount > 0) {
                             "${ui.pendingCount} 项 · ${estimatedDeleteBytes(ui.pendingCount, ui.pendingBytes, ui.pendingUnknownSizes)}"
                         } else {
                             val failures = ui.entries.count { it.status == "failed" }
@@ -124,6 +144,20 @@ fun DeleteQueueScreen(
                 }
             }
 
+            when (val phase = ui.phase) {
+                is DeleteCommitPhase.Checking -> Text(
+                    "正在核对删除结果（${phase.attempt}/4）…", color = MediaTextSecondary,
+                    modifier = Modifier.fillMaxWidth().padding(V2Spacing.Lg),
+                )
+                is DeleteCommitPhase.Unconfirmed -> Column(Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg)) {
+                    Text(phase.message, color = MediaTextSecondary)
+                    Row {
+                        TextButton(onClick = vm::resumeRecovery) { Text("继续核对") }
+                        TextButton(onClick = vm::dismissResult) { Text("已查看，返回列表") }
+                    }
+                }
+                else -> Unit
+            }
             when {
                 ui.loading && ui.entries.isEmpty() -> {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -149,7 +183,8 @@ fun DeleteQueueScreen(
                 }
                 ui.entries.isEmpty() -> {
                     Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("暂无待删除内容", color = MediaTextSecondary)
+                        Text(if (ui.phase is DeleteCommitPhase.Checking || ui.phase is DeleteCommitPhase.Unconfirmed)
+                            "列表为空不代表删除结果已确认" else "暂无待删除内容", color = MediaTextSecondary)
                     }
                 }
                 else -> {
@@ -188,7 +223,8 @@ fun DeleteQueueScreen(
 
             // 底部：最终删除（先在服务端 prepare，拿到快照后才弹确认）
             if (ui.entries.isNotEmpty()) {
-                val busy = ui.phase is DeleteCommitPhase.Preparing || ui.phase is DeleteCommitPhase.Committing
+                val busy = ui.phase is DeleteCommitPhase.Preparing || ui.phase is DeleteCommitPhase.Committing ||
+                    ui.phase is DeleteCommitPhase.Checking || ui.phase is DeleteCommitPhase.Unconfirmed
                 Button(
                     onClick = { vm.requestFinalDelete() },
                     enabled = !busy && ui.pendingCount > 0,

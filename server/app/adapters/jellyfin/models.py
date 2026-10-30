@@ -79,6 +79,7 @@ class JFItem(BaseModel):
     jellyfin_id: str
     name: str = ""
     item_type: str = ""
+    is_folder: bool = False
     path: str | None = None
     size_bytes: int | None = None
     run_time_ticks: int | None = None
@@ -98,6 +99,7 @@ class JFItem(BaseModel):
             jellyfin_id=raw.get("Id", ""),
             name=raw.get("Name", ""),
             item_type=raw.get("Type", ""),
+            is_folder=raw.get("IsFolder") is True,
             path=raw.get("Path"),
             size_bytes=_positive_int(raw.get("Size")),
             run_time_ticks=_optional_int(raw.get("RunTimeTicks")),

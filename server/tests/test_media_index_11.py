@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 
+import httpx
+import pytest
 import sqlalchemy as sa
 
 from app.adapters.jellyfin.models import MediaItem
@@ -297,8 +299,9 @@ class _FailingClient:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    async def media_page(self, *_args, **_kwargs):
+    async def library_media_pages(self, *_args, **_kwargs):
         raise RuntimeError("raw traceback token=must-not-leak")
+        yield  # pragma: no cover - async iterator contract
 
 
 class _PagedClient:
@@ -313,12 +316,12 @@ class _PagedClient:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    async def media_page(self, *_args, **_kwargs):
-        page = self.pages[self.calls]
-        self.calls += 1
-        if self.on_call is not None:
-            self.on_call(self.calls)
-        return page
+    async def library_media_pages(self, *_args, **_kwargs):
+        for page, _total in self.pages:
+            self.calls += 1
+            if self.on_call is not None:
+                self.on_call(self.calls)
+            yield page
 
 
 def _scheduled_refresh(database: Database, library_ids: list[str]) -> str:
@@ -490,10 +493,92 @@ class _SecondLibraryFailsClient:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    async def media_page(self, _user_id, *, parent_id, **_kwargs):
-        if parent_id == "lib-a":
-            return [_item("e" * 24, library_id="lib-a")], 1
+    async def library_media_pages(self, _user_id, *, library_id, **_kwargs):
+        if library_id == "lib-a":
+            yield [_item("e" * 24, library_id="lib-a")]
+            return
         raise RuntimeError("second library failed")
+
+
+@pytest.mark.parametrize("child_fails", [False, True])
+def test_refresh_uses_complete_user_scoped_tree_and_retains_old_cache_on_failure(
+    tmp_path, child_fails, jellyfin_config
+):
+    from app.adapters.jellyfin.client import JellyfinClient
+
+    def handler(request):
+        assert request.url.path.startswith("/Users/user-a/")
+        if request.url.path.endswith("/Views"):
+            return httpx.Response(200, json={"Items": [{"Id": "lib-a", "Name": "库"}]})
+        assert request.url.params["Recursive"] == "false"
+        if request.url.params["ParentId"] == "lib-a":
+            items = [{"Id": "new-a", "Type": "Video"},
+                     {"Id": "child", "Type": "Folder", "IsFolder": True}]
+        elif child_fails:
+            return httpx.Response(500)
+        else:
+            items = [{"Id": "new-b", "Type": "Video"}]
+        return httpx.Response(200, json={"Items": items, "TotalRecordCount": len(items)})
+
+    database = _database(tmp_path)
+    try:
+        old_id = "a" * 24
+        with database.session() as session:
+            session.add(_row(old_id))
+            session.add(models.Favorite(media_id=old_id))
+            session.commit()
+        task_id = _scheduled_refresh(database, ["lib-a"])
+        media_index.refresh_media_index(
+            database, task_id, user_id="user-a",
+            client_factory=lambda: JellyfinClient(
+                jellyfin_config, transport=httpx.MockTransport(handler)),
+        )
+        with database.session() as session:
+            assert session.get(models.BackgroundTask, task_id).status == (
+                "failed" if child_fails else "succeeded")
+            assert session.get(models.MediaCacheIndex, old_id).is_available is child_fails
+            assert session.get(models.Favorite, old_id) is not None
+            assert media_index.available_media_count(session, ["lib-a"]) == 2
+            if not child_fails:
+                assert session.get(models.MediaSyncState, "lib-a").total == 2
+    finally:
+        database.dispose()
+
+
+def test_real_tree_iterator_cancels_after_folder_only_page(tmp_path, jellyfin_config):
+    from app.adapters.jellyfin.client import JellyfinClient
+
+    database = _database(tmp_path)
+    try:
+        old_id = "a" * 24
+        with database.session() as session:
+            session.add(_row(old_id))
+            session.commit()
+        task_id = _scheduled_refresh(database, ["lib-a"])
+        calls = []
+
+        def handler(request):
+            calls.append(request.url.path)
+            if request.url.path.endswith("/Views"):
+                return httpx.Response(200, json={"Items": [{"Id": "lib-a", "Name": "库"}]})
+            assert request.url.params["ParentId"] == "lib-a"  # 取消后不得再抓子目录
+            with database.session() as session:
+                session.get(models.BackgroundTask, task_id).status = "cancelled"
+                session.commit()
+            return httpx.Response(200, json={"Items": [
+                {"Id": "child", "Type": "Folder", "IsFolder": True}], "TotalRecordCount": 1})
+
+        media_index.refresh_media_index(
+            database, task_id, user_id="user-a",
+            client_factory=lambda: JellyfinClient(
+                jellyfin_config, transport=httpx.MockTransport(handler)),
+        )
+        with database.session() as session:
+            assert session.get(models.BackgroundTask, task_id).status == "cancelled"
+            assert session.get(models.MediaCacheIndex, old_id).is_available is True
+        assert len(calls) == 2
+    finally:
+        database.dispose()
 
 
 def test_second_library_failure_does_not_invalidate_first_library(tmp_path: Path) -> None:

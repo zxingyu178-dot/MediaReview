@@ -303,6 +303,9 @@ async def dashboard(
         "name": None,
         "version": None,
         "error": None,
+        # 未配置 Jellyfin 是正常"本地来源模式"，面板显示信息态而不是错误。
+        "mode": "jellyfin",
+        "message": None,
     }
     if jellyfin["configured"]:
         try:
@@ -311,6 +314,9 @@ async def dashboard(
             jellyfin.update(reachable=True, name=info.server_name, version=info.version)
         except Exception:  # noqa: BLE001 面板尽力而为,不因上游不可达失败
             jellyfin["error"] = "Jellyfin 不可达,请检查服务器与 API Key"
+    else:
+        jellyfin["mode"] = "local_only"
+        jellyfin["message"] = "未配置（本地来源模式）"
 
     library_rows = media_index.library_selection_rows(db)
     selected = [row.jellyfin_id for row in library_rows if row.selected]

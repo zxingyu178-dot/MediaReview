@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.adapters.jellyfin.client import JellyfinClient
+from app.adapters.media_source import can_delete
 from app.api.v1.auth import require_auth
 from app.api.v1.jellyfin import jellyfin_client
 from app.core.config import persist_jellyfin_user_id
@@ -40,7 +41,7 @@ class SelectionBody(BaseModel):
 def _dto(row) -> LibraryItem:
     return LibraryItem(
         source_type=row.source_type,
-        can_delete=row.source_type == "jellyfin",
+        can_delete=can_delete(row.source_type),
         jellyfin_id=row.jellyfin_id,
         name=row.name,
         collection_type=row.collection_type,
@@ -82,6 +83,7 @@ async def list_libraries(
     """列出 Jellyfin 媒体库并同步勾选状态(新增库默认勾选、保留已有勾选)。"""
     if not request.app.state.settings.jellyfin.is_configured():
         from sqlalchemy import select
+
         from app.db.models import LocalRoot
         if db.scalar(select(LocalRoot.root_id).limit(1)):
             return ok([_dto(row) for row in media_index.library_selection_rows(db)])

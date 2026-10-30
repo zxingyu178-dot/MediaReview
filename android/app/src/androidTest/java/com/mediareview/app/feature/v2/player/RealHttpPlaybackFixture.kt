@@ -42,6 +42,7 @@ internal class RealHttpPlaybackFixture(
     private val reviewItemCount: Int = 2,
     private val reviewStartIndex: Int = 0,
     private val blockNextReviewPage: Boolean = false,
+    private val failVideo: Boolean = false,
 ) : AutoCloseable {
     @Volatile var reviewActive = true
     @Volatile var reviewQueueFailure = false
@@ -241,6 +242,7 @@ internal class RealHttpPlaybackFixture(
         val range = request.getHeader("Range")
         videos += VideoRequest(id, request.requestUrl.toString(), valid, range != null)
         if (!valid) return MockResponse().setResponseCode(401)
+        if (failVideo) return MockResponse().setResponseCode(404)
         if (blockFirstVideo && id == "first") {
             firstVideoRequested.countDown()
             if (!firstVideoRelease.await(20, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)

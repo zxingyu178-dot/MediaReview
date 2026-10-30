@@ -32,48 +32,46 @@ import com.mediareview.app.ui.theme.MediaTextPrimary
  */
 @Composable
 fun ImageViewerBottomBar(
+    currentIndex: Int,
+    total: Int,
     isFavorite: Boolean,
     isPendingDelete: Boolean,
     onToggleFavorite: () -> Unit,
     onInfo: () -> Unit,
     onTogglePendingDelete: () -> Unit,
     modifier: Modifier = Modifier,
-    pendingDeleteEnabled: Boolean = true,
+    pendingDeleteEnabled: Boolean = false,
     pendingDeleteLabel: String? = null,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MediaControlScrim)
             .navigationBarsPadding()
-            .padding(horizontal = 32.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(top = 8.dp, bottom = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        BottomAction(
-            icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-            label = if (isFavorite) "已收藏" else "收藏",
-            tint = if (isFavorite) V2Colors.Favorite else MediaTextPrimary,
-            tag = "viewer_favorite",
-            modifier = Modifier.weight(1f),
-            onClick = onToggleFavorite,
-        )
-        BottomAction(
-            icon = Icons.Default.Info,
-            label = "信息",
-            tint = MediaTextPrimary,
-            tag = "viewer_info",
-            modifier = Modifier.weight(1f),
-            onClick = onInfo,
-        )
-        BottomAction(
-            icon = Icons.Default.DeleteOutline,
-            label = pendingDeleteLabel ?: if (isPendingDelete) "撤销待删除" else "待删除",
-            tint = if (isPendingDelete) V2Colors.Accent else MediaTextPrimary,
-            tag = "viewer_delete",
-            modifier = Modifier.weight(1f),
-            onClick = onTogglePendingDelete,
-            enabled = pendingDeleteEnabled,
-        )
+        Text("${currentIndex + 1} / $total", color = MediaTextPrimary,
+            style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("viewer_count"))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            BottomAction(
+                icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                label = if (isFavorite) "已收藏" else "收藏",
+                tint = if (isFavorite) V2Colors.Favorite else MediaTextPrimary,
+                tag = "viewer_favorite", modifier = Modifier.weight(1f), onClick = onToggleFavorite,
+            )
+            BottomAction(
+                icon = Icons.Default.Info, label = "信息", tint = MediaTextPrimary,
+                tag = "viewer_info", modifier = Modifier.weight(1f), onClick = onInfo,
+            )
+            BottomAction(
+                icon = Icons.Default.DeleteOutline,
+                label = pendingDeleteLabel ?: if (isPendingDelete) "撤销待删除" else "待删除",
+                tint = if (isPendingDelete) V2Colors.Accent else MediaTextPrimary,
+                tag = "viewer_delete", modifier = Modifier.weight(1f), onClick = onTogglePendingDelete,
+                enabled = pendingDeleteEnabled,
+            )
+        }
     }
 }
 

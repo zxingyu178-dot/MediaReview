@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 
 from sqlalchemy import (
@@ -57,7 +58,9 @@ class LibrarySelection(Base):
     __tablename__ = "library_selection"
 
     jellyfin_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    source_type: Mapped[str] = mapped_column(String(16), default="jellyfin", server_default="jellyfin")
+    source_type: Mapped[str] = mapped_column(
+        String(16), default="jellyfin", server_default="jellyfin"
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     collection_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     selected: Mapped[bool] = mapped_column(default=True)
@@ -94,7 +97,9 @@ class MediaCacheIndex(Base):
     __tablename__ = "media_cache_index"
 
     media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
-    source_type: Mapped[str] = mapped_column(String(16), default="jellyfin", server_default="jellyfin")
+    source_type: Mapped[str] = mapped_column(
+        String(16), default="jellyfin", server_default="jellyfin"
+    )
     jellyfin_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     library_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -423,15 +428,20 @@ class DeleteQueue(Base):
     """待删除队列:加入保留,commit 后执行真实删除并移出索引。
 
     - pending:  已在待删除列表中,可撤销
-    - committed: 已确认删除(幂等,防重复删除)
+    - committing: nonce 已消费且删除意图已持久化，等待逐项收敛
+    - delete_done: 物理删除已确认，元数据待清理
+    - delete_pending: 旧版本兼容读取；新版本不再创建
     - succeeded / failed: commit 执行结果
     """
 
     __tablename__ = "delete_queue"
 
     media_id: Mapped[str] = mapped_column(String(24), primary_key=True)
+    queue_token: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=lambda: secrets.token_hex(16)
+    )
     size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # pending | committed | succeeded | failed
+    # pending | committing | delete_done | delete_pending | succeeded | failed
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_at: Mapped[datetime] = mapped_column(default=utc_now)
@@ -455,8 +465,8 @@ class DeleteCommitNonce(Base):
 
     - commit 必须携带 prepare 返回的 nonce,且只能使用一次;
     - 过期(默认 10 分钟)或已使用均拒绝,防 TOCTOU 与重复删除;
-    - media_ids_json 记录 prepare 时刻的待删媒体快照,commit 只删除快照内媒体,
-      防止 nonce 生成后新入队的媒体被"顺手"删除。
+    - media_ids_json 记录 prepare 时刻的 ``(media_id, queue_token)`` 快照，commit
+      只删除同一入队代次，防止后入队或撤销后重入队的媒体被旧 nonce 删除。
     """
 
     __tablename__ = "delete_commit_nonce"
@@ -467,6 +477,9 @@ class DeleteCommitNonce(Base):
     media_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
     total_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    owner_device_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    receipt_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class DuplicateGroup(Base):

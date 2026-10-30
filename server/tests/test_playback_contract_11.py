@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -70,6 +71,36 @@ class _KeyStore:
                 return httpx.Response(204)
             return httpx.Response(404)
         return httpx.Response(404, json={"error": "unexpected " + path})
+
+
+def test_playback_reads_source_and_resume_concurrently_after_credentials(tmp_path: Path):
+    store = _KeyStore()
+    original_handler = store.handler
+    started = set()
+    both_started = asyncio.Event()
+
+    async def handler(request):
+        path = request.url.path
+        if path.endswith("/PlaybackInfo") or "/Users/" in path and "/Items/" in path:
+            assert store.create_calls == 1, "metadata must follow credential provisioning"
+            started.add("source" if path.endswith("/PlaybackInfo") else "resume")
+            if len(started) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), 0.5)
+            if path.endswith("/PlaybackInfo"):
+                return httpx.Response(200, json={"MediaSources": [{"Id": "video-1"}]})
+            return httpx.Response(200, json={"UserData": {"PlaybackPositionTicks": 900_000_000}})
+        return original_handler(request)
+
+    store.handler = handler
+    with _make_app(tmp_path, store, CLIENT_BASE) as client:
+        _seed_video(client)
+        response = client.get("/api/v1/media/pb-1/playback")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["fallback_hls"] is not None
+    assert data["resume_position_ms"] == 90_000
+    assert data["direct"]["headers"] == {"X-Emby-Token": DEVICE_KEY}
 
 
 def _settings(tmp_path: Path, client_url: str | None = None) -> AppConfig:

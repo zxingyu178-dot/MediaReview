@@ -2,45 +2,6 @@
 
 > **当前状态以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为准。** 本文件是任务与阶段流水；下方 Stage8H/8I/8J/9 等段落均为历史记录，不代表当前进度。
 
-## 2026-10-29 V2A.1：边界缺陷补漏（`feature/nsfw-image-review-v2`）
-
-- [x] feed 事件顺序：REMOVE 参与 revision 校验并保留 tombstone；旧 REMOVE 不删新图、旧 UPSERT 不复活已移除图；非法 revision/未知 event 拒绝；超过 Long 的十进制可靠比较。
-- [x] 统一分页游标：`fetchPageWithRecovery` 供 sync/loadMore 共用；410 仅重置一次；`CURSOR_MISSING`/`CURSOR_STALLED` 明确停止；终态缺 next_cursor 清空游标并提示；空队列不触发越界；恢复成功清除过期提示；首次历史不计新到。
-- [x] 评分待确认：pending 记录按 server_origin + prompt + version + request_id 保存；互不覆盖；上限 5 条；换 ID 不清旧记录；SavedStateHandle 仅覆盖系统重建，DataStore 方案已写入契约。
-- [x] 健康检查与生命周期：兼容性三态（Compatible/Incompatible/Unknown）；Unknown 保留 token 但不启动 feed/轮询；connection epoch 防止旧请求在断开后恢复 READY；CancellationException 不被当作网络错误。
-- [x] 审核结果与关联：旧 revision 审核结果不显示成功，改为刷新权威状态；详情 image_id 不一致拒绝；EXACT/UNRESOLVED/未知状态严格失败关闭；修正 store 过时注释。
-- [x] 针对性测试：NSFW 6 suites / 106 tests / 0 failures；全量 JVM 81 suites / 604 tests / 0 failures；lint 0 errors / 37 warnings；Debug/AndroidTest 构建通过。
-- [x] 两项导航仪器测试复跑：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` → OK (2 tests) / 9.587s。
-- [ ] 真实 Bridge v2 与真实手机联调仍 BLOCKED；等待 ChatGPT 阶段 A 验收放行后再进入 V2B。
-
-## 2026-10-29 阶段 A：MediaReview 客户端加固（`feature/nsfw-image-review-v2`）
-
-- [x] C-01 收藏独立于审核：decision 允许 `action=null` 的 favorite-only；NEW/KEEP/REJECT 状态不被收藏改写；客户端拒绝 action 与 favorite 同时缺失。
-- [x] C-02 revision 单调：feed/store 只接受较新 revision；同版本幂等、旧回包忽略；审核结果与旧 feed 页有测试覆盖。
-- [x] C-04 前台增量轮询：生图审核页 START/STOP 生命周期控制，15 秒有界轮询，离开页面立即停止；手动刷新保留。
-- [x] C-05 游标异常：410 只重置一次，再次 410 明确报错；`has_more` 但游标不推进即停止；每次刷新 hasMore/nextCursor；>250 张跨页追平测试。
-- [x] C-06 恢复配对重验：App 启动执行 health capability gate；旧 Bridge 保留 token 但标记不可用并阻止进入审核页。
-- [x] C-07 评分幂等：发送后冻结载荷与 requestId；改分必须"新建评分请求"；pending 持久化到 SavedStateHandle，重启只提示不自动重发。
-- [x] C-08 异步防污染：detail / prompt panel 使用 request generation + image/prompt 结果守卫；快速切图与关面板旧回包被丢弃。
-- [x] C-09 移除语义：feed 增加 `REMOVE` tombstone，只移除队列不删文件；当前图被移除时按原索引选择下一条。
-- [x] C-10 图片 URL：仅同源 `/mobile/images/` 相对路径；拒绝外部 Origin、协议相对、路径穿越、query/fragment。
-- [x] C-11 错误码：404 按路由映射 IMAGE/PROMPT_NOT_FOUND；409/410 按路由区分；Bridge 旧 `UNAUTHORIZED`/`DEVICE_REVOKED` 规范化。
-- [x] 契约冻结：`docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md` 更新 remove/favorite-only/错误码/幂等语义 + 差异对照表；新增 OpenAPI 提案与 fixtures。
-- [x] 针对性测试：NSFW JVM 6 suites / 88 tests / 0 failures；全量 JVM 81 suites / 586 tests / 0 failures；`assembleDebug`、`assembleDebugAndroidTest` 通过；lint 0 errors / 37 warnings。
-- [x] Gate A 仪器导航测试：五入口布局 + Tab 状态恢复在 `MediaReview_Test` AVD 复跑通过（`OK (2 tests)` / 25.865s）。
-- [ ] 阶段 B：NSFW Bridge v2 受限服务端开发（真实联调仍 BLOCKED，等待阶段 A 验收放行）。
-
-## 2026-10-29 NSFW 生图审核 V2 客户端（分支 `feature/nsfw-image-review-v2`）
-
-- [x] M0 契约冻结：需求单原文归档到 `docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`；冻结 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`（端点 / DTO / 能力标记 / 错误码 / 游标语义）与 `fixtures/`。
-- [x] 能力门禁：真实 Bridge 当前 `api_contract=1` 且缺 `mobile_feed_v2` 等 5 项能力 → 客户端在配对前阻断。真实端到端联调 **BLOCKED（等待 NSFW 实现 v2）**，不是客户端缺陷。
-- [x] M1 独立配对与网络层：`NsfwProfileStore`（DataStore `nsfw_studio_profile` + 独立 Keystore alias）、`NsfwTokenProvider`、`NsfwAuthInterceptor`、`NsfwStudioApi` / `NsfwApiFactory`；401 只清 NSFW 凭据。
-- [x] M2 独立一级页面：底部导航 5 项（首页 / 批阅 / 生图审核 / 收藏 / 整理）；未加入 `V2DataMode`；独立 `NsfwReviewViewModel` / `NsfwRepository` / DTO，不复用视频批阅 ViewModel。
-- [x] M3 feed / 详情 / 审核 / 评分：稳定游标与去重、原位更新、队尾追加、断线追平、`CURSOR_EXPIRED` 恢复、409 不自动重提、版本未知必须显式整体评分、`client_request_id` 幂等与回执查询。
-- [x] M4 测试与构建：JVM 80 suites / 554 tests（NSFW 新增 56）；`assembleDebug` 通过；`compileDebugAndroidTestKotlin` 通过；lint 0 errors / 37 warnings。
-- [x] 五入口仪器测试：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` 在 `MediaReview_Test` AVD 通过（`OK (2 tests)`）。
-- [ ] 真实 Bridge v2 接口实现（NSFW 维护者）→ 之后才能做真实手机联调与「正式可用」验收。
-
 ## 2026-10-24 进度统一与产品方向评估
 - [x] 建立 `docs/PROJECT_STATUS.md` 为唯一活状态源；修订 README/TAKEOVER_READ_FIRST/HANDOVER/REVIEW_SUMMARY/ACCEPTANCE/PRODUCTION_READINESS/deployment README 等 S 级口径漂移。
 - [x] 完成"跳过 Jellyfin、纯本地源"可行性评估（`review_meta/ops-20261024/jellyfin-skip-assessment.md`；结论：可行，最大缺口是本地永久删除，其次是无转码兜底）。
@@ -48,6 +9,16 @@
 - [ ] 待授权：更新 AIHome `registry/projects/mediareview.json` 与 `registry/services/aihome-mediareview.json` 的 notes（按 AIHome 规则，修改 Registry 需明确授权）。
 - [x] 已完成（2026-10-24）：GitHub 恢复后推送 `747e704` 与本次文档提交，`git status -sb` 确认与 origin 同步。
 - [ ] 待用户管理员操作：结束占用 8766 的交互式实例，恢复官方 `AIHome.MediaReview` 服务并三次核验 health。
+
+### 2026-10-24 本地源为主 + 本地安全删除（P0/P1，源码完成、未发版）
+- [x] 用户批准推荐方案：本地源为唯一必需来源、Jellyfin 代码保留可配；先做安全删除、转码留待 A/B 实测。
+- [x] 修订项目 `AGENTS.md` Stage9 约定：本地删除改为"两阶段安全删除"（nonce/路径链/身份复验/审计），保留禁止点击即删。
+- [x] 创建开发分支 `feature/mediareview-local-only`（基线 `37e93e2`），Server 与 Android 并行开发。
+- [x] P0：去 Jellyfin 依赖收口（Server 扩展名白名单/MIME/引导诊断/运维面板/admin 文案；Android 文案与能力提示）。
+- [x] P1：本地安全永久删除（`native_delete_v1`、入队/提交本地分支、Android 只信任 `can_delete`、安全测试）。
+- [x] Lead 验证：Server 全量 pytest **709 通过 / 2 失败 / 711 项**（2 项为本机 ffmpeg 环境限制，换 basetemp 单独复跑通过）；Android 全量 JVM **507 tests / 0 失败**；ruff 改动文件通过。
+- [ ] P5（未开始）：Server 1.6.0 / Android alpha16-code23 打包、签名、SHA、发布与回滚说明；同步 `scripts/build_deploy.py` 版本常量与 `REQUIRED_CAPABILITIES`。
+- [ ] 真机验证（需手机/服务恢复）：本地源删除只允许用户授权的一次性隔离样本，禁止真实媒体批量删除。
 
 ## Stage8H：播放器与首页重构（历史）
 
@@ -700,6 +671,70 @@ Jellyfin启动者已由用户确认为用户本人，历史退出码1根因仍UN
 - [x] 受影响定向回归与全量 Server pytest 复跑（真实结果见 docs/DEV_LOG.md 与 review_meta/ops-20261023）。
 - [ ] 图片负缓存、客户端失败占位、慢请求分段打点与结构性优化：待单独评审后实施。
 - [ ] 生产服务恢复（交互式 PID 3916 占用 8766）与 Alpha15 真机验收：待用户管理员操作/连接手机。
+
+## 2026-10-25 Codex 安全复审与阻断修复
+- [x] Codex（gpt-5.6-sol）独立复审本地两阶段删除：C1/I4/M1，建议阻断发布；报告 `review_meta/codex-review-20261025/local-delete-review.md`。
+- [x] 修复 C1：Windows 句柄绑定删除（CreateFileW 二次打开 + 卷序列/File Index 绑定 + 最终路径复核 + FileDispositionInfo；失败不回退路径删除）+ 同尺寸换叶/父目录 junction 确定性竞态测试（本机实际执行，非 skip）。
+- [x] 修复 I1：`DeleteQueue` 队列代次 `queue_token` + 迁移 0017（保留 status 索引）+ nonce 绑定队列代次；撤销后同 ID 重新入队不会被旧 nonce 删除；旧格式快照 fail-closed。
+- [x] 修复 I2：删除持久状态机（先提交 nonce claim + committing，再删文件，再逐项独立事务收敛；启动恢复 committing 项；逐项异常隔离）；Lead 另发现并修复本地源恢复误判（相对路径）。
+- [x] 修复 I3：Android `can_delete` 可空/默认 false，仅显式 true 放行；缺字段、缓存 miss、显式 false 均 0 次入队 POST + 测试。
+- [x] 修复 M1：快照缺失/非 pending/代次替换写稳定审计码（不含路径）。
+- [x] Lead 全量回归：Server 721/723（2 项本机 ffmpeg 环境限制，换 basetemp 单独 2 通过）；Android 511/511；ruff 改动文件通过。
+- [ ] **二次独立复审（Codex）**：等待额度复位（2026-10-25 05:44）后执行；通过后 commit/push。
+- [ ] 通过后评估 P5 发版（Server 1.6.0 / Android alpha16-code23）。
+
+## 2026-10-29 删除恢复与生图入口（待发布）
+已完成Server1.6.4/0018与Alpha22/code29源码：持久批次回执、设备归属、执行/恢复互斥、有界客户端核对、页面状态打磨及生图独立入口/合同准备。69项相关JVM通过；Server定向回归及环境失败复测详情见docs/EXPERIENCE_GENERATED_RESULT_20261029.md。未构建交付包、未部署、未连接手机；NSFW未改，上游HTTP未接通。
+
+## 2026-10-29 产物收口
+Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alpha21一致，演示资源检查0项。Server1.6.4增量EXE构建及隔离health通过，Contract2/15项能力含delete_result_v1；发布包184项SHA256完整性校验通过。CURRENT_RELEASE已指向新配套并标记未部署，旧包保留。
+
+- APK：deploy_handoff/MediaReview_2.0.0-alpha22_stage9.apk；SHA256 810816787356725e256949abcd23261b62f5f143c8e6096f989cd23f95f38e36。
+- Server：deploy_handoff/MediaReview_Server_1.6.4_stage9.zip；111,898,934字节；SHA256 0ee9d634e9c97d9decaa7f7bbfc10978bbddca53c71cba0bf24245c1bc4321bb。
+- 业务源码aa441a1，构建/审查基线17cd886，均已push。本节为产物后续记录，不重建相同包。完整证据在review_meta/experience-20261028和标准构建receipt。
+- 未部署、未邮件发送、未连接手机或模拟器；生图HTTP和评分写回仍待上游合同。UI仅静态检查；这些边界不属于已验证结果。
+
+## 生图分支合入记录（历史增补）
+
+
+## 2026-10-29 V2A.1：边界缺陷补漏（`feature/nsfw-image-review-v2`）
+
+- [x] feed 事件顺序：REMOVE 参与 revision 校验并保留 tombstone；旧 REMOVE 不删新图、旧 UPSERT 不复活已移除图；非法 revision/未知 event 拒绝；超过 Long 的十进制可靠比较。
+- [x] 统一分页游标：`fetchPageWithRecovery` 供 sync/loadMore 共用；410 仅重置一次；`CURSOR_MISSING`/`CURSOR_STALLED` 明确停止；终态缺 next_cursor 清空游标并提示；空队列不触发越界；恢复成功清除过期提示；首次历史不计新到。
+- [x] 评分待确认：pending 记录按 server_origin + prompt + version + request_id 保存；互不覆盖；上限 5 条；换 ID 不清旧记录；SavedStateHandle 仅覆盖系统重建，DataStore 方案已写入契约。
+- [x] 健康检查与生命周期：兼容性三态（Compatible/Incompatible/Unknown）；Unknown 保留 token 但不启动 feed/轮询；connection epoch 防止旧请求在断开后恢复 READY；CancellationException 不被当作网络错误。
+- [x] 审核结果与关联：旧 revision 审核结果不显示成功，改为刷新权威状态；详情 image_id 不一致拒绝；EXACT/UNRESOLVED/未知状态严格失败关闭；修正 store 过时注释。
+- [x] 针对性测试：NSFW 6 suites / 106 tests / 0 failures；全量 JVM 81 suites / 604 tests / 0 failures；lint 0 errors / 37 warnings；Debug/AndroidTest 构建通过。
+- [x] 两项导航仪器测试复跑：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` → OK (2 tests) / 9.587s。
+- [ ] 真实 Bridge v2 与真实手机联调仍 BLOCKED；等待 ChatGPT 阶段 A 验收放行后再进入 V2B。
+
+## 2026-10-29 阶段 A：MediaReview 客户端加固（`feature/nsfw-image-review-v2`）
+
+- [x] C-01 收藏独立于审核：decision 允许 `action=null` 的 favorite-only；NEW/KEEP/REJECT 状态不被收藏改写；客户端拒绝 action 与 favorite 同时缺失。
+- [x] C-02 revision 单调：feed/store 只接受较新 revision；同版本幂等、旧回包忽略；审核结果与旧 feed 页有测试覆盖。
+- [x] C-04 前台增量轮询：生图审核页 START/STOP 生命周期控制，15 秒有界轮询，离开页面立即停止；手动刷新保留。
+- [x] C-05 游标异常：410 只重置一次，再次 410 明确报错；`has_more` 但游标不推进即停止；每次刷新 hasMore/nextCursor；>250 张跨页追平测试。
+- [x] C-06 恢复配对重验：App 启动执行 health capability gate；旧 Bridge 保留 token 但标记不可用并阻止进入审核页。
+- [x] C-07 评分幂等：发送后冻结载荷与 requestId；改分必须"新建评分请求"；pending 持久化到 SavedStateHandle，重启只提示不自动重发。
+- [x] C-08 异步防污染：detail / prompt panel 使用 request generation + image/prompt 结果守卫；快速切图与关面板旧回包被丢弃。
+- [x] C-09 移除语义：feed 增加 `REMOVE` tombstone，只移除队列不删文件；当前图被移除时按原索引选择下一条。
+- [x] C-10 图片 URL：仅同源 `/mobile/images/` 相对路径；拒绝外部 Origin、协议相对、路径穿越、query/fragment。
+- [x] C-11 错误码：404 按路由映射 IMAGE/PROMPT_NOT_FOUND；409/410 按路由区分；Bridge 旧 `UNAUTHORIZED`/`DEVICE_REVOKED` 规范化。
+- [x] 契约冻结：`docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md` 更新 remove/favorite-only/错误码/幂等语义 + 差异对照表；新增 OpenAPI 提案与 fixtures。
+- [x] 针对性测试：NSFW JVM 6 suites / 88 tests / 0 failures；全量 JVM 81 suites / 586 tests / 0 failures；`assembleDebug`、`assembleDebugAndroidTest` 通过；lint 0 errors / 37 warnings。
+- [x] Gate A 仪器导航测试：五入口布局 + Tab 状态恢复在 `MediaReview_Test` AVD 复跑通过（`OK (2 tests)` / 25.865s）。
+- [ ] 阶段 B：NSFW Bridge v2 受限服务端开发（真实联调仍 BLOCKED，等待阶段 A 验收放行）。
+
+## 2026-10-29 NSFW 生图审核 V2 客户端（分支 `feature/nsfw-image-review-v2`）
+
+- [x] M0 契约冻结：需求单原文归档到 `docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`；冻结 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`（端点 / DTO / 能力标记 / 错误码 / 游标语义）与 `fixtures/`。
+- [x] 能力门禁：真实 Bridge 当前 `api_contract=1` 且缺 `mobile_feed_v2` 等 5 项能力 → 客户端在配对前阻断。真实端到端联调 **BLOCKED（等待 NSFW 实现 v2）**，不是客户端缺陷。
+- [x] M1 独立配对与网络层：`NsfwProfileStore`（DataStore `nsfw_studio_profile` + 独立 Keystore alias）、`NsfwTokenProvider`、`NsfwAuthInterceptor`、`NsfwStudioApi` / `NsfwApiFactory`；401 只清 NSFW 凭据。
+- [x] M2 独立一级页面：底部导航 5 项（首页 / 批阅 / 生图审核 / 收藏 / 整理）；未加入 `V2DataMode`；独立 `NsfwReviewViewModel` / `NsfwRepository` / DTO，不复用视频批阅 ViewModel。
+- [x] M3 feed / 详情 / 审核 / 评分：稳定游标与去重、原位更新、队尾追加、断线追平、`CURSOR_EXPIRED` 恢复、409 不自动重提、版本未知必须显式整体评分、`client_request_id` 幂等与回执查询。
+- [x] M4 测试与构建：JVM 80 suites / 554 tests（NSFW 新增 56）；`assembleDebug` 通过；`compileDebugAndroidTestKotlin` 通过；lint 0 errors / 37 warnings。
+- [x] 五入口仪器测试：`NsfwBottomNavFiveTabsTest` + `NsfwBottomNavStateTest` 在 `MediaReview_Test` AVD 通过（`OK (2 tests)`）。
+- [ ] 真实 Bridge v2 接口实现（NSFW 维护者）→ 之后才能做真实手机联调与「正式可用」验收。
 
 ## 2026-10-29 V2A.2 客户端最终补漏
 - [x] 同 revision REMOVE 幂等忽略，仅严格更新 revision 可删除；补齐乱序/重复/前导零回归。

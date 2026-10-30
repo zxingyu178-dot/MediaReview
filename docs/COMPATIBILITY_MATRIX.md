@@ -12,9 +12,16 @@
 | alpha5（code 12） | **2** | 1.2.0（`api_contract = 2`） | Compatible |
 | alpha5（code 12） | **2** | 未来 1.x（`api_contract ≥ 2`） | Compatible（向前兼容） |
 | alpha6（code 13） | **2** | 1.2.0 / 1.2.1（`api_contract = 2`） | Compatible |
+| alpha15（code 22） | **2** | 1.5.2（Contract 2，13 能力） | Compatible；不显示本地删除能力 |
+| alpha16（code 23） | **2** | 1.5.2（Contract 2，缺 `native_delete_v1`） | 基础功能 Compatible；本地删除 fail-closed 提示升级 Server |
+| alpha16（code 23） | **2** | 1.6.0（Contract 2，14 能力） | Compatible；仅显式 `can_delete=true` 的来源可删 |
+| alpha17（code 24） | **2** | 1.5.2（Contract 2，缺 `native_delete_v1`） | 基础功能 Compatible；本地删除 fail-closed 提示升级 Server |
+| alpha17（code 24） | **2** | 1.6.0（Contract 2，14 能力） | Compatible；UI 重构不改变协议，仅显式 `can_delete=true` 的来源可删 |
 
 > Stage 8D.2：`1.2.0` 与 `1.2.1` **都属于 Contract 2**（1.2.1 只修 Bug，不升 Contract），
 > 因此 alpha5 / alpha6 对两者都判定 Compatible。
+
+> P5/Alpha17：1.5.2 与 1.6.0 仍同属 Contract 2。Alpha16/Alpha17 都不通过版本字符串放开删除；缺 `native_delete_v1` 或缺少/否定 `can_delete` 时均 fail-closed。
 
 ## 2. 行为矩阵
 
@@ -33,5 +40,7 @@
 ```text
 Server 1.1 → 1.2    : App(alpha5) 由 Incompatible 变为 Compatible，Token 继续可用，无需重新配对
 Server 1.2 → 1.2.x  : api_contract 不变，App 无感知
-Server 1.2 → 2.0    : 若递增 api_contract，需同步提升 App REQUIRED_SERVER_API_CONTRACT
+Server 1.2 → 1.5.2  : api_contract 保持 2，旧 App 保持基础兼容
+Server 1.5.2 → 1.6.0: api_contract 保持 2；Alpha16/Alpha17 通过 capabilities + can_delete 渐进开启本地删除
+Server 1.x → 2.0    : 若递增 api_contract，需同步提升 App REQUIRED_SERVER_API_CONTRACT
 ```

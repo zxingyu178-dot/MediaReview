@@ -1,5 +1,41 @@
 # 开发日志
 
+### 2026-10-28 — 用户授权真机永久删除核验
+
+Alpha21/Server1.6.3对原69条待删除记录执行三批手机二次确认：实际磁盘删除45文件、5,142,507,504字节；24条原路径已不存在，不计新删除大小。逐项核对原路径/索引均消失，队列空，success45/missing24审计ID与原清单一致；三个nonce重放409且不增加审计。38历史失败通过正常API恢复重入队后确认，无手工改库或绕过保护。手机第二批15文件545.5MB、第三批0文件0B/原不存在23，最终空列表。发现首批约20秒超过Android15秒readTimeout，手机结果未确认/刷新失败，磁盘审计已核实；待专项修复，不声称本轮修好。临时测试配对撤销且401验证、工具退出、forward空，服务仍受管Running；未改业务/未构建或重跑全量。详见DELETE_PHONE_RESULT_20261028.md。
+
+### 2026-10-28 — Alpha21正式包与真机收口
+
+源码8d18d80已push；最后补恢复测试4项通过并构建成功，同证书APK20,649,784字节、演示资源0，CURRENT_RELEASE更新，手机install -r及dumpsys确认Alpha21/code28。实机确认视频/相册入口、服务器在线、无演示模式、批阅播放、暂停拖动70%八次不回跳、左右seek不换片及恢复播放、上下页码61/62切换、文件夹勾选和开始按钮可见。范围选择取消，未改变原会话；第62项短采样未计作出帧通过，不声称全库或长期网络稳定。服务经授权恢复1.6.3/windows_service、Running；无程序升级、无NSFW修改或真实删除。清理旧测试产物72,855,807字节；模拟器、uiautomator及本项目Gradle守护进程停止，手机留视频页。详见FIVE_ISSUES_RESULT_20261028.md。
+
+### 2026-10-28 — 五项手机反馈修复与清理（进行中）
+
+主页VIDEO查询及标签、批阅水平seek/提交位置锁存、范围Checkbox与完整展开、删除上下项按钮；新增有界恢复、前台/网络唤醒及探测串行和旧配置防护。58项相关JVM和另16版本测试通过，4项隔离设备用例56.564秒通过；用户要求后停止模拟器，不再运行。明确授权核身份关闭残留interactive实例，经ControlHub恢复1.6.3/windows_service。正式素材移debug、Release关闭DEMO；清理旧pytest与debug/test APK共72,855,807字节，保留源码/证据/当前发布和真实数据。补唤醒验证及手机最终验收待完成，详见FIVE_ISSUES_RESULT_20261028.md。
+
+### 2026-10-28 — 手机Alpha20基线升级及NSFW新版本接口复核
+
+手机9f设备原Alpha19/code26，通过CURRENT_RELEASE哈希校验后install -r成功、dumpsys为Alpha20/code27，保留数据。真实目录卡片与排序入口、六个排序选项可见，大小倒序摘要更新；图片筛选selected查询未确认，未作为通过。仅导航/查看，无删除或审核写入。uiautomator app_current返回旧前台包名与系统topResumedActivity矛盾，采用系统Activity和本App控件确认。测试会话退出、forward为空，证据review_meta/nsfw-20261028/alpha20-phone.json。
+
+NSFW双目录已更新882629f/v0.36.2，未新增mobile/integration变更；现有审核桥仍无增量feed、提示词详情及评分路由。未修改NSFW或其服务，不假设提案端点存在。生图队列基础此前4项通过；完整新功能仍待上游合同，无新APK发布，未重跑业务测试。
+
+### 2026-10-28 — 独立生图页面需求、动态队列基础及评分接口交接
+
+用户将方案改为与批阅同级的独立界面，新图追加队尾，逐图看生成快照/时间/尺寸；随后要求给上游接口需求并设计手机提示词评分。只读核对NSFW现有1–5总分/7维度/追加历史/版本字段，生成NSFW_MOBILE_API_REQUEST_V2.md：复用8767，增量发现、详情、动态审核和版本图组评分，兼容明确选择的无版本整体评分。NSFW代码/配置/数据/服务未修改。
+
+MediaReview新增GeneratedImage与纯队列基础，按稳定ID原位更新/队尾追加，空轮询不删数据、保留当前图片；不假设上游新路由存在。测试先因缺类型编译失败（非运行时bug复现），补实现后`:app:testDebugUnitTest --tests '*GeneratedImageQueueTest'`通过4项/0失败，构建2分12秒；使用既有Gradle8.9/JDK17、项目缓存及in-process Kotlin，证据review_meta/nsfw-20261028/{red,green}.log。未全量回归、未构建APK、未发布、未接通页面。现有发布仍Alpha20/Server1.6.3；完整需求未完成，待新增合同后继续界面/API联通。
+
+### 2026-10-28 — NSFW生成图片手机审核规划
+
+核对当前Alpha20/code27与NSFW双目录6ad633a，读取冻结合同、Android指南及实际审核/图片路由；旧兼容审计基于Alpha9，不能直接作为现行基线。方案新增独立图片审核入口和配对，直连既有8767桥，分接入、闭环、模拟器联调三个检查点；记录favorite/RESET已审语义、共享latest会话及304待验证等边界。仅文档检查，未跑业务测试、未修改NSFW、未启动/写入生产。详见superpowers/specs/2026-10-28-nsfw-review-integration-plan.md。
+
+### 2026-10-28 — Alpha20独立APK收口
+
+源码d0ba539已push。Release构建成功（5分钟），实际APK27/2.0.0-alpha20，43,655,758字节，签名有效且同Alpha19；哈希和路径见FOLDER_BROWSE_RESULT_20261028.md。CURRENT_RELEASE与安装/回滚说明切至独立Alpha20；Server包未重建且内附Alpha18，不能从旧包回装手机。生产EXE哈希不变、health1.6.3/windows_service。39项相关JVM、4项隔离模拟器结果复用，未重复跑全量；手机未连接，未安装/未发邮件。辅助会话已退出、本轮模拟器已关闭、ADB forward为空。
+
+### 2026-10-28 — 文件夹分类与排序 / Alpha20候选
+
+用户确认文件管理器式分类，默认直接媒体、保留散落图片视频、递归可选。目录新增独立类型/排序，修复单库根及媒体排序上下文，澄清计数与空状态。既有分页用例有效RED（7项中2失败）后修复；39项相关JVM、4项隔离模拟器设备用例通过，演示布局/排序入口人工复核。生产Server1.6.3不变；手机未连接，签名交付进行中。详见FOLDER_BROWSE_RESULT_20261028.md。
+
 > Agent 每完成一个阶段必须追加记录,不允许覆盖历史。
 
 ### 2026-09-06 — 1.1.0-rc2 APK 邮件交付（G9 完成）
@@ -2906,6 +2942,310 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 验证：本轮仅文档与只读审计，未改源码、未跑构建、未改生产/媒体/密钥；GitHub 仍不可达，`747e704` 及本次文档提交均未推送。文档改动需在 commit 前经 `git diff` 复核。
 推送补充（2026-10-24）：GitHub 网络恢复，已成功推送 `2dd9ff2..5786f8f`（含 10-23 的 `747e704` 图片 404 修复与本次统一文档提交）；`git status -sb` 显示与 origin 同步。此前记录的"GitHub 不可达、本地 ahead 1"已解除。
 
+## 2026-10-24 本地源为主 P0/P1：本地两阶段安全删除（Server + Android，未发版）
+
+决策与分支：用户批准"本地源为唯一必需来源、Jellyfin 代码保留可配"，先做安全删除、转码留待真机 A/B。开发分支 `feature/mediareview-local-only`（基线 `37e93e2`），Server 与 Android 并行开发，Lead 复核后提交。
+
+Server（14 个文件）：
+- 能力：新增 `native_delete_v1`（能力 13→14），`native_read_only_v1` 保留为历史兼容名；`SOURCES["local"].can_delete=True`。
+- 删除安全：`native_sources` 新增根/路径/句柄复验（`resolve_deletable_local`：LocalRoot 存在且 enabled、`safe_path` 整链拒绝 UNC/`..`/绝对/链接/junction/reparse/越界、叶必须普通文件、`open_media` 复用指纹与最终路径复验）与稳定失败码映射；`delete_queue` 按 source_type 分派，本地走"解析复验→`_lstat_deletion_path` 整链→归属/尺寸/mtime→`os.remove`→确认不存在"，单条失败不中断，失败码（`local_root_disabled`/`local_root_missing`/`path_rejected`/`file_identity_changed`/`file_in_use`/`delete_not_verified`）写入队列与审计且不含绝对路径。两阶段 nonce 合同、success/missing 回执、deleted_bytes、Jellyfin 路径均不变；删除端点仍 require_auth，目录登记仍仅 loopback。
+- 去 Jellyfin 依赖：扩展名白名单新增视频 m4v/ts/m2ts/avi/wmv/flv/mpg/mpeg 与图片 gif/bmp/tiff；`native_playback` MIME 同步；无 Jellyfin 时引导文案改为"登记本地来源或勾选 Jellyfin 媒体库"；playback-readiness 对本地源返回直读诊断（不探测 Jellyfin）；运维面板未配置 Jellyfin 显示 `local_only` 信息态；admin 后台取消"只读/永久删除不可执行"表述。
+- 测试：`test_native_sources.py` 新增 12 类场景（两阶段成功且审计无绝对路径、missing、root 停用/缺失、同尺寸替换→身份失败、越界/绝对/UNC/目录拒绝、跨根、junction、逐条失败不中断、伪造/快照外 nonce 不删、PermissionError→file_in_use、扩展分类、无 Jellyfin 诊断/文案）；`test_health_contract_8d1.py` 能力 13→14；`test_native_playback.py` 新容器 MIME 断言。
+
+Android（18 个文件 + 新增 `PendingDeleteText.kt`）：
+- 是否可删除只信任服务端下发 `can_delete`，移除 `loc_` 前缀与 `source_type=="jellyfin"` 门禁；能力 `native_delete_v1` 仅用于区分提示（旧 Server → "需要升级电脑端 Server"）。UI 不再显示"本地只读"；删除失败码新增中文映射；二次确认 + nonce 安全流程未改弱。
+- 测试：7 个受影响类 150 tests 通过；全量 JVM 75 suites / 507 tests / 0 失败（基线 498，新增 9）。
+
+验证（本机 2026-10-24，合成/临时文件，未操作真实媒体）：
+- Server 全量：**709 通过 / 2 失败 / 430.01s（711 项）**。2 项为本机已知 ffmpeg 完整性级别环境限制（默认 Temp 不可写：`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），换项目内可写 basetemp 单独复跑 **2 通过**；不是产品缺陷，未改写断言。
+- 定向：native_sources+playback+health+system 45 通过；delete 三件套 44 通过；media_api 29 通过；playback_readiness 19 通过；health+library 14 通过（分轮，非单轮合计）。
+- ruff：本轮改动文件全部通过；仓库另有 27 条既有违规（均在未改动文件），未扩大修改。
+- Android 全量 JVM：507/0，BUILD SUCCESSFUL。
+
+边界与未做：版本仍 1.5.2 / Alpha15（未发版，P5 统一升 Server 1.6.0 / Android alpha16-code23 并同步 build_deploy）；未上真机、未做 androidTest/connected、未用真实文件验证 file_in_use（仅 mock PermissionError）；API Contract 仍为 2；`scripts/build_deploy.py` 的 REQUIRED_CAPABILITIES 尚未加入 `native_delete_v1`（P5 处理）；GitHub 推送与最终提交以实际命令结果为准。
+
+## 2026-10-25 Codex 独立安全复审：本地删除发现阻断项（未修复，暂停 P5）
+
+由 Codex（`gpt-5.6-sol`，独立只读审查，182,126 tokens）对 `37e93e2..373025b` 的本地两阶段删除实现做复审，报告：`review_meta/codex-review-20261025/local-delete-review.md`。结论 C1 / I4 / M1，**建议阻断发布**：
+
+- **C1（Critical）**：`open_media` 复验句柄在删除前被关闭，随后仍按字符串路径 `os.remove`，且未把 `_lstat_deletion_path` 的 st_dev/st_ino 与已验证句柄身份绑定。同机并发进程可在检查与删除之间换父目录/叶文件，导致登记根外文件被删除或误删同尺寸替换文件。现有 junction/symlink 测试只覆盖删除前已布置的静态状态，不证明竞态安全。
+- **I1（Important）**：nonce 快照只绑定 `media_id`；prepare 后撤销并重新入队同一媒体，旧 nonce 仍会删除新的队列项（两阶段确认未绑定队列代次）。
+- **I2（Important）**：文件删除与 nonce claim/审计/索引清理不在同一可恢复状态机；`os.remove` 成功后若审计/索引/事务失败或进程崩溃，会出现"文件已删、请求 500、nonce 未消耗、元数据回滚"的分裂，且可能中断整批。
+- **I3（Important）**：Android `can_delete` 缺字段或媒体缓存未命中时 fail-open（`!= false`），应改为显式 true 才放行。
+- **I4（Important）**：安全测试对上述竞态/同 ID 队列代次/删除后事务失败/Android 缺字段与缓存 miss 系统性缺失，现有绿色结果高估边界覆盖。
+- **M1（Minor）**：快照中队列项不存在或非 pending 时直接 continue，无逐条审计。
+
+处置：暂停 P5 发版；先修 C1/I1/I2/I3/M1 并补齐测试，再由 Lead 跑全量与二次复审。此次复审未修改源码、未运行测试、未启停服务。
+
+## 2026-10-25 Codex 修复轮：C1/I1/I2/I3/M1 + 恢复逻辑缺陷（源码完成，待二次复审）
+
+承接上一轮独立复审（C1/I4/M1，阻断发布）。用户要求后续开发尽量交给 Codex，本机 DSH 会话未暴露 `subagent_codex` 工具，故用 `environment\bin\codex.cmd exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.6-sol` 直接委派 Codex CLI（一次性、冷启动；边界清晰、只改指定目录；Lead 复核 diff 并本地跑测试）。本轮 Codex 用量约 70 万+ tokens，于 2026-10-25 02:00 触发 ChatGPT Plus 5 小时额度上限（复位 05:44），后续已无额度执行二次复审。
+
+实现（Codex，Lead 复核）：
+- **C1（句柄绑定删除）**：`native_sources` 新增 `delete_local_media`/`_windows_delete_bound`：先复验根/路径链/指纹/最终路径；Windows 用 `CreateFileW(GENERIC_READ|DELETE, 共享全部, FILE_FLAG_OPEN_REPARSE_POINT)` 二次打开，以 `BY_HANDLE_FILE_INFORMATION`（卷序列+File Index）绑定首次 `fstat` 身份、`GetFinalPathNameByHandleW` 复核根内最终路径，再用同一句柄 `FileDispositionInfo` 删除；句柄删除失败**不回退** `os.remove`（fail-closed）。POSIX 分支严格比对 `lstat` 与 `fstat` 身份后删除并注明残余竞态。新增稳定失败码 `identity_binding_failed`、`delete_not_verified`。
+- **I1（队列代次）**：`DeleteQueue` 增加非空随机 `queue_token`，迁移 `0017`（逐行回填 + 非空约束，保留 status 索引）；nonce 快照保存 `(media_id, queue_token)`；commit 要求 token 与 pending 同时匹配；撤销后同 ID 重新入队会被旧 nonce 判 `failed:queue_entry_superseded` 且不删文件；旧纯 ID 快照 fail-closed。
+- **I2（持久状态机）**：`commit_with_nonce` 先提交 nonce claim + 全部 `committing` 意图；物理删除逐项执行、逐项独立事务写 outcome/审计/元数据清理；意外异常逐项隔离（`internal_error`）不中断整批；新增 `recover_interrupted_deletes` 在 lifespan 启动时收敛遗留 `committing`（文件已不存在→`recovered_deleted` 清理；仍存在→`interrupted_not_deleted`；幂等、不再次删除）。
+- **M1（审计）**：快照缺失/非 pending/代次替换分别写 `skipped:queue_entry_missing`、`failed:not_pending`、`failed:queue_entry_superseded`，不含路径。
+- **Lead 审查发现的恢复缺陷**：`_recovery_observes_missing` 原对本地源用绝对路径检查，但本地 `media_path` 是相对路径，会误判"文件仍存在"；已改为 source-aware（local 走 `LocalRoot + safe_path(allow_missing_leaf)`，jellyfin 走绝对路径），并补本地已删/未删恢复测试。
+- **I3（Android fail-closed）**：wire DTO `can_delete` 改可空；映射仅在 `== true` 时可删；UI 模型默认 false；仓库门禁 `require(media != null && media.canDelete)`；Home/Review/Viewer fail-closed；缺字段/缓存 miss/显式 false 均 0 次入队 POST。
+
+验证（Lead 本机，2026-10-25）：
+- Server 全量 pytest：**721 通过 / 2 失败 / 723 项 / 437.51s**。2 项失败仍是本机 ffmpeg 完整性级别环境限制（`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），换项目内可写 basetemp 单独复跑 **2 通过**；十万行查询性能门禁本轮通过（此前并行负载下曾抖动 1.0–1.3s）。
+- Codex 定向：C1 组 34 passed；I1/I2/M1 删除+迁移组 77 passed（完整指定集 82 passed/1 failed 为上述性能门禁抖动）；恢复修复组 67 passed/1 failed（同一性能门禁）；ruff 改动文件通过。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL）。
+- 新增/更新测试：Windows 句柄删除、同尺寸换叶、父目录 junction 竞态（本机 junction 实际创建成功、非 skip）、句柄失败不回退、同 ID 重入队旧 nonce、旧格式快照 fail-closed、缺失/非 pending 审计、删除后审计/索引异常隔离与恢复、0017 回填与索引保留、Android 缺字段/缓存 miss。
+
+边界与未做：未 commit 前的二次独立复审因 Codex 额度耗尽顺延到额度复位（05:44）后；P5 发版（1.6.0/alpha16）继续暂停；未上真机、未跑 connected/androidTest；未操作真实媒体；两次 Codex 子任务报告见 review_meta/codex-fix-20261025/（A3 因额度用尽未写报告，改动与验证以本日志与代码为准）。
+
+## 2026-10-25 第二轮复审修复：I5/I6/M2/M3（源码完成，待第三轮复审）
+
+第二轮 Codex 复审（`review_meta/codex-review-20261025-round2/round2-review.md`）判定 BLOCK：C1/I1/I3 已关闭，I5/I6/M2/M3 未关闭。本轮由 Codex 按复审建议修复（报告 `review_meta/codex-fix-20261025-round2/fix-report.md`）：
+
+- **I5 Windows delete-on-close**：`SetFileInformationByHandle(FileDispositionInfo)` 成功即视为系统接受不可逆删除，**不再**用即时 `lstat` 或 `CloseHandle` 返回值改写为 failed；其他允许 `FILE_SHARE_DELETE` 的句柄未关时按真实字节数 success 收敛并清理元数据。真实 Win32 测试：持有第二共享删除句柄时 receipt=success、元数据清理、关闭前文件对象仍存活、关闭后消失；不允许共享删除的句柄 → `failed:file_in_use` 且文件保留。
+- **I6 0017 downgrade**：检测到 `committing` 行时拒绝降级（明确要求先用 0017 代码恢复并备份），不改写数据库；无 committing 时正常回滚并保留 pending/failed 与 status 索引；补回滚测试。
+- **M2 非执行快照审计**：`queue_entry_missing`/`queue_entry_superseded`/`not_pending` 的审计并入 nonce claim/committing 同一事务；审计失败整体回滚、nonce 不消费、API 返回错误，不再静默丢审计。
+- **M3 错误码**：Win32 32/33 仅映射 `file_in_use`；5（ACCESS_DENIED）映射新稳定码 `delete_access_denied`；Android 增加中文提示"没有权限删除该文件"。
+
+验证（Codex 定向；Lead 全量另记）：
+- 真实 Windows 专项 3 passed；M2/receipt 审计 7 passed；I6 downgrade 2 passed；Android `DeleteQueueViewModelTest` 13/13；ruff 通过。
+- 指定四文件完整单轮 **86 passed / 1 failed**：唯一失败为既有 10 万行查询性能阈值 1.045s（阈值 1.0s），单项复跑 **1 passed**；不称单轮全绿。
+
+边界：未 commit/push（本轮由 Lead 统一提交）；未构建产物；未上真机；未操作真实媒体/服务。P5 仍暂停，待第三轮独立复审。
+
+### 2026-10-25 Lead 全量验证（I5/I6/M2/M3 修复后）
+- Server 全量 pytest：**730 通过 / 2 失败 / 732 项 / 406.98s**；2 项仍为本机 ffmpeg 完整性级别环境限制（`test_video_cover_from_disposable_clip`、`test_metadata_probe_disposable_mp4`），换项目内可写 basetemp 单独复跑 **2 passed**；十万行查询性能门禁本轮通过。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL；M3 新增 `delete_access_denied` 映射用例包含在内）。
+- Ruff：本轮改动文件通过。
+- 结论：修复相关测试与全量回归通过（除已分类的 2 项本机环境失败）；是否可发版仍以第三轮独立复审为准。
+
+## 2026-10-25 第三轮复审修复：I5-A / I5-B（POSIX 语义 + 可恢复删除状态）
+
+第三轮 Codex 复审（`review_meta/codex-review-20261025-round3/round3-review.md`）判定 BLOCK：I5-A（delete-pending 后元数据事务失败时仍可能先落 failed、文件后消失）与 I5-B（CloseHandle 失败被忽略却清理元数据并报 success）。Codex 修复（报告 `review_meta/codex-fix-20261025-round3/fix-report.md`）：
+
+- Windows 删除优先使用 `FILE_DISPOSITION_INFO_EX`（`FILE_DISPOSITION_DELETE|FILE_DISPOSITION_POSIX_SEMANTICS`）：disposition 接受后关闭句柄，再以 `lstat` 验证名字已消失才算 `success`；系统不支持（ERROR_NOT_SUPPORTED/INVALID_PARAMETER）才回退传统 `FileDispositionInfo`，传统路径一律返回 `pending`，不提前清理元数据。
+- 新增持久状态 `delete_done`（物理删除已确认、元数据待清理）与 `delete_pending`（已请求、名字未确认消失）；receipt 增加逐项值 `pending` 与 `pending_count`（不计 success/missing/failed）。
+- `delete_done` 先独立提交，再做第二个事务清理索引/收藏/队列与审计；清理失败保持 `delete_done` 返回 success，恢复补清理并写 `metadata_cleanup_recovered`。`delete_pending` 由恢复只观察：仍可见则保持 pending，名字消失后转 `delete_done` 再清理；重复恢复幂等、不再次删除。
+- 启动恢复保留，`GET /delete-queue` 与 `POST /delete-queue/commit/prepare` 增加惰性恢复入口；0017 downgrade 对 `committing/delete_done/delete_pending` 任一存在均 fail-closed。
+- CloseHandle 失败：POSIX 名字已验证消失仍 success；传统路径保持 pending；内部 warning 不含路径。
+- Android：`DeleteOutcomeStatus.Pending` + `pendingCount`，结果面板显示"删除请求已提交，等待系统完成"；旧 Server 无 pending 字段兼容。
+
+验证：
+- Codex 定向：四文件 **94 passed**（单轮）；真实 Windows 专项 5 passed（共享句柄 POSIX 立即消失、POSIX+清理失败恢复、传统回退 pending→恢复、CloseHandle 两种故障分流）；Android 3 类 36/36；ruff 通过。
+- Lead 全量：Server **736 通过 / 3 失败 / 739 项 / 409.65s**；3 项为 2 项本机 ffmpeg 完整性环境限制 + 1 项 10 万行性能门禁抖动（单独复跑 1 passed；ffmpeg 两项换可写 basetemp 2 passed）。Android 全量 JVM 结果见下一条。
+- 未 commit/push（Lead 统一提交）；未构建产物；未上真机；未操作真实媒体/服务。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL；含 pending receipt 展示与旧 Server 兼容用例）。
+
+### 2026-10-25 07:29 状态：Codex 5 小时额度再次用尽，第四轮复审顺延
+- 已完成并推送：`485e2e7`（POSIX 删除状态机）、`48aa26f`（Android pending）、`03083da`（文档），`cfe7ca5..03083da` 已推送到 GitHub。
+- 第四轮定点复审启动时触发 ChatGPT Plus 额度上限（提示 **10:47 复位**），未生成报告；P5 发版继续暂停。
+- 已设 10:48 提醒：额度复位后立即执行第四轮复审；通过则推送/更新状态并进入 P5（Server 1.6.0 / Android alpha16-code23）。
+
+## 2026-10-25 第四轮复审修复：POSIX-only 删除与 receipt 收敛（I7/I8/M4）
+
+第四轮 Codex 复审（`review_meta/codex-review-20261025-round4/round4-review.md`）BLOCK：I7（disposition 已接受后首次状态持久化失败仍可能返回 failed 并被恢复过早终结）与 I8（新增 pending 枚举对旧 Android 不兼容；新 App 面板标题误报"删除完成"）。Lead 决定简化语义并交由 Codex 实施（报告 `review_meta/codex-fix-20261025-round4/fix-report.md`）：
+
+- **POSIX-only**：Windows 本地删除只使用 `FILE_DISPOSITION_INFO_EX=21` + `FILE_DISPOSITION_DELETE|FILE_DISPOSITION_POSIX_SEMANTICS`；移除传统 disposition 回退与 legacy 入口。系统不支持时在任何删除前 fail-closed：稳定码 `delete_not_supported`（中文提示升级系统/使用电脑端删除），文件、索引、队列保持不变。最低系统要求 Windows 10 1709，已写入 deployment/README 与 USER_INSTALL_GUIDE。
+- **I7**：POSIX disposition 后关闭句柄并以 `lstat` 确认名字消失；若首次 `delete_done` 持久化 flush/commit 失败，不再返回 failed——保留已耐久提交的 `committing` 行并返回 success（物理删除已验证），恢复在启动/惰性入口看到 `committing+名字缺失` 后转 `delete_done`、补元数据清理与 `recovered_deleted` 审计。`committing+名字仍存在` 仍为 failed（POSIX 下表示 disposition 未生效）。
+- **I8**：服务端 receipt 恢复为 `success/missing/failed` 三值，移除 `pending`/`pending_count`；Android DTO/仓库/ViewModel/结果面板回退 pending 语义，旧客户端完全兼容；结果面板不再出现"删除完成+等待系统完成"矛盾。
+- `delete_pending` 仅保留历史数据读取与 0017 downgrade 拦截，新代码不再创建。
+
+验证（Codex 定向）：Server 五文件 **101 passed / 0 failed**；Android 三类 36/36；ruff 通过。Lead 全量结果见后续条目。未 commit/push（Lead 统一提交）；未构建产物；未上真机。
+
+### 2026-10-25 Lead 全量验证（第四轮修复后）
+- Server 全量 pytest：**737 通过 / 2 失败 / 739 项 / 424.85s**；2 项为本机 ffmpeg 完整性级别环境限制，换可写 basetemp 单独复跑 **2 passed**；十万行查询性能门禁通过。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL）。
+- Ruff：改动文件通过。
+- 结论：本轮修复相关与全量回归通过（除已分类 2 项本机环境失败）；发版仍以第五轮独立复审通过为前提。
+
+## 2026-10-25 第五轮复审修复：I7-R 四态恢复观察
+
+第五轮 Codex 复审（`review_meta/codex-review-20261025-round5/round5-review.md`）BLOCK：I7-R——恢复把"未观察到名字缺失"当成"原文件仍存在"，会把已返回 success、DB 仍为 committing 的行终结为 failed。Codex 按 Lead 批准方案实现四态只读观察（报告 `review_meta/codex-fix-20261025-round5/fix-report.md`）：
+
+- 新增 `_RecoveryObservation`：`MISSING` / `SAME_ORIGINAL_PRESENT` / `REPLACED_OR_ORIGINAL_GONE` / `UNKNOWN`。
+  - local：根缺失/停用 → UNKNOWN；叶缺失 → MISSING；safe_path/IO 异常 → UNKNOWN；叶存在时用 `open_media` 只读句柄身份复验：成功且指纹匹配 → SAME_ORIGINAL_PRESENT，身份不匹配（ConflictError）→ REPLACED_OR_ORIGINAL_GONE。
+  - jellyfin：绝对路径 lstat：缺失 → MISSING；异常 → UNKNOWN；存在时按 size + mtime±3s 判断同一对象。
+- 恢复策略：MISSING 或 REPLACED → 先耐久化 `delete_done`，再清理旧元数据并写 `recovered_deleted` / `recovered_original_gone`（不含路径），**不删除任何现有文件**；SAME_ORIGINAL_PRESENT 才把 committing 终结为 failed:interrupted_not_deleted；UNKNOWN 保留 committing 等待下次恢复（幂等）。
+- 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 不变；未新增状态/表/迁移。
+
+验证：Codex 定向四文件 **97 passed / 0 failed**（TDD 先 4 failed）；ruff 通过。Lead 全量：Server **740 通过 / 2 失败 / 742 项 / 438.36s**（2 项本机 ffmpeg 环境限制，换可写 basetemp 单独复跑 2 passed）；Android 全量 JVM 见下一条；未 commit/push（Lead 统一提交）。
+- Android 全量 JVM：**75 suites / 511 tests / 0 失败 / 0 错误 / 0 跳过**（BUILD SUCCESSFUL，无 Android 改动，复用上次编译产物）。
+
+## 2026-10-25 第六轮复审修复：Jellyfin 恢复证据收紧（I7-R6A / I7-R6B）
+
+第六轮 Codex 复审（`review_meta/codex-review-20261025-round6/round6-review.md`）BLOCK：
+- **I7-R6A**：Jellyfin 恢复把任意父级/卷的 FileNotFoundError 当叶 MISSING，可能把不可达介质上的未删文件当已删收敛；
+- **I7-R6B**：Jellyfin 缺 size/mtime 身份证据时仍判 SAME_ORIGINAL_PRESENT，可把替代对象误写为原文件仍在。
+
+Codex 修复（报告 `review_meta/codex-fix-20261025-round6/fix-report.md`）：
+- 新增只读 `_lstat_recovery_path`：先按既有绝对/无 `..`/拒绝 UNC 与逐段拒绝链接/reparse 校验，逐级 lstat 卷根与全部父目录；父链任一不可观察 → UNKNOWN；仅父链全部可观察后叶缺失 → MISSING；叶 OSError/ValueError → UNKNOWN。
+- Jellyfin 身份证据矩阵：size 已知不一致或 mtime 已知超 ±3s → REPLACED；两项任一缺失 → UNKNOWN；两项均存在且匹配才 SAME_ORIGINAL_PRESENT。
+- 测试：父目录改名/不可达 → 保持 committing 且不清理；size=None / mtime=None → UNKNOWN 保持 committing；既有缺失/替换/同文件/幂等用例补全身份依据。
+- 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 不变。
+
+验证：Codex 四文件定向通过（详见 fix-report）；Lead 全量结果见下一条。未 commit/push（Lead 统一提交）。
+- Lead 全量：Server **743 通过 / 2 失败 / 745 项 / 419.28s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次全量 511/511）；ruff 改动文件通过。
+
+### 2026-10-25 12:45 状态：Codex 额度再次用尽，第七轮复审顺延
+- 第六轮复审修复（I7-R6A/I7-R6B）已提交 `5aa367a`；Lead 全量 Server **743/745**（2 项本机 ffmpeg 环境，单独复跑 2 passed）、Android 无改动（上次 511/511）。
+- 第七轮 Codex 定点复审启动后触发额度上限（提示 **15:49 复位**），未生成报告；P5 发版继续暂停。
+- 已设 15:50 提醒：复位后立即重试 push、执行第七轮复审；通过则进入 P5（1.6.0/alpha16 版本、构建、打包、SHA）。
+
+## 2026-10-25 第七轮复审修复：Jellyfin 句柄相对观察（关闭父链/叶 TOCTOU）
+
+第七轮 Codex 复审（进程在写报告前提前结束，日志 `review_meta/codex-review-20261025-round7/round7-review.log`）结论：I7-R6B 已关闭，I7-R6A 仍有父链检查与叶检查之间的 TOCTOU——父目录在两次检查间被移走时，叶路径 lstat 会误判 MISSING，而文件仍在被移走的目录中。Codex 实现（报告因进程提前结束未落盘，改动与验证由 Lead 接管）：
+
+- 新增 `_windows_recovery_file_info`：Jellyfin 恢复在 Windows 上先打开叶的父目录句柄（`FILE_FLAG_BACKUP_SEMANTICS|OPEN_REPARSE_POINT`），用 `GetFileInformationByHandle` 的卷序列+File Index 与打开前 `lstat` 的父目录身份比较；一致后再用 `NtCreateFile(RootDirectory=父句柄, ObjectName=叶)` 相对打开叶（`FILE_OPEN_REPARSE_POINT`）。叶缺失 → MISSING；成功 → 用句柄信息 size/mtime 与 DB 证据比较；其他错误/证据不足 → UNKNOWN。路径字符串不再参与叶存在性判定。
+- 恢复四态与收敛策略不变：MISSING→delete_done+`recovered_deleted`；REPLACED→delete_done+`recovered_original_gone`（不删除现有文件）；SAME→仅 committing 写 failed:interrupted_not_deleted；UNKNOWN→保留 committing。
+- 测试：真实目录改名 hook（父目录验证后、相对打开前把父目录改名）断言不会误判 MISSING、不清理元数据；Lead 将断言收紧为 `status=failed`/`error=interrupted_not_deleted`（文件仍在移走后的目录中，属积极证明同文件仍在），该用例单独复跑通过。
+- 保持 POSIX-only、三值 receipt、0017 downgrade、claim 同事务审计、C1/I1/I2/I5/I6/M2/M3 与 Local 四态观察不变。
+- Lead 全量：Server **744 通过 / 2 失败 / 746 项 / 405.66s**（2 项本机 ffmpeg 完整性环境限制，换可写 basetemp 单独复跑 2 passed）；Android 无改动（上次 511/511）；ruff 改动文件通过；第七轮 TOCTOU 用例收紧后单独复跑通过。
+- Lead 全量（I7-R8A 修复后）：Server **745 通过 / 2 失败 / 747 项 / 350.47s**（2 项本机 ffmpeg 环境，换可写 basetemp 单独复跑 2 passed）；ruff 改动文件通过。新增 `STATUS_OBJECT_PATH_NOT_FOUND` 注入用例断言保持 committing、索引保留、无终态审计。
+
+## 2026-10-25 P5 发版准备（源码层）
+
+- Server 版本三处统一由 1.5.2 升至 1.6.0，API Contract 保持 2；`scripts/build_deploy.py` 同步 Server 1.6.0、Android `2.0.0-alpha16`/code23，`REQUIRED_CAPABILITIES` 由 13 项增至 14 项并加入 `native_delete_v1`。
+- Android 升至 Alpha16/code23，新增中文 Release Notes：本地源两阶段安全删除、Windows POSIX-only 语义与不支持时 fail-closed、仅显式 `can_delete` 可删，并明确未完成真实手机/家庭 LAN 验收。
+- 发布文档（含 `UPGRADE_ROLLBACK.md`）同步到 1.6.0 / Alpha16-code23 / Contract2 / 14 能力 / 0017 / Windows 10 1709+；保留已发布 1.5.2/Alpha15 产物与生产安装版的历史事实；源码自动化测试证据标为 T，不冒充实机/生产验收。
+- TDD RED：Server 版本/部署合同 2 failed / 29 passed；Android ReleaseNotes 1 failed / 15 passed，均只因旧版本声明失败。
+- 最终定向验证：Server 指定四文件 **79 passed / 0 failed / 0 skipped**（uv 基础 CPython 3.12 + 项目 venv site-packages）；Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，`BUILD SUCCESSFUL`；失败码文案收紧后又单独复跑 ReleaseNotes **16 tests / 0 failures**。Server 有 1 条既有 Starlette/httpx 弃用警告；Android 有既有 AGP compileSdk 与 Compose 图标弃用警告。
+- 环境诊断：首次 Server 复跑误用 `uv python find` 在 `server` 目录返回的 `.venv` 重定向解释器，出现 5 项临时 SQLite/path 失败；改用 `.venv/pyvenv.cfg` 登记的 uv 基础 Python 后同一指定集 79/79 通过，未改产品代码或放宽断言。
+- 边界：**产物未构建**；未 commit/push；未启停服务或部署生产；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
+- Lead 全量（P5 版本 1.6.0/alpha16-code23）：Server **745 通过 / 2 失败 / 747 项 / 372.05s**（2 项本机 ffmpeg 环境限制，换可写 basetemp 单独复跑通过）；Android 全量 JVM **75 suites / 511 tests / 0 失败**；版本三处与 Android BuildConfig 一致。
+
+### 2026-10-25 P5 产物构建与核验（本地执行）
+- `scripts/build_deploy.py --prepare-only`：全新 PyInstaller EXE + release 签名 APK 构建，EXE health、APK manifest 与签名 PASS，构建证据写入。
+- `--package-verified`：发布包生成并通过 139 项 SHA256 完整性校验。
+- 产物：`deploy_handoff/MediaReview_Server_1.6.0_stage9.zip`（133,242,411 bytes，sha256 04be46db…）、`deploy_handoff/MediaReview_2.0.0-alpha16_stage9.apk`（43,606,606 bytes，sha256 42d188cb…）、EXE sha256 2a9f5cfe…，`git_head=ced2f07`；manifest：Server 1.6.0 / Contract 2 / 14 能力（含 `native_delete_v1`）/ Android 2.0.0-alpha16 code23 / APK signature PASS。
+- 真实部署：**NOT PERFORMED**；家庭 LAN/真机：**NOT TESTED**；生产实例未启停、未升级。
+- 第九轮 Codex 定点复审结论 **PASS_WITH_MINOR**（唯一 Minor M8-T 为其他 NTSTATUS/API 失败分支的测试覆盖缺口，无已知生产分类错误）。
+
+### 2026-10-25 APK 邮件交付（用户确认后执行）
+- 用户确认收件地址后，直接将 `MediaReview_2.0.0-alpha16_stage9.apk` 作为附件发送到已配置的 QQ 邮箱（输出掩码 `305***@qq.com`，未记录完整地址与任何凭据）。
+- 发送器：一次性脚本（全局 temp），复用 Hermes `send_mail.get_config()` 加载 SMTP 配置；APK 使用 `application/vnd.android.package-archive` MIME，附件字节与 SHA-256 取自同一份实际发送数据，任何附件/拒收失败均非零退出、不发送。
+- 交付证据：`SMTP accepted`；`SEND_OK attachment=MediaReview_2.0.0-alpha16_stage9.apk bytes=43606606 sha256=42d188cb37b4b45c3bcedacc8ef5b8670ae61844b78e066d8b477a40be3b1dfa`，无拒收收件人。
+
+## 2026-10-26 Android Alpha17 发版准备（源码层）
+
+- Android 源码版本由 Alpha16/code23 提升为 `2.0.0-alpha17`/code24；`scripts/build_deploy.py` 同步 Android 常量。Server `VERSION` 保持 1.6.0，`REQUIRED_CAPABILITIES` 保持 14 项且包含 `native_delete_v1`。
+- `ReleaseNotesCatalog` 新增 5 条中文用户说明，覆盖首页、目录、相册/沉浸查看器、批阅重构，并明确 Alpha 版本与真机/家庭 LAN 尚未验收；`ReleaseNotesTest` 同步当前版本、精确文案及跨版本聚合合同。
+- 文档同步 README、PROJECT_STATUS、COMPATIBILITY_MATRIX、SERVER_VERSION_POLICY、USER_INSTALL_GUIDE、USER_LAN_VALIDATION；Alpha16 APK/Server 1.6.0 ZIP 继续作为历史产物保留，不冒充 Alpha17。
+- TDD RED：Android ReleaseNotes 过滤集 **16 tests / 1 failed**（BuildConfig 仍为 code23）；Server 部署版本契约 **1 failed**（builder 仍为 alpha16）。GREEN 后同一范围通过。
+- 最终受影响验证：Android 指定过滤 **20 tests / 0 failures / 0 errors / 0 skipped**，最终措辞收紧后复跑为 `BUILD SUCCESSFUL in 2m 42s`；Server 指定 health/deployment/0017 合同 **32 passed / 0 failed**。Server 有 1 条既有 Starlette/httpx 弃用警告；Android 有既有 AGP compileSdk 提示。
+- 边界：**产物未构建**；本执行未调用 commit/push，但终检发现 Alpha17 主体改动被并发提交为本地 `4fe38d2`（远端仍停在 `2cb007f`，未观察到 push）；未启停服务或部署；未操作真实媒体/密钥；Phone/HomeLAN NOT TESTED；不声称 `PRODUCTION_READY` / `REAL_LAN_PASS`。
+
+## 2026-10-26 Android UI 大规模重构（P1–P3，Codex 实现 + Lead 规划/验收）
+
+用户确认方向：Google Photos 式相册体验 + 文件夹分类；批阅优先“视觉极简、进度与导航、更好的预览”。需求基线与阶段计划：`docs/UI_REFACTOR_PLAN.md`。
+
+- **P1（be3c92d）**：设计 token 与公共组件（MediaThumb/FolderTile/SectionHeader/EmptyState/ErrorState/LoadingSkeleton/TopBar/FilterChipRow）；首页顶栏收敛为“媒体库 + 搜索 + 更多”（排序/筛选/单双列/数据源/浏览文件夹进入菜单）；分类 chips 与无边框网格；目录页折叠顶栏 + 横滑面包屑 + 范围菜单；搜索全屏化；保留分页/预取/锚点/数据源语义。
+- **P2（66ca2f9）**：相册按日期分节紧凑网格 + 网格索引映射；沉浸式查看器（纯黑 edge-to-edge、单击切控件、横滑翻页、双击/双指缩放、缩放后拖动、1x 下滑关闭、弹簧回弹、淡入淡出、±1 原图预取）；顶/底栏与信息弹层重做（绝对路径拒绝展示）；视频时长角标。
+- **P3（3abc77b）**：批阅模式极简顶栏（第 N/共 M、已批/剩余、2dp 进度条、恢复提示）+ 底部固定五项动作（上一项/保留/待删除/撤销/下一项）；左右滑切换、上滑保留、下滑待删除（仅 canDelete 为真）、撤销只对服务端确认项生效；更多菜单含倍速/收藏/播放器/信息/范围/快进一屏；保留单 GSY Surface、P0/P1 预取与会话恢复语义。
+
+验证：Codex 全量 JVM：P1 75 suites/513 tests、P2 77 suites/522 tests、P3 78 suites/529 tests，均 0 失败；androidTest 编译通过；Lead 独立 `--rerun-tasks` 全量 P1 513/0、P3 结果见后续条目。视觉走查（模拟器 + demo 数据）：首页、相册分节网格、图片查看器、批阅模式截图见 `review_meta/ui-refactor-20261025/shots/`。
+未做：P4 打磨（动画/无障碍/性能/空态全覆盖/长按多选）与真机验收；未改 Server/API/Repository/删除安全语义；未新增第三方依赖。
+
+### 2026-10-26 01:10 UI P4 暂停（Codex 额度用尽）
+- P4（打磨：沉浸页隐藏底栏、segmented/边缘渐隐、下拉刷新、触觉、空/错/载态、无障碍、性能）实现到一半时 ChatGPT Plus 5 小时额度用尽，提示 **04:33 复位**。
+- 为保持仓库可构建，已回退 P4 半成品的全部 `android/` 改动（未 commit）；当前 Android 树为 P3 提交 `3abc77b`（529 tests 全绿，Lead 独立 rerun 通过）。
+- 已设 04:34 提醒：额度复位后重新执行 P4（prompt 已备 `review_meta/ui-refactor-20261025/phase4-prompt.txt`），完成后再做全量测试、截图走查与提交。
+
+### 2026-10-26 UI P4 打磨完成 + 批阅视频黑屏 A/B 结论
+- P4 已完成并经 Codex 定向/全量 JVM 验证：79 suites / 533 tests / 0 失败；androidTest 编译通过。
+- Codex 修复报告 `review_meta/ui-refactor-20261025/phase4-fix-report.md`：为 review 路由改用 bottomBar `ExitTransition.None`（避免视频 Surface 首次 attach 后再因底栏退出动画改变视口），并补纯 JVM 策略测试。该修复已纳入工作区。
+- **模拟器 A/B 结论**：重新构建并安装 P3 提交 `3abc77b` 的 APK 后，批阅页视频同样黑屏（`MRReview PlaybackReady ok=true state=Playing` 但 Surface 画面黑），说明当前模拟器（goldfish H.264 软解、SurfaceView）在此阶段的黑帧不是 P4 独有回归；P3 早先截图有画面，属模拟器渲染不稳定。**真机视频画面仍待验收**，不能以模拟器黑帧判定代码回归。
+- 已清理临时 worktree `temp\mr_p3`；P4 改动待 Lead 全量复核后提交。
+
+## 2026-10-26 Android Alpha17（UI 重构版）构建与邮件交付
+- Alpha17 源码准备（Codex）：versionCode 24 / versionName 2.0.0-alpha17，Release Notes 覆盖首页/目录/相册/查看器/批阅/打磨，文档同步；提交 `4fe38d2`。
+- 构建：`build_deploy.py --prepare-only` 成功（EXE health / APK manifest / 签名 PASS，evidence 记录）；`--package-verified` 因 Server 版本仍为 1.6.0、发布包名 `MediaReview_Server_1.6.0_stage9` 已存在（alpha16 历史产物，脚本拒绝覆盖）而阻断；因此本轮只交付 Android APK，Server 保持已发布的 1.6.0 不变。
+- 产物：`deploy_handoff/MediaReview_2.0.0-alpha17_stage9.apk`，43,655,762 bytes，SHA256 `8782f42b98f0af68879f278489e126b7b03be423ffeb007515abf5a07d6571f6`，package `com.mediareview.app` versionCode 24 / alpha17，签名 PASS。
+- 邮件交付（用户已确认 QQ 收件地址）：`SMTP accepted` + `SEND_OK attachment=MediaReview_2.0.0-alpha17_stage9.apk bytes=43655762 sha256=8782f42b…`，无拒收；完整地址与凭据未记录。
+- 真机/家庭 LAN 未验收；批阅视频在模拟器上有软解黑帧（P3 基线同样复现），需真机确认。
+
+### 2026-10-26 09:02 Jellyfin 24 库补扫完成
+- 5 个补充分类库（BeautyBox/CS/JX/Maniacccccc/大神胖哥迷玩）已建库并完成扫描；扫描任务 09:02 完成（Completed）。
+- 24 库合计 **36,532 项**；新增库：`大神胖哥迷玩` 346、`JX` 19、`Maniacccccc` 4、`BeautyBox` 1、`CS` 1（大视频受 Jellyfin 探测超时限制，入库数少于文件数，属已知限制）。
+- 媒体文件未改动；MediaReview 本地源直读不受该限制。
+
+### 2026-10-27 — Codex接替与目录0项只读诊断
+
+接替基线1247ee4，Alpha17 APK已构建且用户确认安装，生产实测仍为1.5.2/0016，官方服务Running、健康正常，ADB无设备。Jellyfin10.11.11当前24库扫描Completed；同用户库级递归与直接子级+子文件夹查询对比四例分别为0→132、0→288、52→101、1664→1866，均与仅用于诊断的管理员计数一致。已证实目录查询链路漏项，不能延续“大视频探测超时所以未入库”的笼统判断；Jellyfin内部具体原因仍待确认。MediaReview最近媒体刷新为10月22日，缓存未跟随整理；存在2条历史库选择。详见FOLDER_ZERO_DIAGNOSIS_20261027.md。仅更新状态与诊断文档，未改生产代码、配置、权限、索引、媒体或服务生命周期。最小修复方案待用户确认，未运行无关全量测试/构建。git fetch因GitHub443连接失败，远端状态未确认。
+
+### 2026-10-27 — Server1.6.1目录漏项修复、Alpha17模拟器验证
+
+按用户批准的最小方案，同用户逐层分页取代后台同步库级递归；校验当前可见库根，跨目录按ID去重，目录环/请求上限有界。同目录重复/部分重叠分页、截断、总数变化及上游失败均失败闭合，完整枚举后才沿用CAS失效旧索引，空媒体页亦检查取消。聚焦复核发现部分重叠缺口，补RED后修复。版本声明/builder同步1.6.1，Contract2/0017不变，Android不改。
+
+最终客户端/索引45通过（33.53s），目录/API52通过（356.16s），均无失败/跳过；F/I改动逻辑与测试文件通过，models.py既有I001未顺手格式化。真实四库只读计数132/288/101/1866符合对照。隔离临时数据盘AVD安装既有Alpha17/code24，手动10.0.2.2:18766连接1.6.1并配对，UI全局5项/零项库3项/直接目录1项与子目录2项、图片实际渲染通过。合成H.264时间轴走到3秒但goldfish Surface错误，视频出帧不计通过；无实机/HomeLAN结论。
+
+首次空库配置422经正常选库解决；测试服务初次SQLite临时文件权限错误，仅设置子进程TEMP/TMP为项目目录后同步成功。模拟器准备与pytest曾短暂重叠，已终止该模拟器并在pytest结束后用独立数据盘启动。未重跑全量Server/JVM/connected，不重建APK，不改系统环境/权限、生产索引、真实媒体或服务生命周期。源码及证据见FOLDER_ZERO_REPAIR_RESULT_20261027.md；本轮Server产物构建待验，生产仍1.5.2。
+
+补记：源码修复提交6a74876；Server1.6.1增量EXE构建成功（约80秒），消费既有builder实际health/签名/manifest与ZIP门禁，182项SHA256通过。包deploy_handoff/folder-fix-1.6.1/MediaReview_Server_1.6.1_stage9.zip，134,336,115字节，SHA256 b644616f20535b4a80fb432ecfd206866e3e8681c5d3c210e280c2b0966618c6。Alpha17原APK复用不重建；实际EXE1.6.1/Contract2/14能力，隔离探针已停止。最终严格分页保护再次对四个真实样本只读计数通过。首次git push因GitHub443超时/RPC错误失败（退出1），末尾Everything up-to-date不构成成功；最终push状态另按实际输出核对。
+
+最终网络状态：第二次git push同样因GitHub443连接超时失败，未确认远端交付。源码6a74876、交付记录d18c31d及后续文档修正保留本地，不声称push成功；未改代理/系统网络设置。生产健康仍1.5.2/windows_service/AIHome.MediaReview，测试端口已释放、ADB无设备。
+
+### 2026-10-27 — 加载与核心预览源码调查
+
+用户随后澄清雪碧图已主动删除，原“恢复预览”建议撤回，保持裁剪。形成加载专项设计草案 `superpowers/specs/2026-10-27-media-loading-design.md`：图片缓存/可见项调度与Server图片I/O先行，视频首播分段测量后再验证下一条内容预缓冲；不更换播放器、不新增媒体服务。方案待确认，未修改生产代码或启动新构建/测试。
+
+核对Alpha17图片墙/原图、批阅播放地址预取及Server图片任务链，并对照Immich、Coil、Media3和thumbfast官方资料。确认历史2c164e3移除卡片雪碧图长按与仓库接线（功能提交b1ee683为当前祖先），不能归因于本轮接替；当前内存缓存键跨入口不统一、相邻视频仅地址/封面预取、原图解码限尺寸不减网络字节、后台任务FIFO且本地源尚无sprite适配。输出LOADING_PREVIEW_ASSESSMENT_20261027.md及分步建议。仅文档变更，未运行测试/构建、未部署或访问真实媒体；历史耗时不冒充本轮实机数据。
+
+### 2026-10-27 — 加载专项实施与定向验证（进行中）
+
+用户确认专项，雪碧图保持删除。共享Coil缩略图缓存键、认证命名空间/排队请求scope及返回会话检查；滚动collectLatest即刻监听；Server缓存I/O线程化，单次只读复核发现重复取消提前放锁，双cancel RED后修复并以5项通过收口。播放信息在凭据成功后TaskGroup并行源信息/续播，13项合同及缓存组通过；与后续缓存组重叠，不合并测试数。受控慢磁盘最大事件循环延迟464.87→3.19ms，两路各200ms模拟上游的实际API函数中位403.03→201.47ms，不外推真实LAN/首帧。
+
+Android首轮58项57通过/1旧Alpha17硬编码失败；同步Alpha18更新说明合同后受影响20项通过，非单轮58全绿。目标Server1.6.2/Alpha18 code25/Contract2，SSOT静态核对通过。默认Gradle/Kotlin及Debug签名锁权限问题以项目已有缓存、进程内编译及临时Debug key副本解决，不改系统权限；一次PowerShell参数传递错误不计测试。两项合成图片HTTP缓存/取消模拟器检查及正式产物待完成，生产不变。GSY默认URL缓存无认证身份，本轮不直接开启视频全局缓存；虚假first_frame进度日志改名playback_position_started。见LOADING_RESULT_20261027.md。
+
+收尾：隔离API35两项图片HTTP检查4.099s通过，真实Coil NETWORK→MEMORY_CACHE→DISK，合成PNG冷304ms/内存4ms，旧body延迟3000ms时新窗口headers23ms，换账号/清配对不命中旧图。Release Alpha18及Server1.6.2均已构建，既有builder实际health/签名/manifest与182项SHA256门禁通过，和Alpha17同发布证书。APK43,655,762字节/SHA256 3cc6d44504fe80961319c5a08b0fefac22b4b7e8ee3c4ae2cf3da2b48883a2ab；ServerZIP134,338,213字节/SHA256 02e66c0dbc2b39c2467cec9844a515919d2d1993d557ca93f7e9e1e14a04b3f2，均位于deploy_handoff/loading-1.6.2。源码bb02671已通过经核对的现有代理命令级push成功，旧目录修复提交一并同步，无全局代理改动。模拟器/探针已停止；动态批量清理被拦截后明确LiteralPath非递归清理成功，临时盘/签名副本已清，保留小型证据。生产仍1.5.2/windows_service/Running，未部署/未邮件/未真机HomeLAN验收；下一条视频内容预缓冲因GSY缓存身份边界保留后续。完整结果见LOADING_RESULT_20261027.md。
+
+### 2026-10-27 — 当前版本与测试就绪收口（进行中）
+用户要求电脑端收口、发送Alpha18并打开测试所需程序。发现现用安装/回滚/验收指南仍混合1.6.1/Alpha17及1.4.0历史目标，已备份原文到docs/history/20261027-before-release-closure并统一四份当前指引至1.6.2/Alpha18。准备以CURRENT_RELEASE.json作为唯一当前入口，程序字节不重建。Windows Defender对实际APK扫描退出0/无威胁；生产仍1.5.2/windows_service/Running，ControlHub online。新版本升级与本次QQ掩码收件人确认已提出，尚未停服或发送。详见DEPLOYMENT_CLOSURE_20261027.md。
+
+收口准备结果：current目录已用既有builder重新验证并打包，182项校验通过，ZIP134,333,980字节/SHA256 cdc7df3b1d4fb3df5c394af6f23dd74366719fd199e3aa8dfe6cf9fd66ab0cd0；EXE/APK字节未变，唯一CURRENT_RELEASE.json已生成。APK实际MIME附件预检通过，smtp_accepted=false，未发送。ControlHub GUI窗口Responding，MediaReview/Jellyfin online，Jellyfin健康200；内嵌管理页打开请求queued，不计可见。生产仍1.5.2，升级/收件人确认未答复，当前会话非管理员；维护脚本已准备并只读预检、语法核对，无进行中删除恢复，未处理原队列。一次组合命令被自动审批blocked by policy拦截，未停服/升级；只继续了分开的安全文件标记和只读检查，未绕过审批。等待本次确认后执行，不能宣称回家新版已就绪。完整记录见DEPLOYMENT_CLOSURE_20261027.md。
+
+
+### 2026-10-27 — 用户确认后的生产升级与邮件完成
+
+用户明确回复“确认升级并发送”。首轮停服备份因旧手动实例持有数据库失败，未替换程序，经ControlHub恢复旧服务；失败备份标记INCOMPLETE_BACKUP。Restart Manager只读定位后，完成受保护SQLite一致性快照并检查integrity_check=ok，再停服并核验身份后仅终止旧残留PID3896。重试完整停服备份、校验部署1.6.2并经ControlHub启动成功。终检1.6.2/Contract2/数据库ok/14能力/windows_service，单实例且服务子进程与8766归属一致，EXE哈希匹配当前发布。有效完整备份manual-1.6.2-20261027-180323及旧程序保留。
+
+Alpha18真实MIME附件43,655,762字节及SHA256匹配CURRENT_RELEASE，Defender无威胁，SMTP accepted且拒收0，不声称已阅读/收件箱送达；未复制凭据或记录完整收件地址。ControlHub GUI启动、Jellyfin健康200、管理页200；应用内页面打开返回queued，外部浏览器启动被自动审批blocked by policy拒绝，未绕过。未触碰真实媒体或清手机数据、未处理删除队列、未刷新生产媒体索引，手机/HomeLAN待用户验收。未重复构建/全量回归；复用构建证据，增加实际部署哈希/健康/单实例与SMTP回执检查。完整运维证据在review_meta/ops-20261027，本轮报告DEPLOYMENT_CLOSURE_20261027.md。
+
+
+### 2026-10-27 — Alpha18实机排障与1.6.3候选
+
+实际手机复现离线与文件夹零项。SCM进程存活但无8766监听；官方ControlHub把offline当作停止而跳过stop，start失败。用户明确授权精确Windows服务恢复例外后恢复1.6.2，手机重新检测在线。3图片+1视频样本上游元数据存在、文件路径winerror3/Download404，视频封面200；当前新媒体大量未进入10月22日旧缓存。保留24有效库并取消2失效库选择，正常接口逐库刷新进行中，所有独立诊断配对已撤销，无媒体删除。
+
+3个连接占用回归有效RED后修复media事务边界；相关36通过/2未选/777.10s。recent_auth用例RED后补认证读取事务归还；相关11通过/12未选/139.02s，与前轮有重叠，不累加。目标Server1.6.3，Alpha18不变；版本声明与当前指南同步候选，尚未生产部署。未重跑无关全量或重建APK。初轮SQLite临时文件权限失败不算RED，仅调整子进程TEMP/TMP后验证。详细事实与限制见PHONE_REPAIR_20261027.md。
+
+### 2026-10-27 — 1.6.3授权部署与真机抽样收口
+
+24个当前有效库通过正常API逐库刷新全部succeeded，processed合计56553，不操作媒体文件。源码d87b69a已push；增量EXE构建、实际health1.6.3、182项包哈希校验通过，Alpha18字节和签名未变。用户明确允许后，经ControlHub停服、完整受保护备份并升级启动1.6.3/Contract2/0017/14能力，单实例和8766归属确认。CURRENT_RELEASE切至已校验的current/1.6.3，旧1.6.2及备份保留回滚。
+
+真机Alpha18媒体墙、图片查看和视频实际画面抽样确认；1.6.3上线后手动重新检测在线，视频再次出帧，播放信息接口72ms。全部目录逐个验证未执行，列表/文件夹仍约数秒；升级断线后的自动恢复、整批刷新泛化错误和无监听触发原因仍有剩余项，不声称全部故障根除。未清手机数据、不处理删除队列、不重跑全量/重建APK。详见PHONE_REPAIR_20261027.md及本地维护回执。
+
+### 2026-10-27 — 批阅核心专项 / Alpha19候选
+
+用户确认抖音式上下切换、单击暂停、进度条拖动，取消滑动保留/待删除、双击跳进度与长按快捷操作。真机复现旧冻结会话56533项、52953失效；抽查4项不属于已选库且真实路径/Download404，新会话3987视频正常播放。批阅页缺少内核Error回传，已补当前源/host约束和错误重试/重选范围入口；保持单播放器、原安全删除、Server1.6.3和完整播放器不变。
+
+新增2项设备回归先有效RED，再修复；71项相关JVM、4项隔离模拟器设备测试通过，debug/test编译成功。Alpha19/code26 Release与手机原位升级待完成，不声称正式就绪。详见REVIEW_REPAIR_20261027.md；未运行全量connected/Server或清手机数据。
+
+### 2026-10-27 — Alpha19签名交付与批阅真机收口
+
+Release构建成功，同Alpha18证书，43,655,762字节；SHA256与安装入口详见REVIEW_REPAIR_20261027.md。源码1abbeb0已push，手机install -r成功且版本26/Alpha19，保留数据。实际Server1.6.3下，第5/6项上下换片且进度前进、暂停后拖到70%仍暂停、画面横向不换片/不跳进度、单击恢复、播放中进度条拖动后继续均已抽样确认。未遍历3987视频或逐帧验收，真实旧会话错误页未重造，仅隔离404用例通过。无真实删除、Server重建/部署或邮件发送。唯一CURRENT_RELEASE切独立Alpha19，ServerZIP仍附Alpha18，安装文档明确区分。辅助会话与本轮模拟器已关闭、ADB forward为空。
+
+## 2026-10-29 删除恢复与生图入口（待发布）
+已完成Server1.6.4/0018与Alpha22/code29源码：持久批次回执、设备归属、执行/恢复互斥、有界客户端核对、页面状态打磨及生图独立入口/合同准备。69项相关JVM通过；Server定向回归及环境失败复测详情见docs/EXPERIENCE_GENERATED_RESULT_20261029.md。未构建交付包、未部署、未连接手机；NSFW未改，上游HTTP未接通。
+
+## 2026-10-29 产物收口
+Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alpha21一致，演示资源检查0项。Server1.6.4增量EXE构建及隔离health通过，Contract2/15项能力含delete_result_v1；发布包184项SHA256完整性校验通过。CURRENT_RELEASE已指向新配套并标记未部署，旧包保留。
+
+- APK：deploy_handoff/MediaReview_2.0.0-alpha22_stage9.apk；SHA256 810816787356725e256949abcd23261b62f5f143c8e6096f989cd23f95f38e36。
+- Server：deploy_handoff/MediaReview_Server_1.6.4_stage9.zip；111,898,934字节；SHA256 0ee9d634e9c97d9decaa7f7bbfc10978bbddca53c71cba0bf24245c1bc4321bb。
+- 业务源码aa441a1，构建/审查基线17cd886，均已push。本节为产物后续记录，不重建相同包。完整证据在review_meta/experience-20261028和标准构建receipt。
+- 未部署、未邮件发送、未连接手机或模拟器；生图HTTP和评分写回仍待上游合同。UI仅静态检查；这些边界不属于已验证结果。
+
+## 生图分支合入记录（历史增补）
+
+
 ## 2026-10-29 NSFW 生图审核 V2 客户端（分支 feature/nsfw-image-review-v2）
 
 背景：用户要求在 MediaReview 中新增与「批阅」并列的「生图审核」页面，独立连接 NSFW Studio Mobile Review Bridge；本轮只允许改 MediaReview，不得改 NSFW 仓库/Bridge/数据库/部署，也不得把模拟接口测试说成真实联调通过。
@@ -2998,3 +3338,10 @@ Server1.5.1 EXE已构建；审查修订后作一次必要增量重建。隔离�
 
 剩余风险：游标水位仍只在内存（进程重启从头分页，可能重新混入旧图）；DataStore 记录依赖 NSFW DataStore 可用性；真实服务端事件顺序与 410 语义仍需阶段 B/C 对账。
 
+
+
+## 2026-10-30 生图审核继续收口
+
+修复跨有界同步批次的历史图片新图计数，纠正入库时间和未知尺寸文案，增加队尾新图导航。回归曾观察到0/10失败；补跑结果待确认，不将中断构建计为通过。手机不可用；Studio受管状态offline。见NSFW_INTEGRATION_RESULT_20261030.md。
+
+2026-10-30定向验证终态：`:app:testDebugUnitTest --tests com.mediareview.app.feature.v2.nsfw.NsfwReviewViewModelTest`，56项、0失败、0错误，BUILD SUCCESSFUL（5m48s）。日志history-counter-green-1030.log。修正版Release及手机验证尚未完成。

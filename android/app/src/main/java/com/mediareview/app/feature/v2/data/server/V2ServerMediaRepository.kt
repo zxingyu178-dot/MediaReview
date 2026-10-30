@@ -9,6 +9,7 @@ import com.mediareview.app.core.network.MediaReviewApi
 import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.data.AlbumCoverStore
 import com.mediareview.app.feature.v2.data.MediaRepository
+import com.mediareview.app.feature.v2.data.PendingDeleteText
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.model.V2Album
 import com.mediareview.app.feature.v2.model.V2Folder
@@ -295,12 +296,18 @@ class V2ServerMediaRepository internal constructor(
     /**
      * 加入 / 移除待删除：`POST /delete-queue/{id}` / `DELETE /delete-queue/{id}`。
      * 只有服务器确认成功才返回 true（§36：失败 UI 不变 + Snackbar）。
+     *
+     * Stage 9：是否可删除**只信任服务端下发的 `can_delete`**（本地源已支持两阶段安全删除）。
+     * 去掉 `loc_` 前缀门禁；旧 Server 对本地仍下发 `can_delete=false`，这里自然拒绝。
      */
     override suspend fun setPendingDelete(mediaId: String, pending: Boolean): Boolean = try {
         if (pending) {
             val media = resources.media(mediaId)
-            require(!mediaId.startsWith("loc_") && media?.canDelete != false) { "本地来源为只读" }
+            require(media != null && media.canDelete) {
+                PendingDeleteText.rejected(statusStore.supportsNativeDelete)
+            }
         }
+
         call { api, _ ->
             if (pending) unwrap(api.enqueueDelete(mediaId)) else unwrap(api.dequeueDelete(mediaId))
         }

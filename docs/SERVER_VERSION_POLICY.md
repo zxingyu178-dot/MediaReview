@@ -27,6 +27,14 @@
 Health 同时返回 `capabilities`（本契约下明确提供的能力清单）：
 
 ```text
+native_sources_v1
+native_range_v1
+native_read_only_v1
+native_delete_v1
+folder_tree_v1
+thumbnail_profiles_v1
+review_folder_filter_v1
+delete_receipt_v1
 review_session
 review_nearest
 organize
@@ -35,8 +43,9 @@ duplicates_paged
 library_selection
 ```
 
-`capabilities` 供**未来渐进功能判断**；当前兼容 Gate 仍以 `api_contract` 为主，
-**不实现**复杂 Feature Flag 系统。
+1.6.0 共声明 14 项能力。`native_read_only_v1` 是历史兼容名；本地源两阶段安全删除以 `native_delete_v1` 为准。Android 的删除权限仍只信任服务端显式下发的 `can_delete=true`，不根据版本号或来源类型推断。
+
+`capabilities` 供渐进功能判断；基础兼容 Gate 仍以 `api_contract` 为主。
 
 ## 4. Health 响应合同
 
@@ -44,12 +53,12 @@ library_selection
 {
   "status": "ok",
   "service": "...",
-  "version": "1.2.0",
+  "version": "1.6.0",
   "instance_mode": "...",
   "lifecycle_target": "...",
   "components": { "database": "ok", "jellyfin": "configured" },
   "api_contract": 2,
-  "capabilities": ["review_session", "..."]
+  "capabilities": ["native_sources_v1", "...", "native_delete_v1"]
 }
 ```
 
@@ -57,6 +66,14 @@ library_selection
 `api_contract = 1`、空清单，**不崩溃**，并判定为"版本过旧"（Incompatible）。
 
 ## 5. 版本历史
+
+### 1.6.0（P5 / 2026-10）
+- API Contract 保持 2，能力清单增加 `native_delete_v1`（13 → 14）；
+- Android Alpha16/code23 与 UI 重构后的 Alpha17/code24 均使用 Contract 2；Alpha17 不新增 Server 能力或协议要求；
+- 数据库迁移 head 升至 `0017`（`delete_queue.queue_token`，保留历史 `delete_done` / `delete_pending` 读取与降级阻断）；
+- Windows 本地删除仅使用 POSIX 语义；不支持时 `delete_not_supported` fail-closed，最低 Windows 10 1709；
+- receipt 保持 `success` / `missing` / `failed` 三值；
+- P5 源码准备不等于产物已构建、真机/LAN 已验收或生产已升级。
 
 ### 1.2.1（Stage 8D.2 / 2026-10）
 - **只修 Bug，API Contract 保持 2**（正是本策略要验证的"版本与 Contract 分离"）；

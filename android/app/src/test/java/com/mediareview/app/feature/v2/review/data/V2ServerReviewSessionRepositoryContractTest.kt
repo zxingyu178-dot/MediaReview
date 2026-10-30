@@ -163,6 +163,7 @@ class V2ServerReviewSessionRepositoryContractTest {
     private lateinit var router: ReviewDispatcher
     private lateinit var repository: V2ServerReviewSessionRepository
     private lateinit var resources: V2ServerResourceCache
+    private lateinit var statusStore: V2ServerStatusStore
 
     @Before
     fun setUp() {
@@ -178,6 +179,7 @@ class V2ServerReviewSessionRepositoryContractTest {
             .build()
         val baseUrl = "http://mediareview.test:${server.port}"
         resources = V2ServerResourceCache()
+        statusStore = onlineServerStatus()
         repository = V2ServerReviewSessionRepository(
             profilePort = object : V2ServerProfilePort {
                 override suspend fun baseUrl(): String = baseUrl
@@ -185,7 +187,7 @@ class V2ServerReviewSessionRepositoryContractTest {
             apiFactory = ApiFactory(http, http, Json { ignoreUnknownKeys = true; coerceInputValues = true }),
             mapper = V2MediaMapper(MediaUrlResolver()),
             resources = resources,
-            statusStore = onlineServerStatus(),
+            statusStore = statusStore,
         )
     }
 
@@ -737,6 +739,49 @@ class V2ServerReviewSessionRepositoryContractTest {
         assertEquals("", first.code) // Server 无编号概念：留空而不是伪造
     }
 
+    // ---------- Stage 9：本地源直接信任服务端 can_delete ----------
+
+    @Test
+    fun `本地队列项直接信任服务端can_delete`() = runTest {
+        router.latestStatus = 404
+        router.sessionTotal = 2
+        router.extraMediaFields = ",\"source_type\": \"local\", \"can_delete\": true"
+
+        val ready = repository.enterSession() as ReviewSessionOpen.Ready
+
+        assertTrue("can_delete=true 时本地队列项可删除", ready.window.items.all { it.canDelete })
+        assertTrue("来源仍原样下发（只用于展示）", ready.window.items.all { it.sourceType == "local" })
+    }
+
+    @Test
+    fun `旧Server对本地下发false时队列项不可删除`() = runTest {
+        router.latestStatus = 404
+        router.sessionTotal = 1
+        router.extraMediaFields = ",\"source_type\": \"local\", \"can_delete\": false"
+
+        val ready = repository.enterSession() as ReviewSessionOpen.Ready
+
+        assertFalse("can_delete=false 时本地队列项不可删除", ready.window.items.single().canDelete)
+    }
+
+    @Test
+    fun `旧Server省略can_delete时队列项不可删除`() = runTest {
+        router.latestStatus = 404
+        router.sessionTotal = 1
+        router.extraMediaFields = ",\"source_type\": \"local\""
+
+        val ready = repository.enterSession() as ReviewSessionOpen.Ready
+
+        assertFalse("未明确下发 can_delete=true 时队列项必须不可删除", ready.window.items.single().canDelete)
+    }
+
+    @Test
+    fun `本地删除能力来自服务端capabilities`() {
+        assertFalse("默认旧 Server 无 native_delete_v1", repository.supportsNativeDelete)
+        statusStore.recordCompatible("1.6.0", 3, listOf("native_sources_v1", "native_delete_v1"))
+        assertTrue("新 Server 声明 native_delete_v1", repository.supportsNativeDelete)
+    }
+
     private fun testApiFactory(): ApiFactory {
         val http = OkHttpClient.Builder()
             .dns(object : Dns {
@@ -770,6 +815,9 @@ class V2ServerReviewSessionRepositoryContractTest {
 
         /** 显式指定每页的绝对索引；null = 连续满页（默认）。 */
         var pageItems: ((Int) -> List<Int>)? = null
+
+        /** 队列 media 对象里的附加字段（如 Stage 9 的 source_type / can_delete）。 */
+        var extraMediaFields: String = ""
 
         fun paths(): List<String> = requests.map { it.requestUrl?.encodedPath.orEmpty() }
 
@@ -935,7 +983,7 @@ class V2ServerReviewSessionRepositoryContractTest {
                     "width": 1920, "height": 1080,
                     "cover_url": "/api/v1/media/$mediaId/thumbnail",
                     "folder_id": "f1", "folder_name": "旅行",
-                    "is_favorite": false
+                    "is_favorite": false$extraMediaFields
                   }
                 }
                 """.trimIndent()

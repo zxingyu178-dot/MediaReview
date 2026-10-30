@@ -1,6 +1,6 @@
 """MediaReview 中间层服务。"""
 
-__version__ = "1.5.2"
+__version__ = "1.6.4"
 
 # API Contract:给 App 判断兼容性的正式字段(与人类可读的 __version__ 分开管理)。
 # - Server 版本给"给人看 / 部署 / 回滚"用;
@@ -14,11 +14,15 @@ SERVER_API_CONTRACT = 2
 SERVER_CAPABILITIES: tuple[str, ...] = (
     "native_sources_v1",
     "native_range_v1",
+    # legacy: Stage 9 本地源最初为只读，能力名保留做历史兼容；
+    # 本地源删除能力以 native_delete_v1 为准(两阶段 nonce 安全删除)。
     "native_read_only_v1",
+    "native_delete_v1",
     "folder_tree_v1",
     "thumbnail_profiles_v1",
     "review_folder_filter_v1",
     "delete_receipt_v1",
+    "delete_result_v1",
     "review_session",
     "review_nearest",
     "organize",

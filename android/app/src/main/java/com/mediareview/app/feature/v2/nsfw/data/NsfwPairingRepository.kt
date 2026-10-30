@@ -59,7 +59,7 @@ interface NsfwPairingGateway {
 
 /**
  * NSFW Studio 独立配对流程：
- * 1) 先把用户输入规范化（默认端口 8767）；
+ * 1) 先把用户输入规范化（默认端口 8877）；
  * 2) `GET /mobile/system/health` 校验 product / api_contract / capabilities；
  * 3) 只有全部满足才 POST /mobile/pairing/verify 换 token；
  * 4) token 只写 NSFW 自己的 DataStore 与内存 provider。
@@ -140,7 +140,7 @@ class NsfwPairingRepository internal constructor(
 
     override suspend fun checkAndPair(baseUrlInput: String, code: String): NsfwPairResult {
         val baseUrl = try {
-            normalizeBaseUrl(baseUrlInput, defaultPort = 8767)
+            normalizeBaseUrl(baseUrlInput, defaultPort = 8877)
         } catch (error: IllegalArgumentException) {
             return NsfwPairResult.Failed(error.message ?: "服务器地址格式无效")
         }

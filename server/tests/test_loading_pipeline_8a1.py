@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Iterator
 
 import httpx
@@ -215,6 +216,88 @@ def test_thumbnail_cache_key_depends_on_media_fingerprint_and_variant() -> None:
 
 
 # ---------- single-flight ----------
+
+
+def test_thumbnail_disk_io_does_not_run_on_event_loop(tmp_path, monkeypatch) -> None:
+    paths = PathManager(tmp_path)
+    paths.ensure()
+    service = ThumbnailCacheService(paths)
+    loop_thread = threading.get_ident()
+    key = thumbnail_cache_key(media_id="m", fingerprint="fp", variant=VARIANT_GRID)
+    read, write = service.read, service.write
+    operations = []
+
+    def disk_read(key):
+        assert threading.get_ident() != loop_thread, "disk read blocked event loop"
+        operations.append("read")
+        return read(key)
+
+    def disk_write(*args):
+        assert threading.get_ident() != loop_thread, "disk write blocked event loop"
+        operations.append("write")
+        return write(*args)
+
+    monkeypatch.setattr(service, "read", disk_read)
+    monkeypatch.setattr(service, "write", disk_write)
+
+    async def scenario():
+        async def loader():
+            return b"payload", "image/jpeg"
+
+        first = await service.get_or_create(key, loader)
+        second = await service.get_or_create(key, loader)
+        assert not first.hit and second.hit
+
+    asyncio.run(scenario())
+    assert operations == ["read", "read", "write", "read"]
+
+
+@pytest.mark.parametrize("cancel_count", [1, 2])
+def test_thumbnail_cancelled_writer_keeps_single_flight_until_atomic_write(tmp_path, monkeypatch, cancel_count):
+    paths = PathManager(tmp_path)
+    paths.ensure()
+    service = ThumbnailCacheService(paths)
+    key = thumbnail_cache_key(media_id="m", fingerprint="fp", variant=VARIANT_GRID)
+    write = service.write
+    release = threading.Event()
+    calls = 0
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        writing = asyncio.Event()
+
+        def slow_write(*args):
+            loop.call_soon_threadsafe(writing.set)
+            assert release.wait(5), "test did not release writer"
+            return write(*args)
+
+        monkeypatch.setattr(service, "write", slow_write)
+
+        async def loader():
+            nonlocal calls
+            calls += 1
+            return b"payload", "image/jpeg"
+
+        first = asyncio.create_task(service.get_or_create(key, loader))
+        await asyncio.wait_for(writing.wait(), 2)
+        for _ in range(cancel_count):
+            first.cancel()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        second = asyncio.create_task(service.get_or_create(key, loader))
+        try:
+            await asyncio.sleep(0.02)
+            assert not first.done()
+            assert not second.done()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert (await second).hit
+
+    asyncio.run(scenario())
+    assert calls == 1
+    assert not list(paths.thumbnails_dir.rglob("*.tmp"))
 
 
 def test_thumbnail_single_flight_collapses_concurrent_misses(tmp_path) -> None:

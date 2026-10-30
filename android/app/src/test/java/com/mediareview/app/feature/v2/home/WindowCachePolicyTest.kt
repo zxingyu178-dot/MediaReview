@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.home
 import com.mediareview.app.feature.v2.model.*
 import com.mediareview.app.feature.v2.viewer.state.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -88,5 +89,27 @@ class WindowCachePolicyTest {
         while (started.get() < 2) yield()
         assertEquals(2, started.get()); gate.complete(Unit); job.join()
         assertEquals(16, started.get()); assertTrue(maximum.get() <= 2)
+    }
+
+    @Test fun scrollingCancelsAnUnfinishedInitialWindowAndStartsTheVisibleWindow() = runBlocking<Unit> {
+        val positions = kotlinx.coroutines.channels.Channel<Int>(kotlinx.coroutines.channels.Channel.CONFLATED)
+        val first = CompletableDeferred<Unit>()
+        val visible = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val job = launch {
+            prefetchCoverWindows((0..99).map { "$it" }, positions.receiveAsFlow()) { url ->
+                if (url.toInt() < 16) {
+                    first.complete(Unit)
+                    try { awaitCancellation() } finally { cancelled.complete(Unit) }
+                } else visible.complete(Unit)
+            }
+        }
+        positions.send(0)
+        withTimeout(2_000) { first.await() }
+        positions.send(50)
+        withTimeout(2_000) { visible.await() }
+        assertTrue(cancelled.isCompleted)
+        job.cancelAndJoin()
+        positions.close()
     }
 }

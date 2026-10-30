@@ -12,7 +12,8 @@ object MediaSpacing {
 }
 
 object MediaRadii {
-    val Small = 8.dp
+    val XSmall = 2.dp
+    val Small = 6.dp
     val Medium = 12.dp
     val Large = 20.dp
 }
@@ -24,9 +25,9 @@ object MediaElevation {
 }
 
 object MediaMotion {
-    const val FastMillis = 120
-    const val StandardMillis = 220
-    const val SlowMillis = 320
+    const val FastMillis = 150
+    const val StandardMillis = 250
+    const val SlowMillis = 350
 }
 
 object MediaDimensions {

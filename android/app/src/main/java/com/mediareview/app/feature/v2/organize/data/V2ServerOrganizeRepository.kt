@@ -24,6 +24,12 @@ import retrofit2.HttpException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import com.mediareview.app.feature.v2.organize.delete.DeleteResultLookup
+import com.mediareview.app.feature.v2.organize.delete.PendingDeleteStore
+import com.mediareview.app.feature.v2.organize.delete.DeleteRecoveryJournal
+import com.mediareview.app.feature.v2.data.server.V2ServerHealthMonitor
+import com.mediareview.app.feature.v2.data.server.V2ServerStatus
+import com.mediareview.app.core.model.CommitResultDto
 
 /**
  * Production（真实 Server）整理中心仓库 —— Stage 8C。
@@ -59,6 +65,8 @@ class V2ServerOrganizeRepository internal constructor(
     private val statusStore: V2ServerStatusStore,
     /** Stage 8D.2 §13/§15：统一 Server 业务访问 Guard。 */
     private val accessGuard: V2ServerAccessGuard = V2ServerAccessGuard(statusStore),
+    private val deleteJournal: DeleteRecoveryJournal? = null,
+    private val healthMonitor: V2ServerHealthMonitor? = null,
 ) : V2OrganizeRepository {
 
     @Inject
@@ -68,6 +76,8 @@ class V2ServerOrganizeRepository internal constructor(
         mapper: V2MediaMapper,
         resources: V2ServerResourceCache,
         statusStore: V2ServerStatusStore,
+        deleteJournal: PendingDeleteStore,
+        healthMonitor: V2ServerHealthMonitor,
     ) : this(
         profilePort = object : V2ServerProfilePort {
             override suspend fun baseUrl(): String = profileStore.current().baseUrl
@@ -77,9 +87,40 @@ class V2ServerOrganizeRepository internal constructor(
         resources = resources,
         statusStore = statusStore,
         accessGuard = V2ServerAccessGuard(statusStore),
+        deleteJournal = deleteJournal,
+        healthMonitor = healthMonitor,
     )
 
     override val mode: V2DataMode = V2DataMode.SERVER
+    override val supportsDeleteRecovery: Boolean
+        get() = "delete_result_v1" in statusStore.capabilities.value
+    private val preparedScopes = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private suspend fun deletionScope(): String = deleteJournal?.scope() ?: profilePort.baseUrl()
+
+    override suspend fun pendingDeleteNonce(): String? = deleteJournal?.let { it.read(it.scope()) }
+
+    override suspend fun acknowledgeDeleteResult(nonce: String) {
+        deleteJournal?.let { it.acknowledge(it.scope(), nonce) }
+    }
+
+    override suspend fun deleteResult(nonce: String): DeleteResultLookup {
+        val scope = deletionScope()
+        if (deleteJournal != null && deleteJournal.read(scope) != nonce) return DeleteResultLookup.Unknown
+        if (statusStore.status.value != V2ServerStatus.Online) healthMonitor?.probe()
+        check(deletionScope() == scope) { "服务器或配对已变化，请返回原服务器核对" }
+        if (!supportsDeleteRecovery) return DeleteResultLookup.Unsupported
+        val dto = call { api, _ -> unwrap(api.deleteResult(nonce)) }
+        check(deletionScope() == scope) { "服务器或配对已变化，请返回原服务器核对" }
+        return when (dto.state) {
+            "completed" -> dto.result?.let { value ->
+                val response = mapDeleteResponse(value)
+                if (response.diskReceipt != null) DeleteResultLookup.Completed(response) else DeleteResultLookup.Unknown
+            } ?: DeleteResultLookup.Unknown
+            "running" -> DeleteResultLookup.Running
+            "prepared" -> DeleteResultLookup.NotSubmitted
+            else -> DeleteResultLookup.Unknown
+        }
+    }
 
     // ---------- 访问层（与其余 V2 Server 仓库完全同构） ----------
 
@@ -191,7 +232,10 @@ class V2ServerOrganizeRepository internal constructor(
     }
 
     override suspend fun prepareDeleteCommit(): DeleteCommitPrepare = call { api, _ ->
+        val scope = deletionScope()
         val dto = unwrap(api.prepareDeleteCommit())
+        check(deletionScope() == scope) { "服务器或配对已变化，请重新确认" }
+        preparedScopes[dto.nonce] = scope
         DeleteCommitPrepare(
             nonce = dto.nonce,
             expiresAt = dto.expires_at,
@@ -202,8 +246,12 @@ class V2ServerOrganizeRepository internal constructor(
         )
     }
 
-    override suspend fun commitDelete(nonce: String): DeleteCommitResponse =
-        call { api, _ ->
+    override suspend fun commitDelete(nonce: String): DeleteCommitResponse {
+        val scope = deletionScope()
+        if (deleteJournal != null) check(preparedScopes[nonce] == scope) { "删除确认不属于当前服务器或配对" }
+        if (supportsDeleteRecovery) deleteJournal?.save(scope, nonce)
+        return call { api, _ ->
+            check(deletionScope() == scope) { "服务器或配对已变化，请返回原服务器核对" }
             val dto = try {
                 unwrap(api.commitDeleteQueue(CommitRequest(nonce)))
             } catch (error: HttpException) {
@@ -214,6 +262,12 @@ class V2ServerOrganizeRepository internal constructor(
                 if (code == "DELETE_ALREADY_PROCESSED") throw DeleteAlreadyProcessedException()
                 throw error
             }
+            check(deletionScope() == scope) { "服务器或配对已变化，请返回原服务器核对" }
+            mapDeleteResponse(dto)
+        }
+    }
+
+    private fun mapDeleteResponse(dto: CommitResultDto): DeleteCommitResponse {
             val outcome = dto.outcome.mapValues { (_, value) -> DeleteOutcomeStatus.fromWire(value) }
             val receipt = if (
                 dto.deleted_count != null && dto.deleted_bytes != null &&
@@ -222,12 +276,19 @@ class V2ServerOrganizeRepository internal constructor(
                 dto.missing_count >= 0 && dto.failed_count >= 0 &&
                 dto.deleted_count == outcome.count { it.value == DeleteOutcomeStatus.Success } &&
                 dto.missing_count == outcome.count { it.value == DeleteOutcomeStatus.Missing } &&
-                dto.failed_count == outcome.count { !it.value.changed } &&
+                dto.failed_count == outcome.count {
+                    it.value == DeleteOutcomeStatus.Failed || it.value == DeleteOutcomeStatus.Unknown
+                } &&
                 (dto.deleted_count > 0 || dto.deleted_bytes == 0L)
-            ) DiskDeletionReceipt(dto.deleted_count, dto.deleted_bytes, dto.missing_count, dto.failed_count)
+            ) DiskDeletionReceipt(
+                dto.deleted_count,
+                dto.deleted_bytes,
+                dto.missing_count,
+                dto.failed_count,
+            )
             else null
-            DeleteCommitResponse(outcome, receipt)
-        }
+            return DeleteCommitResponse(outcome, receipt)
+    }
 
     // ---------- 重复媒体 ----------
 

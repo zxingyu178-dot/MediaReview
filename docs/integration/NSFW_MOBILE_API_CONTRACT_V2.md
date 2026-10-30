@@ -6,7 +6,7 @@
 - 来源需求：`docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`（原文归档，未改动）。
 - 基线：MediaReview `codex/mediareview-stage9-native-source` @ `37e93e2`；NSFW Studio 只读参考（未修改任何 NSFW 代码、数据库、部署或端口）。
 
-> 真实 NSFW Mobile Review Bridge（8767）当前只声明 `api_contract=1`，能力集为
+> 真实 NSFW Mobile Review Bridge（8877）当前只声明 `api_contract=1`，能力集为
 > `image_review / review_session / favorite / thumbnail / preview / original`，
 > **不含本文件所需的 v2 feed / details / 按 image_id 审核 / 提示词评分能力**。
 > 因此真实端到端联调在本轮被明确阻断；本轮只交付客户端契约、能力门禁与模拟接口（MockWebServer）测试。
@@ -15,9 +15,9 @@
 
 | 项 | 约定 |
 | --- | --- |
-| 基址 | 用户输入的 Bridge 地址，默认端口 8767；客户端只保存 origin（scheme + host + port） |
+| 基址 | 用户输入的 Bridge 地址，默认端口 8877；客户端只保存 origin（scheme + host + port） |
 | 传输 | HTTP/JSON，UTF-8；图片二进制沿用现有 `/mobile/images/{image_id}/thumbnail|preview|original` |
-| 鉴权 | `Authorization: Bearer <token>`（沿用现有 8767 配对 token），仅对已配对 origin 注入 |
+| 鉴权 | `Authorization: Bearer <token>`（沿用现有 8877 配对 token），仅对已配对 origin 注入 |
 | 信封 | `{ "success": bool, "data": T?, "error": { "code": string, "message": string, "details": any? }?, "request_id": string }` |
 | 版本 | 健康端点 `api_contract`；本客户端要求 `>= 2` |
 | 时间 | 所有时间为 UTC ISO 8601（带 `Z` 或偏移）；客户端不把接收时间当生成时间 |

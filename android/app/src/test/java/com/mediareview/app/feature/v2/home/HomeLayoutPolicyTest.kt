@@ -4,6 +4,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeLayoutPolicyTest {
+    @Test fun singleLibraryRootKeepsDirectMediaEvenWithoutChildFolders() {
+        val root = com.mediareview.app.feature.v2.model.V2FolderNode("root", null, "lib", "媒体库", 0, 2, 2, 1)
+        assertEquals("root", implicitFolderRoot(listOf(root)))
+        assertTrue(folderChildren(listOf(root), null, com.mediareview.app.feature.v2.model.V2SortSpec()).isEmpty())
+    }
+    @Test fun folderChildrenSortNamesAndKeepMultipleLibrariesNavigable() {
+        val root = com.mediareview.app.feature.v2.model.V2FolderNode("root", null, "lib", "媒体库", 2, 0, 2, 0)
+        val a = root.copy(id = "a", parentId = "root", name = "A")
+        val z = a.copy(id = "z", name = "Z")
+        val name = com.mediareview.app.feature.v2.model.V2SortSpec(field = com.mediareview.app.feature.v2.model.V2SortField.NAME)
+        assertEquals(listOf("z", "a"), folderChildren(listOf(root, z, a), null, name).map { it.id })
+        val other = root.copy(id = "other", libraryId = "other")
+        assertNull(implicitFolderRoot(listOf(root, other, a)))
+        assertEquals(setOf("root", "other"), folderChildren(listOf(root, other, a), null, name).map { it.id }.toSet())
+    }
+    @Test fun overflowActionsKeepAllExistingHomeControlsReachable() {
+        assertEquals(
+            listOf("排序与筛选", "切换为单列", "数据源", "浏览文件夹"),
+            homeOverflowActions(HomeDisplayMode.TWO_COLUMN).map { it.label },
+        )
+        assertEquals("切换为双列", homeOverflowActions(HomeDisplayMode.ONE_COLUMN)[1].label)
+    }
+
+    @Test fun folderBackMovesToParentBeforeLeavingBrowser() {
+        val parents = mapOf("root" to null, "movies" to "root", "action" to "movies")
+        assertEquals(FolderBackTarget.Parent("movies"), folderBackTarget("action", parents, null))
+        assertEquals(FolderBackTarget.Parent(null), folderBackTarget("root", parents, "root"))
+        assertEquals(FolderBackTarget.Exit, folderBackTarget(null, parents, "root"))
+    }
+
     @Test fun layoutAnchorFollowsMediaIdentityAfterReorder() {
         val anchor = HomeGridAnchor("m42", 73)
         assertEquals(1, anchor.indexIn(listOf("m1", "m42", "m2")))
@@ -25,5 +55,10 @@ class HomeLayoutPolicyTest {
         assertEquals(HomeDisplayMode.TWO_COLUMN, HomeDisplayMode.fromStored(null))
         assertEquals(HomeDisplayMode.TWO_COLUMN, HomeDisplayMode.fromStored("invalid"))
         HomeDisplayMode.entries.forEach { assertEquals(it, HomeDisplayMode.fromStored(it.name)) }
+    }
+
+    @Test fun mediaTitlePresentationKeepsVideoMetadataAndSoftensImageNames() {
+        assertEquals(MediaTitlePresentation.IMAGE_OVERLAY, mediaTitlePresentation(isVideo = false))
+        assertEquals(MediaTitlePresentation.VIDEO_LABEL, mediaTitlePresentation(isVideo = true))
     }
 }

@@ -24,7 +24,9 @@ fun GsyNativePlayerWithPendingDelete(
 ) {
     val state by playerViewModel.state.collectAsState()
     val mediaId = state.currentMediaId.orEmpty()
-    val canDelete = vm.mediaById(mediaId)?.canDelete ?: !mediaId.startsWith("loc_")
+    // Stage 9：是否可删除只信任服务端下发的 can_delete（本地源已可删除，不再按 loc_ 前缀推断）。
+    // 缓存里查不到时保守禁用（不臆测"可删除"）。
+    val canDelete = vm.mediaById(mediaId)?.canDelete ?: false
     val dataMode by vm.dataMode.collectAsState()
     val pendingState by vm.viewerPendingDeleteState.collectAsState()
     val pendingBusy by vm.viewerPendingDeleteBusy.collectAsState()
@@ -52,7 +54,7 @@ fun GsyNativePlayerWithPendingDelete(
             onReportLoadedProgress = playerViewModel::reportLoadedProgress,
             pendingDeleteEnabled = canDelete && session != null && mediaId.isNotBlank() && pendingState is ViewerPendingDeleteState.Ready && !pendingBusy,
             isPendingDelete = (pendingState as? ViewerPendingDeleteState.Ready)?.ids?.contains(mediaId) == true,
-            pendingDeleteLabel = if (!canDelete) "本地只读" else when (pendingState) {
+            pendingDeleteLabel = if (!canDelete) "不可删除" else when (pendingState) {
                 ViewerPendingDeleteState.Loading -> "正在加载…"
                 is ViewerPendingDeleteState.Error -> "状态未知 · 重试"
                 else -> null

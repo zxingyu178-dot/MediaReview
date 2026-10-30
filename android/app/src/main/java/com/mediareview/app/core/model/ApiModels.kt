@@ -309,6 +309,13 @@ data class CommitResultDto(
     val failed_count: Int? = null,
 )
 
+@Serializable
+data class DeleteResultLookupDto(
+    val state: String = "unknown",
+    val result: CommitResultDto? = null,
+    val confirmed_partial_result: CommitResultDto? = null,
+)
+
 /** 最终删除预备信息(POST /delete-queue/commit/prepare):一次性 nonce + 队列快照摘要。 */
 @Serializable
 data class DeleteCommitPrepDto(
@@ -386,7 +393,7 @@ data class CommitRequest(
 /**
  * 最终删除单项结果的服务端合同解析。
  *
- * Server 实际返回 `success`/`missing`/`failed`(见 server/app/services/delete_queue.py):
+ * Server 返回 `success`/`missing`/`failed`：
  * - success:文件已真实删除,计成功且推进下游内容;
  * - missing:文件本就不存在(幂等清理),推进下游内容但不计删除成功;
  * - failed :删除失败,不推进下游内容。

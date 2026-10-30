@@ -29,7 +29,7 @@ data class ReviewQueueItemUi(
     /** 服务端会话里这条是否已批阅（Stage 8B.1 §12：恢复后知道"以前是否看过"）。 */
     val seen: Boolean = false,
     val sourceType: String = "jellyfin",
-    val canDelete: Boolean = true,
+    val canDelete: Boolean = false,
 ) {
     val durationSeconds: Int get() = (durationMs / 1000L).toInt()
 }

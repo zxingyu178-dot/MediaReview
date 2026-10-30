@@ -207,6 +207,9 @@ interface MediaReviewApi {
     @POST("/api/v1/delete-queue/commit")
     suspend fun commitDeleteQueue(@Body body: CommitRequest): Envelope<CommitResultDto>
 
+    @GET("/api/v1/delete-queue/commit/{nonce}/result")
+    suspend fun deleteResult(@Path("nonce") nonce: String): Envelope<com.mediareview.app.core.model.DeleteResultLookupDto>
+
     /** 完全重复分页(Stage 8C.1 §11): items/total/page/page_size,读取侧分页。 */
     @GET("/api/v1/duplicates/exact")
     suspend fun duplicatesExact(

@@ -18,5 +18,6 @@ class DeleteReceiptDtoTest {
         assertEquals("1", actual["deleted_count"]?.toString())
         assertEquals("1", actual["missing_count"]?.toString())
         assertEquals("1", actual["failed_count"]?.toString())
+        assertEquals(null, actual["pending_count"])
     }
 }

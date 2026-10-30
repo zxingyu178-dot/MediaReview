@@ -1,6 +1,6 @@
 # MediaReview（家庭媒体管家）
 
-MediaReview 是一个面向家庭局域网的媒体浏览、批阅与整理系统：Android 手机 App 通过自建中间层读取家庭 Jellyfin 媒体库，提供媒体墙浏览、视频/图片播放、雪碧图预览、批量点赞/待删除批阅、重复检测与 Web 管理后台。
+MediaReview 是一个面向家庭局域网的媒体浏览、批阅与整理系统：Android 手机 App 通过自建中间层读取家庭 Jellyfin 媒体库，提供媒体墙浏览、视频/图片播放、批量点赞/待删除批阅、重复检测与 Web 管理后台。
 
 ## 架构
 
@@ -23,23 +23,26 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 - Jellyfin 多媒体库读取与勾选
 - 媒体墙：封面大小调节、排序/筛选/搜索、分页加载
 - 视频/图片普通浏览（Media3 播放器 + Image Viewer）
-- 雪碧图快速预览（FFmpeg 生成）
 - 批阅模式：视频/图片混合、P0/P1 预加载、断点恢复
 - 收藏（点赞）
 - 待删除队列 → 二次确认 → 最终删除
+- 本地源与 Jellyfin 均支持两阶段删除（本地源仅显式 `can_delete=true` 时可删）
 - 完全重复检测（full SHA-256）+ 疑似重复独立页面
-- 本机只读本地媒体源（Stage9）：登记电脑目录、扫描/增量索引、封面与原图、认证 Range 播放、本地播放进度
+- 本地媒体源：登记电脑目录、扫描/增量索引、封面与原图、认证 Range 播放、本地播放进度与两阶段安全删除
 - 局域网自动发现 + 手动 IP 兜底 + 一次配对码
 - Web 管理后台（操作台）
 - Windows 服务部署（事务式升级/回滚）+ ControlHub 接入（实例身份健康检查）
 
 ## 当前版本
 
-- Android `2.0.0-alpha15`（versionCode 22）
-- Server `1.5.2` / API Contract `2` / 数据库迁移 `0016`
-- 生产环境已安装 Server 1.5.2（2026-10-20 授权升级）
+唯一当前发布入口为 `deploy_handoff/CURRENT_RELEASE.json`，指向 `deploy_handoff/current/`；旧包只保留历史/回滚，不从目录时间猜测部署版本。安装、备份和回家验证按项目根的三份当前指引执行。
 
-> **运行态提醒**：官方 Windows 服务 `AIHome.MediaReview` 当前为 Stopped，8766 由来源未确认的交互式实例占用（见 PROJECT_STATUS §3）。
+- 源码发布目标：Android `2.0.0-alpha21`（versionCode 28），已覆盖安装并真机抽样；主页视频/相册分开，批阅左右调进度/上下换片，正式包无演示素材。APK独立发布，Server1.6.3恢复受管运行。Server包内旧Alpha18不作为安装入口，以CURRENT_RELEASE为准。详见[五项修复与清理](docs/FIVE_ISSUES_RESULT_20261028.md)。
+- 源码与生产版本：Server `1.6.3` / API Contract `2` / 数据库迁移 `0017`
+- 加载专项沿用现有播放器与批阅流程，雪碧图保持删除；构建、定向测试与交付状态见项目状态页
+- 生产环境：Server1.6.3，经用户确认、完整备份后由ControlHub升级启动；Alpha18邮件此前已获SMTP接受
+
+> **运行态提醒**：2026-10-27终检只有一个ControlHub管理的MediaReview Windows服务实例，安装程序与当前发布清单一致。旧包仅供历史/回滚；以后通过ControlHub启动。24个有效库已刷新，真机视频画面/图片查看抽样通过；不代表全库验收，详见状态页。
 > **当前完整状态、验证证据、生产运行态与待办，以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为唯一事实源。** 本文只保留项目简介与当前版本摘要。
 
 ## 仓库结构

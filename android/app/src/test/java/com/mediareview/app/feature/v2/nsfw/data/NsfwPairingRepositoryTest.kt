@@ -304,8 +304,8 @@ class NsfwPairingRepositoryTest {
     }
 
     @Test
-    fun `本地端口默认8767`() {
-        assertEquals("http://192.168.1.20:8767", normalizeBaseUrl("192.168.1.20", defaultPort = 8767))
-        assertEquals("http://192.168.1.20:9000", normalizeBaseUrl("192.168.1.20:9000", defaultPort = 8767))
+    fun `本地端口默认8877`() {
+        assertEquals("http://192.168.1.20:8877", normalizeBaseUrl("192.168.1.20", defaultPort = 8877))
+        assertEquals("http://192.168.1.20:9000", normalizeBaseUrl("192.168.1.20:9000", defaultPort = 8877))
     }
 }
