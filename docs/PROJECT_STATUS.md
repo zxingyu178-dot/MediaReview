@@ -1,7 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
 > 更新时间：2026-10-31（Alpha26/code33最终APK核验、隔离空态恢复复核通过；49+6分轮，手机待复核，两个Git分支已push对齐）
-> 日常分支：`feature/mediareview-local-only`；视频专项：`codex/video-prefix-prefetch`；当前交付APK构建源码`cbe36c4`，NSFW性能源码`9115cb6`。
+> 日常分支：`feature/mediareview-local-only`；本轮体验分支：`codex/album-review-ux`；当前交付APK构建源码`85a551d`，NSFW性能源码`9115cb6`（未部署）。
 > 加载源码提交`bb02671`已push；此前目录修复`6a74876`、交付记录`d18c31d`等本地提交亦一并推送成功。下方旧网络失败与运行态检查点按各自日期理解。
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
