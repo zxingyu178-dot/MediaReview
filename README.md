@@ -120,3 +120,8 @@ cp deployment/config.example.json <data_root>/config.json
 ## License
 
 [MIT](LICENSE) © 2026 MediaReview
+
+
+### 生图审核（Alpha23）
+
+新增独立生图审核入口：增量新图、图片详情、连续审核与撤销、提示词版本评分。使用NSFW Studio手机审核桥8877独立配对；详见[交付与验证边界](docs/NSFW_INTEGRATION_RESULT_20261030.md)。最终APK的手机验收尚待设备连接。

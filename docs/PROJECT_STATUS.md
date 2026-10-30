@@ -1,6 +1,6 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> 更新时间：2026-10-28（Alpha21已安装并真机抽样，Server1.6.3恢复受管运行）
+> 更新时间：2026-10-30（Alpha23最终APK已核验，NSFW真实审核桥链路通过，最终手机验收待连接）
 > 分支：`feature/mediareview-local-only` ｜ 调查基线`1247ee4`，诊断提交`b2b0e9e`已push
 > 加载源码提交`bb02671`已push；此前目录修复`6a74876`、交付记录`d18c31d`等本地提交亦一并推送成功。下方旧网络失败与运行态检查点按各自日期理解。
 >
@@ -8,9 +8,9 @@
 
 ## 0. 一句话状态
 
-**2026-10-30 生图审核进行中**：Alpha23整合与8877桥接已实现，曾完成真机配对和图片显示；历史计数及连续审核/撤销已完成64项ViewModel回归，最终Release待重建。当前手机不可连接、Studio经ControlHub核对离线，尚未完成最终发布。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
+**2026-10-30 生图审核交付**：Alpha23/code30最终Release已核验，CURRENT_RELEASE已更新；两个开发分支统一84aada2，64项ViewModel回归通过。Studio与审核桥8877已恢复在线，自建样本真实认证图片与审核/幂等/冲突链路通过并清理。最终APK手机覆盖安装、布局与写入验收因设备不可连接仍待验证。详见[收口记录](NSFW_INTEGRATION_RESULT_20261030.md)。
 
-**本轮已交付、未部署**：Alpha22/code29与Server1.6.4/0018产物核验通过，CURRENT_RELEASE已更新。69项定向JVM、Server分轮安全回归及184项包哈希校验记录见[本轮报告](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码aa441a1、构建基线17cd886已push。手机/生产仍未升级；生图仅接口准备，真实HTTP未接通。下方为过程中和历史快照。
+**2026-10-29历史交付快照（客户端已被上文Alpha23替代）**：Alpha22/code29与Server1.6.4/0018产物核验通过，CURRENT_RELEASE已更新。69项定向JVM、Server分轮安全回归及184项包哈希校验记录见[本轮报告](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码aa441a1、构建基线17cd886已push。手机/生产仍未升级；生图仅接口准备，真实HTTP未接通。下方为过程中和历史快照。
 
 
 **2026-10-29开发进展（尚未发布）**：删除持久回执与Android恢复、UI状态优化、生图独立入口及客户端合同已实现；69项相关JVM通过，服务端安全与环境复测记录见[本轮结果](EXPERIENCE_GENERATED_RESULT_20261029.md)。源码目标Server1.6.4/0018、Alpha22/code29，尚未生成发布包或部署。CURRENT_RELEASE仍为上一轮已验证产物；本轮不连接手机、不改NSFW。下方删除超时未修复描述是上一轮生产基线，不代表本轮源码。

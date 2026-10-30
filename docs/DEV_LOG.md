@@ -3354,3 +3354,8 @@ Alpha22 Release构建成功，APK20,682,556字节，版本code29，签名与Alph
 ## 2026-10-30 撤销与审核页布局
 
 通过原有审核接口实现最近审核撤销，使用成功回执updated_at校验；快照不一致不开放，409消费撤销记录不自动重提，网络失败保留供人工核对。查看最新图后清零提示，缩略图跟随选择，主次操作分两行。3项RED观察后实现；64项ViewModel GREEN，日志undo-green-1030.log，生产Kotlin编译通过。手机不可用，未声称布局实机通过；最终APK待构建。
+
+
+## 2026-10-30 最终交付与真实桥接验证
+
+Alpha23/code30 Release成功（18m2s），证书匹配，SHA256 b28ec7e3dc8958ba51450203d5b49553b1dc4c8d781aa1fae108c22184db9428，20,797,240字节，复制哈希复核一致；CURRENT_RELEASE独立APK已更新，Server包内Alpha22事实保持。两个分支已ff统一84aada2并push。ControlHub首轮Studio就绪超时清理后重试成功，审核桥RUNNING/owned/8877。唯一自建样本验证真实配对、三类图片读取、KEEP/RESET/REJECT、相同回执重放与两类409；官方接口精确清理且临时设备吊销。手机无法连接，最终APK未安装/布局及手机写入未验证。旧部署main一致性门禁不符合分支cherry-pick形态，未伪称通过。
