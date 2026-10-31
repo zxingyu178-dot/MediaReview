@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -78,6 +79,7 @@ data class NsfwUiState(
     val detail: NsfwImageDetails? = null,
     val detailLoading: Boolean = false,
     val busy: Boolean = false,
+    val syncing: Boolean = false,
     val message: String? = null,
     val missingCapabilities: List<String> = emptyList(),
     val conflictMessage: String? = null,
@@ -129,6 +131,8 @@ class NsfwReviewViewModel @Inject constructor(
     private var detailSeq = 0
     private var panelSeq = 0
     private var connectionEpoch = 0
+    private var feedReadGate = Mutex()
+    private var manualFeedJob: Job? = null
     private val pendingEvaluations = readPendingEvaluations().toMutableList()
 
     /** 仅测试可调；生产为 15 秒。 */
@@ -220,7 +224,7 @@ class NsfwReviewViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = pairing.checkAndPair(baseUrl, code)) {
                 is NsfwPairResult.Paired -> {
-                    connectionEpoch += 1
+                    advanceConnectionEpoch()
                     feed.clear()
                     lastCursor = null
                 historyCatchup = true
@@ -264,7 +268,7 @@ class NsfwReviewViewModel @Inject constructor(
 
     fun clearPairing() {
         viewModelScope.launch {
-            connectionEpoch += 1
+            advanceConnectionEpoch()
             stopPolling()
             pairing.clear()
             feed.clear()
@@ -276,9 +280,10 @@ class NsfwReviewViewModel @Inject constructor(
 
     /** 手动/回焦刷新：追平增量；不改变当前图片位置。 */
     fun refresh() {
-        if (_state.value.phase != NsfwPhase.READY || _state.value.busy) return
+        if (_state.value.phase != NsfwPhase.READY || _state.value.busy || _state.value.syncing || manualFeedJob?.isActive == true) return
         pollBackoff.reset()
-        viewModelScope.launch { syncFromCursor(reset = false, manual = true) }
+        manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) { syncFromCursor(reset = false, manual = true) }
+        manualFeedJob?.start()
     }
 
     /** 页面可见性：只有生图审核页前台可见且 READY 时才做有界增量轮询。 */
@@ -312,11 +317,31 @@ class NsfwReviewViewModel @Inject constructor(
     private fun stopPolling() {
         pollJob?.cancel()
         pollJob = null
+        manualFeedJob?.cancel()
+        manualFeedJob = null
+    }
+
+    private fun advanceConnectionEpoch() {
+        connectionEpoch += 1
+        feedReadGate = Mutex()
+        _state.update { it.copy(syncing = false) }
+    }
+
+    private suspend fun withFeedRead(block: suspend (Int) -> Unit) {
+        val gate = feedReadGate
+        if (!gate.tryLock()) return
+        val epoch = connectionEpoch
+        _state.update { it.copy(syncing = true) }
+        try { block(epoch) }
+        finally {
+            gate.unlock()
+            if (epoch == connectionEpoch) _state.update { it.copy(syncing = false) }
+        }
     }
 
     fun loadMore() {
         val state = _state.value
-        if (state.phase != NsfwPhase.READY || state.busy || !state.hasMore) return
+        if (state.phase != NsfwPhase.READY || state.busy || state.syncing || manualFeedJob?.isActive == true || !state.hasMore) return
         val cursor = lastCursor?.takeIf { it.isNotBlank() }
         if (cursor == null) {
             _state.update {
@@ -324,23 +349,20 @@ class NsfwReviewViewModel @Inject constructor(
             }
             return
         }
-        val epoch = connectionEpoch
-        _state.update { it.copy(busy = true) }
-        viewModelScope.launch {
+        manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) { withFeedRead { epoch ->
+            val messageBefore = _state.value.message
             try {
                 val result = fetchPageWithRecovery(cursor)
-                if (epoch != connectionEpoch) return@launch
-                applyPage(result, manual = true)
-                _state.update { it.copy(busy = false) }
+                if (epoch != connectionEpoch) return@withFeedRead
+                applyPage(result, manual = _state.value.message == messageBefore)
             } catch (error: CancellationException) {
-                _state.update { it.copy(busy = false) }
                 throw error
             } catch (error: Exception) {
-                if (epoch != connectionEpoch) return@launch
-                _state.update { it.copy(busy = false) }
+                if (epoch != connectionEpoch) return@withFeedRead
                 handleFetchFailure(error)
             }
-        }
+        } }
+        manualFeedJob?.start()
     }
 
     fun select(imageId: String) {
@@ -840,12 +862,15 @@ class NsfwReviewViewModel @Inject constructor(
     }
 
     private suspend fun syncFromCursor(reset: Boolean, manual: Boolean = false) {
-        val epoch = connectionEpoch
+        withFeedRead { epoch -> syncFeed(epoch, reset, manual) }
+    }
+
+    private suspend fun syncFeed(epoch: Int, reset: Boolean, manual: Boolean) {
+        val messageBefore = _state.value.message
         if (reset) {
             lastCursor = null
             historyCatchup = true
         }
-        _state.update { it.copy(busy = true) }
         val indexBefore = _state.value.currentIndex
         var countedNew = 0
         var receivedChanges = false
@@ -859,11 +884,9 @@ class NsfwReviewViewModel @Inject constructor(
             val result = try {
                 fetchPageWithRecovery(cursor)
             } catch (error: CancellationException) {
-                _state.update { it.copy(busy = false) }
                 throw error
             } catch (error: Exception) {
                 if (epoch != connectionEpoch) return
-                _state.update { it.copy(busy = false) }
                 pollBackoff.result(false)
                 handleFetchFailure(error)
                 return
@@ -913,6 +936,7 @@ class NsfwReviewViewModel @Inject constructor(
                 ?: snapshotNow.first().imageId
         }
         val message = when {
+            state.message != messageBefore -> state.message
             recovered -> "游标已过期，已从头重新同步"
             terminalMissingCursor -> "服务端未返回 next_cursor，下次将从头同步"
             manual && countedNew > 0 -> "已同步 $countedNew 张新图"
@@ -921,7 +945,6 @@ class NsfwReviewViewModel @Inject constructor(
         _state.update {
             it.copy(
                 phase = NsfwPhase.READY,
-                busy = false,
                 items = snapshotNow,
                 currentId = targetId,
                 hasMore = finalHasMore,
@@ -984,7 +1007,6 @@ class NsfwReviewViewModel @Inject constructor(
             historyCatchup = true
             _state.update {
                 it.copy(
-                    busy = false,
                     cursorExpired = true,
                     hasMore = false,
                     nextCursor = null,
@@ -999,7 +1021,6 @@ class NsfwReviewViewModel @Inject constructor(
             historyCatchup = true
             _state.update {
                 it.copy(
-                    busy = false,
                     hasMore = false,
                     nextCursor = null,
                     cursorExpired = false,
@@ -1080,7 +1101,7 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun handleAuthFailure() {
         viewModelScope.launch {
-            connectionEpoch += 1
+            advanceConnectionEpoch()
             stopPolling()
             pairing.handleAuthRejected()
             feed.clear()

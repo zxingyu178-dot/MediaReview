@@ -1,6 +1,9 @@
 """Stage8H: isolated SQLite and a router-only app, never production lifespan."""
 
 import json
+import asyncio
+import threading
+import time
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -62,6 +65,55 @@ def nodes(client, **params):
     response = client.get("/api/v1/media/folder-tree", params=params)
     assert response.status_code == 200, response.text
     return response.json()["data"]
+
+
+def test_flat_folder_summary_uses_one_aggregate_query(tree_api):
+    from app.services import media_index
+
+    _, database = tree_api
+    seed(database, ["Z:/Synthetic/A/a.jpg", "Z:/Synthetic/A/b.jpg"])
+    statements = []
+    def count_select(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith(("SELECT", "WITH")):
+            statements.append(statement)
+    sa.event.listen(database.engine, "before_cursor_execute", count_select)
+    try:
+        with database.session() as db:
+            result = media_index.list_media_folders(db, library_ids=["lib"])
+        assert len(result) == 1
+        assert result[0]["image_count"] == 2
+        assert len(statements) == 1, "计数与封面不应重复扫描同一媒体范围"
+    finally:
+        sa.event.remove(database.engine, "before_cursor_execute", count_select)
+
+
+@pytest.mark.anyio
+async def test_slow_folder_query_does_not_block_health_request(tree_api, monkeypatch):
+    import httpx
+    from app.services import media_index
+
+    client, _ = tree_api
+    started = threading.Event()
+    release = threading.Event()
+    def slow_folders(*args, **kwargs):
+        started.set()
+        release.wait(timeout=2)
+        return []
+    monkeypatch.setattr(media_index, "list_media_folders", slow_folders)
+    @client.app.get("/__fixture/health")
+    def probe():
+        return {"ok": True}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=client.app), base_url="http://fixture") as http:
+        began = time.monotonic()
+        pending = asyncio.create_task(http.get("/api/v1/media/folders"))
+        try:
+            await asyncio.to_thread(started.wait, 3)
+            response = await http.get("/__fixture/health")
+            assert response.status_code == 200
+            assert time.monotonic() - began < 1, "慢目录查询不能占住HTTP事件循环"
+        finally:
+            release.set()
+            await pending
 
 
 def test_shared_item_has_both_library_roots_and_scoped_pages(tree_api):

@@ -88,6 +88,46 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun syncReadAllowsDecisionAndStalePageCannotUndoIt() = runTest {
+        val vm = bootstrapPaired()
+        val gate = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage>()
+        val stale = nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_c")), nextCursor = "new-cursor")
+        data.feedResponder = { gate.await() }
+        try {
+            val calls = data.feedCalls
+            vm.refresh(); vm.refresh()
+            assertEquals(calls + 1, data.feedCalls)
+            assertFalse("后台读取不应阻止审核", vm.state.value.busy)
+            vm.decision("KEEP")
+            assertEquals(1, data.decisionCalls)
+            gate.complete(stale)
+            assertEquals("KEEP", vm.state.value.items.first { it.imageId == "img_a" }.status)
+            assertEquals("img_b", vm.state.value.currentId)
+            assertEquals("已保留", vm.state.value.message)
+        } finally { gate.complete(stale); vm.setScreenVisible(false) }
+    }
+
+    @Test
+    fun syncReadFailureDoesNotUnlockPendingWrite() = runTest {
+        val vm = bootstrapPaired()
+        val read = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage>()
+        val write = CompletableDeferred<NsfwDecisionResult>()
+        val result = NsfwDecisionResult("img_a", "KEEP", false, "2026-10-28T12:06:00Z", "2")
+        data.feedResponder = { read.await() }
+        data.decisionResponder = { _, _, _ -> write.await() }
+        try {
+            vm.refresh(); vm.decision("KEEP")
+            assertEquals(1, data.decisionCalls)
+            assertTrue(vm.state.value.busy)
+            read.completeExceptionally(java.io.IOException("read failed"))
+            assertTrue("读取失败不能解除写入互斥", vm.state.value.busy)
+            vm.decision("REJECT"); assertEquals(1, data.decisionCalls)
+            write.complete(result)
+            assertFalse(vm.state.value.busy)
+        } finally { read.complete(nsfwPage(emptyList())); write.complete(result); vm.setScreenVisible(false) }
+    }
+
+    @Test
     fun mismatchedSnapshotDoesNotOfferUnsafeUndo() = runTest {
         val vm = bootstrapPaired()
         vm.decision("KEEP")
@@ -788,7 +828,7 @@ class NsfwReviewViewModelTest {
         data.feedResponder = { delayedFeed.await() }
         data.detailsResponder = { id -> nsfwDetails(id) }
         val vm = vm()
-        assertTrue(vm.state.value.busy)
+        assertTrue(vm.state.value.syncing)
 
         vm.clearPairing()
         assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)

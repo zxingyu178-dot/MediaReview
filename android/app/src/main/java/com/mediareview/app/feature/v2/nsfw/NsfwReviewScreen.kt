@@ -318,8 +318,8 @@ private fun ReadyPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("生图审核", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MediaTextPrimary)
-            TextButton(onClick = onRefresh, enabled = !state.busy) {
-                Text(if (state.busy) "同步中…" else "同步新图")
+            TextButton(onClick = onRefresh, enabled = !state.busy && !state.syncing) {
+                Text(if (state.syncing) "同步中…" else "同步新图")
             }
             TextButton(onClick = onDisconnect) { Text("断开") }
         }
@@ -435,7 +435,7 @@ private fun ReadyPane(
             Box {
                 IconButton(onClick = { moreOpen = true }) { Icon(Icons.Default.MoreVert, "更多操作", tint = MediaTextPrimary) }
                 DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                    if (state.hasMore) DropdownMenuItem(text = { Text("加载更多") }, enabled = !state.busy,
+                    if (state.hasMore) DropdownMenuItem(text = { Text("加载更多") }, enabled = !state.busy && !state.syncing,
                         onClick = { moreOpen = false; onLoadMore() })
                     DropdownMenuItem(text = { Text(if (showThumbnails) "收起缩略图" else "展开缩略图") },
                         onClick = { showThumbnails = !showThumbnails; moreOpen = false })

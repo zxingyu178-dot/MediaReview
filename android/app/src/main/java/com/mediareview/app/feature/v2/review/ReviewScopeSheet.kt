@@ -73,7 +73,7 @@ internal fun ReviewScopeSheet(state: ReviewScopeSheetState, vm: V2ReviewViewMode
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(vm::cancelReviewScope, enabled = !state.creating,
                     modifier = Modifier.testTag("review_scope_cancel")) { Text("取消") }
-                TextButton(vm::submitReviewScope, enabled = !state.loading && !state.creating,
+                TextButton(vm::submitReviewScope, enabled = !state.loading && !state.creating && state.error == null,
                     modifier = Modifier.testTag("review_scope_start")) { Text("开始批阅") }
             }
         }

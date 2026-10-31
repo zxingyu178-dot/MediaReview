@@ -27,7 +27,7 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 
 from app.adapters.jellyfin.client import JellyfinClient
 from app.adapters.jellyfin.mapper import compute_fingerprint
@@ -348,17 +348,16 @@ def _sort_expression(sort_by: str, random_seed: str | None):
 def library_membership_condition(library_ids: Iterable[str]):
     """按归属过滤且不重复媒体；兼容尚未经过迁移/同步的旧写入。"""
     targets = sorted(set(library_ids))
-    legacy = aliased(MediaCacheIndex)
-    member_ids = sa.select(MediaLibraryMembership.media_id).where(
+    selected_member = sa.exists(sa.select(1).where(
+        MediaLibraryMembership.media_id == MediaCacheIndex.media_id,
         MediaLibraryMembership.library_id.in_(targets),
         MediaLibraryMembership.is_available.is_(True),
-    )
-    legacy_ids = sa.select(legacy.media_id).where(
-        legacy.library_id.in_(targets),
-        ~sa.exists(sa.select(1).where(MediaLibraryMembership.media_id == legacy.media_id)),
-    )
-    # IN 自带集合语义；UNION ALL 避免 SQLite 为内部 ID 合并额外排序。
-    return MediaCacheIndex.media_id.in_(member_ids.union_all(legacy_ids))
+    ))
+    any_member = sa.exists(sa.select(1).where(
+        MediaLibraryMembership.media_id == MediaCacheIndex.media_id,
+    ))
+    # 由外层排序索引驱动分页，不先物化所有可见ID；已有任意归属时绝不回退旧library_id。
+    return sa.or_(selected_member, sa.and_(MediaCacheIndex.library_id.in_(targets), ~any_member))
 
 
 def _media_filter_conditions(
@@ -434,52 +433,6 @@ def list_media_folder_groups(
     return [(str(row.dir), int(row.n)) for row in rows]
 
 
-def _folder_image_stats(
-    session: Session,
-    *,
-    library_ids: Iterable[str],
-    media_type: str | None = None,
-    search: str | None = None,
-    exclude_favorites: bool = False,
-) -> dict[str, tuple[int, str]]:
-    """每个目录的图片统计:该目录内 IMAGE 数量 + 最新一张 IMAGE 的 media_id。
-
-    - 复用 _media_filter_conditions 与 _folder_dirname_expression,保证 image_count /
-      封面与 count 属于同一筛选范围;额外限定 media_type == "image"。
-    - 「最新」= created_at 降序(SQLite 中 NULL 最小,DESC 自动排最后),
-      created_at 相同用 media_id 升序做稳定 tie-break。
-    - 用一条窗口函数查询按目录分区(count + row_number)并只取 rn=1,
-      一次返回每个有图片的目录一行,不在 Python 里对每个文件夹单独发 SQL(避免服务端 N+1)。
-    """
-    conditions = _media_filter_conditions(
-        library_ids=sorted(set(library_ids)),
-        media_type=media_type,
-        search=search,
-        exclude_favorites=exclude_favorites,
-    )
-    conditions.append(MediaCacheIndex.media_type == "image")
-    dirname = _folder_dirname_expression()
-    ranked = (
-        sa.select(
-            dirname.label("dir"),
-            MediaCacheIndex.media_id.label("media_id"),
-            sa.func.count().over(partition_by=dirname).label("image_count"),
-            sa.func.row_number()
-            .over(
-                partition_by=dirname,
-                order_by=(MediaCacheIndex.created_at.desc(), MediaCacheIndex.media_id.asc()),
-            )
-            .label("rn"),
-        )
-        .where(*conditions, dirname.is_not(None), dirname != "")
-        .subquery()
-    )
-    rows = session.execute(
-        sa.select(ranked.c.dir, ranked.c.media_id, ranked.c.image_count).where(ranked.c.rn == 1)
-    ).all()
-    return {str(row.dir): (int(row.image_count), row.media_id) for row in rows}
-
-
 def folder_dirname_for_path(media_path: str | None) -> str | None:
     """Python 侧与 _folder_dirname_expression() 等价的目录规范化(单条媒体使用)。
 
@@ -515,29 +468,33 @@ def list_media_folders(
     exclude_favorites: bool = False,
 ) -> list[dict]:
     """文件夹辅助视图: folder_id 是服务器派生的不透明 ID,绝不下发 Windows 路径。"""
-    groups = list_media_folder_groups(
-        session,
-        library_ids=library_ids,
-        media_type=media_type,
-        search=search,
-        exclude_favorites=exclude_favorites,
-    )
-    stats = _folder_image_stats(
-        session,
-        library_ids=library_ids,
-        media_type=media_type,
-        search=search,
-        exclude_favorites=exclude_favorites,
-    )
+    # SQLite物化一次归一化目录，避免计数与封面分别扫描、反复计算路径表达式。
+    items = sa.select(
+        _folder_dirname_expression().label("dir"),
+        MediaCacheIndex.media_id, MediaCacheIndex.media_type, MediaCacheIndex.created_at,
+    ).where(*_media_filter_conditions(library_ids=library_ids, media_type=media_type,
+                search=search, exclude_favorites=exclude_favorites))
+    items = items.cte("folder_items").prefix_with("MATERIALIZED", dialect="sqlite")
+    ranked = sa.select(
+        items.c.dir, items.c.media_id, items.c.media_type,
+        sa.func.count().over(partition_by=items.c.dir).label("total"),
+        sa.func.sum(sa.case((items.c.media_type == "image", 1), else_=0))
+            .over(partition_by=items.c.dir).label("images"),
+        sa.func.row_number().over(partition_by=items.c.dir, order_by=(
+            sa.case((items.c.media_type == "image", 0), else_=1),
+            items.c.created_at.desc(), items.c.media_id.asc(),
+        )).label("rn"),
+    ).where(items.c.dir.is_not(None), items.c.dir != "").subquery()
+    rows = session.execute(sa.select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.dir)).all()
     return [
         {
-            "folder_id": folder_id_for_dirname(dirname),
-            "name": _folder_display_name(dirname),
-            "count": count,
-            "image_count": stats.get(dirname, (0, ""))[0],
-            "cover_media_id": stats.get(dirname, (0, None))[1],
+            "folder_id": folder_id_for_dirname(row.dir),
+            "name": _folder_display_name(row.dir),
+            "count": int(row.total),
+            "image_count": int(row.images),
+            "cover_media_id": row.media_id if row.media_type == "image" else None,
         }
-        for dirname, count in groups
+        for row in rows
     ]
 
 

@@ -155,6 +155,32 @@ class V2ReviewViewModelTest {
     }
 
     private fun scopeNode(id: String, name: String) = com.mediareview.app.feature.v2.model.V2FolderNode(id, null, "lib", name, 0, 3, 3, 0)
+
+    @Test
+    fun scopeRefreshKeepsDraftSelection() = runTest {
+        val repo = FakeMediaRepository(3).apply { folderHandler = { listOf(scopeNode("ft_a", "A")) } }
+        val sessions = FakeSessions().apply { folderScopeSupported = true; entryResult = readyOpen() }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview(); vm.chooseReviewScope()
+        vm.toggleScopeFolder("ft_a"); vm.setScopeDescendants(false)
+        vm.chooseReviewScope()
+        assertEquals(listOf("ft_a"), vm.scopeSheet.value.scope.folderIds)
+        assertFalse(vm.scopeSheet.value.scope.includeDescendants)
+    }
+
+    @Test
+    fun scopeMissingFolderNeverBroadensToAll() = runTest {
+        var tree = listOf(scopeNode("ft_a", "A"))
+        val repo = FakeMediaRepository(3).apply { folderHandler = { tree } }
+        val sessions = FakeSessions().apply { folderScopeSupported = true; entryResult = readyOpen() }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview(); vm.chooseReviewScope(); vm.toggleScopeFolder("ft_a")
+        tree = listOf(scopeNode("ft_b", "B")); vm.chooseReviewScope()
+        assertEquals(listOf("ft_a"), vm.scopeSheet.value.scope.folderIds)
+        assertNotNull(vm.scopeSheet.value.error)
+        vm.submitReviewScope()
+        assertFalse(vm.scopeSheet.value.confirmReplacement)
+    }
     @Test
     fun `active范围确认前和取消后保留旧session与queue`() = runTest {
         val sessions = FakeSessions().apply { entryResult = readyOpen(sessionId = "old", total = 2, currentIndex = 0, window = window(count = 2, total = 2)) }

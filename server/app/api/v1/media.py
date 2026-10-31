@@ -180,7 +180,7 @@ def _require_user_id(request: Request, db: Session | None = None) -> str:
 
 
 @router.get("/folder-tree", response_model=Envelope[list[folder_tree.FolderNode]])
-async def list_folder_tree(
+def list_folder_tree(
     request: Request,
     library_id: str | None = Query(default=None, min_length=1),
     _auth=Depends(require_auth),
@@ -195,7 +195,7 @@ async def list_folder_tree(
 
 
 @router.get("/folders", response_model=Envelope[list[FolderSummary]])
-async def list_media_folders(
+def list_media_folders(
     request: Request,
     library_id: str | None = Query(default=None, min_length=1),
     media_type: MediaType | None = Query(default=None),
@@ -241,7 +241,7 @@ async def list_media_folders(
 
 
 @router.get("", response_model=Envelope[MediaPage])
-async def list_media(
+def list_media(
     request: Request,
     library_id: str | None = Query(default=None, min_length=1),
     media_type: MediaType | None = Query(default=None),

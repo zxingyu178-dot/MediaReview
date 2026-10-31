@@ -67,19 +67,25 @@ class V2ReviewViewModel @Inject constructor(
     private var scopeTreeJob: Job? = null
     private var scopeGeneration = 0L
     private var titleJob: Job? = null
+    private val missingScopeError = "部分所选文件夹已不存在，请重新选择范围"
 
     fun chooseReviewScope() {
-        if (enterJob?.isActive == true) return
+        if (enterJob?.isActive == true || _scopeSheet.value.creating || _scopeSheet.value.confirmReplacement) return
         scopeTreeJob?.cancel()
         val generation = ++scopeGeneration
-        _scopeSheet.value = ReviewScopeSheetState(visible = true, scope = activeScope,
-            folderEnabled = sessions.supportsFolderScope, loading = sessions.supportsFolderScope)
+        val draft = _scopeSheet.value.takeIf { it.visible } ?: ReviewScopeSheetState(scope = activeScope)
+        _scopeSheet.value = draft.copy(visible = true,
+            folderEnabled = sessions.supportsFolderScope, loading = sessions.supportsFolderScope, error = null)
         if (sessions.supportsFolderScope) scopeTreeJob = viewModelScope.launch {
             try {
                 val tree = repository.folderTree()
                 if (generation == scopeGeneration && _scopeSheet.value.visible) _scopeSheet.value = _scopeSheet.value.copy(
                     folders = tree.orEmpty(), loading = false,
-                    error = if (tree == null) "无法加载文件夹，请重试" else null)
+                    error = when {
+                        tree == null -> "无法加载文件夹，请重试"
+                        _scopeSheet.value.scope.folderIds.any { id -> tree.none { it.id == id } } -> missingScopeError
+                        else -> null
+                    })
             } catch (cancelled: CancellationException) { throw cancelled
             } catch (_: Throwable) {
                 if (generation == scopeGeneration && _scopeSheet.value.visible) _scopeSheet.value = _scopeSheet.value.copy(loading = false, error = "无法加载文件夹，请重试")
@@ -95,11 +101,16 @@ class V2ReviewViewModel @Inject constructor(
     fun toggleScopeFolder(id: String) {
         val sheet = _scopeSheet.value
         if (!sheet.visible || !sheet.folderEnabled || sheet.loading || sheet.confirmReplacement || sheet.creating || sheet.folders.none { it.id == id }) return
-        val selected = sheet.scope.folderIds
+        val selected = sheet.scope.folderIds.filter { selectedId -> sheet.folders.any { it.id == selectedId } }
         val next = if (id in selected) selected - id else if (selected.size < 100) selected + id else return
-        _scopeSheet.value = sheet.copy(scope = sheet.scope.copy(folderIds = next))
+        _scopeSheet.value = sheet.copy(scope = sheet.scope.copy(folderIds = next),
+            error = sheet.error.takeUnless { it == missingScopeError })
     }
-    fun selectAllScope() { if (!_scopeSheet.value.creating) _scopeSheet.value = _scopeSheet.value.copy(scope = ReviewScope()) }
+    fun selectAllScope() {
+        val sheet = _scopeSheet.value
+        if (sheet.visible && !sheet.creating && !sheet.confirmReplacement && !sheet.loading)
+            _scopeSheet.value = sheet.copy(scope = ReviewScope(), error = sheet.error.takeUnless { it == missingScopeError })
+    }
     fun setScopeDescendants(value: Boolean) { if (!_scopeSheet.value.creating) _scopeSheet.value = _scopeSheet.value.copy(scope = _scopeSheet.value.scope.copy(includeDescendants = value)) }
     fun cancelReviewScope() {
         if (_scopeSheet.value.creating) return
@@ -109,7 +120,7 @@ class V2ReviewViewModel @Inject constructor(
         if (_state.value == V2ReviewUiState.LoadingSession) _state.value = V2ReviewUiState.ScopeSelection
     }
     fun submitReviewScope() {
-        if (!_scopeSheet.value.visible || _scopeSheet.value.loading || _scopeSheet.value.creating) return
+        if (!_scopeSheet.value.visible || _scopeSheet.value.loading || _scopeSheet.value.creating || _scopeSheet.value.error != null) return
         if (_state.value is V2ReviewUiState.Ready) {
             _scopeSheet.value = _scopeSheet.value.copy(confirmReplacement = true)
         } else createSelectedScope()
@@ -121,6 +132,7 @@ class V2ReviewViewModel @Inject constructor(
     private fun createSelectedScope() {
         if (enterJob?.isActive == true || _scopeSheet.value.creating) return
         val draft = _scopeSheet.value
+        if (draft.loading || draft.error != null) return
         if (draft.scope.folderIds.isNotEmpty() && (!sessions.supportsFolderScope || draft.scope.folderIds.any { id -> draft.folders.none { it.id == id } })) return
         _scopeSheet.value = draft.copy(creating = true)
         // POST may already have replaced the server session even if its queue response fails.
