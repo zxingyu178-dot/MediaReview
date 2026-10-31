@@ -44,3 +44,12 @@
 主项目 `deploy_handoff/` 新产物：APK `MediaReview_2.0.0-alpha27_stage9.apk`（20,830,008字节，SHA256 `a3cc30e0735462f95ebc25d9cc1469397e3f23c9dc113c20d382cc1e6f4fbe52`）；ZIP `MediaReview_Server_1.6.5_stage9.zip`（112,039,672字节，SHA256 `4561c3952e1638e7616c4a03c7f398e4ab459cc304e7b0a64fc6de4ef4e07c86`）。EXE SHA256 `a3017ad3c75d0e1d8fc5e9c1054b3b758b2d9f6d0f564e5cdc9847287417d5a2`。CURRENT_RELEASE已原子切换新配套，旧指针备份保留；旧包未覆盖。
 
 生产于交付收口只读复查仍为ok / 1.6.3 / API2 / 14cap / windows_service，尚不含本批SQL优化；新产物就绪不等于已安装/部署。真实家庭局域网/手机加载、首帧与长期稳定性未复核；相册目录定位仍需按索引聚合，不能承诺大库瞬开。当前目标继续，后续还需新正式APK的设备、对应Server及真实使用验收，不作为产品最终合格结论。
+
+
+### 2026-10-31 正式 Alpha27 三项反馈复核
+
+ADB仅发现emulator-5584，未发现实体手机。对原发布签名安装使用`adb -s emulator-5584 install -r deploy_handoff/MediaReview_2.0.0-alpha27_stage9.apk`，返回Success，实际包code34/Alpha27。没有清除数据、卸载或重建APK。
+
+隔离Python HTTP夹具（源码Server1.6.5，127.0.0.1:18766，非打包EXE）仅提供合成媒体：媒体库清空后两个Checkbox=false、计数0/2；全选后均true、计数2/2，未提交真实库选择。相册书架显示1张合成图片的目录，进入后照片节点出现，摘要和缩略图HTTP200；只证明小型隔离库能显示，不证明真实大库性能。生图使用夹具配对，图片成功显示，图片区域[0,360][1080,1884]，高1524px；截图确认信息/主操作不覆盖图片，未提交审核、评分或删除。
+
+证据：忽略目录`review_meta/release-integration-20261031/`中library-all.png、album.png、nsfw.png及夹具日志；既有49+6和128/85等测试结果复用，不重跑全套。此次没有运行打包EXE与APK端到端，不使用源码夹具替代此项；实体手机/HomeLAN、生产部署仍未执行。相册按可视位置预取最多8项及2并发沿用已通过的定向用例，本次小数据集不重新声称滚动压力验收。
