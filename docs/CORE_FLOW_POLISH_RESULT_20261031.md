@@ -81,3 +81,12 @@ ADB仅发现emulator-5584，未发现实体手机。对原发布签名安装使�
 先以1000条预热一次；仅一轮桌面JVM样本，无图片字节/真实文件/网络/Compose，不代表Android内存、帧率或持续审核性能。累计耗时不是单次操作延迟，不据此宣传手机不卡顿，也不足以证明应立刻重写队列。证据为开发worktree忽略目录`review_meta/FeedBenchmark.java`、`feed-benchmark.log`；首次误用不存在的证据子目录导致写入失败，改用既有review_meta后执行成功，未计为产品失败。
 
 生产只读检查：服务Running、health为1.6.3/API2/14能力/windows_service；只读SQL确认迁移0017，候选包为0018，不能把候选SQL优化说成已部署。既有删除队列54条failed（稳定码library_not_allowed，日期10-28至10-30）及1条pending，执行中committing/delete_pending/delete_done为0。本轮未创建/重试/撤销任何删除、未读取真实媒体文件、未修改数据；历史失败不报成功，也不自动重入队。迁移前仍须完整一致备份并保留既有失败/待删状态，生产部署未执行。
+
+
+### 2026-10-31 删除库选择诊断与产品验收缺口
+
+只读生产聚合确认：26个已知媒体库仅2个勾选；队列54条failed与1条pending均有有效索引、可用归属，但没有任何归属库被选中。旧失败码library_not_allowed与当前保护判断一致，不据此认定删除引擎错误；已核对1.6.3与当前源码的库归属保护都使用membership条件。未读取媒体文件、输出私人名称/路径、修改选择或操作真实队列；不擅自全选或恢复重试。仅检查已知夹具ID未发现，不能据此宣称生产完全无测试数据。
+
+客户端将失败原因从“文件已不在允许的媒体库，无法确认身份”改为“所属媒体库未选中或已失效，请检查媒体库选择并刷新”，保留库/路径/文件身份保护与失败项先恢复再重新标记的流程。只改DeleteQueueViewModel映射及对应既有测试预期，无新增测试框架或用例；仅文案改动不重复制作RED日志。命令为既有登记Gradle/JDK17及进程级缓存/TEMP，`:app:testDebugUnitTest --tests '*DeleteQueueViewModelTest.失败原因映射为简短中文而不是原始异常' --tests '*DeleteQueueViewModelTest.本地源删除失败码映射为中文且不泄漏绝对路径' --offline --max-workers=1 --no-daemon -Pkotlin.compiler.execution.strategy=in-process`，**2项通过、0失败/错误，2m6s**，生产/测试编译通过；证据开发worktree`review_meta/delete-library-hint.log`和JUnit XML。未改Server，未重跑服务端删除/全量JVM/connected，未构建APK或部署，本次提示不在当前正式Alpha27中。
+
+新增简短的`docs/PRODUCT_ACCEPTANCE_2_0.md`，逐项对照已要求的连接、库选择、相册加载、批阅、删除与生图审核，区分源码/实际二进制/模拟器/手机/生产。它不是新增功能或全量测试门禁，不以局部通过宣称整款产品合格。下一步优先新客户端收口与同一产物的真实组合验收，原图交互仍待用户选择。

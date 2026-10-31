@@ -87,7 +87,7 @@ internal fun deleteFailureReason(error: String?): String? = when {
     error.isNullOrBlank() -> null
     error.startsWith("file_size_changed") -> "文件已发生变化"
     error.startsWith("file_modified_changed") -> "文件已发生变化"
-    error.startsWith("library_not_allowed") -> "文件已不在允许的媒体库，无法确认身份"
+    error.startsWith("library_not_allowed") -> "所属媒体库未选中或已失效，请检查媒体库选择并刷新"
     error.startsWith("stat_failed") -> "文件访问失败"
     // Stage 9：本地源两阶段安全删除的失败码（只显示原因，不显示任何路径）
     error.startsWith("local_root_disabled") -> "本地媒体源已停用，无法删除"

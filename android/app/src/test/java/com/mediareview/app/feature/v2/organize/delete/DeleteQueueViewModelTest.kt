@@ -302,7 +302,7 @@ class DeleteQueueViewModelTest {
         assertEquals("文件已发生变化", deleteFailureReason("file_size_changed"))
         assertEquals("文件已发生变化", deleteFailureReason("file_modified_changed"))
         assertEquals(
-            "文件已不在允许的媒体库，无法确认身份",
+            "所属媒体库未选中或已失效，请检查媒体库选择并刷新",
             deleteFailureReason("library_not_allowed"),
         )
         assertEquals("文件访问失败", deleteFailureReason("stat_failed:[Errno 13] Permission denied"))
