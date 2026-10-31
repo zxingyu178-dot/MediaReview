@@ -310,6 +310,17 @@ object ReleaseNotesCatalog {
                 "图片显示成功后才能审核，评分1至5完整显示",
             ),
         ),
+        ReleaseNote(
+            versionCode = 34,
+            versionName = "2.0.0-alpha27",
+            title = "MediaReview 2.0 Alpha 27",
+            highlights = listOf(
+                "视频刷新跟随实际加载，失败时保留已有内容",
+                "刷新批阅目录时保留勾选，目录失效会提示重新选择",
+                "同步生图时仍可继续审核，旧回包不会覆盖新审核结果",
+                "解除生图配对前增加确认，审核和评分提交中避免误断开",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

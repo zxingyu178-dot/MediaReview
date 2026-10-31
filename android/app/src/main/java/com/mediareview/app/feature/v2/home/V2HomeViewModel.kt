@@ -143,6 +143,8 @@ class V2HomeViewModel @Inject constructor(
 
     private val _listLoading = MutableStateFlow(false)
     val listLoading: StateFlow<Boolean> = _listLoading.asStateFlow()
+    private val _listRefreshing = MutableStateFlow(false)
+    val listRefreshing: StateFlow<Boolean> = _listRefreshing.asStateFlow()
 
     private val _listError = MutableStateFlow<String?>(null)
     val listError: StateFlow<String?> = _listError.asStateFlow()
@@ -262,7 +264,7 @@ class V2HomeViewModel @Inject constructor(
     }
     fun updateHomeAnchor(anchor: HomeGridAnchor?) { homeAnchor = anchor; saveHomeWindow() }
     fun suspendHomeWindow() {
-        saveHomeWindow(); homeLeft = true; listRefreshJob?.cancel(); paginationJob?.cancel(); listGeneration++; _listLoading.value = false
+        saveHomeWindow(); homeLeft = true; listRefreshJob?.cancel(); paginationJob?.cancel(); listGeneration++; _listLoading.value = false; _listRefreshing.value = false
     }
     fun resumeHomeWindow() {
         if (homeLeft) { homeLeft = false; refreshList() }
@@ -647,11 +649,15 @@ class V2HomeViewModel @Inject constructor(
 
     /** 手动重试当前列表（网络失败后）。 */
     fun retryList() {
+        saveHomeWindow()
+        val previous = homeWindowKey?.takeIf { it == browseKey() }?.let(browseCache::get)
         browseCache.clear()
         homeWindowKey = null
         albumController.invalidate()
         folderBrowserController.invalidate()
         albumSourceGeneration++
+        // 只保留当前可见窗口作刷新底图，其余窗口仍失效；旧回包继续受新代次隔离。
+        if (previous != null) browseCache.put(browseKey(), previous.copy(sourceGeneration = albumSourceGeneration))
         invalidateAlbumViewer()
         refreshList()
     }
@@ -868,6 +874,8 @@ class V2HomeViewModel @Inject constructor(
             _totalCount.value = 0
             _hasMore.value = false
             _listError.value = null
+            _listLoading.value = false
+            _listRefreshing.value = false
             statusStore.update(V2ServerStatus.Unconfigured)
             return
         }
@@ -1014,6 +1022,8 @@ class V2HomeViewModel @Inject constructor(
         paginationJob?.cancel()
         paginationJob = null
         listGeneration++
+        _listLoading.value = false
+        _listRefreshing.value = false
         loadedPage = 1
         _hasMore.value = false
         _totalCount.value = 0
@@ -1062,11 +1072,12 @@ class V2HomeViewModel @Inject constructor(
         homeAnchor = cached?.anchor
         _listError.value = null
         _listLoading.value = true
+        _listRefreshing.value = cached != null
         listRefreshJob = viewModelScope.launch {
-            if (debounceMs > 0) delay(debounceMs)
-            val session = V2Perf.home()
-            session?.markOnce("first_media_request", "first_media_request")
             try {
+                if (debounceMs > 0) delay(debounceMs)
+                val session = V2Perf.home()
+                session?.markOnce("first_media_request", "first_media_request")
                 val items = mutableListOf<V2Media>()
                 var result: V2MediaPage? = null
                 for (pageNumber in 1..(cached?.page ?: 1)) {
@@ -1093,7 +1104,10 @@ class V2HomeViewModel @Inject constructor(
                     else emitMessage("刷新失败，已保留上次内容")
                 }
             } finally {
-                if (generation == listGeneration) _listLoading.value = false
+                if (generation == listGeneration) {
+                    _listLoading.value = false
+                    _listRefreshing.value = false
+                }
             }
         }
     }

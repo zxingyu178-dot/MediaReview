@@ -39,8 +39,6 @@ import com.mediareview.app.feature.v2.ui.components.TopBar
 import com.mediareview.app.feature.v2.viewer.state.ViewerPendingDeleteState
 import com.mediareview.app.ui.theme.*
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 const val PREFETCH_DISTANCE_ITEMS = 16
 
@@ -63,6 +61,7 @@ fun HomeScreen(
     val albumError by vm.albumError.collectAsState()
     val albumLoading by vm.albumLoading.collectAsState()
     val list by vm.currentList.collectAsState()
+    val listRefreshing by vm.listRefreshing.collectAsState()
     val sortSpec by vm.sortSpec.collectAsState()
     val displayMode by vm.displayMode.collectAsState()
     val categoryHint by vm.categoryHint.collectAsState()
@@ -74,8 +73,6 @@ fun HomeScreen(
     val searchGridState = rememberLazyGridState()
     var positionedSearchQuery by rememberSaveable { mutableStateOf(vm.searchQuery) }
     var showSortSheet by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
-    val refreshScope = rememberCoroutineScope()
 
     DisposableEffect(vm) {
         val pendingSession = vm.openViewerPendingDelete()
@@ -160,17 +157,10 @@ fun HomeScreen(
             },
         ) { inset ->
             PullToRefreshBox(
-                isRefreshing = if (vm.currentTab == V2HomeTab.SHELF) albumLoading else refreshing,
+                isRefreshing = if (vm.currentTab == V2HomeTab.SHELF) albumLoading else listRefreshing,
                 onRefresh = {
                     if (vm.currentTab == V2HomeTab.SHELF) vm.refreshAlbums()
-                    else {
-                        refreshing = true
-                        vm.retryList()
-                        refreshScope.launch {
-                            delay(700L)
-                            refreshing = false
-                        }
-                    }
+                    else vm.retryList()
                 },
                 modifier = Modifier.fillMaxSize().testTag("home_pull_refresh"),
             ) {
@@ -301,6 +291,7 @@ fun MediaGrid(
     pendingDeleteIds: Set<String> = emptySet(),
 ) {
     val loading by vm.listLoading.collectAsState()
+    val refreshing by vm.listRefreshing.collectAsState()
     val hasMore by vm.hasMore.collectAsState()
     val total by vm.totalCount.collectAsState()
     val error by vm.listError.collectAsState()
@@ -328,7 +319,7 @@ fun MediaGrid(
         footer = {
             Box(Modifier.fillMaxWidth().padding(MediaSpacing.Medium), contentAlignment = Alignment.Center) {
                 when {
-                    loading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    loading && !refreshing -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     error != null -> TextButton(onClick = vm::retryList) { Text("加载失败，点击重试") }
                     hasMore -> Text("继续下滑加载更多", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
                     else -> Text("已加载全部 $total 项", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)

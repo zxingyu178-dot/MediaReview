@@ -189,7 +189,7 @@ private fun PairingPane(
     ) {
         Text("生图审核", style = MaterialTheme.typography.titleLarge, color = MediaTextPrimary)
         Text(
-            "连接 NSFW Studio 手机审核桥（默认端口 8877）。它与 MediaReview 服务器完全独立，凭据互不影响。",
+            "连接 NSFW Studio 审核服务（默认端口 8877），使用电脑端生成的配对码。",
             style = MaterialTheme.typography.bodySmall,
             color = MediaTextSecondary,
             modifier = Modifier.padding(top = V2Spacing.Sm, bottom = V2Spacing.Lg),
@@ -197,7 +197,7 @@ private fun PairingPane(
         OutlinedTextField(
             value = baseUrl,
             onValueChange = onBaseUrlChange,
-            label = { Text("Bridge 地址（如 192.168.1.20:8877）") },
+            label = { Text("生图服务地址（如 192.168.1.20:8877）") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -217,7 +217,7 @@ private fun PairingPane(
                 enabled = !state.pairingBusy && baseUrl.isNotBlank() && code.trim().length == 6,
                 modifier = Modifier.weight(1f),
             ) {
-                Text(if (state.pairingBusy) "检查中…" else "检查能力并配对")
+                Text(if (state.pairingBusy) "连接中…" else "连接并配对")
             }
         }
 
@@ -264,7 +264,7 @@ private fun PairingPane(
 
         Spacer(Modifier.weight(1f))
         Text(
-            "配对只读写 NSFW 自己的 DataStore；MediaReview Server 的连接与 token 不会被覆盖。",
+            "生图审核独立连接，配对不会影响媒体库和视频批阅。",
             style = MaterialTheme.typography.labelSmall,
             color = MediaTextSecondary,
         )
@@ -296,6 +296,19 @@ private fun ReadyPane(
     var previewAttempt by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf(0) }
     var showThumbnails by rememberSaveable { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    val canDisconnect = !state.busy && !state.pairingBusy && state.panel?.submitting != true
+    if (confirmDisconnect) {
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            title = { Text("解除生图配对？") },
+            text = { Text("将清除手机保存的生图连接和当前图片列表，下次需要重新配对。电脑上的图片、审核结果和评分会保留，媒体服务器连接不受影响。") },
+            confirmButton = { TextButton(enabled = canDisconnect, onClick = {
+                if (canDisconnect) { confirmDisconnect = false; onDisconnect() }
+            }) { Text("解除配对") } },
+            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("取消") } },
+        )
+    }
     val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
     LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -321,7 +334,6 @@ private fun ReadyPane(
             TextButton(onClick = onRefresh, enabled = !state.busy && !state.syncing) {
                 Text(if (state.syncing) "同步中…" else "同步新图")
             }
-            TextButton(onClick = onDisconnect) { Text("断开") }
         }
 
         state.message?.let { Banner(it, warning = false) }
@@ -444,6 +456,8 @@ private fun ReadyPane(
                         onClick = { moreOpen = false; onToggleFavorite() })
                     DropdownMenuItem(text = { Text("重置审核状态") }, enabled = !state.busy && state.detail != null,
                         onClick = { moreOpen = false; onDecision("RESET", null) })
+                    DropdownMenuItem(text = { Text("解除生图配对") }, enabled = canDisconnect,
+                        onClick = { moreOpen = false; confirmDisconnect = true })
                 }
             }
         }

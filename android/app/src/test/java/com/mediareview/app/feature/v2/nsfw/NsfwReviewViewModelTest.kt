@@ -88,6 +88,25 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun disconnectWaitsForPendingDecision() = runTest {
+        val vm = bootstrapPaired()
+        val gate = CompletableDeferred<NsfwDecisionResult>()
+        val receipt = NsfwDecisionResult("img_a", "KEEP", false, "2026-10-28T12:06:00Z", "2")
+        data.decisionResponder = { _, _, _ -> gate.await() }
+        try {
+            vm.decision("KEEP")
+            assertTrue(vm.state.value.busy)
+            vm.clearPairing()
+            assertEquals("提交未结束不能解除配对", NsfwPhase.READY, vm.state.value.phase)
+            assertEquals(0, gateway.clearCalls)
+            gate.complete(receipt)
+            vm.clearPairing()
+            assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)
+            assertEquals(1, gateway.clearCalls)
+        } finally { gate.complete(receipt); vm.setScreenVisible(false) }
+    }
+
+    @Test
     fun syncReadAllowsDecisionAndStalePageCannotUndoIt() = runTest {
         val vm = bootstrapPaired()
         val gate = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage>()
@@ -1241,7 +1260,7 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
-    fun `切换连接后旧评分成功不覆盖新状态`() = runTest {
+    fun `评分提交禁止解除配对且凭据失效后旧评分不覆盖新状态`() = runTest {
         val deferred = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult>()
         val vm = bootstrapPaired()
         data.promptImagesResponder = { _, _ -> NsfwPromptImagesPage() }
@@ -1251,7 +1270,12 @@ class NsfwReviewViewModelTest {
         val requestId = data.lastEvaluationRequest!!.clientRequestId
 
         vm.clearPairing()
+        assertEquals(NsfwPhase.READY, vm.state.value.phase)
+        assertEquals(0, gateway.clearCalls)
+        data.feedResponder = { throw NsfwApiException("AUTH_REQUIRED", "凭据已失效", 401) }
+        vm.refresh()
         assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)
+        val authState = vm.state.value
         deferred.complete(
             com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult(
                 evaluationId = "pev_1",
@@ -1263,7 +1287,7 @@ class NsfwReviewViewModelTest {
         )
 
         assertEquals(NsfwPhase.UNPAIRED, vm.state.value.phase)
-        assertNull(vm.state.value.message)
+        assertEquals(authState, vm.state.value)
         assertTrue(vm.pendingRequestIds().isEmpty())
     }
 

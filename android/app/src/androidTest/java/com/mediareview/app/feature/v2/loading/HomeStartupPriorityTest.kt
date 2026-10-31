@@ -20,6 +20,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import com.mediareview.app.feature.v2.home.HomeScreen
+import com.mediareview.app.feature.v2.data.V2DataModeStore
+import com.mediareview.app.ui.theme.MediaReviewTheme
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
+import org.junit.Rule
 
 /**
  * Stage 8A.1 §4/§6/§8 —— 首页启动优先级。
@@ -33,6 +42,51 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class HomeStartupPriorityTest {
+
+    @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun slowRefreshIndicatorWaitsForResponse() {
+        val mode = V2DataModeStore(ApplicationProvider.getApplicationContext())
+        val previous = runBlocking { mode.current().also { mode.set(V2DataMode.DEMO) } }
+        val gate = CompletableDeferred<Unit>()
+        val repo = RecordingRepository()
+        val vm = testHomeViewModel(repo, StubHistory())
+        try {
+            compose.setContent { MediaReviewTheme { HomeScreen(vm, {}, { _, _ -> }, {}, {}) } }
+            compose.waitUntil(5_000) { vm.currentList.value.isNotEmpty() && !vm.listLoading.value }
+            compose.runOnIdle { repo.pageGate = gate }
+            val before = repo.events.count { it == "mediaPage" }
+            compose.onNodeWithTag("home_pull_refresh").performTouchInput { swipeDown() }
+            compose.waitUntil(5_000) { repo.events.count { it == "mediaPage" } > before }
+            Thread.sleep(1_100)
+            assertTrue(vm.listRefreshing.value)
+            compose.onAllNodes(hasProgressBarRangeInfo(ProgressBarRangeInfo.Indeterminate))
+                .assertCountEquals(1)
+            assertTrue("慢刷新保留已显示内容", vm.currentList.value.isNotEmpty())
+            gate.complete(Unit)
+            compose.waitUntil(5_000) { !vm.listLoading.value }
+            assertTrue(!vm.listRefreshing.value)
+            compose.onAllNodes(hasProgressBarRangeInfo(ProgressBarRangeInfo.Indeterminate))
+                .assertCountEquals(0)
+            val failed = CompletableDeferred<Unit>()
+            compose.runOnIdle { repo.pageGate = failed; vm.retryList() }
+            assertTrue(vm.listRefreshing.value)
+            failed.completeExceptionally(java.io.IOException("isolated refresh failure"))
+            compose.waitUntil(5_000) { !vm.listRefreshing.value }
+            assertTrue("失败保留原内容", vm.currentList.value.isNotEmpty())
+            val cancelled = CompletableDeferred<Unit>()
+            compose.runOnIdle { repo.pageGate = cancelled; vm.retryList() }
+            assertTrue(vm.listRefreshing.value)
+            compose.runOnIdle { vm.suspendHomeWindow() }
+            assertTrue(!vm.listRefreshing.value)
+            cancelled.complete(Unit)
+        } finally {
+            gate.complete(Unit)
+            compose.runOnIdle { vm.suspendHomeWindow() }
+            runBlocking { mode.set(previous) }
+        }
+    }
 
     @Test
     fun 启动时媒体最先开始且收藏不在启动路径内() {
@@ -92,6 +146,7 @@ private class StubHistory : SearchHistoryStore(ApplicationProvider.getApplicatio
 
 /** 记录调用顺序的仓库：只服务启动优先级断言。 */
 private class RecordingRepository : MediaRepository {
+    var pageGate: CompletableDeferred<Unit>? = null
     val events: MutableList<String> = Collections.synchronizedList(mutableListOf())
     var favoritesCalls: Int = 0
         private set
@@ -125,6 +180,7 @@ private class RecordingRepository : MediaRepository {
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {
         events += "mediaPage"
+        pageGate?.await()
         return V2MediaPage(items = listOf(media), page = 1, pageSize = query.pageSize, total = 1)
     }
 

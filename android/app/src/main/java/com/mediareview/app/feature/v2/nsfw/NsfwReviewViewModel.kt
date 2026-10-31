@@ -267,6 +267,7 @@ class NsfwReviewViewModel @Inject constructor(
     fun retryPairing(baseUrl: String, code: String) = pair(baseUrl, code)
 
     fun clearPairing() {
+        if (_state.value.busy || _state.value.pairingBusy || _state.value.panel?.submitting == true) return
         viewModelScope.launch {
             advanceConnectionEpoch()
             stopPolling()
