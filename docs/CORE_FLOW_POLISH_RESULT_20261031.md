@@ -1,8 +1,8 @@
 # 核心流程打磨记录（进行中）
 
-基线 `e253aa0`，分支 `codex/core-flow-polish`。源码候选 Alpha27/code34 已通过下述隔离验证；当前正式交付仍为 Alpha26/code33，未生成新的正式签名交付 APK 或部署包，生产服务未变，不声称真实手机已经修复。
+基线 `e253aa0`，分支 `codex/core-flow-polish`。正式签名 Alpha27/code34 与 Server1.6.5 已构建并完成下述隔离核验，主项目唯一交付指针已更新；生产服务未变，正式APK未安装手机或模拟器，不声称真实手机已经修复。
 
-查询/草稿/同步源码 `c242d99`、状态收口 `9f02881`、后续交互及Alpha27版本源码 `fbf554a` 已成功 push 到 `origin/codex/core-flow-polish`。日常分支未合并这批改动；后续收口提交仅更新状态文档，不改变测试对应业务源码。
+查询/草稿/同步源码 `c242d99`、后续交互及Alpha27源码 `fbf554a`、发布输入源码 `c7c53eb` 已push；`codex/core-flow-polish` 与日常 `feature/mediareview-local-only` 均已对齐c7c53eb。后续收口提交只改状态文档，不改变已测试业务/发布输入。
 
 ## 已确认原因与修改
 
@@ -23,7 +23,7 @@
 - Android：`:app:testDebugUnitTest --tests '*V2ReviewViewModelTest' --tests '*NsfwReviewViewModelTest' --tests '*NsfwFeedStoreTest' --offline --max-workers=1 --no-daemon -Pkotlin.compiler.execution.strategy=in-process`，单轮 128 项通过（43+67+18，零失败/错误/跳过），业务编译通过，6m5s，日志 `android-green.log`；新增 4 项故障用例由红转绿。未顺便处理既有图标、编译 SDK、测试命名及旧条件 warning。
 - 最终源码性能对照：同一份 5 万条合成索引，24 库/296 目录，原实现摘要 3539.64ms、分页 1300.85ms；工作树最终源码摘要 840.64ms、分页 286.09ms。全部目录摘要（含封面）、定位目录、总数及该相册所测一页 ID 的联合 SHA256 相同（`acb052bc…`）。单库摘要 712.00→351.85ms、分页 409.82→368.77ms，同范围摘要也相同（`a1e865d7…`）；单库 available count 30.07→70.31ms，存在约 40ms 代价，目录定位约 247→252ms 基本不变。不是所有查询都更快，也不是全库逐页验收。原临时试验有不同耗时，以上以实际生产函数源码测量为准；未使用生产数据库，不外推为手机/LAN性能通过。证据 `album-sql-baseline-{24,1}.json`、`album-sql-production-{24,1}.json` 及 profile。
 
-未执行全量测试、connected 全套、Release 重建、生产部署、真实媒体删除和评分。后续在源码提交/push 后生成正式 APK 与对应 Server 产物，维护唯一交付指针及构建 SHA，不反复重建同一 APK 收集证据。
+未执行全量测试、connected全套、生产部署、真实媒体删除和评分。正式APK仅构建一次，未为报告重建；其设备证据来自同生产源码的Debug包，正式签名包本轮未安装设备。
 
 ## 后续交互验证
 
@@ -37,6 +37,10 @@
 
 ## 剩余与边界
 
-发布入口后续：Server源码/pyproject/部署声明/builder统一1.6.5，Android builder统一Alpha27/code34；随包安装/回滚/验收文档不再指向Alpha22或声称生图未接通。builder保持Server隔离重建，Android移除clean并允许进程级显式Gradle路径，Python使用调用解释器，适配工作树。新增两项回归原实现均失败；发布/部署/健康合同首轮88通过3失败（两项旧版断言、1项Windows脚本策略未执行到SCM），调整过时断言并加入“失败构建撤销receipt、旧APK缓存不可发布”检查后91通过、1项SCM排除（65.05秒）。命令为三个相关pytest文件 `-k 'not scm_query_failure' -o addopts='' -q`，日志package-red/green/final.log；不更改或绕过机器策略，不称SCM失败安全已验证。项目既有FFmpeg/ffprobe 7.1.3-Jellyfin复制到工作树打包输入并逐文件哈希一致，非安装全局工具；候选产物尚未生成。
+发布入口：Server声明/builder统一1.6.5，Android builder统一Alpha27/code34；随包说明不再指向Alpha22或声称生图未接通。保持Server隔离重建，Android移除clean并支持进程级显式Gradle路径，Python使用调用解释器。新增两项回归原实现均失败；发布/部署/健康首轮88通过3失败（两项旧断言、1项脚本策略未执行到SCM），调整旧断言并验证“失败构建撤销receipt，旧缓存不可发布”后91通过、1项SCM排除（65.05秒）。三个相关pytest文件 `-k 'not scm_query_failure' -o addopts='' -q`，日志package-red/green/final.log；未改机器策略，不称SCM失败安全已验证。既有FFmpeg双工具7.1.3-Jellyfin复制哈希一致，非全局安装。
 
-生产健康于10:06只读实查：ok / 1.6.3 / API2 / 14 capabilities / windows_service，尚不含本批SQL优化。正式 APK、包含本轮查询优化的 Server1.6.5 产物及唯一入口仍待交付，不把源码版本或历史1.6.4包当成已部署。真实家庭局域网/手机加载、首帧与长期连接稳定性未在本批复核；相册目录定位仍需按索引范围聚合，不能承诺所有大库瞬时打开。当前目标继续进行，本记录不作为产品最终合格结论。
+交付：源码c7c53eb，已登记builder执行 `--prepare-only`（串行EXE→Release，APK4m51s）与 `--package-verified`（复核同一二进制，未重建）。Git初次推送多次连接重置，直连亦不可达，先完成本地构建；交付ZIP在源码push确认后生成。未改全局代理/凭据，最后两个分支push成功。真实EXE隔离健康为1.6.5/API2/15cap；另一次独立HTTP合成查询验证新SQL、3媒体/2图片、最新图片封面、图片顺序和实际迁移head0018，无真实媒体访问，实例已关闭。APK原证书SHA256 `592c2595…65973564`、code34及演示媒体0核验通过；ZIP184项文件、包内APK与独立APK相同、主目录复制后逐文件复核通过。证据release-prepare/package.log、exe-sql-result.json。
+
+主项目 `deploy_handoff/` 新产物：APK `MediaReview_2.0.0-alpha27_stage9.apk`（20,830,008字节，SHA256 `a3cc30e0735462f95ebc25d9cc1469397e3f23c9dc113c20d382cc1e6f4fbe52`）；ZIP `MediaReview_Server_1.6.5_stage9.zip`（112,039,672字节，SHA256 `4561c3952e1638e7616c4a03c7f398e4ab459cc304e7b0a64fc6de4ef4e07c86`）。EXE SHA256 `a3017ad3c75d0e1d8fc5e9c1054b3b758b2d9f6d0f564e5cdc9847287417d5a2`。CURRENT_RELEASE已原子切换新配套，旧指针备份保留；旧包未覆盖。
+
+生产于交付收口只读复查仍为ok / 1.6.3 / API2 / 14cap / windows_service，尚不含本批SQL优化；新产物就绪不等于已安装/部署。真实家庭局域网/手机加载、首帧与长期稳定性未复核；相册目录定位仍需按索引聚合，不能承诺大库瞬开。当前目标继续，后续还需新正式APK的设备、对应Server及真实使用验收，不作为产品最终合格结论。

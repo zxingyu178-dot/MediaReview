@@ -1,6 +1,8 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> **发布入口收口，产物待构建**：候选Server1.6.5/API2/0018/15能力，Android Alpha27/code34。已修复builder仍指Alpha24及强制清Gradle产物的问题，复用当前解释器与显式Gradle入口；构建失败撤销旧回执，缓存不能代替新发布证据。发布/部署/版本定向91项通过，1项旧SCM集成测试因Windows执行策略未进入目标逻辑，未计通过；未改机器策略。当前正式指针仍Alpha26/历史Server1.6.4包，生产仍以10:06实查1.6.3为准。随包文档已同步新版，后续先commit/push，再串行构建核验。
+> **当前交付（2026-10-31）**：Alpha27/code34正式签名APK与Server1.6.5/API2/0018/15能力配套包已生成并核验，构建/打包源码 `c7c53eb` 已push到 `codex/core-flow-polish` 与 `feature/mediareview-local-only`，日常工作树亦已快进。主项目 `deploy_handoff/CURRENT_RELEASE.json` 已切换新配套，旧指针备份 `CURRENT_RELEASE.before-alpha27-server165-20261031.json` 保留。APK20,830,008字节，SHA256 `a3cc30e0735462f95ebc25d9cc1469397e3f23c9dc113c20d382cc1e6f4fbe52`，原发布证书、演示媒体0；ZIP112,039,672字节，SHA256 `4561c3952e1638e7616c4a03c7f398e4ab459cc304e7b0a64fc6de4ef4e07c86`，184项文件与复制/ZIP校验通过，包内APK同为Alpha27。EXE隔离健康及真实HTTP合成相册查询通过，迁移head0018；APK Release构建4m51s。**正式APK未安装到手机或模拟器，既有设备证据为同生产源码Debug验证；生产未升级，收口复查仍1.6.3/API2/14cap/windows_service。** Git网络多次重置后重试成功，未改全局代理/凭据；产物未因此重建。真实家庭网、手机及生产升级仍待验收，不称PRODUCTION_READY。
+
+> **发布入口收口的构建前快照（已由上文产物结果收口）**：Server1.6.5/API2/0018/15能力，Android Alpha27/code34。修复builder仍指Alpha24及强制清Gradle产物，复用当前解释器与显式Gradle入口；构建失败撤销旧回执，缓存不能代替新发布证据。发布/部署/版本定向91项通过，1项旧SCM集成测试因Windows执行策略未进入目标逻辑，未计通过；未改机器策略。随包文档同步新版。
 
 > **后续交互隔离验证通过**：源码候选 Alpha27/code34（尚未发布），源码 `fbf554a` 已push到 `codex/core-flow-polish`；解除生图配对确认及审核/评分提交保护，视频刷新保留内容、真实状态和避免双圈。85项JVM单轮通过；最后界面补漏只构建App2m52s，复用未改逻辑的JVM结果；最终模拟器慢刷新1项（6.011秒）与原启动/收藏2项（4.138秒）分轮通过，生图取消保留位置/确认才清配对及新文案看图复核通过。模拟器、临时桥、辅助会话关闭，设备/forward/测试端口为空。当前唯一正式安装包仍 Alpha26。2026-10-31 10:06 只读实查生产健康：`ok / Server1.6.3 / API2 / 14 capabilities / windows_service`；这台电脑尚未运行本轮相册 SQL 优化，未做生产部署。
 
@@ -12,7 +14,7 @@
 >
 > **本文件是"当前状态"的唯一事实源。** `README` 只保留摘要；阶段文档（STAGE8*/STAGE9*、REVIEW_SUMMARY、TAKEOVER_READ_FIRST、HANDOVER 等）都是历史快照，不再代表当前状态。任何代码提交、发布、部署、服务恢复都必须同步更新本文件与末尾变更记录。
 
-## 0. 一句话状态
+## 0. 按日期保留的进展（当前状态以上方交付及权威表为准）
 
 **Alpha26最终产物**：源码85a551d，最终Release5m2s成功，原证书/code33/复制SHA256均通过；20,813,624字节，SHA256 `0c0364607d12b0da1d7d54108517eb68beb523340de637cadb131746e30f414e`。CURRENT_RELEASE已切换独立Alpha26并保留Alpha25指针备份。隔离AVD确认空相册按钮可恢复新增合成图片、封面实际显示，非空下拉发起新请求；49项+后补6项分轮通过，首候选生图/评分/审核门禁证据复用。手机断开未装Alpha26，真实相册服务端约6秒查询仍待优化；代码/收口记录8bc36f3已push，两个远端分支SHA相同。模拟器、临时后端、辅助会话均停止，设备/forward/临时端口为空。详见[修复交付记录](UX_POLISH_RESULT_20261031.md)，目标打磨仍继续，不声称产品最终合格。下方网络受阻段落为历史过程，已由本段收口。
 
@@ -66,19 +68,19 @@
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（候选源码，待构建/未部署） | `1.6.5` | `server/app/__init__.py`、`deployment/version.ps1`、`server/pyproject.toml`与builder一致；现有历史包仍1.6.4，不是生产已装版本 |
+| Server 版本（源码/已验证交付包，未部署） | `1.6.5` | 三处声明与builder一致，实际EXE健康/合成查询通过，CURRENT_RELEASE指向新包；不是生产已装版本 |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
 | Server 能力（源码15项） | 前述生产14项另加`delete_result_v1`；完整列表以`SERVER_CAPABILITIES`为准 | 源码重查；生产1.6.3于2026-10-31 10:06健康实查14项，不得混同 |
-| 数据库迁移 head（源码） | `0018` | revision字段实值；文件`server/app/db/migrations/versions/0018_delete_receipt.py`，生产未据此升级 |
-| Android 版本（候选源码/调试验证包） | `versionCode 34` / `versionName 2.0.0-alpha27` | 源码fbf554a，正式签名交付包待构建；不是已安装手机版本 |
-| 当前独立正式APK | `versionCode 33` / `2.0.0-alpha26` | 构建源码85a551d，aapt/签名/SHA256与CURRENT_RELEASE一致，2026-10-31再次复核哈希 |
-| 手机最近核验版本 | `versionCode 32` / `2.0.0-alpha25` | 2026-10-30 install -r及实际包检查；Alpha26仅隔离AVD复核，未安装手机 |
+| 数据库迁移 head（源码/EXE隔离库） | `0018` | revision字段与实际隔离EXE初始化库一致；生产未据此升级 |
+| Android 版本（源码/当前正式APK） | `versionCode 34` / `versionName 2.0.0-alpha27` | 构建源码c7c53eb，aapt/签名/SHA256与CURRENT_RELEASE一致；不是已安装手机版本 |
+| 当前Server包内APK | `versionCode 34` / `2.0.0-alpha27` | 与独立APK SHA256完全一致；旧1.6.4/Alpha22包不再是当前入口 |
+| 手机最近核验版本 | `versionCode 32` / `2.0.0-alpha25` | 2026-10-30 install -r及实际包检查；Alpha26/27未安装手机 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
-| 生产最近核验版本 | `1.6.3` | 2026-10-31 10:06健康实查windows_service；1.6.4历史包未部署，1.6.5待构建，发布清单不能替代生产实测 |
+| 生产最近核验版本 | `1.6.3` | 2026-10-31交付收口只读健康复查windows_service/14cap；1.6.5包已验证未部署，发布清单不能替代生产实测 |
 
 ## 2. 产物状态
 
-**当前独立Alpha26为20,813,624字节，沿用既有证书，最终哈希0c0364…0f414e；隔离复核通过、手机待装、未发邮件，唯一入口为CURRENT_RELEASE。Server1.6.4包仍附历史Alpha22，不作为手机安装入口，且未部署。** 历史Alpha21为20,649,784字节、Alpha20为43,655,758字节；以下1.5.2/Alpha15表格仅保留历史，不作当前部署入口。Alpha16/Server1.6.0见§15：
+**当前为独立Alpha27及Server1.6.5配套包，大小/哈希见本页顶端；唯一入口为CURRENT_RELEASE，未安装手机、未部署生产、未发邮件。** Alpha26为历史独立包；旧Server1.6.4包附Alpha22，已由新包替代当前入口。以下1.5.2/Alpha15表格仅保留历史，不作当前部署入口。Alpha16/Server1.6.0见§15：
 
 | 产物 | 字节 | SHA256（实测） | 备注 |
 | --- | --- | --- | --- |
@@ -89,7 +91,7 @@
 
 **关键事实**：已发布 1.5.2 的构建基线是 `2858d3c`；`747e704`（图片 404 归类修复）与 `2dd9ff2`（仅文档）都在其之后。因此**生产 1.5.2 不含 404 修复**，缺封面仍返回 502。要改变必须重新打包发版。
 
-## 3. 生产运行态（2026-10-24 实测）
+## 3. 历史生产运行态（2026-10-24，已被顶端收口复查替代）
 
 | 项 | 实测值 | 检查方式 |
 | --- | --- | --- |
