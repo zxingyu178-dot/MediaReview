@@ -207,8 +207,8 @@ def test_build_deploy_version_matches_server() -> None:
     assert builder.VERSION == "1.6.5"
     assert builder.VERSION == __version__
     assert builder.API_CONTRACT == 2
-    assert builder.ANDROID_VERSION == "2.0.0-alpha27"
-    assert builder.ANDROID_CODE == 34
+    assert builder.ANDROID_VERSION == "2.0.0-alpha28"
+    assert builder.ANDROID_CODE == 35
     assert len(builder.REQUIRED_CAPABILITIES) == 15
     assert "delete_result_v1" in builder.REQUIRED_CAPABILITIES
     assert "native_delete_v1" in builder.REQUIRED_CAPABILITIES

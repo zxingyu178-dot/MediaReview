@@ -92,19 +92,21 @@ fun NsfwReviewScreen(
     var baseUrlInput by rememberSaveable { mutableStateOf("") }
     var codeInput by rememberSaveable { mutableStateOf("") }
     var detailsOpen by rememberSaveable { mutableStateOf(false) }
+    var originalItem by remember(state.baseUrl, state.phase) { mutableStateOf<NsfwFeedItem?>(null) }
+    val originalOpen = originalItem != null
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, originalOpen) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> vm.setScreenVisible(true)
+                Lifecycle.Event.ON_START -> vm.setScreenVisible(!originalOpen)
                 Lifecycle.Event.ON_STOP -> vm.setScreenVisible(false)
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-            vm.setScreenVisible(true)
+            vm.setScreenVisible(!originalOpen)
         }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
@@ -144,8 +146,14 @@ fun NsfwReviewScreen(
                 onViewLatest = vm::viewLatestImages,
                 onOpenDetails = { detailsOpen = true },
                 onDisconnect = vm::clearPairing,
+                originalOpen = originalOpen,
+                onOpenOriginal = { originalItem = it },
             )
         }
+    }
+
+    originalItem?.let { item ->
+        NsfwOriginalDialog(item, state.baseUrl, imageLoader, onDismiss = { originalItem = null })
     }
 
     val detail = state.detail
@@ -286,6 +294,8 @@ private fun ReadyPane(
     onViewLatest: () -> Unit,
     onOpenDetails: () -> Unit,
     onDisconnect: () -> Unit,
+    originalOpen: Boolean,
+    onOpenOriginal: (NsfwFeedItem) -> Unit,
 ) {
     val thumbnailState = rememberLazyListState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -310,10 +320,10 @@ private fun ReadyPane(
         )
     }
     val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
-    LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId) {
+    LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId, originalOpen) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
-                if (state.currentId != null && previewReadyFor == state.currentId && !state.busy && state.panel == null) prefetch.update(nextUrl)
+                if (!originalOpen && state.currentId != null && previewReadyFor == state.currentId && !state.busy && state.panel == null) prefetch.update(nextUrl)
                 else prefetch.stop()
                 awaitCancellation()
             } finally { prefetch.stop() }
@@ -364,7 +374,7 @@ private fun ReadyPane(
                         onError = { previewReadyFor = null; previewFailureFor = item.imageId },
                         contentDescription = "待审核图片",
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().clickable(enabled = !state.busy) { onOpenOriginal(item) },
                     )
                 }
                 if (previewFailureFor == item.imageId) {

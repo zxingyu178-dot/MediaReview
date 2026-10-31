@@ -1,6 +1,6 @@
 # MediaReview 1.6.5 升级与回滚
 
-目标Server1.6.5/Contract2/数据库0018 + Alpha27/code34；产物路径和哈希以已核验的deploy_handoff/CURRENT_RELEASE.json为准。准备包不代表已部署。
+目标Server1.6.5/Contract2/数据库0018 + Alpha28/code35；产物路径和哈希以已核验的deploy_handoff/CURRENT_RELEASE.json为准。准备包不代表已部署。
 
 - 升级前经ControlHub停服，确认既有服务及端口已停止；备份有效程序、配置、配对和全部活动数据，保留原备份，不嵌套复制历史备份。
 - 只使用manifest核验通过的程序目录；禁止双击旧EXE、另建交互实例或绕开ControlHub生命周期。
@@ -10,3 +10,5 @@
 - 本地安全删除仍要求Windows10 1709以上；本轮验证只使用临时可丢弃样本，不修改真实媒体、系统策略、服务身份或端口。
 
 实际部署、备份和运行结果见docs/PROJECT_STATUS.md。本轮未执行生产升级或回滚。
+
+Alpha28为独立客户端更新；此前已生成的Server1.6.5 ZIP内仍为Alpha27，原ZIP/manifest/哈希保持不变，本轮不重建EXE或重打Server包。手机安装使用CURRENT_RELEASE的apk字段指向的独立APK，不从历史Server包另取旧APK。

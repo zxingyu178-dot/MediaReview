@@ -30,10 +30,10 @@ import okhttp3.OkHttpClient
 
 /** 包裹 NSFW 专用 ImageLoader，避免与 MediaReview 的 Coil 实例（cache token）混用。 */
 class NsfwImageLoader(val loader: ImageLoader, private val context: Context, private val tokens: NsfwTokenProvider) {
-    fun request(url: String?): ImageRequest {
+    fun request(url: String?, original: Boolean = false): ImageRequest {
         val key = url?.let { nsfwImageCacheKey(it, tokens.tokenFor(it).orEmpty()) }
         return ImageRequest.Builder(context).data(url)
-            .size(if (url?.substringBefore('?')?.endsWith("/thumbnail") == true) 256 else 1536)
+            .size(if (original) 3072 else if (url?.substringBefore('?')?.endsWith("/thumbnail") == true) 256 else 1536)
             .memoryCacheKey(key).diskCacheKey(key)
             .memoryCachePolicy(if (key == null) CachePolicy.DISABLED else CachePolicy.ENABLED)
             .diskCachePolicy(if (key == null) CachePolicy.DISABLED else CachePolicy.ENABLED).build()

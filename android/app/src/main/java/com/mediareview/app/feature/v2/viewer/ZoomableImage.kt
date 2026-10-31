@@ -45,6 +45,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImagePainter
+import coil.ImageLoader
+import coil.imageLoader
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import coil.request.CachePolicy
@@ -65,6 +67,9 @@ import com.mediareview.app.core.network.ImageRequestLifetime
  * 避免 N-2..N+2 五张原图同时下载抢带宽。
  */
 fun shouldLoadFullResolution(page: Int, currentPage: Int): Boolean = page == currentPage
+
+/** 独立来源只复用显示/手势，不进入普通媒体的认证、缩略图或原图会话。 */
+data class ZoomImageSource(val loader: ImageLoader, val preview: ImageRequest, val original: ImageRequest)
 
 /**
  * 可缩放图片（Stage 8A.1 渐进加载）：
@@ -90,6 +95,7 @@ fun ZoomableImage(
     onTap: () -> Unit,
     onScaleChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    source: ZoomImageSource? = null,
 ) {
     var viewport by remember { mutableStateOf(Size.Zero) }
     var scale by remember { mutableFloatStateOf(1f) }
@@ -102,28 +108,32 @@ fun ZoomableImage(
 
     // 封面(媒体墙已缓存)作为渐进加载的第一帧: 进入 Viewer 立即有内容,不黑屏
     val context = LocalContext.current
+    val loader = source?.loader ?: context.imageLoader
     val originalSession = LocalOriginalImageSession.current
     val smallPreviewUri = thumbnailProfileUrl(previewUri, ThumbnailProfile.GRID_SMALL)
     val largePreviewUri = thumbnailProfileUrl(previewUri, ThumbnailProfile.GRID_LARGE)
     val previewPainter = rememberAsyncImagePainter(
-        model = ImageRequest.Builder(context)
+        model = source?.preview?.newBuilder()
+            ?.setParameter("mediareview_retry", retryKey, memoryCacheKey = null)?.build() ?: ImageRequest.Builder(context)
             .data(smallPreviewUri.takeIf { it.isNotBlank() })
             .setParameter("mediareview_retry", retryKey, memoryCacheKey = null)
             .crossfade(false)
             .size(256, 144)
             .build(),
         contentScale = ContentScale.Fit,
+        imageLoader = loader,
     )
     // 单列墙已有Large：经共享认证缓存入口只读现有memory/disk源，不另发Large网络。
     // 不使用URL形式placeholderMemoryCacheKey：Coil在拦截器前读取占位，无法在该步骤认证隔离。
     // 独立底层也能在Small失败时保留已显示的封面。
     val cachedLargePainter = rememberAsyncImagePainter(
         model = ImageRequest.Builder(context)
-            .data(largePreviewUri.takeIf { it.isNotBlank() && it != smallPreviewUri })
+            .data(largePreviewUri.takeIf { source == null && it.isNotBlank() && it != smallPreviewUri })
             .networkCachePolicy(CachePolicy.DISABLED)
             .diskCachePolicy(CachePolicy.READ_ONLY)
             .crossfade(false).size(256, 144).build(),
         contentScale = ContentScale.Fit,
+        imageLoader = loader,
     )
     val previewState = previewPainter.state
     val previewReady = previewState is AsyncImagePainter.State.Success
@@ -133,7 +143,7 @@ fun ZoomableImage(
 
     // 性能打点: 当前页第一帧封面可见(相对 viewer 会话,不是 home 会话)
     LaunchedEffect(previewHasContent, isCurrent) {
-        if (isCurrent && previewHasContent) {
+        if (source == null && isCurrent && previewHasContent) {
             V2Perf.viewer()?.markOnce("preview_visible", "viewer_preview_visible")
         }
     }
@@ -246,20 +256,23 @@ fun ZoomableImage(
             // 原图请求: 仅当前页发起(邻页 model = null,Coil 不会请求)
             val fullModel = if (loadFullResolution && viewport.width > 0 && viewport.height > 0) fullUri else null
             val fullPainter = rememberAsyncImagePainter(
-                model = originalImageRequest(context, fullModel, originalSession.namespace,
+                model = source?.original?.newBuilder()?.data(fullModel)
+                    ?.setParameter("mediareview_retry", retryKey, memoryCacheKey = null)?.build()
+                    ?: originalImageRequest(context, fullModel, originalSession.namespace,
                     viewport.width.toInt(), viewport.height.toInt()).newBuilder()
                     .tag(ImageRequestLifetime::class.java, originalSession.lifetime).build(),
                 contentScale = ContentScale.Fit,
+                imageLoader = loader,
             )
             val fullState = fullPainter.state
             val fullReady = fullState is AsyncImagePainter.State.Success
             val fullFailed = fullState is AsyncImagePainter.State.Error
             // 性能打点: 原图就绪(渐进加载的"清晰度提升"时刻)
             LaunchedEffect(fullReady, isCurrent, fullUri, originalSession.namespace) {
-                if (fullReady && isCurrent) {
+                if (source == null && fullReady && isCurrent) {
                     V2Perf.viewer()?.markOnce("full_ready", "viewer_full_image_ready")
                     V2Perf.viewer()?.markOnce("current_original_ready", "current_original_ready")
-                    originalSession.onReady(fullUri)
+                    if (source == null) originalSession.onReady(fullUri)
                 }
             }
             // Coil 默认尺寸来自 Painter.onDraw；不能等 Success 后才挂载 Image，

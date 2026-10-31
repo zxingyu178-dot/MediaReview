@@ -321,6 +321,16 @@ object ReleaseNotesCatalog {
                 "解除生图配对前增加确认，审核和评分提交中避免误断开",
             ),
         ),
+        ReleaseNote(
+            versionCode = 35,
+            versionName = "2.0.0-alpha28",
+            title = "MediaReview 2.0 Alpha 28",
+            highlights = listOf(
+                "生图支持点击查看原图，双指缩放和双击复位",
+                "同步中断或图片移除时，新图数量与浏览位置更准确",
+                "删除受媒体库选择限制时，提示检查选择并刷新",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

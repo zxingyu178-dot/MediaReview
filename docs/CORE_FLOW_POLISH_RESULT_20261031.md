@@ -90,3 +90,12 @@ ADB仅发现emulator-5584，未发现实体手机。对原发布签名安装使�
 客户端将失败原因从“文件已不在允许的媒体库，无法确认身份”改为“所属媒体库未选中或已失效，请检查媒体库选择并刷新”，保留库/路径/文件身份保护与失败项先恢复再重新标记的流程。只改DeleteQueueViewModel映射及对应既有测试预期，无新增测试框架或用例；仅文案改动不重复制作RED日志。命令为既有登记Gradle/JDK17及进程级缓存/TEMP，`:app:testDebugUnitTest --tests '*DeleteQueueViewModelTest.失败原因映射为简短中文而不是原始异常' --tests '*DeleteQueueViewModelTest.本地源删除失败码映射为中文且不泄漏绝对路径' --offline --max-workers=1 --no-daemon -Pkotlin.compiler.execution.strategy=in-process`，**2项通过、0失败/错误，2m6s**，生产/测试编译通过；证据开发worktree`review_meta/delete-library-hint.log`和JUnit XML。未改Server，未重跑服务端删除/全量JVM/connected，未构建APK或部署，本次提示不在当前正式Alpha27中。
 
 新增简短的`docs/PRODUCT_ACCEPTANCE_2_0.md`，逐项对照已要求的连接、库选择、相册加载、批阅、删除与生图审核，区分源码/实际二进制/模拟器/手机/生产。它不是新增功能或全量测试门禁，不以局部通过宣称整款产品合格。下一步优先新客户端收口与同一产物的真实组合验收，原图交互仍待用户选择。
+
+
+### 2026-10-31 Alpha28原图查看候选（界面复核进行中）
+
+用户确认点击生图预览→全屏按需原图、双指缩放/双击复位、返回保留位置、原图失败不影响审核。先在正式Alpha27合成图上执行点击断言，原图页未出现（预期RED）；随后为ZoomableImage增加可选独立loader/请求入口，复用手势与边界，生图不进入普通媒体原图认证/缓存会话。原图按同源URL请求，3072px有界解码，保留预览、失败重试；打开时固定图片，暂停生图轮询和下一张预取，关闭恢复。NSFW项目和Server代码未修改。
+
+Alpha28/code35与3条中文说明、builder下一轮目标及安装文档同步；保持旧Server1.6.5 ZIP内Alpha27不变，本轮仅独立APK。旧builder与新源码的SSOT校验曾明确失败，调整后3项版本/签名入口pytest通过（21排除，1.17s）；缩放10、URL6、加载策略4、版本合同17共37项JVM单轮通过。一次Gradle含定向测试+Release成功16m3s（86任务，41执行/45增量复用），未clean、未重跑90项或全套设备/服务端。前期模拟器与Gradle共存使可用内存不足1GB，只关闭本轮模拟器后同一构建继续；没有杀用户程序或重启构建。首次过早安装发生在AVD未boot完成时失败，boot=1后同一Alpha27基线安装成功；没有清数据。
+
+候选实际版本/原证书/哈希/演示资产0及404项Android源码输入无漂移核验通过，APK中存在新原图Dialog。20,830,008字节、SHA256 `3db93dace5bc9ca6d6d754577e68dc6f46d607beba960daaf997d1e3af81361a`，原证书592c…3564。证据开发worktree忽略目录`review_meta/alpha28-{release.log,version-gate.log,artifact-proof.json,build-inputs.json}`。保留既有AGP/图标/测试名warning；ZoomableImage新增一处冗余条件静态warning不影响编译，未为清warning重建同一产物。正式候选尚待安装后的实际打开/缩放/失败/返回验证，CURRENT_RELEASE暂仍Alpha27，未安装实体手机、未部署生产或发送邮件。
