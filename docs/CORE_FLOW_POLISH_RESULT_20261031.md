@@ -1,8 +1,8 @@
 # 核心流程打磨记录（进行中）
 
-基线 `e253aa0`，分支 `codex/core-flow-polish`。正式签名 Alpha27/code34 与 Server1.6.5 已构建并完成下述隔离核验，主项目唯一交付指针已更新；生产服务未变，正式APK未安装手机或模拟器，不声称真实手机已经修复。
+基线 `e253aa0`，分支 `codex/core-flow-polish`。正式签名 Alpha27/code34 与 Server1.6.5 已构建并完成下述隔离核验，主项目唯一交付指针已更新；生产服务未变，正式APK已在隔离模拟器通过三项界面复核，实体手机未验证，不声称真实手机已经修复。
 
-查询/草稿/同步源码 `c242d99`、后续交互及Alpha27源码 `fbf554a`、发布输入源码 `c7c53eb` 已push；`codex/core-flow-polish` 与日常 `feature/mediareview-local-only` 均已对齐c7c53eb。后续收口提交只改状态文档，不改变已测试业务/发布输入。
+查询/草稿/同步源码 `c242d99`、后续交互及Alpha27源码 `fbf554a`、发布输入源码 `c7c53eb` 已push；构建输入仍是c7c53eb；后续源码修复7d5fc30已在两条远端分支对齐，已交付二进制不含该后续修复。
 
 ## 已确认原因与修改
 
@@ -64,3 +64,20 @@ ADB仅发现emulator-5584，未发现实体手机。对原发布签名安装使�
 改动：`android/app/src/main/java/com/mediareview/app/feature/v2/nsfw/NsfwReviewViewModel.kt`及同名ViewModelTest。新增4个最小回归，复用原队列与并发测试。过程：前三项旧实现3/3按预期失败（计数0→1、0→1、1→0），修复后89项通过2m35s；追加当前图中途失败用例，修复前期望img_b实际img_a，修复后最终**90项单轮通过（ViewModel72、FeedStore18），0失败/0错误，2m16s**。早前3项RED4m49s、追加1项RED1m5s。不是将多轮测试拼成单轮。
 
 命令：登记Gradle8.9/JDK17、项目内既有进程级TEMP/Gradle缓存，`:app:testDebugUnitTest --tests '*NsfwReviewViewModelTest' --tests '*NsfwFeedStoreTest' --offline --max-workers=1 --no-daemon -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8'`。生产Kotlin与测试编译通过；没有运行全量JVM/pytest/connected或构建新APK，已有Alpha27和Server1.6.5二进制不含本次源码修复。物理手机/HomeLAN未测、生产未部署、NSFW项目未改。证据在开发worktree忽略目录`review_meta/new-image-count-{red,green}.log`、`removed-current-red.log`、`new-image-sync-final.log`及对应最终XML。保留原有compileSdk/测试名称warning，未改全局环境。
+
+
+### 2026-10-31 Git 同步恢复与资源检查
+
+只读trace确认默认Schannel在本地代理CONNECT200后TLS握手重置；同一入口使用进程级`git -c http.sslBackend=openssl`读取、推送成功，`ls-remote`确认两远端分支均为`7d5fc308db115a68056d4f5cdd1bc7cd36329f5c`。不关闭证书校验、不改全局代理/凭据/Git配置，不推断底层原因已全面定位。可复用操作记录在AIHome现有`shared/references/git-proxy-tls-backend.md`并更新全局CHANGELOG；不是新增工具或服务。
+
+使用刚通过90项定向测试的实际NsfwFeedStore编译类，登记JDK17、`-Xmx256m`，一次性Java源文件入口进行纯合成元数据测量，每页50条并生成一次快照：
+
+|总条目/页数|合并累计ms|快照累计ms|移除前50条ms|查末项索引100次累计ms|
+|---|---:|---:|---:|---:|
+|1000/20|0.828|1.347|0.118|0.694|
+|10000/200|4.137|42.018|0.326|4.734|
+|50000/1000|7.394|524.998|0.271|21.575|
+
+先以1000条预热一次；仅一轮桌面JVM样本，无图片字节/真实文件/网络/Compose，不代表Android内存、帧率或持续审核性能。累计耗时不是单次操作延迟，不据此宣传手机不卡顿，也不足以证明应立刻重写队列。证据为开发worktree忽略目录`review_meta/FeedBenchmark.java`、`feed-benchmark.log`；首次误用不存在的证据子目录导致写入失败，改用既有review_meta后执行成功，未计为产品失败。
+
+生产只读检查：服务Running、health为1.6.3/API2/14能力/windows_service；只读SQL确认迁移0017，候选包为0018，不能把候选SQL优化说成已部署。既有删除队列54条failed（稳定码library_not_allowed，日期10-28至10-30）及1条pending，执行中committing/delete_pending/delete_done为0。本轮未创建/重试/撤销任何删除、未读取真实媒体文件、未修改数据；历史失败不报成功，也不自动重入队。迁移前仍须完整一致备份并保留既有失败/待删状态，生产部署未执行。
