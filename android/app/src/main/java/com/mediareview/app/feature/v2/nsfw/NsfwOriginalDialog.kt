@@ -38,16 +38,19 @@ internal fun NsfwOriginalDialog(
                 Text("原图", color = Color.White, modifier = Modifier.weight(1f))
                 Text("${(scale * 100).toInt()}%", color = Color.White, modifier = Modifier.padding(16.dp))
             }
+            Text("双指缩放 · 放大后可拖动 · 双击放大或复位", color = Color.White,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
             if (original.isBlank()) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("当前图片未提供可用原图，请返回继续审核", color = Color.White)
                 }
             } else {
-                ZoomableImage(preview, original, true, true, item.width ?: 0, item.height ?: 0,
-                    onTap = {}, onScaleChange = { scale = it }, modifier = Modifier.weight(1f), source = source)
+                // 由直接布局节点承担权重，给底部提示保留空间。
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    ZoomableImage(preview, original, true, true, item.width ?: 0, item.height ?: 0,
+                        onTap = {}, onScaleChange = { scale = it }, modifier = Modifier.fillMaxSize(), source = source)
+                }
             }
-            Text("双指缩放 · 放大后可拖动 · 双击放大或复位", color = Color.White,
-                modifier = Modifier.padding(12.dp))
         }
     }
 }

@@ -3491,3 +3491,12 @@ ADB仅发现emulator-5584，未发现实体手机。对原发布签名安装使�
 Alpha28/code35与3条中文说明、builder下一轮目标及安装文档同步；保持旧Server1.6.5 ZIP内Alpha27不变，本轮仅独立APK。旧builder与新源码的SSOT校验曾明确失败，调整后3项版本/签名入口pytest通过（21排除，1.17s）；缩放10、URL6、加载策略4、版本合同17共37项JVM单轮通过。一次Gradle含定向测试+Release成功16m3s（86任务，41执行/45增量复用），未clean、未重跑90项或全套设备/服务端。前期模拟器与Gradle共存使可用内存不足1GB，只关闭本轮模拟器后同一构建继续；没有杀用户程序或重启构建。首次过早安装发生在AVD未boot完成时失败，boot=1后同一Alpha27基线安装成功；没有清数据。
 
 候选实际版本/原证书/哈希/演示资产0及404项Android源码输入无漂移核验通过，APK中存在新原图Dialog。20,830,008字节、SHA256 `3db93dace5bc9ca6d6d754577e68dc6f46d607beba960daaf997d1e3af81361a`，原证书592c…3564。证据开发worktree忽略目录`review_meta/alpha28-{release.log,version-gate.log,artifact-proof.json,build-inputs.json}`。保留既有AGP/图标/测试名warning；ZoomableImage新增一处冗余条件静态warning不影响编译，未为清warning重建同一产物。正式候选尚待安装后的实际打开/缩放/失败/返回验证，CURRENT_RELEASE暂仍Alpha27，未安装实体手机、未部署生产或发送邮件。
+
+
+### 2026-11-01 Alpha28布局最终收口
+
+首候选原图认证HTTP200、双击250%/复位100%、双指500%、查看暂停轮询、6→8追加且返回第1张、原图404后预览仍可审核及重试200均有隔离证据；普通相册原图200且合成蓝图实际显示。其底部提示被挤出，未推广。第二候选加外层权重后仍失败，已通过设备APK SHA确认不是错包；该次Release4m49s不计布局通过。最终把固定说明置于图片前，Release增量6m5s成功（10执行/45复用）；原证书、code35、404项输入无漂移重新核验。最终APK SHA256 `5a83a8691fab91612da957c1eb6e4ea1cd2145c2ef27999d4e0beee7cc1d7939`，20,830,008字节。
+
+最终正式APK在隔离AVD保留数据安装；实际截图确认说明完整可见、合成原图无覆盖，双击250%→100%及关闭回到1/6通过。重试/追加/双指及普通相册的首候选证据按未改逻辑复用，不能称所有项目在最终同一包全量重跑。37项JVM和3项发布版本门禁结果复用，没有重跑全套/90项或重建EXE。两失败候选保存在主项目忽略目录review_meta/release-integration-20261031，不作为当前交付；最终截图alpha28-third-original.png，构建日志开发worktree review_meta/alpha28-release-layout-final.log，产物证明alpha28-third-proof.json。原图功能已获用户确认并实现；实体手机、HomeLAN与生产部署仍未验证，不称整款产品最终合格。
+
+独立APK推荐入口将切换Alpha28；Server1.6.5原ZIP及其内置Alpha27保持原哈希，清单分别记录独立APK与包内版本。生产仍以实际健康检查为准，未升级、未发邮件、未操作真实媒体或NSFW项目。

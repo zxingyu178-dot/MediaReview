@@ -1,6 +1,8 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
-> **Alpha28候选（2026-10-31，UI待复核）**：原图独立全屏查看按用户确认接入，复用缩放及独立生图认证；新图同步/删除提示修复纳入code35。37项相关JVM与3项版本入口通过；一次Release16m3s成功，原证书、SHA256、演示媒体0及404项输入无漂移通过。候选尚待实际界面验证，CURRENT_RELEASE暂仍Alpha27；Server包/生产未改变。
+> **当前独立客户端（2026-11-01）**：Alpha28/code35正式APK，20,830,008字节，SHA256 `5a83a8691fab91612da957c1eb6e4ea1cd2145c2ef27999d4e0beee7cc1d7939`。原证书与404项输入核验通过；37项JVM/3项版本门禁与分轮隔离UI证据见核心记录。最终说明显示/双击复位/返回位置通过，首候选其他未改逻辑证据复用。Server1.6.5 ZIP仍内置Alpha27，本轮不重打EXE/ZIP；手机/HomeLAN及生产升级待验收。
+
+> **历史Alpha28候选（2026-10-31，UI待复核）**：原图独立全屏查看按用户确认接入，复用缩放及独立生图认证；新图同步/删除提示修复纳入code35。37项相关JVM与3项版本入口通过；一次Release16m3s成功，原证书、SHA256、演示媒体0及404项输入无漂移通过。候选尚待实际界面验证，CURRENT_RELEASE暂仍Alpha27；Server包/生产未改变。
 
 > **验收入口（2026-10-31）**：[2.0产品验收缺口](PRODUCT_ACCEPTANCE_2_0.md)对照现有需求与证据，不以旧清单或局部通过宣称产品已合格。库选择只读诊断确认55条队列记录所属库均未选中，保持保护且不重试；客户端新增可行动的错误提示，2项既有映射/脱敏测试通过，尚未发包。
 
@@ -79,7 +81,7 @@
 | Server 能力（源码15项） | 前述生产14项另加`delete_result_v1`；完整列表以`SERVER_CAPABILITIES`为准 | 源码重查；生产1.6.3于2026-10-31 10:06健康实查14项，不得混同 |
 | 数据库迁移 head（源码/EXE隔离库） | `0018` | revision字段与实际隔离EXE初始化库一致；生产未据此升级 |
 | Android 版本（源码/当前正式APK） | `versionCode 34` / `versionName 2.0.0-alpha27` | 构建源码c7c53eb，aapt/签名/SHA256与CURRENT_RELEASE一致；不是已安装手机版本 |
-| 当前Server包内APK | `versionCode 34` / `2.0.0-alpha27` | 与独立APK SHA256完全一致；旧1.6.4/Alpha22包不再是当前入口 |
+| 当前Server包内APK | `versionCode 35` / `2.0.0-alpha28` | 与独立APK SHA256完全一致；旧1.6.4/Alpha22包不再是当前入口 |
 | 手机最近核验版本 | `versionCode 32` / `2.0.0-alpha25` | 2026-10-30 install -r及实际包检查；Alpha26/27未安装手机 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
 | 生产最近核验版本 | `1.6.3` | 2026-10-31交付收口只读健康复查windows_service/14cap；1.6.5包已验证未部署，发布清单不能替代生产实测 |

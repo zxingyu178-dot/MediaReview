@@ -272,7 +272,7 @@ fun ZoomableImage(
                 if (source == null && fullReady && isCurrent) {
                     V2Perf.viewer()?.markOnce("full_ready", "viewer_full_image_ready")
                     V2Perf.viewer()?.markOnce("current_original_ready", "current_original_ready")
-                    if (source == null) originalSession.onReady(fullUri)
+                    originalSession.onReady(fullUri)
                 }
             }
             // Coil 默认尺寸来自 Painter.onDraw；不能等 Success 后才挂载 Image，
