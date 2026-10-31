@@ -1,6 +1,6 @@
-# MediaReview 1.6.4 升级与回滚
+# MediaReview 1.6.5 升级与回滚
 
-目标Server1.6.4/Contract2/数据库0018 + Alpha22/code29；产物路径和哈希以已核验的deploy_handoff/CURRENT_RELEASE.json为准。准备包不代表已部署。
+目标Server1.6.5/Contract2/数据库0018 + Alpha27/code34；产物路径和哈希以已核验的deploy_handoff/CURRENT_RELEASE.json为准。准备包不代表已部署。
 
 - 升级前经ControlHub停服，确认既有服务及端口已停止；备份有效程序、配置、配对和全部活动数据，保留原备份，不嵌套复制历史备份。
 - 只使用manifest核验通过的程序目录；禁止双击旧EXE、另建交互实例或绕开ControlHub生命周期。

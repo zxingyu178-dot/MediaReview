@@ -1,5 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **发布入口收口，产物待构建**：候选Server1.6.5/API2/0018/15能力，Android Alpha27/code34。已修复builder仍指Alpha24及强制清Gradle产物的问题，复用当前解释器与显式Gradle入口；构建失败撤销旧回执，缓存不能代替新发布证据。发布/部署/版本定向91项通过，1项旧SCM集成测试因Windows执行策略未进入目标逻辑，未计通过；未改机器策略。当前正式指针仍Alpha26/历史Server1.6.4包，生产仍以10:06实查1.6.3为准。随包文档已同步新版，后续先commit/push，再串行构建核验。
+
 > **后续交互隔离验证通过**：源码候选 Alpha27/code34（尚未发布），源码 `fbf554a` 已push到 `codex/core-flow-polish`；解除生图配对确认及审核/评分提交保护，视频刷新保留内容、真实状态和避免双圈。85项JVM单轮通过；最后界面补漏只构建App2m52s，复用未改逻辑的JVM结果；最终模拟器慢刷新1项（6.011秒）与原启动/收藏2项（4.138秒）分轮通过，生图取消保留位置/确认才清配对及新文案看图复核通过。模拟器、临时桥、辅助会话关闭，设备/forward/测试端口为空。当前唯一正式安装包仍 Alpha26。2026-10-31 10:06 只读实查生产健康：`ok / Server1.6.3 / API2 / 14 capabilities / windows_service`；这台电脑尚未运行本轮相册 SQL 优化，未做生产部署。
 
 > **2026-10-31 后续打磨进行中**：开发分支 `codex/core-flow-polish`，源码 `c242d99` 已 push，基线 `e253aa0`。相册聚合/归属 SQL 与同步读取线程修复，批阅草稿保留/缺失目录阻止开始、生图读写状态分离；服务端 87+13 项分轮通过，Android 单轮 128 项（43+67+18）及业务编译通过。5万条合成索引的最终源码对照：24库摘要3539.64→840.64ms、分页1300.85→286.09ms，所测结果摘要相同，非手机验收。详见 [核心流程记录](CORE_FLOW_POLISH_RESULT_20261031.md)。当前交付仍是下述 Alpha26，未构建 Alpha27、未部署服务；不以旧包证明新修复。
@@ -64,14 +66,15 @@
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（源码/现有包目标，未部署） | `1.6.4` | `server/app/__init__.py`、`deployment/version.ps1`、`server/pyproject.toml`三处本轮重查一致；不是生产已装版本 |
+| Server 版本（候选源码，待构建/未部署） | `1.6.5` | `server/app/__init__.py`、`deployment/version.ps1`、`server/pyproject.toml`与builder一致；现有历史包仍1.6.4，不是生产已装版本 |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（源码15项） | 前述生产14项另加`delete_result_v1`；完整列表以`SERVER_CAPABILITIES`为准 | 本轮重查`server/app/__init__.py`；生产1.6.3历史核验14项，本轮未重查生产，不得混同 |
+| Server 能力（源码15项） | 前述生产14项另加`delete_result_v1`；完整列表以`SERVER_CAPABILITIES`为准 | 源码重查；生产1.6.3于2026-10-31 10:06健康实查14项，不得混同 |
 | 数据库迁移 head（源码） | `0018` | revision字段实值；文件`server/app/db/migrations/versions/0018_delete_receipt.py`，生产未据此升级 |
-| Android 版本（源码/当前独立APK） | `versionCode 33` / `versionName 2.0.0-alpha26` | 构建源码`85a551d`，最终aapt/签名/SHA256与CURRENT_RELEASE一致 |
+| Android 版本（候选源码/调试验证包） | `versionCode 34` / `versionName 2.0.0-alpha27` | 源码fbf554a，正式签名交付包待构建；不是已安装手机版本 |
+| 当前独立正式APK | `versionCode 33` / `2.0.0-alpha26` | 构建源码85a551d，aapt/签名/SHA256与CURRENT_RELEASE一致，2026-10-31再次复核哈希 |
 | 手机最近核验版本 | `versionCode 32` / `2.0.0-alpha25` | 2026-10-30 install -r及实际包检查；Alpha26仅隔离AVD复核，未安装手机 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
-| 生产最近核验版本 | `1.6.3` | 历史安装VERSION/health/EXE核验；1.6.4为未部署包，当前发布清单不能替代生产实测，本轮未重查 |
+| 生产最近核验版本 | `1.6.3` | 2026-10-31 10:06健康实查windows_service；1.6.4历史包未部署，1.6.5待构建，发布清单不能替代生产实测 |
 
 ## 2. 产物状态
 

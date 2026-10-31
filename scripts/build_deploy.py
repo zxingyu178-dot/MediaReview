@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""RC clean build/实际产物验证。旧 MediaReview_Migration_1.2.2 不再复用。
-默认重新构建；--prepare-only 记录本轮源/产物哈希与验证结果。
+"""RC 构建/实际产物验证。旧 MediaReview_Migration_1.2.2 不再复用。
+默认执行当前源码构建（Android复用Gradle增量）；--prepare-only记录源/产物哈希与验证结果。
 最终提交后 --package-verified 重验本轮证据，源码或产物变化均拒绝。
 不读取生产配置，不部署、不发邮件。
 """
@@ -30,10 +30,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.6.4"
+VERSION = "1.6.5"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha24"
-ANDROID_CODE = 31
+ANDROID_VERSION = "2.0.0-alpha27"
+ANDROID_CODE = 34
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
@@ -94,7 +94,7 @@ def build_exe() -> None:
     clean_generated(SERVER / "build/pyinstaller", SERVER / "build/pyinstaller")
     subprocess.run(  # noqa: S603
         [
-            str(SERVER / ".venv/Scripts/python.exe"),
+            sys.executable,
             "-m",
             "PyInstaller",
             "packaging/mediareview_server.spec",
@@ -113,15 +113,13 @@ def build_exe() -> None:
 
 
 def build_release_apk() -> Path:
-    clean_generated(APK_DIR / "release", APK_DIR / "release")
     subprocess.run(  # noqa: S603
         [
-            str(ROOT / "android/gradlew.bat"),
+            os.environ.get("MEDIAREVIEW_GRADLE_EXECUTABLE") or str(ROOT / "android/gradlew.bat"),
             "--no-daemon",
             "--offline",
             "--max-workers=1",
             "-Pkotlin.compiler.execution.strategy=in-process",
-            "clean",
             ":app:assembleRelease",
         ],
         cwd=ROOT / "android",

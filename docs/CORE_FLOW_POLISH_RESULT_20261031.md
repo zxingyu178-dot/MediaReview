@@ -37,4 +37,6 @@
 
 ## 剩余与边界
 
+发布入口后续：Server源码/pyproject/部署声明/builder统一1.6.5，Android builder统一Alpha27/code34；随包安装/回滚/验收文档不再指向Alpha22或声称生图未接通。builder保持Server隔离重建，Android移除clean并允许进程级显式Gradle路径，Python使用调用解释器，适配工作树。新增两项回归原实现均失败；发布/部署/健康合同首轮88通过3失败（两项旧版断言、1项Windows脚本策略未执行到SCM），调整过时断言并加入“失败构建撤销receipt、旧APK缓存不可发布”检查后91通过、1项SCM排除（65.05秒）。命令为三个相关pytest文件 `-k 'not scm_query_failure' -o addopts='' -q`，日志package-red/green/final.log；不更改或绕过机器策略，不称SCM失败安全已验证。项目既有FFmpeg/ffprobe 7.1.3-Jellyfin复制到工作树打包输入并逐文件哈希一致，非安装全局工具；候选产物尚未生成。
+
 生产健康于10:06只读实查：ok / 1.6.3 / API2 / 14 capabilities / windows_service，尚不含本批SQL优化。正式 APK、包含本轮查询优化的 Server1.6.5 产物及唯一入口仍待交付，不把源码版本或历史1.6.4包当成已部署。真实家庭局域网/手机加载、首帧与长期连接稳定性未在本批复核；相册目录定位仍需按索引范围聚合，不能承诺所有大库瞬时打开。当前目标继续进行，本记录不作为产品最终合格结论。

@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,41 @@ def builder():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_release_build_reuses_cache_and_explicit_gradle(builder, tmp_path, monkeypatch):
+    monkeypatch.setattr(builder, "ROOT", tmp_path)
+    monkeypatch.setattr(builder, "APK_DIR", tmp_path / "android/app/build/outputs/apk")
+    apk = builder.APK_DIR / "release/app-release.apk"
+    apk.parent.mkdir(parents=True)
+    marker = apk.parent / "incremental-marker"
+    marker.write_text("keep", encoding="utf-8")
+    executable = str(tmp_path / "registered-gradle.bat")
+    monkeypatch.setenv("MEDIAREVIEW_GRADLE_EXECUTABLE", executable)
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        apk.parent.mkdir(parents=True, exist_ok=True)
+        apk.write_bytes(b"fixture-apk")
+    monkeypatch.setattr(builder.subprocess, "run", run)
+    assert builder.build_release_apk() == apk
+    assert calls[0][0] == executable
+    assert "clean" not in calls[0]
+    assert marker.exists()
+
+
+def test_server_build_uses_invoking_python_in_worktree(builder, tmp_path, monkeypatch):
+    monkeypatch.setattr(builder, "SERVER", tmp_path / "server")
+    monkeypatch.setattr(builder, "DIST", builder.SERVER / "dist/MediaReviewServer")
+    builder.SERVER.mkdir()
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        builder.DIST.mkdir(parents=True)
+        (builder.DIST / "MediaReviewServer.exe").write_bytes(b"fixture-exe")
+    monkeypatch.setattr(builder.subprocess, "run", run)
+    builder.build_exe()
+    assert calls[0][0] == sys.executable
 
 
 def configure_prepared_builder(builder, tmp_path, monkeypatch, *, historical=False):
@@ -280,6 +316,20 @@ class TestReleasePackageInputs8E1:
         assert receipt["package_inputs"] == builder.package_inputs()
         assert "deployment/scripts/upgrade-aihome-managed.ps1" in receipt["package_inputs"]
 
+    def test_failed_rebuild_invalidates_receipt_but_keeps_cached_apk(self, prepared_builder, monkeypatch):
+        builder = prepared_builder
+        apk = builder.APK_DIR / "release/app-release.apk"
+        before = apk.read_bytes()
+        def failed():
+            raise subprocess.CalledProcessError(1, ["gradle"])
+        monkeypatch.setattr(builder, "build_release_apk", failed)
+        with pytest.raises(subprocess.CalledProcessError):
+            builder.prepare()
+        assert apk.read_bytes() == before
+        assert not builder.EVIDENCE.exists()
+        with pytest.raises(OSError):
+            builder.package_verified()
+
     @pytest.mark.parametrize(
         "relative",
         [
@@ -492,7 +542,7 @@ class TestReleasePackageIntegrity:
         builder.build_exe()
         assert exe.read_bytes() == b"FRESH"
 
-    def test_old_apk_is_removed_even_when_release_build_fails(self, builder, tmp_path, monkeypatch):
+    def test_cached_apk_is_preserved_and_release_build_failure_propagates(self, builder, tmp_path, monkeypatch):
         android = tmp_path / "android"
         monkeypatch.setattr(builder, "ROOT", tmp_path)
         monkeypatch.setattr(builder, "APK_DIR", android / "app/build/outputs/apk")
@@ -501,8 +551,8 @@ class TestReleasePackageIntegrity:
         apk.write_bytes(b"OLD")
 
         def failed(command, **kwargs):
-            assert not apk.exists()
-            assert "clean" in command and command.count(":app:assembleRelease") == 1
+            assert apk.read_bytes() == b"OLD"
+            assert "clean" not in command and command.count(":app:assembleRelease") == 1
             assert "--offline" in command and "--max-workers=1" in command
             assert "-Pkotlin.compiler.execution.strategy=in-process" in command
             raise subprocess.CalledProcessError(1, command)
@@ -510,7 +560,7 @@ class TestReleasePackageIntegrity:
         monkeypatch.setattr(builder.subprocess, "run", failed)
         with pytest.raises(subprocess.CalledProcessError):
             builder.build_release_apk()
-        assert not apk.exists()
+        assert apk.read_bytes() == b"OLD"
 
     @pytest.mark.parametrize(
         "field,value",

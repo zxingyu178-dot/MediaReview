@@ -1,5 +1,9 @@
 # 开发日志
 
+### 2026-10-31 — 配套发布入口收口（构建前）
+
+候选Server1.6.5/API2/0018/15cap + Alpha27/code34。修正builder仍为Alpha24及固定主目录venv、强制Gradle clean；保持Server隔离重建，用调用解释器和可显式指定Gradle，Android增量。新增两项回归先红；修正两项旧版本/强制删缓存断言并验证失败prepare撤销旧receipt后，三个发布/部署/健康测试文件91通过、1项SCM因脚本策略未进入目标逻辑而排除，未改机器策略。随包四份用户说明同步1.6.5/Alpha27及独立生图服务，避免旧Alpha22；既有FFmpeg双工具复制哈希一致供工作树出包。未构建或部署新二进制，生产状态未改；后续commit/push后调用已登记build_deploy.py执行串行构建和完整性门禁。
+
 ### 2026-10-31 — Alpha27交互候选源码与隔离验证
 
 源码 `fbf554a` 已push到 `codex/core-flow-polish`；后续状态收口仅改文档。
