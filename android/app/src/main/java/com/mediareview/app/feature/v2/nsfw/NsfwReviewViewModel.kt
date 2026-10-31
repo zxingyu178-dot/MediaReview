@@ -123,6 +123,8 @@ class NsfwReviewViewModel @Inject constructor(
     val state: StateFlow<NsfwUiState> = _state.asStateFlow()
 
     private val feed = NsfwFeedStore()
+    // 提示数跟随仍在队列中的新增身份，不累计 UPSERT/REMOVE 事件次数。
+    private val pendingNewImageIds = mutableSetOf<String>()
     private var lastCursor: String? = null
     private var historyCatchup = true
     private var pollJob: Job? = null
@@ -324,6 +326,7 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun advanceConnectionEpoch() {
         connectionEpoch += 1
+        pendingNewImageIds.clear()
         feedReadGate = Mutex()
         _state.update { it.copy(syncing = false) }
     }
@@ -473,6 +476,7 @@ class NsfwReviewViewModel @Inject constructor(
 
     fun viewLatestImages() {
         val latest = _state.value.items.lastOrNull() ?: return
+        pendingNewImageIds.clear()
         select(latest.imageId)
         _state.update { it.copy(newImageCount = 0) }
     }
@@ -873,7 +877,7 @@ class NsfwReviewViewModel @Inject constructor(
             historyCatchup = true
         }
         val indexBefore = _state.value.currentIndex
-        var countedNew = 0
+        val receivedNewIds = mutableSetOf<String>()
         var receivedChanges = false
         var pages = 0
         var cursor = lastCursor
@@ -900,8 +904,14 @@ class NsfwReviewViewModel @Inject constructor(
                 historyCatchup = true
             }
             val merge = feed.merge(page)
+            pendingNewImageIds.removeAll(merge.removedIds.toSet())
+            receivedNewIds.removeAll(merge.removedIds.toSet())
             // 首次历史同步与 410 后整段历史重建都不算"新到"；只有真正增量才计数。
-            if (!historyCatchup) countedNew += merge.addedIds.size
+            if (!historyCatchup) {
+                val aliveAddedIds = merge.addedIds.filter { feed.find(it) != null }
+                pendingNewImageIds.addAll(aliveAddedIds)
+                receivedNewIds.addAll(aliveAddedIds)
+            }
             pages += 1
             finalHasMore = page.hasMore
             finalNextCursor = page.nextCursor?.takeIf { it.isNotBlank() }
@@ -913,13 +923,23 @@ class NsfwReviewViewModel @Inject constructor(
                 lastCursor = page.nextCursor
                 if (!page.hasMore) historyCatchup = false
             }
+            // 每页均恢复有效当前位置；后续页断网不能留下已移除图片的详情/操作。
+            val pageSnapshot = feed.snapshot()
+            val currentBeforePage = _state.value.currentId
+            val pageTarget = currentBeforePage?.takeIf { feed.find(it) != null }
+                ?: pageSnapshot.getOrNull(indexBefore.coerceIn(0, pageSnapshot.lastIndex.coerceAtLeast(0)))?.imageId
             _state.update {
                 it.copy(
-                    items = feed.snapshot(),
+                    items = pageSnapshot,
+                    currentId = pageTarget,
+                    detail = it.detail?.takeIf { detail -> detail.imageId == pageTarget },
+                    detailLoading = it.detailLoading && it.currentId == pageTarget,
+                    newImageCount = pendingNewImageIds.size,
                     hasMore = page.hasMore,
                     nextCursor = page.nextCursor?.takeIf { it.isNotBlank() },
                 )
             }
+            if (pageTarget != null && pageTarget != currentBeforePage) loadDetails(pageTarget)
             if (!page.hasMore) break
             cursor = page.nextCursor
         }
@@ -940,7 +960,7 @@ class NsfwReviewViewModel @Inject constructor(
             state.message != messageBefore -> state.message
             recovered -> "游标已过期，已从头重新同步"
             terminalMissingCursor -> "服务端未返回 next_cursor，下次将从头同步"
-            manual && countedNew > 0 -> "已同步 $countedNew 张新图"
+            manual && receivedNewIds.isNotEmpty() -> "已同步 ${receivedNewIds.size} 张新图"
             else -> _state.value.message
         }
         _state.update {
@@ -952,12 +972,12 @@ class NsfwReviewViewModel @Inject constructor(
                 nextCursor = finalNextCursor,
                 cursorExpired = false,
                 detail = it.detail?.takeIf { d -> d.imageId == targetId },
-                detailLoading = it.detailLoading && it.detail?.imageId == targetId,
-                newImageCount = it.newImageCount + countedNew,
+                detailLoading = it.detailLoading && it.currentId == targetId,
+                newImageCount = pendingNewImageIds.size,
                 message = message,
             )
         }
-        if (targetId != null && targetId != _state.value.detail?.imageId) loadDetails(targetId)
+        if (targetId != null && targetId != _state.value.detail?.imageId && !_state.value.detailLoading) loadDetails(targetId)
         maybeStartPolling()
     }
 
@@ -965,6 +985,7 @@ class NsfwReviewViewModel @Inject constructor(
         val page = fetch.page
         val indexBefore = _state.value.currentIndex
         val merge = feed.merge(page)
+        pendingNewImageIds.removeAll(merge.removedIds.toSet())
         if (fetch.resetApplied) historyCatchup = true
         val missingTerminalCursor = !page.hasMore && page.nextCursor.isNullOrBlank()
         if (missingTerminalCursor) historyCatchup = true
@@ -984,6 +1005,7 @@ class NsfwReviewViewModel @Inject constructor(
         _state.update {
             it.copy(
                 items = feed.snapshot(),
+                newImageCount = pendingNewImageIds.size,
                 currentId = targetId,
                 hasMore = page.hasMore,
                 nextCursor = page.nextCursor?.takeIf { it.isNotBlank() },

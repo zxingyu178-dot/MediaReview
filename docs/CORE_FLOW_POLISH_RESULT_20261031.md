@@ -53,3 +53,14 @@ ADB仅发现emulator-5584，未发现实体手机。对原发布签名安装使�
 隔离Python HTTP夹具（源码Server1.6.5，127.0.0.1:18766，非打包EXE）仅提供合成媒体：媒体库清空后两个Checkbox=false、计数0/2；全选后均true、计数2/2，未提交真实库选择。相册书架显示1张合成图片的目录，进入后照片节点出现，摘要和缩略图HTTP200；只证明小型隔离库能显示，不证明真实大库性能。生图使用夹具配对，图片成功显示，图片区域[0,360][1080,1884]，高1524px；截图确认信息/主操作不覆盖图片，未提交审核、评分或删除。
 
 证据：忽略目录`review_meta/release-integration-20261031/`中library-all.png、album.png、nsfw.png及夹具日志；既有49+6和128/85等测试结果复用，不重跑全套。此次没有运行打包EXE与APK端到端，不使用源码夹具替代此项；实体手机/HomeLAN、生产部署仍未执行。相册按可视位置预取最多8项及2并发沿用已通过的定向用例，本次小数据集不重新声称滚动压力验收。
+
+
+### 2026-10-31 生图增量同步中途失败闭环（源码修复，尚未发包）
+
+上一目标轮完成正式Alpha27的三项界面证据，属于有效进展；本轮继续核心流程，不声称产品最终合格。
+
+确认并修复：新增计数原先累计UPSERT事件、整轮末尾才发布，导致同页新增后REMOVE、后续页REMOVE仍显示不存在的新图，后页失败又漏报已收到的新图。新增ID集合仅保留还在队列中的新增身份；每页原子发布列表与计数，解除配对/认证失效/查看最新时清理对应计数。另确认第一页移除当前图、第二页失败会让当前位置留在已移除图片；每页及时校正当前位置、清旧详情并读取有效图片详情，保留正在加载的详情状态，避免整轮末尾重复读取。无删除文件、无审核/评分协议变更。
+
+改动：`android/app/src/main/java/com/mediareview/app/feature/v2/nsfw/NsfwReviewViewModel.kt`及同名ViewModelTest。新增4个最小回归，复用原队列与并发测试。过程：前三项旧实现3/3按预期失败（计数0→1、0→1、1→0），修复后89项通过2m35s；追加当前图中途失败用例，修复前期望img_b实际img_a，修复后最终**90项单轮通过（ViewModel72、FeedStore18），0失败/0错误，2m16s**。早前3项RED4m49s、追加1项RED1m5s。不是将多轮测试拼成单轮。
+
+命令：登记Gradle8.9/JDK17、项目内既有进程级TEMP/Gradle缓存，`:app:testDebugUnitTest --tests '*NsfwReviewViewModelTest' --tests '*NsfwFeedStoreTest' --offline --max-workers=1 --no-daemon -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8'`。生产Kotlin与测试编译通过；没有运行全量JVM/pytest/connected或构建新APK，已有Alpha27和Server1.6.5二进制不含本次源码修复。物理手机/HomeLAN未测、生产未部署、NSFW项目未改。证据在开发worktree忽略目录`review_meta/new-image-count-{red,green}.log`、`removed-current-red.log`、`new-image-sync-final.log`及对应最终XML。保留原有compileSdk/测试名称warning，未改全局环境。

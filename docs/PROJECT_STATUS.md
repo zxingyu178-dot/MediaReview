@@ -1,5 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **源码后续修复（2026-10-31，尚未发包）**：生图新增计数按存活ID更新，REMOVE不再虚计、分页中途失败不漏计；当前图移除后逐页恢复有效位置，避免后页失败卡在已移除图片。4个故障回归均先确认失败；最终相关90项单轮通过（72 ViewModel+18 FeedStore），生产/测试编译通过。当前正式Alpha27及Server1.6.5产物不含此次源码修复；未新构建APK、未做手机/HomeLAN或生产部署。详见[核心流程记录](CORE_FLOW_POLISH_RESULT_20261031.md)。
+
 > **当前交付（2026-10-31）**：Alpha27/code34正式签名APK与Server1.6.5/API2/0018/15能力配套包已生成并核验，构建/打包源码 `c7c53eb` 已push到 `codex/core-flow-polish` 与 `feature/mediareview-local-only`，日常工作树亦已快进。主项目 `deploy_handoff/CURRENT_RELEASE.json` 已切换新配套，旧指针备份 `CURRENT_RELEASE.before-alpha27-server165-20261031.json` 保留。APK20,830,008字节，SHA256 `a3cc30e0735462f95ebc25d9cc1469397e3f23c9dc113c20d382cc1e6f4fbe52`，原发布证书、演示媒体0；ZIP112,039,672字节，SHA256 `4561c3952e1638e7616c4a03c7f398e4ab459cc304e7b0a64fc6de4ef4e07c86`，184项文件与复制/ZIP校验通过，包内APK同为Alpha27。EXE隔离健康及真实HTTP合成相册查询通过，迁移head0018；APK Release构建4m51s。**正式APK已保留数据安装到隔离模拟器，媒体库全选/清空、合成相册显示、生图图片无信息覆盖的定向复核通过；后端为源码夹具，非EXE端到端，实体手机未验证；生产未升级，收口复查仍1.6.3/API2/14cap/windows_service。** Git网络多次重置后重试成功，未改全局代理/凭据；产物未因此重建。真实家庭网、手机及生产升级仍待验收，不称PRODUCTION_READY。
 
 > **发布入口收口的构建前快照（已由上文产物结果收口）**：Server1.6.5/API2/0018/15能力，Android Alpha27/code34。修复builder仍指Alpha24及强制清Gradle产物，复用当前解释器与显式Gradle入口；构建失败撤销旧回执，缓存不能代替新发布证据。发布/部署/版本定向91项通过，1项旧SCM集成测试因Windows执行策略未进入目标逻辑，未计通过；未改机器策略。随包文档同步新版。

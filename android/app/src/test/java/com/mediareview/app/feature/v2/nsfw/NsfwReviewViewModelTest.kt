@@ -208,6 +208,57 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun removedNewImageDoesNotLeavePhantomBanner() = runTest {
+        val vm = bootstrapPaired()
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c"))) }
+        vm.refresh()
+        assertEquals(1, vm.state.value.newImageCount)
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c", revision = "2").copy(event = "REMOVE"))) }
+        vm.refresh()
+        assertEquals(0, vm.state.value.newImageCount)
+        assertEquals("img_a", vm.state.value.currentId)
+    }
+
+    @Test
+    fun newImageRemovedWithinSamePageIsNotCounted() = runTest {
+        val vm = bootstrapPaired()
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c"),
+            nsfwItem("img_c", revision = "2").copy(event = "REMOVE"))) }
+        vm.refresh()
+        assertEquals(0, vm.state.value.newImageCount)
+        assertFalse(vm.state.value.items.any { it.imageId == "img_c" })
+    }
+
+    @Test
+    fun failedLaterPageKeepsAlreadyReceivedNewImageCount() = runTest {
+        val vm = bootstrapPaired()
+        var calls = 0
+        data.feedResponder = {
+            if (++calls == 1) nsfwPage(listOf(nsfwItem("img_c")), nextCursor = "increment-1", hasMore = true)
+            else throw NsfwApiException("NETWORK_ERROR", "连接中断", 0)
+        }
+        vm.refresh()
+        assertTrue(vm.state.value.items.any { it.imageId == "img_c" })
+        assertEquals(1, vm.state.value.newImageCount)
+        assertEquals("img_a", vm.state.value.currentId)
+    }
+
+    @Test
+    fun failedLaterPageStillReconcilesRemovedCurrentImage() = runTest {
+        val vm = bootstrapPaired()
+        var calls = 0
+        data.feedResponder = {
+            if (++calls == 1) nsfwPage(listOf(nsfwItem("img_a", revision = "2").copy(event = "REMOVE")),
+                nextCursor = "removed-current", hasMore = true)
+            else throw NsfwApiException("NETWORK_ERROR", "连接中断", 0)
+        }
+        vm.refresh()
+        assertEquals(listOf("img_b"), vm.state.value.items.map { it.imageId })
+        assertEquals("img_b", vm.state.value.currentId)
+        assertEquals("img_b", vm.state.value.detail?.imageId)
+    }
+
+    @Test
     fun confirmedDecisionAdvancesOnlyAfterReceipt() = runTest {
         val vm = bootstrapPaired()
         val receipt = CompletableDeferred<NsfwDecisionResult>()
