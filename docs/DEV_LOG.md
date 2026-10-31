@@ -3500,3 +3500,10 @@ Alpha28/code35与3条中文说明、builder下一轮目标及安装文档同步�
 最终正式APK在隔离AVD保留数据安装；实际截图确认说明完整可见、合成原图无覆盖，双击250%→100%及关闭回到1/6通过。重试/追加/双指及普通相册的首候选证据按未改逻辑复用，不能称所有项目在最终同一包全量重跑。37项JVM和3项发布版本门禁结果复用，没有重跑全套/90项或重建EXE。两失败候选保存在主项目忽略目录review_meta/release-integration-20261031，不作为当前交付；最终截图alpha28-third-original.png，构建日志开发worktree review_meta/alpha28-release-layout-final.log，产物证明alpha28-third-proof.json。原图功能已获用户确认并实现；实体手机、HomeLAN与生产部署仍未验证，不称整款产品最终合格。
 
 独立APK推荐入口将切换Alpha28；Server1.6.5原ZIP及其内置Alpha27保持原哈希，清单分别记录独立APK与包内版本。生产仍以实际健康检查为准，未升级、未发邮件、未操作真实媒体或NSFW项目。
+
+
+### 2026-11-01 Server1.6.5只读部署预检
+
+实际health确认生产仍1.6.3/API2/14能力/windows_service/AIHome.MediaReview；ADB无手机。候选解包目录184项SHA256重新校验全部匹配，生产SQLite以mode=ro确认0017→目标0018，执行中删除批次0。无生产写入、停启、部署或媒体文件访问；证据review_meta/product-polish-20261031/server165-deploy-preflight-1101.json。
+
+待授权操作明确为：经ControlHub停服并确认端口释放→备份当前程序/配置/配对/完整活动数据并核验→安装已固定hash的1.6.5程序→ControlHub启动并执行0018迁移→核对windows_service身份、1.6.5/API2/15能力、数据库与端口。失败恢复同一备份的程序及数据，不只回退EXE；不改变库选择、不重放删除、不启动/修改NSFW。执行时须重新检查无进行中的删除。现有Server包内Alpha27保持原样，客户端使用独立Alpha28；不从旧包覆盖手机。项目现行规则禁止自动升级生产，因此需用户明确授权本次1.6.5部署后才能执行。真实手机/HomeLAN验收仍缺失，目标保持进行中。
