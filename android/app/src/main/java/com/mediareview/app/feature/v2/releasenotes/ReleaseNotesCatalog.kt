@@ -331,6 +331,16 @@ object ReleaseNotesCatalog {
                 "删除受媒体库选择限制时，提示检查选择并刷新",
             ),
         ),
+        ReleaseNote(
+            versionCode = 36,
+            versionName = "2.0.0-alpha29",
+            title = "MediaReview 2.0 Alpha 29",
+            highlights = listOf(
+                "暂停时从中央播放图标滑动也可调整进度",
+                "中央播放图标不再阻挡画面手势",
+                "保留单击继续播放与无障碍播放操作",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

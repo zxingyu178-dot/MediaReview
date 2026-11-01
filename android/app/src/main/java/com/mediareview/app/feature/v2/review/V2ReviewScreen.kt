@@ -78,6 +78,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -857,13 +860,17 @@ private fun ReviewPagerContent(
 
         // 暂停态：中央轻量 ▶（单击 = 播放/暂停，抖音式，不整体隐藏 UI）。
         if (userPaused && sourceIsCurrent() && !sheetOpen) {
-            Surface(
-                shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.45f),
+            // 视觉提示不能成为手势层上方的触摸目标；无障碍仍提供播放动作。
+            Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .size(64.dp)
-                    .clickable { togglePlayPause() },
+                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Button
+                        onClick { togglePlayPause(); true }
+                    },
+                contentAlignment = Alignment.Center,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
