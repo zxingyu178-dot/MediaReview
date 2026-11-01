@@ -3547,3 +3547,12 @@ Alpha29/code36正式Release：38项JVM单轮通过（方向锁6、seek9、速度
 - 正式APKAlpha30/code37，原证书592c…3564，404项Android源码输入无漂移，演示媒体0；20,830,012字节，SHA256 `771f8f05969222ee84584fa01d99dd8ae42e352c4d2a463095523b96d1ab7dca`。install -r成功，无卸载/清数据。更新说明展开/关闭、首页下拉后目录35库、26个包含F盘的可见节点、抽样F盘目录15项（摘要同15）、返回根仍35通过。一次早读层级/过严文案匹配未得到计数，后续新层级的安全数字字段确认15，不归为App故障或首屏计时。
 - 只读SQL确认Jellyfin仍选2、本地33。未提交审核/评分/待删除/最终删除，未替换批阅会话；UI辅助会话结束。生产1.6.3六次本机health全部200，最慢约16ms，仅短采样；未部署1.6.5，不能证明长时稳定。大相册流畅度、真实原图HTTP/解码及全部视频仍待验收。
 - 证据：开发worktree review_meta/alpha30-{release.log,release-final.log,release-complete.log,contract-first.xml,artifact-proof.json,build-inputs-final.json,phone-red.json}；主项目review_meta/alpha30-phone-result.json。独立APK升级到Alpha30，Server1.6.5原ZIP及内置Alpha27保持不变。
+
+
+### 2026-11-01 Alpha30批阅上下切换与恢复实机抽查
+
+沿用已安装正式Alpha30/code37（源码a707735），无代码修改、无APK/EXE重建或全量测试。进入既有会话，原序号223/3987；暂停出现中央播放图标后，从图标中心上滑700px至224，下项无重试/暂停标识，进度0.054409333→0.056847595。再次暂停后从中心下滑700px回223；返回首页并重新进入批阅仍223/3987。只读SQL确认session_id不变、total3987、current_index回222（零基），未创建/替换队列。
+
+屏幕图像仅在内存处理、无私人画面落盘：两个视频间隔1秒各取中央90点，第一条50点变化/50点非黑、第二条90点变化/90点非黑，连同进度更新支持这两条画面在播放；不是首帧耗时、硬件解码器、全部视频、音频或持续帧率验收。当前App进程最近502行logcat中PlaybackException/FATAL EXCEPTION提及均0；不代表整个会话或全库无错误。
+
+未点击保留/待删除/评分/最终删除；浏览按现有规则自动标记已看，服务端seen_count222→223，未逆向篡改已看记录。测试结束返回首页、停止uiautomator并退出工具，不更改配对/选库/生产服务。补齐的是Alpha30中央区域上下切片及同进程返回重进的局部证据；不能外推进程重启/断网恢复、审阅范围替换、所有视频格式和长时间稳定性。证据主项目忽略目录review_meta/alpha30-review-{session-baseline.json,smoke-20261101.json}，只含身份摘要/数字，不含媒体标题或截图。
