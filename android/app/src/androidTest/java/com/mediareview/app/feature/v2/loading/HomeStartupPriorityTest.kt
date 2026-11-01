@@ -89,6 +89,34 @@ class HomeStartupPriorityTest {
     }
 
     @Test
+    fun manualRefreshDiscoversNewFoldersWithoutWaitingForMedia() {
+        val mode = V2DataModeStore(ApplicationProvider.getApplicationContext())
+        val previous = runBlocking { mode.current().also { mode.set(V2DataMode.DEMO) } }
+        val repo = RecordingRepository()
+        val vm = testHomeViewModel(repo, StubHistory())
+        val gate = CompletableDeferred<Unit>()
+        try {
+            compose.setContent { MediaReviewTheme { HomeScreen(vm, {}, { _, _ -> }, {}, {}) } }
+            compose.waitUntil(5_000) { vm.folderTree.value.size == 1 && !vm.listLoading.value }
+            val original = vm.folderTree.value.single()
+            compose.runOnIdle {
+                repo.folderNodes = listOf(original, original.copy(id = "new_folder", libraryId = "new_library"))
+                repo.pageGate = gate
+                vm.retryList()
+            }
+            compose.waitUntil(5_000) { vm.folderTree.value.any { it.id == "new_folder" } }
+            assertTrue("目录刷新不得等待媒体分页返回", vm.listRefreshing.value)
+            assertEquals("刷新时保留已显示媒体", 1, vm.currentList.value.size)
+            gate.complete(Unit)
+            compose.waitUntil(5_000) { !vm.listLoading.value }
+        } finally {
+            gate.complete(Unit)
+            compose.runOnIdle { vm.suspendHomeWindow() }
+            runBlocking { mode.set(previous) }
+        }
+    }
+
+    @Test
     fun 启动时媒体最先开始且收藏不在启动路径内() {
         val repo = RecordingRepository()
         val vm = testHomeViewModel(repo, StubHistory())
@@ -147,6 +175,7 @@ private class StubHistory : SearchHistoryStore(ApplicationProvider.getApplicatio
 /** 记录调用顺序的仓库：只服务启动优先级断言。 */
 private class RecordingRepository : MediaRepository {
     var pageGate: CompletableDeferred<Unit>? = null
+    var folderNodes = listOf(com.mediareview.app.feature.v2.model.V2FolderNode("f1", null, "lib", "文件夹", 0, 1, 1, 1))
     val events: MutableList<String> = Collections.synchronizedList(mutableListOf())
     var favoritesCalls: Int = 0
         private set
@@ -175,7 +204,7 @@ private class RecordingRepository : MediaRepository {
 
     override suspend fun folderTree(): List<com.mediareview.app.feature.v2.model.V2FolderNode> {
         events += "folderTree"
-        return listOf(com.mediareview.app.feature.v2.model.V2FolderNode("f1", null, "lib", "文件夹", 0, 1, 1, 1))
+        return folderNodes
     }
 
     override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage {

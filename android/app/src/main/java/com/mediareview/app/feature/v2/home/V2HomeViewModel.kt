@@ -660,6 +660,8 @@ class V2HomeViewModel @Inject constructor(
         if (previous != null) browseCache.put(browseKey(), previous.copy(sourceGeneration = albumSourceGeneration))
         invalidateAlbumViewer()
         refreshList()
+        // 本机新增/扫描来源后，手动刷新也更新目录；媒体分页先开始且不等待目录树。
+        retryFolders()
     }
 
     fun setFavorite(mediaId: String, favorite: Boolean) {

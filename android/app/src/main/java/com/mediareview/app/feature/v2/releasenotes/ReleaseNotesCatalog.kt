@@ -341,6 +341,16 @@ object ReleaseNotesCatalog {
                 "保留单击继续播放与无障碍播放操作",
             ),
         ),
+        ReleaseNote(
+            versionCode = 37,
+            versionName = "2.0.0-alpha30",
+            title = "MediaReview 2.0 Alpha 30",
+            highlights = listOf(
+                "首页下拉刷新后，新接入的媒体库也会出现在文件夹中",
+                "目录刷新独立进行，不等待目录加载才显示视频",
+                "刷新目录时保留原有列表与媒体库选择",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

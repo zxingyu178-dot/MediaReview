@@ -3537,3 +3537,13 @@ Alpha29/code36正式Release：38项JVM单轮通过（方向锁6、seek9、速度
 - 真实 HTTP：带临时配对认证的本地视频分页 total=3363；每个来源取一个视频进行 64 字节 Range 读取，32+1 分轮全部 HTTP206。临时诊断设备两次均已撤销；原手机配对未改。此证据不代表手机解码/全部视频播放已验收。
 - 操作性限制：辅助只读轮询初次表名写错后改正；较大目录超过辅助脚本50秒等待上限，但 Server 后台扫描继续，未重排；最终33项均完成。未构建APK/EXE、未执行软件全量测试或真实删除。
 - 本机聚合证据在 review_meta/f-drive-http-check-20261101.json 和 f-drive-final-check-20261101.json；不提交真实数据库、目录清单或凭据。
+
+
+### 2026-11-01 Alpha30：新增来源后目录树刷新闭环
+
+- 真机Alpha29已选35/59，管理页滚动可见6个包含F盘的节点；返回首页下拉刷新后目录根仍2库，期望35的实际断言失败。直接根因为retryList只更新媒体分页，未刷新目录树。最小修改V2HomeViewModel：先refreshList，再独立retryFolders；复用取消/代次保护，保留旧树和媒体窗口，不改变媒体库选择、批阅会话或Server。
+- 复用HomeStartupPriorityTest仓库新增1项“媒体分页仍等待时新增目录已出现”的回归；设备测试代码编译通过，未在正式手机执行instrumentation，未安装调试APK或运行全套connected。真实手机是正式Release的手动控件回归；没有在同一进程中再次增加来源的受控写入，因此不能把升级后35库单独当成该新增场景完整自动GREEN。
+- 版本合同首轮17项中16通过/1失败（新说明只有2条，合同要求3至6）；补齐准确说明后只重跑失败的1项并通过，分轮闭环。3项版本/签名入口pytest通过（21排除，0.09秒）；没有重跑既有手势/生图/Server全套。首个Gradle命令参数被PowerShell拆分在配置阶段失败40秒；改用参数数组。第二轮因上述说明合同失败6m1s，最终增量Release成功7m（96任务，32执行/64复用）。保留现有warning，未改环境或重建EXE。
+- 正式APKAlpha30/code37，原证书592c…3564，404项Android源码输入无漂移，演示媒体0；20,830,012字节，SHA256 `771f8f05969222ee84584fa01d99dd8ae42e352c4d2a463095523b96d1ab7dca`。install -r成功，无卸载/清数据。更新说明展开/关闭、首页下拉后目录35库、26个包含F盘的可见节点、抽样F盘目录15项（摘要同15）、返回根仍35通过。一次早读层级/过严文案匹配未得到计数，后续新层级的安全数字字段确认15，不归为App故障或首屏计时。
+- 只读SQL确认Jellyfin仍选2、本地33。未提交审核/评分/待删除/最终删除，未替换批阅会话；UI辅助会话结束。生产1.6.3六次本机health全部200，最慢约16ms，仅短采样；未部署1.6.5，不能证明长时稳定。大相册流畅度、真实原图HTTP/解码及全部视频仍待验收。
+- 证据：开发worktree review_meta/alpha30-{release.log,release-final.log,release-complete.log,contract-first.xml,artifact-proof.json,build-inputs-final.json,phone-red.json}；主项目review_meta/alpha30-phone-result.json。独立APK升级到Alpha30，Server1.6.5原ZIP及内置Alpha27保持不变。
