@@ -387,4 +387,3 @@ Alpha17 源码准备将 UI 重构写入 Release Notes，并把 Android 源码版
 - 契约细节见 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`；审查摘要见 `REVIEW_SUMMARY.md` 顶部。
 
 2026-10-30定向验证终态：`:app:testDebugUnitTest --tests com.mediareview.app.feature.v2.nsfw.NsfwReviewViewModelTest`，56项、0失败、0错误，BUILD SUCCESSFUL（5m48s）。日志history-counter-green-1030.log。修正版Release及手机验证尚未完成。
-
