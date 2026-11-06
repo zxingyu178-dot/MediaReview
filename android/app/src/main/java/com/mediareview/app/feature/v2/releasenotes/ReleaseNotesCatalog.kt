@@ -361,6 +361,16 @@ object ReleaseNotesCatalog {
                 "图库按需加载缩略图，返回保留滚动位置",
             ),
         ),
+        ReleaseNote(
+            versionCode = 39,
+            versionName = "2.0.0-alpha32",
+            title = "MediaReview 2.0 Alpha 32",
+            highlights = listOf(
+                "短时间返回相册复用已加载照片和滚动位置，减少重复查询",
+                "相册后台校验结束后重新检查是否需要继续加载",
+                "生图图库的位置恢复失败提示保留至主动恢复",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -3586,3 +3586,7 @@ Alpha31/code38默认图库、独立审核与图库位置持久化、重新配对
 ### 2026-11-06 相册返回短时缓存（源码，未打包）
 
 用户确认推荐方案。AlbumPagingController加入30秒有效期，独立保存完整窗口校验时间；滚动、关闭和追加页不延长旧页有效期，时钟倒退视为过期；来源变更/删除/显式刷新仍沿用原失效。AlbumScreen的尾部观察纳入refreshing，校验完成后重新判断续页。新回归先1项RED（1m42s），最终AlbumPagingControllerTest12、WindowCachePolicyTest8、AlbumGridPolicyTest4共24项通过（5m3s），日志review_meta/album-return-{red,green}.log。覆盖短时返回请求1→2、30秒边界及锚点/追加不续期；旧SWR用例显式0有效期，保留失败、代次和取消保护。主UI编译通过，未做设备UI续页或真实大相册性能验收；未重建APK/EXE、未改NSFW/生产。当前交付仍原Alpha31，待下一批统一打包。
+
+### 2026-11-07 Alpha32候选构建，待界面验收
+
+候选Alpha32/code39汇集ec3cc1d图库提示和818fc5a相册缓存修复，新增三条版本说明并同步构建入口与合同。ReleaseNotesContractTest17项通过，版本/签名入口pytest3项通过（21排除、1既有warning）；相关逻辑回归复用先前81项/24项，不重复执行。一次Gradle合同+Release构建11m5s成功（86任务、38执行/48复用），日志review_meta/alpha32-release.log。原证书592c…3564、406项构建输入无漂移、演示媒体0；20,862,780字节，SHA256 a3ef7ae64e5ff445f574c4ed40e9f421d11ec376eaca8c60240ee89570d10ccf。包位于android/app/build/outputs/apk/release/app-release.apk，证据review_meta/alpha32-{artifact-proof,build-inputs}.json。候选未安装或验证UI，CURRENT_RELEASE仍Alpha31，未复制覆盖正式交付、未发邮件或升级Server。下一步复用此APK定向验证相册返回锚点/重复请求/过期校验续页，不重建同包。
