@@ -1,12 +1,12 @@
 # MediaReview 安装入口
 
-当前独立客户端为 Android Alpha31/code38，安装文件以 `deploy_handoff/CURRENT_RELEASE.json` 的 `apk` 字段为准。最近生产核对为 Server1.6.3；Server1.6.5 / API Contract2 / 数据库0018是尚未部署的候选，不能把交付清单中的候选版本当成电脑正在运行的版本。实际运行状态见 `docs/PROJECT_STATUS.md`。
+当前独立客户端为 Android Alpha32/code39，安装文件以 `deploy_handoff/CURRENT_RELEASE.json` 的 `apk` 字段为准。最近生产核对为 Server1.6.3；Server1.6.5 / API Contract2 / 数据库0018是尚未部署的候选，不能把交付清单中的候选版本当成电脑正在运行的版本。实际运行状态见 `docs/PROJECT_STATUS.md`。
 
 ## 手机更新
 
 从唯一指针找到独立APK，核对版本、SHA256和原发布证书后覆盖安装，保留配对与设置。签名不一致就停止，不卸载或清数据。不要从历史Server ZIP取出内置的旧APK。
 
-Alpha31的图库及位置恢复已有隔离模拟器证据，本轮尚未实机验收。后续源码 `ec3cc1d` 的图库位置读取失败提示修正尚未包含在该APK中；Git最新提交不等于已安装版本。手机安装完成后在更新说明中确认实际版本。
+Alpha32的相册返回与过期校验续页已有隔离模拟器证据，本轮尚未实机验收。该APK已包含 `ec3cc1d` 的图库位置读取失败提示修正和 `818fc5a` 的相册缓存优化；Git最新提交不等于已安装版本。手机安装完成后在更新说明中确认实际版本。
 
 这次独立客户端更新不代表Server已升级。新服务端能力以实际健康信息为准；需要1.6.5的能力须完成下述单独部署流程，不能仅通过安装手机APK获得。
 
@@ -22,4 +22,4 @@ Alpha31的图库及位置恢复已有隔离模拟器证据，本轮尚未实机�
 
 Server本轮仅准备交付、未部署；手机安装情况以实际版本检查为准。回滚见UPGRADE_ROLLBACK.md，人工验证见USER_LAN_VALIDATION.md。
 
-Alpha31为独立客户端更新；此前已生成的Server1.6.5 ZIP内仍为Alpha27，原ZIP/manifest/哈希保持不变，本轮不重建EXE或重打Server包。手机安装使用CURRENT_RELEASE的apk字段指向的独立APK，不从历史Server包另取旧APK。
+Alpha32为独立客户端更新；此前已生成的Server1.6.5 ZIP内仍为Alpha27，原ZIP/manifest/哈希保持不变，本轮不重建EXE或重打Server包。手机安装使用CURRENT_RELEASE的apk字段指向的独立APK，不从历史Server包另取旧APK。

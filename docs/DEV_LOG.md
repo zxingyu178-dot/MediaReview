@@ -3590,3 +3590,7 @@ Alpha31/code38默认图库、独立审核与图库位置持久化、重新配对
 ### 2026-11-07 Alpha32候选构建，待界面验收
 
 候选Alpha32/code39汇集ec3cc1d图库提示和818fc5a相册缓存修复，新增三条版本说明并同步构建入口与合同。ReleaseNotesContractTest17项通过，版本/签名入口pytest3项通过（21排除、1既有warning）；相关逻辑回归复用先前81项/24项，不重复执行。一次Gradle合同+Release构建11m5s成功（86任务、38执行/48复用），日志review_meta/alpha32-release.log。原证书592c…3564、406项构建输入无漂移、演示媒体0；20,862,780字节，SHA256 a3ef7ae64e5ff445f574c4ed40e9f421d11ec376eaca8c60240ee89570d10ccf。包位于android/app/build/outputs/apk/release/app-release.apk，证据review_meta/alpha32-{artifact-proof,build-inputs}.json。候选未安装或验证UI，CURRENT_RELEASE仍Alpha31，未复制覆盖正式交付、未发邮件或升级Server。下一步复用此APK定向验证相册返回锚点/重复请求/过期校验续页，不重建同包。
+
+### 2026-11-07 Alpha32最终包隔离验收与交付
+
+复用候选APK，无重建。相册120图的首可见照片4返回保持、短返无额外page1、8秒过期校验结束后自动page2与可见51通过；合成图截图已查看，详细边界与工具异常见ALBUM_RETURN_PLAN_20261106末尾。独立Alpha32已复制核验并更新CURRENT_RELEASE，手机/HomeLAN未测、生产未升级。临时夹具与模拟器已停，SDK删除临时AVD成功；无真实媒体/审核评分动作。
