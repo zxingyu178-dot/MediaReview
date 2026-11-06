@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2.nsfw.data
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.mediareview.app.core.datastore.AndroidKeystoreCredentialCipher
 import com.mediareview.app.core.datastore.CredentialCipher
@@ -35,7 +36,7 @@ class NsfwProfileStore(
     private val context: Context,
     private val crypto: CredentialCipher = AndroidKeystoreCredentialCipher("nsfw_studio_pairing_token_v1"),
     private val json: Json = Json { ignoreUnknownKeys = true },
-) : NsfwEvaluationJournal {
+) : NsfwEvaluationJournal, NsfwBrowsePositionStore {
     private val keyBaseUrl = stringPreferencesKey("base_url")
     private val keyTokenCiphertext = stringPreferencesKey("token_ciphertext")
     private val keyInstallationId = stringPreferencesKey("installation_id")
@@ -87,6 +88,32 @@ class NsfwProfileStore(
         context.nsfwStudioDataStore.edit { prefs ->
             prefs.remove(keyBaseUrl)
             prefs.remove(keyTokenCiphertext)
+        }
+    }
+
+    private fun browseKey(origin: String) = stringPreferencesKey("browse_" +
+        java.security.MessageDigest.getInstance("SHA-256").digest(origin.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 255) })
+
+    override suspend fun loadPosition(origin: String): String? =
+        context.nsfwStudioDataStore.data.first()[browseKey(origin)]?.takeIf { it.isNotBlank() }
+
+    override suspend fun savePosition(origin: String, imageId: String) {
+        require(origin.isNotBlank() && imageId.isNotBlank())
+        context.nsfwStudioDataStore.edit { it[browseKey(origin)] = imageId }
+    }
+
+    override suspend fun loadGalleryAnchor(origin: String): NsfwGalleryAnchor? {
+        val prefs = context.nsfwStudioDataStore.data.first()
+        val id = prefs[stringPreferencesKey("gallery_" + browseKey(origin).name)]?.takeIf { it.isNotBlank() } ?: return null
+        return NsfwGalleryAnchor(id, (prefs[intPreferencesKey("gallery_offset_" + browseKey(origin).name)] ?: 0).coerceAtLeast(0))
+    }
+
+    override suspend fun saveGalleryAnchor(origin: String, anchor: NsfwGalleryAnchor) {
+        require(origin.isNotBlank() && anchor.imageId.isNotBlank())
+        context.nsfwStudioDataStore.edit {
+            it[stringPreferencesKey("gallery_" + browseKey(origin).name)] = anchor.imageId
+            it[intPreferencesKey("gallery_offset_" + browseKey(origin).name)] = anchor.offset.coerceAtLeast(0)
         }
     }
 

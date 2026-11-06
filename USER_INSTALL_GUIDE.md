@@ -1,6 +1,6 @@
 # MediaReview 1.6.5 候选安装入口
 
-本轮目标配套为Server1.6.5 / API Contract2 / 数据库0018 + Android Alpha30/code37。只有完成产物验证并更新deploy_handoff/CURRENT_RELEASE.json后，才作为当前交付版本；实际运行状态见docs/PROJECT_STATUS.md。
+本轮目标配套为Server1.6.5 / API Contract2 / 数据库0018 + Android Alpha31/code38。只有完成产物验证并更新deploy_handoff/CURRENT_RELEASE.json后，才作为当前交付版本；实际运行状态见docs/PROJECT_STATUS.md。
 
 1. 从CURRENT_RELEASE.json读取包路径、版本、SHA256，不按文件日期猜包。Server的RELEASE_MANIFEST.json及SHA256SUMS.txt必须逐项匹配；独立APK按CURRENT_RELEASE的android_version核对；包内APK按server_zip_bundled_android_version核对。
 2. 生产升级经ControlHub停止AIHome.MediaReview，确认端口释放，完整备份程序、配置、配对和活动数据；校验备份后替换程序，不清除媒体库或配对。
@@ -10,4 +10,4 @@
 
 Server本轮仅准备交付、未部署；手机安装情况以实际版本检查为准。回滚见UPGRADE_ROLLBACK.md，人工验证见USER_LAN_VALIDATION.md。
 
-Alpha30为独立客户端更新；此前已生成的Server1.6.5 ZIP内仍为Alpha27，原ZIP/manifest/哈希保持不变，本轮不重建EXE或重打Server包。手机安装使用CURRENT_RELEASE的apk字段指向的独立APK，不从历史Server包另取旧APK。
+Alpha31为独立客户端更新；此前已生成的Server1.6.5 ZIP内仍为Alpha27，原ZIP/manifest/哈希保持不变，本轮不重建EXE或重打Server包。手机安装使用CURRENT_RELEASE的apk字段指向的独立APK，不从历史Server包另取旧APK。

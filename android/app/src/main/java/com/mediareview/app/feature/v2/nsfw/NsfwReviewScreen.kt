@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -138,6 +140,7 @@ fun NsfwReviewScreen(
                 onRefresh = vm::refresh,
                 onLoadMore = vm::loadMore,
                 onSelect = vm::select,
+                onGalleryAnchor = vm::updateGalleryAnchor,
                 onPrevious = vm::previous,
                 onNext = vm::next,
                 onDecision = vm::decision,
@@ -286,6 +289,7 @@ private fun ReadyPane(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onSelect: (String) -> Unit,
+    onGalleryAnchor: (com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor, Boolean) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onDecision: (String, Boolean?) -> Unit,
@@ -298,6 +302,11 @@ private fun ReadyPane(
     onOpenOriginal: (NsfwFeedItem) -> Unit,
 ) {
     val thumbnailState = rememberLazyListState()
+    val galleryGrid = key(state.baseUrl) { rememberLazyGridState() }
+    var galleryOpen by remember(state.baseUrl) { mutableStateOf(true) }
+    BackHandler(enabled = !galleryOpen && !originalOpen) {
+        if (!state.busy && state.panel?.submitting != true) galleryOpen = true
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
@@ -318,6 +327,13 @@ private fun ReadyPane(
             }) { Text("解除配对") } },
             dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("取消") } },
         )
+    }
+    if (galleryOpen) {
+        NsfwGallery(state, imageLoader, galleryGrid,
+            onSelect = { id -> onSelect(id); galleryOpen = false },
+            onRefresh = onRefresh, onLoadMore = onLoadMore,
+            onDisconnect = { confirmDisconnect = true }, onAnchor = onGalleryAnchor)
+        return
     }
     val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
     LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId, originalOpen) {
@@ -340,12 +356,14 @@ private fun ReadyPane(
                 .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TextButton(onClick = { galleryOpen = true }, enabled = !state.busy && state.panel?.submitting != true) { Text("图库") }
             Text("生图审核", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MediaTextPrimary)
             TextButton(onClick = onRefresh, enabled = !state.busy && !state.syncing) {
                 Text(if (state.syncing) "同步中…" else "同步新图")
             }
         }
 
+        state.browseRecoveryMessage?.let { Banner(it, warning = true) }
         state.message?.let { Banner(it, warning = false) }
         state.conflictMessage?.let { Banner(it, warning = true) }
         if (state.cursorExpired) Banner("游标已过期，已从头同步；当前图片位置保持不变", warning = true)

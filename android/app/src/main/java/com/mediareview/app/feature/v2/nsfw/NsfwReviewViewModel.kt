@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -76,6 +77,10 @@ data class NsfwUiState(
     val baseUrl: String = "",
     val items: List<NsfwFeedItem> = emptyList(),
     val currentId: String? = null,
+    val restoringBrowsePosition: Boolean = false,
+    val hasBrowsePosition: Boolean = false,
+    val galleryAnchor: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor? = null,
+    val browseRecoveryMessage: String? = null,
     val detail: NsfwImageDetails? = null,
     val detailLoading: Boolean = false,
     val busy: Boolean = false,
@@ -117,6 +122,7 @@ class NsfwReviewViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val json: Json,
     private val journal: NsfwEvaluationJournal,
+    private val positions: com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore = com.mediareview.app.feature.v2.nsfw.data.EmptyNsfwBrowsePositionStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(NsfwUiState())
@@ -132,6 +138,11 @@ class NsfwReviewViewModel @Inject constructor(
     private var screenVisible = false
     private var detailSeq = 0
     private var panelSeq = 0
+    private var browseOrigin = ""
+    private var pendingBrowseId: String? = null
+    private var browseReadFailed = false
+    private var galleryAnchorReadFailed = false
+    private val browseWriteGate = Mutex()
     private var connectionEpoch = 0
     private var feedReadGate = Mutex()
     private var manualFeedJob: Job? = null
@@ -206,6 +217,32 @@ class NsfwReviewViewModel @Inject constructor(
             }
             return
         }
+        val browseEpoch = connectionEpoch
+        val origin = originOf(snapshot.baseUrl)
+        if (browseOrigin != origin) {
+            var galleryAnchor: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor? = null
+            var readFailed = false
+            var galleryReadFailed = false
+            try { galleryAnchor = positions.loadGalleryAnchor(origin) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { galleryReadFailed = true }
+            val saved = try {
+                positions.loadPosition(origin)
+            }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { readFailed = true; null }
+            if (browseEpoch != connectionEpoch) return
+            browseOrigin = origin
+            browseReadFailed = readFailed
+            galleryAnchorReadFailed = galleryReadFailed
+            pendingBrowseId = saved?.takeIf { it.isNotBlank() }
+            _state.update { it.copy(restoringBrowsePosition = pendingBrowseId != null, hasBrowsePosition = pendingBrowseId != null, galleryAnchor = galleryAnchor,
+                browseRecoveryMessage = when {
+                    readFailed -> "上次浏览位置读取失败，可手动选择图片继续"
+                    galleryReadFailed -> "图库位置读取失败，滑动图库后将记录新位置"
+                    else -> null
+                }) }
+        }
         updateRecoveryHint(snapshot.baseUrl)
         _state.update {
             it.copy(
@@ -229,10 +266,10 @@ class NsfwReviewViewModel @Inject constructor(
                     advanceConnectionEpoch()
                     feed.clear()
                     lastCursor = null
-                historyCatchup = true
+                    historyCatchup = true
                     _state.update {
                         it.copy(
-                            phase = NsfwPhase.READY,
+                            phase = NsfwPhase.LOADING,
                             baseUrl = result.baseUrl,
                             pairingBusy = false,
                             hasSavedPairing = true,
@@ -244,8 +281,9 @@ class NsfwReviewViewModel @Inject constructor(
                             undoDecision = null,
                         )
                     }
-                    syncFromCursor(reset = true)
-                    maybeStartPolling()
+                    applyConnectionSnapshot(NsfwConnectionSnapshot(
+                        baseUrl = result.baseUrl, paired = true, compatible = true,
+                    ))
                 }
                 is NsfwPairResult.Blocked -> _state.update {
                     it.copy(
@@ -326,6 +364,11 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun advanceConnectionEpoch() {
         connectionEpoch += 1
+        browseOrigin = ""
+        pendingBrowseId = null
+        browseReadFailed = false
+        galleryAnchorReadFailed = false
+        _state.update { it.copy(restoringBrowsePosition = false, browseRecoveryMessage = null) }
         pendingNewImageIds.clear()
         feedReadGate = Mutex()
         _state.update { it.copy(syncing = false) }
@@ -370,8 +413,12 @@ class NsfwReviewViewModel @Inject constructor(
     }
 
     fun select(imageId: String) {
-        if (imageId.isBlank() || imageId == _state.value.currentId) return
-        if (_state.value.items.none { it.imageId == imageId }) return
+        if (imageId.isBlank() || _state.value.items.none { it.imageId == imageId }) return
+        pendingBrowseId = null
+        browseReadFailed = false
+        _state.update { it.copy(restoringBrowsePosition = false, hasBrowsePosition = true, browseRecoveryMessage = null) }
+        persistBrowsePosition(imageId)
+        if (imageId == _state.value.currentId) return
         _state.update {
             it.copy(
                 currentId = imageId,
@@ -381,6 +428,64 @@ class NsfwReviewViewModel @Inject constructor(
             )
         }
         loadDetails(imageId)
+    }
+
+    fun updateGalleryAnchor(
+        anchor: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor,
+        userInitiated: Boolean = false,
+    ) {
+        if (galleryAnchorReadFailed && !userInitiated) return
+        if (_state.value.items.none { it.imageId == anchor.imageId }) return
+        val origin = originOf(_state.value.baseUrl)
+        if (origin.isBlank()) return
+        _state.update { it.copy(galleryAnchor = anchor) }
+        val epoch = connectionEpoch
+        viewModelScope.launch {
+            try {
+                browseWriteGate.withLock { positions.saveGalleryAnchor(origin, anchor) }
+                if (epoch == connectionEpoch && galleryAnchorReadFailed) {
+                    galleryAnchorReadFailed = false
+                    if (!browseReadFailed) _state.update { it.copy(browseRecoveryMessage = null) }
+                }
+            }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (epoch == connectionEpoch) _state.update { it.copy(browseRecoveryMessage = "图库位置保存失败") }
+            }
+        }
+    }
+
+    private fun persistBrowsePosition(imageId: String) {
+        val origin = originOf(_state.value.baseUrl)
+        if (origin.isBlank()) return
+        val epoch = connectionEpoch
+        viewModelScope.launch {
+            try { browseWriteGate.withLock { positions.savePosition(origin, imageId) } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (epoch == connectionEpoch) _state.update {
+                    it.copy(browseRecoveryMessage = "浏览位置保存失败，重开后可能无法恢复")
+                }
+            }
+        }
+    }
+
+    private fun browseTarget(items: List<NsfwFeedItem>, current: String?, index: Int, historyComplete: Boolean): String? {
+        val pending = pendingBrowseId
+        if (pending != null) {
+            if (items.any { it.imageId == pending }) {
+                pendingBrowseId = null
+                _state.update { it.copy(restoringBrowsePosition = false, browseRecoveryMessage = null) }
+                return pending
+            }
+            if (!historyComplete) return null
+            pendingBrowseId = null
+            _state.update { it.copy(restoringBrowsePosition = false,
+                hasBrowsePosition = false, browseRecoveryMessage = if (items.isEmpty()) "上次图片已不在当前图库" else "上次图片已不在当前图库，已定位到可用图片") }
+        }
+        if (browseReadFailed) return null
+        return current?.takeIf { id -> items.any { it.imageId == id } }
+            ?: items.getOrNull(index.coerceIn(0, items.lastIndex.coerceAtLeast(0)))?.imageId
     }
 
     fun next() {
@@ -926,8 +1031,7 @@ class NsfwReviewViewModel @Inject constructor(
             // 每页均恢复有效当前位置；后续页断网不能留下已移除图片的详情/操作。
             val pageSnapshot = feed.snapshot()
             val currentBeforePage = _state.value.currentId
-            val pageTarget = currentBeforePage?.takeIf { feed.find(it) != null }
-                ?: pageSnapshot.getOrNull(indexBefore.coerceIn(0, pageSnapshot.lastIndex.coerceAtLeast(0)))?.imageId
+            val pageTarget = browseTarget(pageSnapshot, currentBeforePage, indexBefore, !historyCatchup)
             _state.update {
                 it.copy(
                     items = pageSnapshot,
@@ -947,15 +1051,7 @@ class NsfwReviewViewModel @Inject constructor(
         pollBackoff.result(receivedChanges)
         val state = _state.value
         val snapshotNow = feed.snapshot()
-        val currentStillExists = state.currentId != null && feed.find(state.currentId!!) != null
-        val targetId = if (currentStillExists) {
-            state.currentId
-        } else if (snapshotNow.isEmpty()) {
-            null
-        } else {
-            snapshotNow.getOrNull(indexBefore.coerceIn(0, snapshotNow.lastIndex))?.imageId
-                ?: snapshotNow.first().imageId
-        }
+        val targetId = browseTarget(snapshotNow, state.currentId, indexBefore, !historyCatchup)
         val message = when {
             state.message != messageBefore -> state.message
             recovered -> "游标已过期，已从头重新同步"
@@ -992,16 +1088,8 @@ class NsfwReviewViewModel @Inject constructor(
         else if (!page.hasMore) historyCatchup = false
         lastCursor = if (missingTerminalCursor) null else page.nextCursor
         val currentId = _state.value.currentId
-        val currentAlive = currentId != null && feed.find(currentId) != null
         val snapshot = feed.snapshot()
-        val targetId = if (currentAlive) {
-            currentId
-        } else if (snapshot.isEmpty()) {
-            null
-        } else {
-            snapshot.getOrNull(indexBefore.coerceIn(0, snapshot.lastIndex))?.imageId
-                ?: snapshot.first().imageId
-        }
+        val targetId = browseTarget(snapshot, currentId, indexBefore, !historyCatchup)
         _state.update {
             it.copy(
                 items = feed.snapshot(),

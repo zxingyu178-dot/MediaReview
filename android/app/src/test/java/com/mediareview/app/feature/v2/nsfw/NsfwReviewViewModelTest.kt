@@ -50,6 +50,7 @@ class NsfwReviewViewModelTest {
     private fun vm(
         savedState: SavedStateHandle = SavedStateHandle(),
         journal: FakeNsfwEvaluationJournal = FakeNsfwEvaluationJournal(),
+        positions: com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore = com.mediareview.app.feature.v2.nsfw.data.EmptyNsfwBrowsePositionStore,
     ): NsfwReviewViewModel =
         NsfwReviewViewModel(
             data,
@@ -57,6 +58,7 @@ class NsfwReviewViewModelTest {
             savedState,
             Json { ignoreUnknownKeys = true },
             journal,
+            positions,
         )
 
     private fun bootstrapPaired(
@@ -65,11 +67,128 @@ class NsfwReviewViewModelTest {
         details: com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails = nsfwDetails("img_a"),
         savedState: SavedStateHandle = SavedStateHandle(),
         journal: FakeNsfwEvaluationJournal = FakeNsfwEvaluationJournal(),
+        positions: com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore = com.mediareview.app.feature.v2.nsfw.data.EmptyNsfwBrowsePositionStore,
     ): NsfwReviewViewModel {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
         data.feedResponder = { page }
         data.detailsResponder = { id -> details.copy(imageId = id) }
-        return vm(savedState, journal)
+        return vm(savedState, journal, positions)
+    }
+
+    private class MemoryBrowsePositions : com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore {
+        val values = mutableMapOf<String, String>()
+        val anchors = mutableMapOf<String, com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor>()
+        var failGalleryLoad = false
+        override suspend fun loadGalleryAnchor(origin: String): com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor? {
+            if (failGalleryLoad) throw java.io.IOException("isolated anchor read failure")
+            return anchors[origin]
+        }
+        override suspend fun saveGalleryAnchor(origin: String, anchor: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor) { anchors[origin] = anchor }
+        override suspend fun loadPosition(origin: String) = values[origin]
+        override suspend fun savePosition(origin: String, imageId: String) { values[origin] = imageId }
+    }
+
+    @Test fun restoresLastBrowsedImageAfterViewModelRecreation() = runTest {
+        val positions = MemoryBrowsePositions().apply { values["http://nsfw.test:8767"] = "img_b" }
+        val model = bootstrapPaired(positions = positions)
+        assertEquals("img_b", model.state.value.currentId)
+    }
+
+    @Test fun selectingImagePersistsBrowseIdentity() = runTest {
+        val positions = MemoryBrowsePositions()
+        val model = bootstrapPaired(positions = positions)
+        model.select("img_b")
+        assertEquals("img_b", positions.values["http://nsfw.test:8767"])
+    }
+
+    @Test fun pendingBrowseTargetSurvivesLaterPageFailureAndLoadsLater() = runTest {
+        val positions = MemoryBrowsePositions().apply { values["http://nsfw.test:8767"] = "img_b" }
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        data.feedResponder = { cursor ->
+            if (cursor == null) nsfwPage(listOf(nsfwItem("img_a")), "next", true)
+            else throw java.io.IOException("isolated feed failure")
+        }
+        val model = vm(positions = positions)
+        assertNull(model.state.value.currentId)
+        assertTrue(model.state.value.restoringBrowsePosition)
+        assertEquals("img_b", positions.values["http://nsfw.test:8767"])
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_b"))) }
+        model.loadMore()
+        assertEquals("img_b", model.state.value.currentId)
+        assertFalse(model.state.value.restoringBrowsePosition)
+    }
+
+    @Test fun manualSelectionCancelsPendingBrowseRestore() = runTest {
+        val positions = MemoryBrowsePositions().apply { values["http://nsfw.test:8767"] = "img_b" }
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8767", paired = true)
+        data.feedResponder = { cursor ->
+            if (cursor == null) nsfwPage(listOf(nsfwItem("img_a")), "next", true)
+            else throw java.io.IOException("isolated feed failure")
+        }
+        val model = vm(positions = positions)
+        model.select("img_a")
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_b"))) }
+        model.loadMore()
+        assertEquals("img_a", model.state.value.currentId)
+        assertEquals("img_a", positions.values["http://nsfw.test:8767"])
+    }
+
+    @Test fun browseIdentityIsIsolatedByServerOrigin() = runTest {
+        val positions = MemoryBrowsePositions().apply { values["http://other.test:8767"] = "img_z" }
+        val model = bootstrapPaired(positions = positions)
+        assertEquals("img_a", model.state.value.currentId)
+        model.select("img_b")
+        assertEquals("img_z", positions.values["http://other.test:8767"])
+        assertEquals("img_b", positions.values["http://nsfw.test:8767"])
+    }
+
+    @Test fun lateBrowseRestoreCannotReopenDisconnectedConnection() = runTest {
+        val gate = CompletableDeferred<String?>()
+        val positions = object : com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore {
+            override suspend fun loadPosition(origin: String): String? = gate.await()
+            override suspend fun savePosition(origin: String, imageId: String) = Unit
+        }
+        val model = bootstrapPaired(positions = positions)
+        model.clearPairing()
+        gate.complete("img_b")
+        assertEquals(NsfwPhase.UNPAIRED, model.state.value.phase)
+        assertNull(model.state.value.currentId)
+    }
+
+    @Test fun missingSavedBrowseImageShowsExplicitFallback() = runTest {
+        val positions = MemoryBrowsePositions().apply { values["http://nsfw.test:8767"] = "img_missing" }
+        val model = bootstrapPaired(positions = positions)
+        assertEquals("img_a", model.state.value.currentId)
+        assertFalse(model.state.value.restoringBrowsePosition)
+        assertTrue(model.state.value.browseRecoveryMessage.orEmpty().contains("不在当前图库"))
+    }
+
+    @Test fun rePairingSameOriginRestoresSavedImageAndGalleryAnchor() = runTest {
+        val origin = "http://nsfw.test:8767"
+        val expectedAnchor = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("img_a", 120)
+        val positions = MemoryBrowsePositions().apply { values[origin] = "img_b"; anchors[origin] = expectedAnchor }
+        val model = vm(positions = positions)
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_b"))) }
+        gateway.pairResult = NsfwPairResult.Paired(origin, "device")
+        model.pair(origin, "123456")
+        assertEquals("img_b", model.state.value.currentId)
+        assertEquals(expectedAnchor, model.state.value.galleryAnchor)
+    }
+
+    @Test fun failedGalleryReadCannotBeOverwrittenByInitialLayout() = runTest {
+        val origin = "http://nsfw.test:8767"
+        val expectedAnchor = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("img_b", 120)
+        val positions = MemoryBrowsePositions().apply {
+            anchors[origin] = expectedAnchor; failGalleryLoad = true; values[origin] = "img_b"
+        }
+        val model = bootstrapPaired(positions = positions)
+        assertEquals("img_b", model.state.value.currentId)
+        model.updateGalleryAnchor(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("img_a", 0))
+        assertEquals(expectedAnchor, positions.anchors[origin])
+        val deliberateAnchor = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("img_a", 40)
+        model.updateGalleryAnchor(deliberateAnchor, userInitiated = true)
+        assertEquals(deliberateAnchor, positions.anchors[origin])
+        assertNull(model.state.value.browseRecoveryMessage)
     }
 
     @Test

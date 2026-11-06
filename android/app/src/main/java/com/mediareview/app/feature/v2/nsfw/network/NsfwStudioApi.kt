@@ -24,7 +24,7 @@ import retrofit2.http.Query
  * NSFW Studio Mobile Review Bridge（8877）客户端合同。
  *
  * 端点与字段冻结于 docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md；
- * 现有 Bridge 只实现 health / pairing / 图片二进制，v2 端点尚未实现。
+ * 实际可用能力以 health 的 API contract 与 capabilities 校验为准。
  */
 interface NsfwStudioApi {
 

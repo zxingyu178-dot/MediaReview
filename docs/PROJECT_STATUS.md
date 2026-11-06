@@ -1,5 +1,8 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-06 Alpha31候选收口**：生图默认图库，保存审核图片与图库滚动位置；同服务重配对和进程重开恢复在最终签名包隔离模拟器通过。最终81项相关VM通过，首轮及发布门禁分轮记录见[结果](NSFW_GALLERY_RESULT_20261102.md)。手机本轮不可用，尚未实机验收；生产Server未升级，NSFW生成模块未改。正式交付以CURRENT_RELEASE为准。
+
+
 > **2026-11-01 Alpha30恢复补验**：实机确认App进程退出后重开无需配对，原223/3987恢复且画面/进度更新；短暂关闭Wi-Fi触发刷新失败提示，finally恢复Wi-Fi并确认开启，随后自动在线/已配对，原批阅项继续播放。前后会话四字段不变，无审核/删除决定或Server变更。未测精确播放时间恢复、长期断线/漫游或全库稳定性；复用原Alpha30不重建。详见核心流程结果末尾。
 
 
@@ -384,3 +387,4 @@ Alpha17 源码准备将 UI 重构写入 Release Notes，并把 Android 源码版
 - 契约细节见 `docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md`；审查摘要见 `REVIEW_SUMMARY.md` 顶部。
 
 2026-10-30定向验证终态：`:app:testDebugUnitTest --tests com.mediareview.app.feature.v2.nsfw.NsfwReviewViewModelTest`，56项、0失败、0错误，BUILD SUCCESSFUL（5m48s）。日志history-counter-green-1030.log。修正版Release及手机验证尚未完成。
+

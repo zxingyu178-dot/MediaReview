@@ -351,6 +351,16 @@ object ReleaseNotesCatalog {
                 "刷新目录时保留原有列表与媒体库选择",
             ),
         ),
+        ReleaseNote(
+            versionCode = 38,
+            versionName = "2.0.0-alpha31",
+            title = "MediaReview 2.0 Alpha 31",
+            highlights = listOf(
+                "生图审核默认进入图库，点选图片后开始审核",
+                "保存上次浏览图片，提供继续上次入口",
+                "图库按需加载缩略图，返回保留滚动位置",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

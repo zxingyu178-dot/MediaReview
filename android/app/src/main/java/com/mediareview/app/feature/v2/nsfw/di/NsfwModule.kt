@@ -63,6 +63,9 @@ object NsfwModule {
     fun provideNsfwEvaluationJournal(store: NsfwProfileStore): NsfwEvaluationJournal = store
 
     @Provides
+    fun provideBrowsePositions(store: NsfwProfileStore): com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore = store
+
+    @Provides
     @Singleton
     fun provideNsfwTokenProvider(): NsfwTokenProvider = NsfwTokenProvider()
 
