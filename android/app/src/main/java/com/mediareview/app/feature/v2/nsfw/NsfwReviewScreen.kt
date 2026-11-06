@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -282,6 +284,7 @@ private fun PairingPane(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReadyPane(
     state: NsfwUiState,
@@ -456,18 +459,21 @@ private fun ReadyPane(
         if (state.undoDecision != null) {
             TextButton(onClick = onUndo, enabled = !state.busy) { Text("撤销上一次审核") }
         }
-        Row(
+        FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.Center,
         ) {
             TextButton(onClick = onPrevious, enabled = state.currentIndex > 0) { Text("上一张") }
             Text(
                 if (state.items.isEmpty()) "0 / 0" else "${state.currentIndex + 1} / ${state.items.size}",
                 color = MediaTextSecondary,
                 style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
             )
             TextButton(onClick = onOpenDetails, enabled = state.detail != null,
                 contentPadding = PaddingValues(horizontal = 4.dp)) { Text("图片信息") }
