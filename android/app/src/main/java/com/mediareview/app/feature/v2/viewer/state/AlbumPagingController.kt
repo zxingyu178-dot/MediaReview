@@ -38,6 +38,8 @@ class AlbumPagingController(
     private val cache: AlbumWindowCache = AlbumWindowCache(),
     private val sourceGeneration: () -> Long = { 0L },
     private val cacheEnabled: Boolean = true,
+    private val cacheFreshMs: Long = 30_000L,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val mutableState = MutableStateFlow<AlbumPagingState?>(null)
     val state: StateFlow<AlbumPagingState?> = mutableState
@@ -45,19 +47,24 @@ class AlbumPagingController(
     private var job: Job? = null
     private var lastAttemptIndex: Int? = null
     private var key: WindowKey? = null
+    private var validatedAt = 0L
     private val favoriteOverrides = mutableMapOf<String, Boolean>()
 
     fun open(albumId: String, spec: V2SortSpec, items: List<V2Media> = emptyList(), total: Int = 0, loadedPage: Int = 0): Long {
         closeCurrent()
         key = WindowKey(sourceGeneration(), albumId, spec)
         val cached = if (cacheEnabled && loadedPage == 0) cache.get(key!!) else null
+        validatedAt = cached?.updatedAt ?: clock()
         val images = patched(items.filter { it.type == V2MediaType.IMAGE }.distinctBy { it.id })
         mutableState.value = if (cached != null) AlbumPagingState(albumId, spec, cached.items, cached.total, cached.page,
             status = if (cached.total == 0) AlbumLoadStatus.Empty else AlbumLoadStatus.Ready, anchor = cached.anchor)
         else AlbumPagingState(albumId, spec, images, total, loadedPage,
             status = if (loadedPage == 0) AlbumLoadStatus.Loading else if (total == 0) AlbumLoadStatus.Empty else AlbumLoadStatus.Ready)
         val session = generation
-        if (cached != null) revalidate(session) else if (loadedPage == 0) load(session)
+        if (cached != null) {
+            val age = clock() - cached.updatedAt
+            if (age < 0 || age >= cacheFreshMs) revalidate(session)
+        } else if (loadedPage == 0) load(session)
         return session
     }
     fun close(session: Long) { if (current(session)) closeCurrent() }
@@ -87,7 +94,7 @@ class AlbumPagingController(
         val activeKey = key ?: return
         if (cacheEnabled && state.loadedPage > 0 && activeKey.sourceGeneration == sourceGeneration())
             cache.put(activeKey, CachedWindow(state.items, state.loadedPage, state.total, state.sortSpec,
-                state.anchor, sourceGeneration = activeKey.sourceGeneration))
+                state.anchor, updatedAt = validatedAt, sourceGeneration = activeKey.sourceGeneration))
     }
     fun nearEnd(session: Long, index: Int) {
         val state = mutableState.value ?: return
@@ -121,6 +128,7 @@ class AlbumPagingController(
                 mutableState.value = before.copy(items = patched(refreshed.distinctBy { it.id }), total = total,
                     loadedPage = pageNumber, status = if (total == 0) AlbumLoadStatus.Empty else AlbumLoadStatus.Ready,
                     anchor = mutableState.value?.anchor ?: before.anchor, refreshing = false, moreError = null)
+                validatedAt = clock()
                 save()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Throwable) {
@@ -146,6 +154,7 @@ class AlbumPagingController(
                 mutableState.value = before.copy(items = patched((before.items + incoming).distinctBy { it.id }), total = page.total,
                     loadedPage = page.page, status = if (first && page.total == 0) AlbumLoadStatus.Empty else AlbumLoadStatus.Ready,
                     anchor = mutableState.value?.anchor ?: before.anchor, loadingMore = false, moreError = null)
+                if (first) validatedAt = clock()
                 save()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Throwable) {

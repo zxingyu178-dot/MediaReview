@@ -3582,3 +3582,7 @@ Alpha31/code38默认图库、独立审核与图库位置持久化、重新配对
 ### 2026-11-06 安装说明区分独立APK与候选Server
 
 只读核对CURRENT_RELEASE：Alpha31/code38包内版本、SHA256与字节数一致；两远端分支均为ec3cc1d。修正安装指南首屏，分别说明独立客户端覆盖安装和须授权的Server1.6.5部署，明确生产最近核对1.6.3、Alpha31未实机验收、后续源码提示修正未打包。未重新构建、安装、部署或修改NSFW。文档变更执行git diff --check，不为说明文字重跑软件测试。相册缓存行为设计仍待确认。
+
+### 2026-11-06 相册返回短时缓存（源码，未打包）
+
+用户确认推荐方案。AlbumPagingController加入30秒有效期，独立保存完整窗口校验时间；滚动、关闭和追加页不延长旧页有效期，时钟倒退视为过期；来源变更/删除/显式刷新仍沿用原失效。AlbumScreen的尾部观察纳入refreshing，校验完成后重新判断续页。新回归先1项RED（1m42s），最终AlbumPagingControllerTest12、WindowCachePolicyTest8、AlbumGridPolicyTest4共24项通过（5m3s），日志review_meta/album-return-{red,green}.log。覆盖短时返回请求1→2、30秒边界及锚点/追加不续期；旧SWR用例显式0有效期，保留失败、代次和取消保护。主UI编译通过，未做设备UI续页或真实大相册性能验收；未重建APK/EXE、未改NSFW/生产。当前交付仍原Alpha31，待下一批统一打包。

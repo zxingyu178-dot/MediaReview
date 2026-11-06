@@ -1,0 +1,8 @@
+# 相册返回缓存优化
+
+用户已确认短时间返回复用窗口与位置，过期后台校验，保留显式失效及续页恢复。沿用当前隔离工作树，不修改Server或NSFW。
+
+1. 在AlbumPagingControllerTest增加短时返回不查询且能继续下一页的回归，先确认失败。
+2. AlbumPagingController使用30秒缓存有效期，按窗口最近完整校验时刻计算；滚动保存与关闭不续期，追加单页也不能替旧页续期。过期仍按原策略原子校验全部已加载页，失败保留窗口。
+3. AlbumScreen的续页观察纳入refreshing，后台校验结束即重新判断可见尾项。保留失败重试保护、来源代次与取消保护。
+4. 补时间边界/滚动不续期回归；已有要求立即SWR的测试显式配置有效期0。运行AlbumPagingControllerTest、WindowCachePolicyTest和AlbumGridPolicyTest，记录结果并commit/push。本批不为内部逻辑单独重建APK，随下一批统一交付；真机与大相册性能仍需验收。

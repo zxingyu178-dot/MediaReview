@@ -43,7 +43,7 @@ class WindowCachePolicyTest {
             seen += page
             if (refresh) delay(3_000)
             V2MediaPage((1..50).map { sample.copy(id = "${if (refresh) "new" else "old"}-$page-$it") }, page, size, 120)
-        })
+        }, cacheFreshMs = 0)
         val first = controller.open("f", spec); runCurrent()
         controller.nearEnd(first, 49); runCurrent()
         controller.updateAnchor(first, HomeGridAnchor("old-2-1", 31)); controller.close(first)

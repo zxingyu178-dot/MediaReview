@@ -9,6 +9,36 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumPagingControllerTest {
     private val spec = V2SortSpec(typeFilter = V2TypeFilter.IMAGE)
+    @Test fun `fresh cached return skips reread and allows immediate next page`() = runTest {
+        val pages = mutableListOf<Int>()
+        val c = AlbumPagingController(backgroundScope, { _, p, s, _ ->
+            pages += p
+            V2MediaPage(photos((p - 1) * 50 + 1, p * 50), p, s, 150)
+        })
+        val first = c.open("album", spec); runCurrent(); c.close(first)
+        val second = c.open("album", spec); runCurrent()
+        assertEquals(listOf(1), pages)
+        assertFalse(c.state.value!!.refreshing)
+        c.nearEnd(second, 49); runCurrent()
+        assertEquals(listOf(1, 2), pages)
+    }
+    @Test fun `anchor saves and appended pages cannot renew old window expiry`() = runTest {
+        var now = 1_000L
+        val pages = mutableListOf<Int>()
+        val c = AlbumPagingController(backgroundScope, { _, p, s, _ ->
+            pages += p; V2MediaPage(photos((p - 1) * 50 + 1, p * 50), p, s, 150)
+        }, clock = { now })
+        val first = c.open("album", spec); runCurrent()
+        now += 29_999
+        c.updateAnchor(first, com.mediareview.app.feature.v2.home.HomeGridAnchor("img40", 25))
+        c.nearEnd(first, 49); runCurrent(); c.close(first)
+        val fresh = c.open("album", spec); runCurrent()
+        assertEquals(listOf(1, 2), pages)
+        c.close(fresh); now++
+        c.open("album", spec); runCurrent()
+        assertEquals(listOf(1, 2, 1, 2), pages)
+        assertEquals(25, c.state.value!!.anchor!!.offset)
+    }
     private fun photos(start: Int, end: Int) = (start..end).map { i ->
         V2Media("img$i", "$i", "照片$i", "album", "相册", V2MediaType.IMAGE,
             0, 1, 0, false, false, "", "", null, null, 1, 1)
@@ -95,7 +125,7 @@ class AlbumPagingControllerTest {
             requests++
             if (requests > 1) delay(3_000)
             V2MediaPage(photos(if (requests == 1) 1 else 101, if (requests == 1) 50 else 150), p, s, 100)
-        })
+        }, cacheFreshMs = 0)
         val first = c.open("album", spec); runCurrent(); c.close(first)
         c.open("album", spec)
         assertEquals(AlbumLoadStatus.Ready, c.state.value!!.status)
@@ -111,7 +141,7 @@ class AlbumPagingControllerTest {
         val c = AlbumPagingController(backgroundScope, { _, p, s, _ ->
             if (fail) error("offline")
             V2MediaPage(photos(1, 50), p, s, 100)
-        }, messages::add)
+        }, messages::add, cacheFreshMs = 0)
         val first = c.open("album", spec); runCurrent(); c.close(first)
         fail = true; c.open("album", spec); runCurrent()
         assertEquals(AlbumLoadStatus.Ready, c.state.value!!.status)

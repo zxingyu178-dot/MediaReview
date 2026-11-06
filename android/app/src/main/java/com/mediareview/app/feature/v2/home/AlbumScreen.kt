@@ -204,7 +204,7 @@ fun AlbumScreen(
                     session?.let { token -> visible?.let { vm.updateAlbumAnchor(token, HomeGridAnchor(it.id, offset)) } }
                 }
         }
-        LaunchedEffect(gridState, session, images.size, total, selectingCover, gridEntries) {
+        LaunchedEffect(gridState, session, images.size, total, selectingCover, gridEntries, window.refreshing) {
             snapshotFlow {
                 val key = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.key
                 images.indexOfLast { it.id == key }
