@@ -183,6 +183,9 @@ class NsfwReviewViewModelTest {
         }
         val model = bootstrapPaired(positions = positions)
         assertEquals("img_b", model.state.value.currentId)
+        assertTrue(model.state.value.browseRecoveryMessage.orEmpty().contains("图库位置读取失败"))
+        model.select("img_a")
+        assertTrue(model.state.value.browseRecoveryMessage.orEmpty().contains("图库位置读取失败"))
         model.updateGalleryAnchor(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("img_a", 0))
         assertEquals(expectedAnchor, positions.anchors[origin])
         val deliberateAnchor = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("img_a", 40)

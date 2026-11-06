@@ -416,7 +416,8 @@ class NsfwReviewViewModel @Inject constructor(
         if (imageId.isBlank() || _state.value.items.none { it.imageId == imageId }) return
         pendingBrowseId = null
         browseReadFailed = false
-        _state.update { it.copy(restoringBrowsePosition = false, hasBrowsePosition = true, browseRecoveryMessage = null) }
+        _state.update { it.copy(restoringBrowsePosition = false, hasBrowsePosition = true,
+            browseRecoveryMessage = if (galleryAnchorReadFailed) "图库位置读取失败，滑动图库后将记录新位置" else null) }
         persistBrowsePosition(imageId)
         if (imageId == _state.value.currentId) return
         _state.update {
@@ -475,7 +476,8 @@ class NsfwReviewViewModel @Inject constructor(
         if (pending != null) {
             if (items.any { it.imageId == pending }) {
                 pendingBrowseId = null
-                _state.update { it.copy(restoringBrowsePosition = false, browseRecoveryMessage = null) }
+                _state.update { it.copy(restoringBrowsePosition = false,
+                    browseRecoveryMessage = if (galleryAnchorReadFailed) "图库位置读取失败，滑动图库后将记录新位置" else null) }
                 return pending
             }
             if (!historyComplete) return null
