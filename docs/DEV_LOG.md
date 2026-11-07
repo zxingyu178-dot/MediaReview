@@ -3602,3 +3602,13 @@ Alpha31/code38默认图库、独立审核与图库位置持久化、重新配对
 ### 2026-11-07 生图审核大字体工具栏修复（源码/调试验证）
 
 按用户确认改FlowRow并固定序号单行，200%字体横排/工具自然两行、翻页/返回/图片信息通过；100%工具一行。一次assembleDebug10m43s，未重建Release或升级正式APK。更多菜单/继续入口本轮证据限制、截图与清理情况见NSFW_TOOLBAR_PLAN_20261107末尾，不声称完整可访问性或实机验收。
+
+### 2026-11-07 接管W4.1后的双项目手机联通
+
+用户确认W4.1已完成，现将NSFW和MediaReview纳入共同开发；以两端联通/日常体验为优先，不自动进入新的生图阶段。NSFW远端main与本地72c4e41一致，部署树99251d2，保留主树两个未跟踪文档及旧性能分支；复用隔离mobile-review-v2工作树，从origin/main新建codex/mobile-w41-integration。经官方Studio子运行态入口启动8877，无Studio/ComfyUI重启或持久配置修改；API2及五项手机能力齐全（桥health版本0.13.0不用于按字符串拒绝兼容）。
+
+只读真实探测：20+20事件游标续接，缩略/预览200并可解码、原图Range206前64字节；另一生成样本EXACT且提示词/版本汇总身份一致、关联图分页可读。两次临时配对均已撤销，未提交真实审核或评分。脱敏数字证据review_meta/w41-real-{read,prompt}-probe.json，不提交真实图/提示词/令牌。
+
+确认W4.1资产metadata已有file_size/mime_type，mobile details却硬编码null，手机已有DTO/大小类型行。因此NSFW只补旧字段映射，不做stat/迁移/新接口；新增5种值先2失败3通过，再21项合同/图片回归通过（61.566s）。代码3adfb88已push独立分支，草稿PR https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/34 ，CI42332453248后端/前端两Job均success（包含pytest、G0/Registry、typecheck/vitest/build/store回归）；并未合入main/develop或部署。先前未执行CI的源文档是提交时快照，本条补记实际CI结果，不为写报告重跑。
+
+真实运行详情仍未含此修复；桥已启动以备使用，自动随Studio启动的enabled未更改。MediaReview工具栏54527c5仍仅源码/调试验证，正式Alpha32不含；Alpha33尚未开始构建，待两端补漏统一发包。手机/HomeLAN及评分实际写入组合验收尚未完成。
