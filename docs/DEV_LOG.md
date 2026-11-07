@@ -3612,3 +3612,13 @@ Alpha31/code38默认图库、独立审核与图库位置持久化、重新配对
 确认W4.1资产metadata已有file_size/mime_type，mobile details却硬编码null，手机已有DTO/大小类型行。因此NSFW只补旧字段映射，不做stat/迁移/新接口；新增5种值先2失败3通过，再21项合同/图片回归通过（61.566s）。代码3adfb88已push独立分支，草稿PR https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/34 ，CI42332453248后端/前端两Job均success（包含pytest、G0/Registry、typecheck/vitest/build/store回归）；并未合入main/develop或部署。先前未执行CI的源文档是提交时快照，本条补记实际CI结果，不为写报告重跑。
 
 真实运行详情仍未含此修复；桥已启动以备使用，自动随Studio启动的enabled未更改。MediaReview工具栏54527c5仍仅源码/调试验证，正式Alpha32不含；Alpha33尚未开始构建，待两端补漏统一发包。手机/HomeLAN及评分实际写入组合验收尚未完成。
+
+### 2026-11-07 NSFW手机元数据修复合并与部署闭环
+
+PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；develop CI42333170399与main CI42333612542均success，复用先前PR CI42332453248和本地21项回归，不重复本地全套。GitHub连接器写权限不足，使用已缓存Git身份完成预期head SHA锁定的PR转正式/合并；未暴露凭据或请求其他人审查。一次main push网络重置后重试成功。
+
+部署前生成队列running=false/queued0/paused0；程序git archive、已有frontend/dist备份及项目backup_db.py的SQLite backup快照保留在DataRoot既有backups内，不动原媒体。初次git archive参数解析失败未产生产物，更正后备份成功；初次备用解释器URI只读检查无法打开快照，应用自带解释器+Windows兼容只读URI quick_check=ok，123330560字节，未据此推断App数据库故障。回滚基线99251d2，私有备份位置及校验仅存忽略目录review_meta/nsfw-deploy-20261107.json。
+
+按官方deploy_app_dist.ps1执行git更新/Vite构建/静态同步（Vite12.97s），再check_app_dist.ps1全PASS：dev/app/origin main以及dist .build_commit均5153cfe。只经Studio官方mobile-review/runtime/restart重载8877受管子运行时；无Studio/ComfyUI重启、无迁移、无配置/端口变化。旧部署树精确HEAD落后检查从FAIL收口PASS，保留原主树两个未跟踪文档。
+
+实际运行态只读补验：手机details size_bytes为整数且与桌面file_size一致，mime与桌面mime_type一致、图片身份一致；Studio健康ok，BridgeAPI2，临时设备撤销，真实审核/评分POST0。证据review_meta/w41-deployed-metadata-probe.json。运行桥保持在线，持久enabled设置未改。NSFW修复已部署，不再是仅开发分支；MediaReview桌面Server仍未升级，正式APK仍Alpha32，工具栏修复54527c5待Alpha33统一发包。手机/HomeLAN显示与长时稳定仍未验收。

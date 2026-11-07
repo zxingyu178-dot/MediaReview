@@ -1,5 +1,8 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-07 NSFW字段修复已部署**：PR34合并，NSFW main/develop/app与前端构建统一5153cfe，两主分支CI通过，官方发布一致性检查全PASS。已备份程序/前端/数据库并校验，只重载8877审核桥，未重启Studio/ComfyUI。真实只读确认大小/MIME与桌面一致，临时配对撤销。MediaReview Server保持原样，正式APK仍Alpha32；手机实机显示未验收，详情见DEV_LOG末尾。
+
+
 > **2026-11-07 W4.1双项目接手**：用户已将NSFW重新纳入开发范围。审核桥8877经官方入口启动；真实图片/游标/精确提示词只读链路通过，临时配对撤销。NSFW补大小/MIME字段3adfb88，草稿[PR34](https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/34)及CI42332453248全绿，尚未合并或部署。正式客户端仍Alpha32，Alpha33未构建；详细边界见DEV_LOG末尾。
 
 
