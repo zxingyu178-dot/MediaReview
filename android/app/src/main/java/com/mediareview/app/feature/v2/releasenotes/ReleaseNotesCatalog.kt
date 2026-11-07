@@ -371,6 +371,16 @@ object ReleaseNotesCatalog {
                 "生图图库的位置恢复失败提示保留至主动恢复",
             ),
         ),
+        ReleaseNote(
+            versionCode = 40,
+            versionName = "2.0.0-alpha33",
+            title = "MediaReview 2.0 Alpha 33",
+            highlights = listOf(
+                "生图审核序号保持单行，大字体下不再逐字竖排",
+                "空间不足时审核工具栏自动换行，减轻对图片区域的挤压",
+                "普通字号保持紧凑布局，保留翻页与图片信息入口",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
