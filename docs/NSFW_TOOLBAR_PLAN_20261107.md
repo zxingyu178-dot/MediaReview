@@ -15,3 +15,9 @@
 200%字体截图font200.png已查看：1/65横排，工具栏自然两行，图区比RED截图扩大；翻页到2/65、回1/65、图片信息弹窗及关闭通过。更多按钮已定位并执行点击，但菜单展开断言与底部同名收藏冲突，不能据此宣称菜单内容已独立验收；菜单回调未修改。100%字体截图font100.png已查看，全部工具项一行；该截图图片仍在加载，只证明工具栏布局。一次1秒早断言失败后重读已显示2/65，改有界状态等待；重开后继续上次早点击未离开图库，等待就绪后点当前缩略图进入，未算继续入口本轮通过。
 
 证据review_meta/nsfw-toolbar-ui/{font200.png,font100.png,result.json}；本轮只有截图/实际操作及编译，不虚报JVM/connected测试数或全量验收。临时夹具审核/评分POST累计0。uiautomator与会话退出，按身份停止夹具和模拟器并用SDK删除临时AVD，原AVD/真实媒体未动。正式Alpha32仍不含修复，CURRENT_RELEASE未变；源码待下一批统一发布，手机/HomeLAN未测。
+
+## Alpha33独立正式产物
+
+构建基线1b09e22c4451f49aa55a76bdc929cfdd530fdb80已push并核对两分支一致；版本Alpha33/code40。17项ReleaseNotesContractTest通过，3项版本/签名入口pytest通过（21排除、1既有warning）；一次Release构建12m59s（86任务、38执行/48复用）。原发布证书592c…3564、406项源码输入无漂移、演示媒体0；工具栏Git blob与54527c5一致，明确复用上文调试UI证据，没有重跑同组UI或虚报正式APK/手机验收。
+
+独立APK20,862,776字节，SHA256 311450c6903a6cf383cf6b606a531e93160a83783df829601e41017b531b4bcf；复制哈希匹配，CURRENT_RELEASE已备份并更新Alpha33，原Alpha32与Server1.6.5原ZIP未改。证据review_meta/alpha33-{release.log,build-inputs.json,build-baseline.json,artifact-proof.json}。正式Release UI未执行，phone/HomeLAN未测，不称PRODUCTION_READY。NSFW元数据修复已单独部署5153cfe，MediaReview电脑Server本次只读health为1.6.3/ok/windows_service，无升级或EXE构建。

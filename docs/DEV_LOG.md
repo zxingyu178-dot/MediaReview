@@ -3622,3 +3622,7 @@ PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；dev
 按官方deploy_app_dist.ps1执行git更新/Vite构建/静态同步（Vite12.97s），再check_app_dist.ps1全PASS：dev/app/origin main以及dist .build_commit均5153cfe。只经Studio官方mobile-review/runtime/restart重载8877受管子运行时；无Studio/ComfyUI重启、无迁移、无配置/端口变化。旧部署树精确HEAD落后检查从FAIL收口PASS，保留原主树两个未跟踪文档。
 
 实际运行态只读补验：手机details size_bytes为整数且与桌面file_size一致，mime与桌面mime_type一致、图片身份一致；Studio健康ok，BridgeAPI2，临时设备撤销，真实审核/评分POST0。证据review_meta/w41-deployed-metadata-probe.json。运行桥保持在线，持久enabled设置未改。NSFW修复已部署，不再是仅开发分支；MediaReview桌面Server仍未升级，正式APK仍Alpha32，工具栏修复54527c5待Alpha33统一发包。手机/HomeLAN显示与长时稳定仍未验收。
+
+### 2026-11-07 Alpha33/code40独立交付
+
+将已调试验证的工具栏修复纳入正式Release，构建head1b09e22。17项版本合同/3项入口检查通过，一次Release12m59s；原签名、406输入、演示媒体0、工具栏与54527c5文件身份一致通过。20,862,776字节、SHA256 311450c6903a6cf383cf6b606a531e93160a83783df829601e41017b531b4bcf；独立包已复制哈希核对，指针备份后更新。明确复用相同工具栏源码的调试200%/100%字体证据，未跑正式Release UI/手机/HomeLAN，不重复先前全量或NSFW测试；详见NSFW_TOOLBAR_PLAN_20261107末尾。生产MediaReview Server只读仍1.6.3/Windows服务/health ok，未升级，旧ServerZIP仍内置Alpha27。此前NSFW临时测试目录递归清理被自动审批拒绝并保留，本轮未再次尝试。

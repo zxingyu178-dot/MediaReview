@@ -1,5 +1,8 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-07 Alpha33/code40已交付**：原签名/406输入/哈希核验通过，17项版本合同及3项入口门禁通过，唯一指针已更新。包含大字体审核工具栏修复，复用文件身份一致的调试100%/200%UI证据；本轮正式Release界面及手机/HomeLAN未测。构建源码1b09e22，详情见[工具栏结果](NSFW_TOOLBAR_PLAN_20261107.md)。MediaReview电脑Server只读仍1.6.3，NSFW已部署5153cfe，二者不混淆。
+
+
 > **2026-11-07 NSFW字段修复已部署**：PR34合并，NSFW main/develop/app与前端构建统一5153cfe，两主分支CI通过，官方发布一致性检查全PASS。已备份程序/前端/数据库并校验，只重载8877审核桥，未重启Studio/ComfyUI。真实只读确认大小/MIME与桌面一致，临时配对撤销。MediaReview Server保持原样，正式APK仍Alpha32；手机实机显示未验收，详情见DEV_LOG末尾。
 
 

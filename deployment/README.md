@@ -1,6 +1,6 @@
 # MediaReview 发布与部署
 
-候选目标Server1.6.5 / Contract2 / 数据库0018 + Alpha32/code39。当前已验证交付入口始终是deploy_handoff/CURRENT_RELEASE.json；候选源码或包目录名称不能替代版本及完整性核验。
+候选目标Server1.6.5 / Contract2 / 数据库0018 + Alpha33/code40。当前已验证交付入口始终是deploy_handoff/CURRENT_RELEASE.json；候选源码或包目录名称不能替代版本及完整性核验。
 
 安装见根目录USER_INSTALL_GUIDE.md；成对回滚见UPGRADE_ROLLBACK.md；人工验收见USER_LAN_VALIDATION.md。运行入口仍为ControlHub的mediareview / AIHome.MediaReview，不双击EXE，不另建后台实例。本轮未部署生产。
 
