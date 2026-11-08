@@ -31,6 +31,12 @@ NSFW Studio 的审核桥启动失败后，后续状态查询曾将 ERROR 覆盖�
 
 建议在现有服务启动封装的关闭前置步骤通知Broker，使SSE正常结束和退订，再让Uvicorn排空普通请求并进入Bridge/Worker清理。仅增加全请求强制取消时限会影响上传等请求，不作为默认方案。行为设计已提交用户选择，尚未实施；后续需覆盖多个连接、满队列、新订阅、重复关闭，以及实际Windows信号/总退出预算。独立只读审查确认该控制流；没有新增依赖、修改carrier、重启服务或声称该故障已修复。
 
+## 用户选择后的候选实现（尚未部署）
+
+用户已选“先正常关闭推送连接”。NSFW 958de0e、codex/graceful-event-shutdown、[PR37](https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/37)：Broker内部结束标记覆盖空/满队列、重复关闭、新订阅和已排队发布；端点正常结束退订；同一Studio服务的app.runtime_server在Uvicorn排空前关Broker，不覆盖信号处理或全局取消普通请求。临时真实HTTP证明SSE先EOF、普通请求返回200、再进lifespan。
+
+新增3项旧实现失败；实现后 `python -m pytest tests/backend/test_event_shutdown.py tests/backend/test_mobile_runtime.py tests/backend/test_mobile_bridge_lifespan.py` 20通过（31.42秒）；另轮既有SSE推送1通过（5.17秒），均1既有弃用警告。不合并为单轮21项。只读审查无阻塞项，未重复本地全量；慢客户端发送背压、普通长请求仍可能延迟退出。正式carrier仍走旧Uvicorn CLI，实际Windows信号/总退出预算及受管部署均未验证，下一步先解决入口来源与官方接入边界，不能只pull便宣称生效。
+
 ## 验证边界
 
 本轮没有手机/HomeLAN复测，没有故意破坏生产审核桥制造启动失败。错误状态恢复由隔离回归证明；生产证据仅覆盖部署身份、健康、自有桥自动恢复、配对保留和ComfyUI未停启。私有收据在NSFW开发工作树temp/bridge-error-deploy-private.json，程序与数据快照保留用于恢复，不公开配置或令牌。

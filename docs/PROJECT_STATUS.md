@@ -1,5 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-08 Studio退出修复候选已push**：按用户选择实现先关闭推送、再排空普通请求及进入后台清理；NSFW分支codex/graceful-event-shutdown、958de0e、[PR37](https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/37)。旧实现新增3项失败，修复后相关20项及另轮既有SSE1项通过；真实HTTP顺序通过，未测Windows信号/慢客户端/生产退出。尚未更换日用carrier入口，生产仍b06b835，不能称退出故障已部署修复。手机Alpha34不变，后续播放提示源码21c44a5也尚未打包。
+
 > **2026-11-08 后续客户端源码、未打包**：共享播放源控制器区分“无备用方式”与“备用也失败”，避免已有播放地址的失败被误报为没地址；旧实现2项断言失败，修复后10项控制器+2项错误归属通过、相关编译通过。未改回退/手势/数据。手机与唯一APK仍Alpha34，不包含本次提示源码；详见[结果末节](ALPHA34_RESULT_20261108.md)。产品验收表同步实际Alpha34/Server1.6.6，保留未验证范围。Studio退出修复已获用户选择“先正常关闭推送连接”，待实施。
 
 > **2026-11-08 NSFW审核桥诊断修复已部署**：PR36及两主分支CI通过，NSFW main/develop/app统一b06b835；启动失败后轮询不再覆盖ERROR，正式部署/前端一致性检查通过，桥自动恢复且配对保持。ControlHub停服曾返回超时，carrier兜底后核实离线再部署，优雅退出问题仍待修复；未停启ComfyUI，未做本轮手机/HomeLAN复测。MediaReview仍Server1.6.6/Alpha34，详见[本轮结果](NSFW_BRIDGE_ERROR_RESULT_20261108.md)。
