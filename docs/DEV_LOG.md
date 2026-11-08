@@ -3646,3 +3646,7 @@ PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；dev
 ## 2026-11-08 修复WhatIf预检误报
 
 可信包校验器改为直接只读流哈希，避免Windows PowerShell在WhatIf下抑制ProviderPath读取。新增回归先失败；PS5.1及当前PowerShell各166断言通过，真实候选WhatIf正确DRY_RUN且摘要一致。未关闭WhatIf或放开生产执行，既有候选未原地改包。详情见封面修复结果末节。
+
+## 2026-11-08 批阅补验与Jellyfin恢复
+
+官方ControlHub启动原停止的Jellyfin后，同一项HTTP500消失，播放进度前进。拖动后出现Media3 DataSpec IllegalArgumentException及无提示黑屏，未计seek通过；上滑253→254正常、按浏览规则已批增加1。当前封面日志另有local_path_rejected，须与历史提取失败分开。详见PHONE_CHECK_20261108.md；无审核/评分/删除操作，生产Server仍1.6.3。
