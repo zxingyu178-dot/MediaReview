@@ -54,6 +54,10 @@ class V2PlaybackSourceControllerTest {
         // HLS 再失败 → 终态 Error（不无限回退）
         val terminal = controller.onPlaybackFailed(controller.token, "a")
         assertTrue(terminal is V2PlaybackDecision.Fail)
+        assertEquals(
+            "直接播放和备用播放均未成功，请重试或检查媒体服务",
+            (terminal as V2PlaybackDecision.Fail).message,
+        )
 
         // 用户点重试：重新 moveTo（VM 的 retry 语义），必须回到 Direct 而不是继续 HLS
         val retryToken = controller.moveTo("a")
@@ -66,7 +70,8 @@ class V2PlaybackSourceControllerTest {
     fun `Direct 失败但无 HLS 回退时直接终态失败`() {
         val token = controller.moveTo("a")
         controller.onResolved(token, source("a", hlsUrl = null))
-        assertTrue(controller.onPlaybackFailed(controller.token, "a") is V2PlaybackDecision.Fail)
+        val terminal = controller.onPlaybackFailed(controller.token, "a") as V2PlaybackDecision.Fail
+        assertEquals("视频播放失败，当前没有备用播放方式，请重试或检查媒体服务", terminal.message)
     }
 
     @Test

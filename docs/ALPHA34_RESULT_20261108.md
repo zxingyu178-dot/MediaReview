@@ -15,3 +15,11 @@
 上滑到第255项（4秒有效视频）目视确认有视频画面；后退即时0.92177→0.19996，前进0.08315→0.60009，0.3秒后0.63288，序号保持255。这里只确认短样本双向落点及继续推进，未做逐帧瞬时回跳测量、暂停拖动/画面横滑、长视频或全格式验收。浏览按既有规则增加已看标记；未按保留/待删除/撤销、未评分或最终删除。
 
 结束返回退出批阅，已停止辅助会话，无新增ADB forward；私有画面仅作分析，不进入Git或公开交付。候选可提升为当前Android交付，Server仍1.6.3、服务端候选1.6.6未部署；不称整款产品完成。
+
+## 后续源码：播放终态提示纠正（未打包）
+
+已提供直接播放地址，但直播放无备用方式、或直播放与备用播放都失败时，共享控制器原返回空错误，普通播放器/批阅便沿用“服务器未提供可用地址”。现在分别给出“当前没有备用播放方式”或“直接播放和备用播放均未成功”，不再把已知播放失败误报为没有地址；未改变回退次数、重试、令牌校验或本地格式提示。这不修复空视频轨AVI本身，也不新增网络/解码原因推断。
+
+增强现有两项断言，旧代码10项中2项失败（3m57s）；修改后执行 `:app:testDebugUnitTest --tests com.mediareview.app.feature.v2.player.V2PlaybackSourceControllerTest --tests com.mediareview.app.feature.v2.review.ReviewErrorOwnershipTest --offline --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process`，XML确认10+2项通过、0失败/错误，相关生产和测试编译通过（9m59s，31任务11执行20已是最新）。复用既有工具环境及单进程编译设置，未跑全套JVM/connected/lint，未构建新APK或EXE；保留既有编译警告。日志在工作树temp/playback-error-{red,green}-20261108.log。
+
+当前手机及唯一APK仍Alpha34，不包含本节后续源码，未做手机界面复测。另确认卡片映射把服务端未知duration_ms置0后格式化为00:00，此项仅定位，尚未调整显示或刷新策略。
