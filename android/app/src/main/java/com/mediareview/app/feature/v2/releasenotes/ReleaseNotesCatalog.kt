@@ -381,6 +381,16 @@ object ReleaseNotesCatalog {
                 "普通字号保持紧凑布局，保留翻页与图片信息入口",
             ),
         ),
+        ReleaseNote(
+            versionCode = 41,
+            versionName = "2.0.0-alpha34",
+            title = "MediaReview 2.0 Alpha 34",
+            highlights = listOf(
+                "修复批阅播放异常后错误提示可能丢失的问题",
+                "当前视频报错后可继续进入已有的备用播放或重试流程",
+                "继续拦截上一条视频的迟到错误，避免影响正在批阅的视频",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
