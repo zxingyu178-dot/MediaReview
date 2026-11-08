@@ -42,7 +42,19 @@ function Test-VerifiedRc {
             $hash=$Matches[1].ToLowerInvariant(); $path=$Matches[2]
             if ($path.Contains('\') -or $path.Contains(':') -or $path.StartsWith('/') -or $path -match '[\x00-\x1f]' -or $path -match '(^|/)(\.|\.\.)(/|$)' -or $path -match '//|/$' -or $path -match '(^|/)[^/]*[ .](/|$)' -or $path -ieq 'SHA256SUMS.txt') { throw 'Unsafe inventory path' }
             if ($inventory.ContainsKey($path) -or -not $actualPaths.Contains($path)) { throw 'Duplicate, missing or case-mismatched entry' }
-            if ((Get-FileHash -LiteralPath $files[$path].FullName -Algorithm SHA256).Hash.ToLowerInvariant() -cne $hash) { throw 'Hash mismatch' }
+            # Windows PowerShell Get-FileHash invokes provider property lookup,
+            # which inherits caller WhatIf and can suppress a read-only check.
+            # Read the already enumerated file directly; do not disable WhatIf.
+            $algorithm=[Security.Cryptography.SHA256]::Create()
+            $stream=$null
+            try {
+                $stream=[IO.File]::OpenRead($files[$path].FullName)
+                $actualHash=([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-','').ToLowerInvariant()
+            } finally {
+                if ($null -ne $stream) { $stream.Dispose() }
+                $algorithm.Dispose()
+            }
+            if ($actualHash -cne $hash) { throw 'Hash mismatch' }
             $inventory.Add($path,$hash)
         }
         if ($inventory.Count -ne ($files.Count-1) -or -not $inventory.ContainsKey('RELEASE_MANIFEST.json') -or -not $inventory.ContainsKey('MediaReviewServer/MediaReviewServer.exe')) { throw 'Incomplete inventory' }

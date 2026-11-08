@@ -56,11 +56,28 @@ try {
     if ($validCase) {
       Assert ($r.sourcePackageHash -match '^[a-f0-9]{64}$') 'stable source digest format'
       Assert ((Test-VerifiedRc $p '1.2.2' 2).sourcePackageHash -eq $r.sourcePackageHash) 'repeat validation stable'
+      if ($case -eq 'valid') {
+        $whatIfOk=$false
+        try {
+          $WhatIfPreference=$true
+          $whatIfResult=Test-VerifiedRc $p '1.2.2' 2
+          $whatIfOk=$whatIfResult.sourcePackageHash -eq $r.sourcePackageHash
+        } catch { $whatIfOk=$false } finally { $WhatIfPreference=$false }
+        Assert $whatIfOk 'WhatIf retains read-only package validation and digest'
+      }
       if ($case -eq 'hiddenvalid') { Assert (@($r.binaryInventory | Where-Object { $_.path -ceq 'hidden.dll' }).Count -eq 1) 'registered hidden binary retained with exact casing' }
     }
     $after=@(Get-ChildItem $p -File -Recurse -Force | ForEach-Object { $_.FullName+':'+(Get-FileHash $_.FullName).Hash }) -join '|'
     Assert ($before -eq $after) "$case validator read only"
     if (-not $validCase) {
+      if ($case -eq 'tampered') {
+        $whatIfRejected=$false
+        try {
+          $WhatIfPreference=$true
+          $null=Test-VerifiedRc $p '1.2.2' 2
+        } catch { $whatIfRejected=$true } finally { $WhatIfPreference=$false }
+        Assert $whatIfRejected 'WhatIf still rejects tampered file hashes'
+      }
       $state=@{Calls=0}; $adapter=@{ Stop={ $state.Calls++ }.GetNewClosure(); Start={ $state.Calls++ }.GetNewClosure() }
       $result=& (Join-Path $PSScriptRoot '..\scripts\upgrade-aihome-managed.ps1') -SourcePackage $p -Execute
       Assert ($result.ErrorCode -eq 'SOURCE_PACKAGE_INVALID') "$case production pre-stop gate"

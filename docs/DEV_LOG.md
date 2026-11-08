@@ -3642,3 +3642,7 @@ PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；dev
 ## 2026-11-08 1.6.6部署预检
 
 官方默认Dry Run接受候选且确认生产1.6.3/0017，生产执行仍BLOCKED_OFFICIAL_BRIDGE；0018隔离迁移及降级保护1项通过（9.04秒）。未执行生产升级、备份、停服或删除。详见封面修复结果的部署预检节。
+
+## 2026-11-08 修复WhatIf预检误报
+
+可信包校验器改为直接只读流哈希，避免Windows PowerShell在WhatIf下抑制ProviderPath读取。新增回归先失败；PS5.1及当前PowerShell各166断言通过，真实候选WhatIf正确DRY_RUN且摘要一致。未关闭WhatIf或放开生产执行，既有候选未原地改包。详情见封面修复结果末节。

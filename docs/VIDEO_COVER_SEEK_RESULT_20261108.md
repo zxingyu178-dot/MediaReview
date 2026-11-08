@@ -28,3 +28,13 @@ CURRENT_RELEASE未改，生产仍1.6.3，未停启或部署；EXE健康不等于
 - 生产入口明确返回BLOCKED_OFFICIAL_BRIDGE / OFFICIAL_COORDINATOR_BRIDGE_REQUIRED，缺同实例IPC、事务互斥、升级计划绑定、逐步审计；未将本地PlanDigest当作官方批准，未调用旧临时部署脚本替代该入口。
 - 首轮-WhatIf触发PowerShell读包辅助操作被WhatIf抑制，返回SOURCE_PACKAGE_INVALID；改用脚本已有默认只读模式后候选验证通过。因此首次结果不是候选损坏证据。该WhatIf行为另记为未修复诊断问题。
 - 仍未生产部署、未切换CURRENT_RELEASE、未称真机封面已恢复；正式升级入口需进一步核实。已形成可审查的候选、哈希与迁移/回滚证据。
+
+## WhatIf可信包校验修复（2026-11-08）
+
+当前官方lifecycle CLI只列status/start/stop/restart；官方onboarding与contract未发现可用于本项目的升级事务入口。此处只读核对，不修改ControlHub、不自行创建部署旁路。
+
+修复部署脚本WhatIf误报：Windows PowerShell Get-FileHash的ProviderPath读取继承WhatIf后被抑制，导致有效包SOURCE_PACKAGE_INVALID。最小回归先失败，验证器改用已枚举文件的File.OpenRead和SHA256.ComputeHash，始终finally释放句柄；未关闭WhatIf、未更改路径边界/哈希/清单/审批要求。
+
+既有test_verified_rc.ps1补充WhatIf有效包摘要一致与篡改包仍拒绝。Windows PowerShell5.1及当前PowerShell均166断言通过（分两轮），包含原有路径/清单/大小写/链接拒绝项。实际1.6.6候选在修复后-WhatIf返回DRY_RUN，当前1.6.3、目标1.6.6、SourcePackageHash保持b511b66185cb3cce2402c4640fac31c29d4347712f2188e65b55f86b011407c5。
+
+新验证器仅在源码中；已冻结1.6.6候选不原地重打包，候选ZIP哈希未变。生产执行仍BLOCKED_OFFICIAL_BRIDGE，未停服、未部署。未重复构建EXE/APK或运行无关全量测试。
