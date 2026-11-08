@@ -3650,3 +3650,7 @@ PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；dev
 ## 2026-11-08 批阅补验与Jellyfin恢复
 
 官方ControlHub启动原停止的Jellyfin后，同一项HTTP500消失，播放进度前进。拖动后出现Media3 DataSpec IllegalArgumentException及无提示黑屏，未计seek通过；上滑253→254正常、按浏览规则已批增加1。当前封面日志另有local_path_rejected，须与历史提取失败分开。详见PHONE_CHECK_20261108.md；无审核/评分/删除操作，生产Server仍1.6.3。
+
+## 2026-11-08 批阅错误回传修复源码
+
+确定GSY错误先释放并清空内核URL，原Review严格内核URL归属判定丢弃当前源错误。新增错误专用归属规则，保持旧媒体、host/listener和不同URL拦截，复用一次回退。有效RED1失败/1通过，GREEN12项相关JVM通过且源码编译通过。负字节位置起因、正式新APK和真机补验仍未完成；Alpha33不含本修复。详情见PHONE_CHECK_20261108.md末节。

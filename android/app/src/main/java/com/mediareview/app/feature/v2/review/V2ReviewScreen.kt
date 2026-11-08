@@ -676,8 +676,20 @@ private fun ReviewPagerContent(
         snapshotFlow { controller.snapshot.value.state }
             .distinctUntilChanged()
             .collect { playState ->
-                if (playState == GSYPlayState.Error && foreground && sourceIsCurrent() &&
-                    currentOwnedSourceHost() != null) {
+                var ownsError = false
+                if (playState == GSYPlayState.Error && foreground) controller.withHost { host ->
+                    val manager = host.getGSYVideoManager()
+                    val kernel = manager.player?.mediaPlayer as? tv.danmaku.ijk.media.exo2.IjkExo2MediaPlayer
+                    ownsError = acceptsReviewError(
+                        currentSource = sourceIsCurrent(),
+                        ownedAttachedHost = host === ownedHost && host.isAttachedToWindow,
+                        currentListener = manager.listener() === host,
+                        hostInError = host.currentState == GSYVideoView.CURRENT_STATE_ERROR,
+                        loadedUrl = loadedUrl,
+                        kernelUrl = kernel?.dataSource,
+                    )
+                }
+                if (ownsError) {
                     vm.onPlaybackFailed(currentLoadedMediaId)
                 }
             }
