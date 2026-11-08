@@ -28,6 +28,17 @@ import retrofit2.http.Query
  */
 interface NsfwStudioApi {
 
+    @GET("/mobile/images/gallery")
+    suspend fun gallery(
+        @Query("sort") sort: String,
+        @Query("from_utc") fromUtc: String?,
+        @Query("before_utc") beforeUtc: String?,
+        @Query("page_cursor") pageCursor: String?,
+        @Query("scope_cursor") scopeCursor: String?,
+        @Query("anchor_id") anchorId: String?,
+        @Query("limit") limit: Int,
+    ): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>
+
     @GET("/mobile/system/health")
     suspend fun health(): NsfwEnvelope<NsfwHealth>
 

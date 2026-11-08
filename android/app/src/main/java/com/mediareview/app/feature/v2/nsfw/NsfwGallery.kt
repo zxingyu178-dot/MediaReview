@@ -15,6 +15,12 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 import com.mediareview.app.feature.v2.nsfw.di.NsfwImageLoader
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
@@ -31,9 +37,12 @@ internal fun NsfwGallery(
     onLoadMore: () -> Unit,
     onDisconnect: () -> Unit,
     onAnchor: (NsfwGalleryAnchor, Boolean) -> Unit,
+    onChangeFilter: (NsfwGalleryFilter) -> Unit = {},
+    onLatest: () -> Unit = onRefresh,
+    onResume: () -> Unit = { state.currentId?.let(onSelect) },
 ) {
-    val initialAnchor = remember(state.baseUrl) { state.galleryAnchor }
-    var restorePending by remember(state.baseUrl) { mutableStateOf(initialAnchor != null) }
+    val initialAnchor = remember(state.baseUrl, state.galleryViewEpoch) { state.galleryAnchor }
+    var restorePending by remember(state.baseUrl, state.galleryViewEpoch) { mutableStateOf(initialAnchor != null) }
     var restoringNow by remember { mutableStateOf(false) }
     var userMoved by remember(state.baseUrl) { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
@@ -65,9 +74,11 @@ internal fun NsfwGallery(
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("生图图库", color = MediaTextPrimary, style = MaterialTheme.typography.titleLarge)
-                Text("${state.items.size} 张${if (state.hasMore) " · 仍有更多" else ""}", color = MediaTextSecondary)
+                Text("已加载 ${state.items.size} 张${if (state.hasMore) " · 仍有更多" else ""}", color = MediaTextSecondary)
             }
-            TextButton(onClick = onRefresh, enabled = !state.syncing && !state.busy) { Text(if (state.syncing) "同步中…" else "同步新图") }
+            TextButton(onClick = if (state.galleryEnabled) onLatest else onRefresh, enabled = !state.syncing && !state.busy) {
+                Text(if (state.syncing) "同步中…" else if (state.galleryEnabled) "查看最新" else "同步新图")
+            }
             Box {
                 TextButton(onClick = { moreOpen = true }) { Text("更多") }
                 DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
@@ -76,11 +87,16 @@ internal fun NsfwGallery(
                 }
             }
         }
+        if (state.galleryEnabled) GalleryFilters(state.galleryQuery.filter, !state.busy, onChangeFilter)
+        else Text("排序和日期筛选需更新电脑端生图审核服务", color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(enabled = state.currentItem != null && !state.busy,
-                onClick = { state.currentId?.let(onSelect) }) { Text(if (state.hasBrowsePosition) "继续上次" else "开始审核") }
+            TextButton(enabled = (state.currentItem != null || state.hasBrowsePosition) && !state.busy && !state.syncing,
+                onClick = onResume) { Text(if (state.hasBrowsePosition) "继续上次" else "开始审核") }
             if (state.restoringBrowsePosition) Text("正在恢复上次图片…", color = MediaTextSecondary)
-            if (state.newImageCount > 0) Text("队尾新增 ${state.newImageCount} 张", color = MediaTextSecondary)
+            if (state.newImageCount > 0) {
+                if (state.galleryEnabled) TextButton(onClick = onLatest, enabled = !state.busy && !state.syncing) { Text("${state.newImageCount} 张新图 · 查看最新") }
+                else Text("队尾新增 ${state.newImageCount} 张", color = MediaTextSecondary)
+            }
         }
         state.browseRecoveryMessage?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
         state.message?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
@@ -88,7 +104,7 @@ internal fun NsfwGallery(
         state.evaluationRecoveryHint?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
         if (state.items.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(if (state.syncing) "正在同步图库…" else "图库暂无图片，生成后会自动追加", color = MediaTextSecondary)
+                Text(if (state.syncing) "正在同步图库…" else if (state.galleryEnabled) "当前日期范围没有图片，可调整日期或查看最新" else "图库暂无图片，生成后会自动追加", color = MediaTextSecondary)
             }
         } else LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid,
             modifier = Modifier.weight(1f).testTag("nsfw_gallery_grid"),
@@ -98,6 +114,45 @@ internal fun NsfwGallery(
             }
         }
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text(if (state.syncing) "正在加载…" else "加载更多") }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun GalleryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
+    var sortOpen by remember { mutableStateOf(false) }
+    var datesOpen by remember { mutableStateOf(false) }
+    var customOpen by remember { mutableStateOf(false) }
+    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box {
+            TextButton(onClick = { sortOpen = true }, enabled = enabled) { Text(filter.sort.label) }
+            DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
+                NsfwGallerySort.entries.forEach { sort -> DropdownMenuItem(text = { Text(sort.label) },
+                    onClick = { sortOpen = false; onChange(filter.copy(sort = sort)) }) }
+            }
+        }
+        Box {
+            TextButton(onClick = { datesOpen = true }, enabled = enabled) { Text(filter.label) }
+            DropdownMenu(datesOpen, onDismissRequest = { datesOpen = false }) {
+                NsfwGalleryDates.entries.forEach { dates -> DropdownMenuItem(text = { Text(dates.label) }, onClick = {
+                    datesOpen = false
+                    if (dates == NsfwGalleryDates.CUSTOM) customOpen = true else onChange(filter.copy(dates = dates))
+                }) }
+            }
+        }
+    }
+    if (customOpen) {
+        fun dateMillis(date: String?): Long? = date?.let { runCatching { LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull() }
+        val picker = rememberDateRangePickerState(initialSelectedStartDateMillis = dateMillis(filter.startDate), initialSelectedEndDateMillis = dateMillis(filter.endDate))
+        DatePickerDialog(onDismissRequest = { customOpen = false }, confirmButton = {
+            TextButton(enabled = picker.selectedStartDateMillis != null && picker.selectedEndDateMillis != null, onClick = {
+                fun date(value: Long) = Instant.ofEpochMilli(value).atZone(ZoneOffset.UTC).toLocalDate().toString()
+                onChange(filter.copy(dates = NsfwGalleryDates.CUSTOM, startDate = date(picker.selectedStartDateMillis!!), endDate = date(picker.selectedEndDateMillis!!)))
+                customOpen = false
+            }) { Text("应用日期") }
+        }, dismissButton = { TextButton(onClick = { customOpen = false }) { Text("取消") } }) {
+            DateRangePicker(state = picker, modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp), title = { Text("选择审核日期", modifier = Modifier.padding(16.dp)) })
+        }
     }
 }
 

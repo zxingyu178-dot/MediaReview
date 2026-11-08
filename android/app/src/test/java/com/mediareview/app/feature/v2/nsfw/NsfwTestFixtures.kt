@@ -240,6 +240,14 @@ class FakeNsfwEvaluationJournal(
 }
 
 class FakeNsfwDataSource : NsfwReviewDataSource {
+    data class GalleryCall(val query: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryQuery, val page: String?, val scope: String?, val anchor: String?)
+    val galleryCalls = mutableListOf<GalleryCall>()
+    var galleryResponder: suspend (GalleryCall) -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage = { com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage() }
+    override suspend fun gallery(query: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryQuery, pageCursor: String?, scopeCursor: String?, anchorId: String?, limit: Int): com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage {
+        val call = GalleryCall(query, pageCursor, scopeCursor, anchorId)
+        galleryCalls += call
+        return galleryResponder(call)
+    }
     var feedResponder: suspend (String?) -> NsfwFeedPage = { NsfwFeedPage() }
     var detailsResponder: suspend (String) -> NsfwImageDetails = { NsfwImageDetails(imageId = it) }
     var decisionResponder: suspend (String, String?, Boolean?) -> NsfwDecisionResult = { id, status, favorite ->

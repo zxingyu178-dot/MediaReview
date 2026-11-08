@@ -36,10 +36,11 @@ data class NsfwConnectionSnapshot(
     val product: String = "",
     val apiContract: Int = 0,
     val missingCapabilities: List<String> = emptyList(),
+    val capabilities: Set<String> = emptySet(),
 )
 
 sealed interface NsfwPairResult {
-    data class Paired(val baseUrl: String, val deviceId: String) : NsfwPairResult
+    data class Paired(val baseUrl: String, val deviceId: String, val capabilities: Set<String> = emptySet()) : NsfwPairResult
     data class Blocked(
         val product: String,
         val apiContract: Int,
@@ -120,7 +121,7 @@ class NsfwPairingRepository internal constructor(
         val productOk = health.product.startsWith(NSFW_PRODUCT_PREFIX)
         val contractOk = health.apiContract >= NSFW_REQUIRED_API_CONTRACT
         if (productOk && contractOk && missing.isEmpty()) {
-            return NsfwConnectionSnapshot(baseUrl = profile.baseUrl, paired = true, compatible = true)
+            return NsfwConnectionSnapshot(baseUrl = profile.baseUrl, paired = true, compatible = true, capabilities = health.capabilities.toSet())
         }
         val reasons = buildList {
             if (!productOk) add("产品标识不匹配（${health.product.ifBlank { "未知" }}）")
@@ -185,7 +186,7 @@ class NsfwPairingRepository internal constructor(
                 return NsfwPairResult.Failed("安全凭据无法保存，请重试")
             }
             tokenProvider.set(result.token, baseUrl)
-            NsfwPairResult.Paired(baseUrl = baseUrl, deviceId = result.deviceId)
+            NsfwPairResult.Paired(baseUrl = baseUrl, deviceId = result.deviceId, capabilities = health.capabilities.toSet())
         } catch (error: CancellationException) {
             throw error
         } catch (error: HttpException) {

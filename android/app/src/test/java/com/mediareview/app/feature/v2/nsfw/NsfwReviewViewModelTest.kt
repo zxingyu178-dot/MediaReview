@@ -31,6 +31,115 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class NsfwReviewViewModelTest {
 
+    @Test fun galleryViewLatestSwitchesOldestToNewestAndKeepsDates() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = emptyList(), syncCursor = "watermark", scopeCursor = "scope", sort = call.query.filter.sort.wire) }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST, dates = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates.TODAY))
+        model.viewLatestImages()
+        assertEquals(com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.NEWEST, data.galleryCalls.last().query.filter.sort)
+        assertEquals(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates.TODAY, data.galleryCalls.last().query.filter.dates)
+    }
+
+    @Test fun galleryOldDetailSuccessCannotOverwriteNewQuery() = runTest { assertOldGalleryDetailIgnored(false) }
+    @Test fun galleryOldDetailAuthFailureCannotClearCurrentPairing() = runTest { assertOldGalleryDetailIgnored(true) }
+
+    private suspend fun assertOldGalleryDetailIgnored(authError: Boolean) {
+        val release = CompletableDeferred<Unit>()
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("a")), syncCursor = "watermark", scopeCursor = call.query.filter.sort.wire) }
+        data.detailsResponder = { id ->
+            release.await()
+            if (authError) throw NsfwApiException("UNAUTHORIZED", "旧详情的401", 401)
+            nsfwDetails(id)
+        }
+        val model = vm()
+        model.select("a")
+        assertTrue(model.state.value.detailLoading)
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST))
+        release.complete(Unit)
+        assertNull(model.state.value.detail)
+        assertEquals(NsfwPhase.READY, model.state.value.phase)
+        assertEquals(0, gateway.authRejectedCalls)
+    }
+
+    @Test fun galleryLateQueryCannotReplaceNewFilterOrClearItsLoading() = runTest {
+        val old = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        val newest = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { call ->
+            when {
+                call.query.filter.sort == com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST -> kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { old.await() }
+                call.query.filter.dates == com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates.TODAY -> newest.await()
+                else -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("initial")), syncCursor = "w", scopeCursor = "initial")
+            }
+        }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST))
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(dates = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates.TODAY))
+        old.complete(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("stale")), syncCursor = "old", scopeCursor = "old"))
+        assertTrue(model.state.value.syncing)
+        assertTrue(model.state.value.items.isEmpty())
+        newest.complete(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("today")), syncCursor = "new", scopeCursor = "new"))
+        assertEquals(listOf("today"), model.state.value.items.map { it.imageId })
+        assertEquals(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates.TODAY, model.state.value.galleryQuery.filter.dates)
+        assertFalse(model.state.value.syncing)
+    }
+
+    @Test fun galleryUsesLatestQueryAndSeparatePagingAndSyncCursors() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
+            items = listOf(nsfwItem(if (call.page == null) "new" else "older")),
+            nextPageCursor = if (call.page == null) "page2" else null,
+            hasMore = call.page == null, syncCursor = "events10", scopeCursor = "scope1",
+        ) }
+        val model = vm()
+        assertEquals(listOf("new"), model.state.value.items.map { it.imageId })
+        assertEquals(0, data.feedCalls)
+        model.loadMore()
+        assertEquals("page2", data.galleryCalls.last().page)
+        assertEquals(listOf("new", "older"), model.state.value.items.map { it.imageId })
+        data.feedResponder = { nsfwPage(emptyList(), nextCursor = "events11") }
+        model.refresh()
+        assertEquals("events10", data.lastFeedCursor)
+        assertNull(model.state.value.message)
+    }
+
+    @Test fun galleryNewImagesOnlyNotifyAndReviewUpdatesStayInPlace() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("a"), nsfwItem("b")), syncCursor = "w1", scopeCursor = "s1") }
+        val model = vm()
+        model.select("a")
+        data.feedResponder = { nsfwPage(listOf(
+            nsfwItem("a", revision = "2", status = "KEEP").copy(eventType = "IMAGE_REVIEW_UPDATED"),
+            nsfwItem("c").copy(eventType = "IMAGE_CREATED", createdAt = "2026-11-09T00:00:00.000Z"),
+            nsfwItem("old-unloaded").copy(eventType = "IMAGE_FAVORITE_UPDATED"),
+        ), nextCursor = "w2") }
+        model.refresh()
+        assertEquals(listOf("a", "b"), model.state.value.items.map { it.imageId })
+        assertEquals("a", model.state.value.currentId)
+        assertEquals("KEEP", model.state.value.items.first().status)
+        assertEquals(1, model.state.value.newImageCount)
+    }
+
+    @Test fun galleryResumeUsesSavedScopeWithoutReplayingHistory() = runTest {
+        val positions = MemoryBrowsePositions()
+        val query = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST).resolve()
+        positions.reviews["http://nsfw.test:8877"] = com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview(query, "old-scope", "old")
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
+            items = listOf(nsfwItem(call.anchor ?: "new")), syncCursor = "watermark", scopeCursor = call.scope ?: "fresh", sort = call.query.filter.sort.wire,
+        ) }
+        val model = vm(positions = positions)
+        assertEquals("new", model.state.value.currentId)
+        model.resumeGalleryReview()
+        assertEquals("old-scope", data.galleryCalls.last().scope)
+        assertEquals("old", data.galleryCalls.last().anchor)
+        assertEquals(query, data.galleryCalls.last().query)
+        assertEquals("old", model.state.value.currentId)
+        assertEquals(0, data.feedCalls)
+    }
+
     private val dispatcher = UnconfinedTestDispatcher()
     private lateinit var data: FakeNsfwDataSource
     private lateinit var gateway: FakePairingGateway
@@ -76,6 +185,9 @@ class NsfwReviewViewModelTest {
     }
 
     private class MemoryBrowsePositions : com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore {
+        val reviews = mutableMapOf<String, com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview>()
+        override suspend fun loadGalleryReview(origin: String) = reviews[origin]
+        override suspend fun saveGalleryReview(origin: String, review: com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview) { reviews[origin] = review }
         val values = mutableMapOf<String, String>()
         val anchors = mutableMapOf<String, com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor>()
         var failGalleryLoad = false

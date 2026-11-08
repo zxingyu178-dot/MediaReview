@@ -149,6 +149,8 @@ fun NsfwReviewScreen(
                 onToggleFavorite = vm::toggleFavorite,
                 onUndo = vm::undoLastDecision,
                 onViewLatest = vm::viewLatestImages,
+                onGalleryFilter = vm::changeGalleryFilter,
+                onResumeGallery = vm::resumeGalleryReview,
                 onOpenDetails = { detailsOpen = true },
                 onDisconnect = vm::clearPairing,
                 originalOpen = originalOpen,
@@ -299,13 +301,15 @@ private fun ReadyPane(
     onToggleFavorite: () -> Unit,
     onUndo: () -> Unit,
     onViewLatest: () -> Unit,
+    onGalleryFilter: (com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter) -> Unit,
+    onResumeGallery: () -> Unit,
     onOpenDetails: () -> Unit,
     onDisconnect: () -> Unit,
     originalOpen: Boolean,
     onOpenOriginal: (NsfwFeedItem) -> Unit,
 ) {
     val thumbnailState = rememberLazyListState()
-    val galleryGrid = key(state.baseUrl) { rememberLazyGridState() }
+    val galleryGrid = key(state.baseUrl, state.galleryViewEpoch) { rememberLazyGridState() }
     var galleryOpen by remember(state.baseUrl) { mutableStateOf(true) }
     BackHandler(enabled = !galleryOpen && !originalOpen) {
         if (!state.busy && state.panel?.submitting != true) galleryOpen = true
@@ -335,7 +339,9 @@ private fun ReadyPane(
         NsfwGallery(state, imageLoader, galleryGrid,
             onSelect = { id -> onSelect(id); galleryOpen = false },
             onRefresh = onRefresh, onLoadMore = onLoadMore,
-            onDisconnect = { confirmDisconnect = true }, onAnchor = onGalleryAnchor)
+            onDisconnect = { confirmDisconnect = true }, onAnchor = onGalleryAnchor,
+            onChangeFilter = onGalleryFilter, onLatest = onViewLatest,
+            onResume = { onResumeGallery(); galleryOpen = false })
         return
     }
     val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
@@ -381,7 +387,9 @@ private fun ReadyPane(
             val item = state.currentItem
             if (item == null) {
                 Text(
-                    "暂无待审核图片。新图会自动追加到队尾。",
+                    if (state.galleryEnabled) {
+                        if (state.syncing) "正在读取当前日期范围…" else "当前范围没有可查看的图片，请返回图库调整日期或查看最新"
+                    } else "暂无待审核图片。新图会自动追加到队尾。",
                     color = MediaTextSecondary,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -420,7 +428,7 @@ private fun ReadyPane(
                 "队尾新增 ${state.newImageCount} 张 · 点击查看最新图片",
                 color = V2Colors.Accent,
                 style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.clickable(onClick = onViewLatest)
+                modifier = Modifier.clickable(onClick = { if (state.galleryEnabled) galleryOpen = true; onViewLatest() })
                     .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
             )
         }

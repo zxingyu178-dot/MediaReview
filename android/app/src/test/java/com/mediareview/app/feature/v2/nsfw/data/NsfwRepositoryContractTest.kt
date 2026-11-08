@@ -21,6 +21,32 @@ import org.junit.Test
  */
 class NsfwRepositoryContractTest {
 
+    @Test fun galleryRejectsChangedResumeScope() = runTest {
+        server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"different","sync_cursor":"events","sort":"created_desc","range":{}}}"""))
+        val error = runCatching { repository.gallery(NsfwGalleryFilter().resolve(), scopeCursor = "saved") }.exceptionOrNull()
+        assertTrue(error is NsfwApiException)
+    }
+
+    @Test fun galleryRejectsWrongResumeImage() = runTest {
+        server.enqueue(okay("""{"success":true,"data":{"items":[{"image_id":"different","revision":"1"}],"scope_cursor":"scope","sync_cursor":"events","sort":"created_desc","range":{}}}"""))
+        val error = runCatching { repository.gallery(NsfwGalleryFilter().resolve(), anchorId = "saved-image") }.exceptionOrNull()
+        assertTrue(error is NsfwApiException)
+    }
+
+    @Test fun galleryKeepsScopeAndPageParametersSeparate() = runTest {
+        val query = NsfwGalleryFilter(dates = NsfwGalleryDates.TODAY).resolve(
+            java.time.Instant.parse("2026-11-09T01:00:00Z"), java.time.ZoneId.of("Asia/Shanghai"))
+        server.enqueue(okay("""{"success":true,"data":{"items":[{"image_id":"old-image","revision":"1"}],"scope_cursor":"scope","sync_cursor":"events","has_more":false,"sort":"created_desc","range":{"from_utc":"${query.fromUtc}","before_utc":"${query.beforeUtc}"}}}"""))
+        val result = repository.gallery(query, scopeCursor = "scope", anchorId = "old-image")
+        val request = server.takeRequest()
+        assertEquals("/mobile/images/gallery", request.requestUrl!!.encodedPath)
+        assertEquals(query.fromUtc, request.requestUrl!!.queryParameter("from_utc"))
+        assertEquals("scope", request.requestUrl!!.queryParameter("scope_cursor"))
+        assertNull(request.requestUrl!!.queryParameter("page_cursor"))
+        assertEquals("old-image", request.requestUrl!!.queryParameter("anchor_id"))
+        assertEquals("events", result.syncCursor)
+    }
+
     private lateinit var server: MockWebServer
     private lateinit var baseUrl: String
     private lateinit var repository: NsfwRepository

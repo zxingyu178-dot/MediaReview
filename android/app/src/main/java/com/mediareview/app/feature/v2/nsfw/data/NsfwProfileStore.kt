@@ -98,6 +98,20 @@ class NsfwProfileStore(
     override suspend fun loadPosition(origin: String): String? =
         context.nsfwStudioDataStore.data.first()[browseKey(origin)]?.takeIf { it.isNotBlank() }
 
+    override suspend fun loadGalleryReview(origin: String): NsfwSavedGalleryReview? {
+        val raw = context.nsfwStudioDataStore.data.first()[stringPreferencesKey("gallery_review_" + browseKey(origin).name)] ?: return null
+        return json.decodeFromString(NsfwSavedGalleryReview.serializer(), raw).also {
+            require(it.scopeCursor.isNotBlank() && it.imageId.isNotBlank())
+        }
+    }
+
+    override suspend fun saveGalleryReview(origin: String, review: NsfwSavedGalleryReview) {
+        require(origin.isNotBlank() && review.scopeCursor.isNotBlank() && review.imageId.isNotBlank())
+        context.nsfwStudioDataStore.edit {
+            it[stringPreferencesKey("gallery_review_" + browseKey(origin).name)] = json.encodeToString(NsfwSavedGalleryReview.serializer(), review)
+        }
+    }
+
     override suspend fun savePosition(origin: String, imageId: String) {
         require(origin.isNotBlank() && imageId.isNotBlank())
         context.nsfwStudioDataStore.edit { it[browseKey(origin)] = imageId }

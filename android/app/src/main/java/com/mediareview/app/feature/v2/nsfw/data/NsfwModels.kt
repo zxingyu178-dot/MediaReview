@@ -152,6 +152,7 @@ data class NsfwFeedItem(
     @SerialName("thumbnail_url") val thumbnailUrl: String = "",
     @SerialName("preview_url") val previewUrl: String = "",
     @SerialName("original_url") val originalUrl: String = "",
+    @SerialName("event_type") val eventType: String? = null,
 )
 
 @Serializable

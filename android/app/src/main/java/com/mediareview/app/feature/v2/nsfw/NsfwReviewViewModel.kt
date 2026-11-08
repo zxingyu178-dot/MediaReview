@@ -21,6 +21,11 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptImageItem
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptLink
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptSummary
 import com.mediareview.app.feature.v2.nsfw.data.NsfwReviewDataSource
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryQuery
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
+import com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_CAPABILITY
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
@@ -99,6 +104,9 @@ data class NsfwUiState(
     val hasSavedPairing: Boolean = false,
     /** 进程重启后发现上次评分未确认时的提示（不自动重发）。 */
     val evaluationRecoveryHint: String? = null,
+    val galleryEnabled: Boolean = false,
+    val galleryQuery: NsfwGalleryQuery = NsfwGalleryQuery(),
+    val galleryViewEpoch: Int = 0,
 ) {
     val currentIndex: Int
         get() = items.indexOfFirst { it.imageId == currentId }.coerceAtLeast(0)
@@ -146,6 +154,12 @@ class NsfwReviewViewModel @Inject constructor(
     private var connectionEpoch = 0
     private var feedReadGate = Mutex()
     private var manualFeedJob: Job? = null
+    private var galleryGeneration = 0
+    private var galleryScope: String? = null
+    private var galleryPageCursor: String? = null
+    private var galleryWatermark: String? = null
+    private var galleryResumeAnchor: String? = null
+    private var savedGalleryReview: NsfwSavedGalleryReview? = null
     private val pendingEvaluations = readPendingEvaluations().toMutableList()
 
     /** 仅测试可调；生产为 15 秒。 */
@@ -220,6 +234,11 @@ class NsfwReviewViewModel @Inject constructor(
         val browseEpoch = connectionEpoch
         val origin = originOf(snapshot.baseUrl)
         if (browseOrigin != origin) {
+            var scopeReadFailed = false
+            val savedGallery = try {
+                positions.loadGalleryReview(origin)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { scopeReadFailed = true; null }
             var galleryAnchor: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor? = null
             var readFailed = false
             var galleryReadFailed = false
@@ -233,11 +252,13 @@ class NsfwReviewViewModel @Inject constructor(
             catch (_: Exception) { readFailed = true; null }
             if (browseEpoch != connectionEpoch) return
             browseOrigin = origin
+            savedGalleryReview = savedGallery
             browseReadFailed = readFailed
             galleryAnchorReadFailed = galleryReadFailed
-            pendingBrowseId = saved?.takeIf { it.isNotBlank() }
-            _state.update { it.copy(restoringBrowsePosition = pendingBrowseId != null, hasBrowsePosition = pendingBrowseId != null, galleryAnchor = galleryAnchor,
+            pendingBrowseId = saved?.takeIf { it.isNotBlank() && !scopeReadFailed }
+            _state.update { it.copy(restoringBrowsePosition = pendingBrowseId != null, hasBrowsePosition = pendingBrowseId != null || savedGallery != null, galleryAnchor = galleryAnchor,
                 browseRecoveryMessage = when {
+                    scopeReadFailed -> "上次审核范围读取失败，请从图库选择图片重新开始"
                     readFailed -> "上次浏览位置读取失败，可手动选择图片继续"
                     galleryReadFailed -> "图库位置读取失败，滑动图库后将记录新位置"
                     else -> null
@@ -251,6 +272,7 @@ class NsfwReviewViewModel @Inject constructor(
                 pairingBusy = false,
                 hasSavedPairing = true,
                 missingCapabilities = emptyList(),
+                galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
             )
         }
         syncFromCursor(reset = true)
@@ -283,6 +305,7 @@ class NsfwReviewViewModel @Inject constructor(
                     }
                     applyConnectionSnapshot(NsfwConnectionSnapshot(
                         baseUrl = result.baseUrl, paired = true, compatible = true,
+                        capabilities = result.capabilities,
                     ))
                 }
                 is NsfwPairResult.Blocked -> _state.update {
@@ -364,6 +387,13 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun advanceConnectionEpoch() {
         connectionEpoch += 1
+        galleryGeneration += 1
+        galleryScope = null
+        galleryPageCursor = null
+        galleryWatermark = null
+        galleryResumeAnchor = null
+        savedGalleryReview = null
+        _state.update { it.copy(galleryEnabled = false, galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
         pendingBrowseId = null
         browseReadFailed = false
@@ -378,17 +408,25 @@ class NsfwReviewViewModel @Inject constructor(
         val gate = feedReadGate
         if (!gate.tryLock()) return
         val epoch = connectionEpoch
+        val queryGeneration = galleryGeneration
         _state.update { it.copy(syncing = true) }
         try { block(epoch) }
         finally {
             gate.unlock()
-            if (epoch == connectionEpoch) _state.update { it.copy(syncing = false) }
+            if (epoch == connectionEpoch && queryGeneration == galleryGeneration) _state.update { it.copy(syncing = false) }
         }
     }
 
     fun loadMore() {
         val state = _state.value
         if (state.phase != NsfwPhase.READY || state.busy || state.syncing || manualFeedJob?.isActive == true || !state.hasMore) return
+        if (state.galleryEnabled) {
+            manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) { withFeedRead { epoch ->
+                loadGalleryPage(epoch, append = true)
+            } }
+            manualFeedJob?.start()
+            return
+        }
         val cursor = lastCursor?.takeIf { it.isNotBlank() }
         if (cursor == null) {
             _state.update {
@@ -419,7 +457,10 @@ class NsfwReviewViewModel @Inject constructor(
         _state.update { it.copy(restoringBrowsePosition = false, hasBrowsePosition = true,
             browseRecoveryMessage = if (galleryAnchorReadFailed) "图库位置读取失败，滑动图库后将记录新位置" else null) }
         persistBrowsePosition(imageId)
-        if (imageId == _state.value.currentId) return
+        if (imageId == _state.value.currentId) {
+            if (_state.value.galleryEnabled && _state.value.detail == null && !_state.value.detailLoading) loadDetails(imageId)
+            return
+        }
         _state.update {
             it.copy(
                 currentId = imageId,
@@ -460,8 +501,15 @@ class NsfwReviewViewModel @Inject constructor(
         val origin = originOf(_state.value.baseUrl)
         if (origin.isBlank()) return
         val epoch = connectionEpoch
+        val review = galleryScope?.takeIf { _state.value.galleryEnabled }?.let {
+            NsfwSavedGalleryReview(_state.value.galleryQuery, it, imageId)
+        }
+        if (review != null) savedGalleryReview = review
         viewModelScope.launch {
-            try { browseWriteGate.withLock { positions.savePosition(origin, imageId) } }
+            try { browseWriteGate.withLock {
+                positions.savePosition(origin, imageId)
+                if (review != null) positions.saveGalleryReview(origin, review)
+            } }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 if (epoch == connectionEpoch) _state.update {
@@ -582,6 +630,10 @@ class NsfwReviewViewModel @Inject constructor(
     }
 
     fun viewLatestImages() {
+        if (_state.value.galleryEnabled) {
+            changeGalleryFilter(_state.value.galleryQuery.filter.copy(sort = NsfwGallerySort.NEWEST))
+            return
+        }
         val latest = _state.value.items.lastOrNull() ?: return
         pendingNewImageIds.clear()
         select(latest.imageId)
@@ -974,7 +1026,136 @@ class NsfwReviewViewModel @Inject constructor(
     }
 
     private suspend fun syncFromCursor(reset: Boolean, manual: Boolean = false) {
-        withFeedRead { epoch -> syncFeed(epoch, reset, manual) }
+        withFeedRead { epoch ->
+            if (_state.value.galleryEnabled) {
+                if (lastCursor == null || reset) loadGalleryPage(epoch, scope = galleryScope,
+                    anchor = galleryResumeAnchor ?: _state.value.currentId?.takeIf { galleryScope != null })
+                else syncGalleryChanges(epoch)
+            } else syncFeed(epoch, reset, manual)
+        }
+    }
+
+    fun changeGalleryFilter(filter: NsfwGalleryFilter) {
+        val query = try { filter.resolve() }
+        catch (error: Exception) { _state.update { it.copy(message = error.message ?: "日期范围无效") }; return }
+        requestGallery(query)
+    }
+
+    fun resumeGalleryReview() {
+        if (!_state.value.galleryEnabled) { _state.value.currentId?.let(::select); return }
+        val saved = savedGalleryReview
+        val anchor = saved?.imageId ?: pendingBrowseId
+        if (anchor == null) { _state.value.currentId?.let(::select); return }
+        requestGallery(saved?.query ?: _state.value.galleryQuery, saved?.scopeCursor, anchor)
+    }
+
+    private fun requestGallery(query: NsfwGalleryQuery, scope: String? = null, anchor: String? = null) {
+        val state = _state.value
+        if (!state.galleryEnabled || state.phase != NsfwPhase.READY || state.busy || state.panel?.submitting == true) return
+        stopPolling()
+        galleryGeneration += 1
+        detailSeq += 1
+        galleryScope = scope
+        galleryResumeAnchor = anchor
+        galleryPageCursor = null
+        galleryWatermark = null
+        lastCursor = null
+        feedReadGate = Mutex()
+        feed.clear()
+        pendingNewImageIds.clear()
+        _state.update { it.copy(galleryQuery = query, galleryViewEpoch = galleryGeneration,
+            items = emptyList(), currentId = null, detail = null, detailLoading = false,
+            galleryAnchor = null, restoringBrowsePosition = anchor != null,
+            newImageCount = 0, hasMore = false, nextCursor = null, message = null,
+            cursorExpired = false, panel = null, syncing = false) }
+        manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            withFeedRead { loadGalleryPage(it, scope = scope, anchor = anchor) }
+            maybeStartPolling()
+        }
+        manualFeedJob?.start()
+    }
+
+    private suspend fun loadGalleryPage(epoch: Int, append: Boolean = false, scope: String? = null, anchor: String? = null) {
+        val generation = galleryGeneration
+        val query = _state.value.galleryQuery
+        try {
+            val cursor = galleryPageCursor.takeIf { append }
+            if (append && cursor.isNullOrBlank()) throw NsfwApiException("CURSOR_MISSING", "缺少图库分页游标，请查看最新或重新选择范围")
+            val page = dataSource.gallery(query, pageCursor = cursor, scopeCursor = scope, anchorId = anchor, limit = PAGE_SIZE)
+            if (epoch != connectionEpoch || generation != galleryGeneration) return
+            if (page.scopeCursor.isBlank() || page.syncCursor.isBlank() ||
+                (scope != null && page.scopeCursor != scope) ||
+                (anchor != null && page.items.firstOrNull()?.imageId != anchor) ||
+                (page.hasMore && (page.nextPageCursor.isNullOrBlank() || page.nextPageCursor == cursor)) ||
+                (append && (page.scopeCursor != galleryScope || page.syncCursor != galleryWatermark))) {
+                throw NsfwApiException("GALLERY_SCOPE_MISMATCH", "图库范围或分页信息不一致，请重新选择范围")
+            }
+            if (!append) {
+                feed.clear()
+                pendingNewImageIds.clear()
+                galleryScope = page.scopeCursor
+                galleryWatermark = page.syncCursor
+                lastCursor = page.syncCursor
+            }
+            feed.merge(NsfwFeedPage(items = page.items))
+            galleryPageCursor = page.nextPageCursor
+            val items = feed.snapshot()
+            val target = if (append) _state.value.currentId?.takeIf { feed.find(it) != null } ?: items.firstOrNull()?.imageId
+                else anchor?.takeIf { feed.find(it) != null } ?: items.firstOrNull()?.imageId
+            _state.update { it.copy(items = items, currentId = target, hasMore = page.hasMore,
+                nextCursor = page.nextPageCursor, restoringBrowsePosition = false,
+                galleryAnchor = if (append) it.galleryAnchor else null, newImageCount = pendingNewImageIds.size,
+                detail = it.detail?.takeIf { detail -> detail.imageId == target },
+                message = null, cursorExpired = false) }
+            galleryResumeAnchor = null
+            if (anchor != null && target == anchor) { pendingBrowseId = null; persistBrowsePosition(anchor); loadDetails(anchor) }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            if (epoch == connectionEpoch && generation == galleryGeneration) galleryFailure(error)
+        }
+    }
+
+    private suspend fun syncGalleryChanges(epoch: Int) {
+        val generation = galleryGeneration
+        var cursor = lastCursor ?: return
+        try {
+            repeat(MAX_SYNC_PAGES) {
+                val page = dataSource.feed(cursor, PAGE_SIZE)
+                if (epoch != connectionEpoch || generation != galleryGeneration) return
+                val next = page.nextCursor?.takeIf { it.isNotBlank() }
+                    ?: throw NsfwApiException("CURSOR_MISSING", "缺少增量游标，请查看最新重新加载")
+                if (page.hasMore && next == cursor) throw NsfwApiException("CURSOR_STALLED", "增量游标未推进，请查看最新重新加载")
+                val known = feed.snapshot().mapTo(mutableSetOf()) { it.imageId }
+                for (item in page.items) {
+                    if (item.event == "REMOVE") pendingNewImageIds.remove(item.imageId)
+                    else if (item.imageId !in known && item.eventType in setOf("IMAGE_CREATED", "IMAGE_IMPORTED") &&
+                        item.revision.matches(Regex("[0-9]+")) && _state.value.galleryQuery.contains(item.createdAt)) pendingNewImageIds.add(item.imageId)
+                }
+                val merge = feed.merge(page.copy(items = page.items.filter { it.imageId in known }))
+                pendingNewImageIds.removeAll(merge.removedIds.toSet())
+                val items = feed.snapshot()
+                val previous = _state.value
+                val target = previous.currentId?.takeIf { feed.find(it) != null }
+                    ?: items.getOrNull(previous.currentIndex.coerceAtMost(items.lastIndex.coerceAtLeast(0)))?.imageId
+                _state.update { state -> state.copy(items = items, currentId = target, newImageCount = pendingNewImageIds.size,
+                    detail = state.detail?.takeIf { it.imageId == target }) }
+                if (target != null && (target != previous.currentId || (target in merge.updatedIds && previous.detail != null))) loadDetails(target)
+                lastCursor = next
+                cursor = next
+                pollBackoff.result(page.items.isNotEmpty())
+                if (!page.hasMore) return
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) { if (epoch == connectionEpoch && generation == galleryGeneration) galleryFailure(error) }
+    }
+
+    private fun galleryFailure(error: Exception) {
+        pollBackoff.result(false)
+        if (error is NsfwApiException && error.isAuthRejected) { handleAuthFailure(); return }
+        _state.update { it.copy(restoringBrowsePosition = false,
+            cursorExpired = error is NsfwApiException && error.code == NsfwErrorCodes.CURSOR_EXPIRED,
+            message = if (error is NsfwApiException && error.code == NsfwErrorCodes.CURSOR_EXPIRED)
+                "原范围或增量已过期，请返回图库查看最新或重新选择日期" else error.message ?: "图库加载失败，请重试") }
     }
 
     private suspend fun syncFeed(epoch: Int, reset: Boolean, manual: Boolean) {

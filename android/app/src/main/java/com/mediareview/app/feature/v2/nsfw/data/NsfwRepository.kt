@@ -7,6 +7,8 @@ import retrofit2.HttpException
 
 /** 审核页只依赖该接口；真实实现走 Bridge，测试用 MockWebServer 或假实现。 */
 interface NsfwReviewDataSource {
+    suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String? = null, scopeCursor: String? = null, anchorId: String? = null, limit: Int = 50): NsfwGalleryPage =
+        throw NsfwApiException("GALLERY_UNSUPPORTED", "日期查询需要更新电脑端生图审核服务")
     suspend fun feed(cursor: String?, limit: Int = 50): NsfwFeedPage
     suspend fun details(imageId: String): NsfwImageDetails
     suspend fun decide(
@@ -43,6 +45,16 @@ class NsfwRepository internal constructor(
     private val baseUrlPort: NsfwBaseUrlPort,
     private val apiFactory: NsfwApiFactory,
 ) : NsfwReviewDataSource {
+
+    override suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String?, scopeCursor: String?, anchorId: String?, limit: Int): NsfwGalleryPage {
+        val page = call { api().gallery(query.filter.sort.wire, query.fromUtc, query.beforeUtc, pageCursor, scopeCursor, anchorId, limit.coerceIn(1, 100)) }
+        if (page.sort != query.filter.sort.wire || page.range.fromUtc != query.fromUtc || page.range.beforeUtc != query.beforeUtc ||
+            (scopeCursor != null && page.scopeCursor != scopeCursor) || (anchorId != null && page.items.firstOrNull()?.imageId != anchorId) ||
+            page.syncCursor.isBlank() || page.scopeCursor.isBlank() || (page.hasMore && (page.nextPageCursor.isNullOrBlank() || page.nextPageCursor == pageCursor))) {
+            throw mismatch("图库响应范围或分页信息不一致，请重试")
+        }
+        return page
+    }
 
     constructor(store: NsfwProfileStore, apiFactory: NsfwApiFactory) : this(
         NsfwBaseUrlPort { store.current().baseUrl },

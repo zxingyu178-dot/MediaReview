@@ -2,6 +2,8 @@ package com.mediareview.app.feature.v2.nsfw.data
 
 /** 浏览锚点与评分回执分开保存；origin必须为规范化的服务来源。 */
 interface NsfwBrowsePositionStore {
+    suspend fun loadGalleryReview(origin: String): NsfwSavedGalleryReview? = null
+    suspend fun saveGalleryReview(origin: String, review: NsfwSavedGalleryReview) = Unit
     suspend fun loadPosition(origin: String): String?
     suspend fun loadGalleryAnchor(origin: String): NsfwGalleryAnchor? = null
     suspend fun saveGalleryAnchor(origin: String, anchor: NsfwGalleryAnchor) = Unit
