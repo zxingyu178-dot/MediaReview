@@ -1,5 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-08 NSFW审核桥诊断修复已部署**：PR36及两主分支CI通过，NSFW main/develop/app统一b06b835；启动失败后轮询不再覆盖ERROR，正式部署/前端一致性检查通过，桥自动恢复且配对保持。ControlHub停服曾返回超时，carrier兜底后核实离线再部署，优雅退出问题仍待修复；未停启ComfyUI，未做本轮手机/HomeLAN复测。MediaReview仍Server1.6.6/Alpha34，详见[本轮结果](NSFW_BRIDGE_ERROR_RESULT_20261108.md)。
+
 > **2026-11-08 Server1.6.6人工维护升级完成**：用户明确授权后经ControlHub停服、完整受保护备份及SQLite安全快照、哈希核验替换并启动；实际1.6.6/Contract2/windows_service/数据库ok、0018/quick_check通过。原失败MOV手机封面恢复并可见画面至结束，维护无删除审计，原队列54失败/55待处理保留。Android仍Alpha34。自动升级桥封锁未移除，详见[部署结果](SERVER166_DEPLOYMENT_20261108.md)。下方未部署段落为历史过程。
 
 > **2026-11-08 Alpha34最终APK真机部分通过**：同包错误回传/备用尝试后明确失败提示；4秒有效视频出帧、双向进度拖动与继续推进抽样通过。未测逐帧回跳、长视频/全格式或暂停拖动。沿用同一APK，准备切换Android唯一入口，Server仍1.6.3；详见[Alpha34结果](ALPHA34_RESULT_20261108.md)。此前候选/待解锁段落为历史过程。

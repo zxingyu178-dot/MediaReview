@@ -3674,3 +3674,7 @@ Alpha34/code41正式签名APK一次构建成功（5m43s），17项更新说明�
 ## 2026-11-08 Server1.6.6已部署
 
 用户明确允许一次人工维护流程例外，ControlHub停启及完整受保护备份/SQLite快照/安装哈希校验通过，实际1.6.6/windows_service/15cap/数据库ok，生产0018及quick_check通过。原失败MOV手机封面恢复，打开可见画面并至结束；队列54失败/55待处理保持，维护删除审计0。自动升级桥封锁未解除，本次不声称该能力已实现。详见SERVER166_DEPLOYMENT_20261108.md。唯一入口将同步已部署冻结包，Android仍Alpha34。
+
+## 2026-11-08 NSFW审核桥错误状态已交付
+
+PR36及PR/develop/main CI通过，NSFW main/develop/app统一b06b835，17项本地定向结果复用；完整程序/配置/dist受保护备份及SQLite快照复核后，经官方发布脚本部署，前端一致性全PASS。官方start成功，自有桥自动恢复、配对记录一致，ComfyUI进程保持。stop却返回adapter_failed，carrier等待30秒后自带兜底退出；核实Ready/offline/端口释放后才替换，不能称优雅停止通过。优雅退出为新确认遗留项，不在本次静默修改carrier。未执行手机/HomeLAN复测，不改APK或MediaReview Server。详见NSFW_BRIDGE_ERROR_RESULT_20261108.md。
