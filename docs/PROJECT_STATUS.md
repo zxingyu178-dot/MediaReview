@@ -1,5 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-09 生图最新/日期审核已确认，后端候选已提交**：用户选默认最新、可切最早、今天/昨天/近7天/自选日期，审核固定查询顺序，新图只提示查看。NSFW c9b7813、codex/mobile-gallery-date-query、[PR38](https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/38)提供只读日期图库/独立分页和增量水位/旧范围scope锚点恢复；排序、日界、并发快照等目标分轮通过，不称单轮全绿。Android接口/界面/位置保存尚未接入，APK仍Alpha34。退出修复PR37已合入main/develop=6139203且两分支CI成功，尚未部署；用户明确要求等生成队列自然完成。部署实例b06b835有无关工作流未提交改动，原受管carrier已退出、后启动旧命令实例继续生图，维护前必须重新核对身份并保留改动；没有停服或覆盖文件。下方较早记录为历史。
+
 > **2026-11-08 Windows退出信号隔离补验通过、生产未切换**：NSFW候选08eb475，[PR37](https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/37)最新CI进行中。隐藏自有子进程收到真实CTRL_BREAK后SSE EOF、lifespan完成、订阅0，最终1项通过（2.97秒，停止0.329秒）；子进程退出码实测3，不能记0或外推正式计划任务。当前carrier与登记源同哈希，单处入口补丁已进GitHub并通过应用预检，尚未应用，正式仍b06b835。下一步为受管入口切换/真实任务停启和官方交接回执。
 
 > **2026-11-08 Studio退出修复候选已push**：按用户选择实现先关闭推送、再排空普通请求及进入后台清理；NSFW分支codex/graceful-event-shutdown、958de0e、[PR37](https://github.com/zxingyu178-dot/nsfw-studio-v2/pull/37)。旧实现新增3项失败，修复后相关20项及另轮既有SSE1项通过；真实HTTP顺序通过，未测Windows信号/慢客户端/生产退出。尚未更换日用carrier入口，生产仍b06b835，不能称退出故障已部署修复。手机Alpha34不变，后续播放提示源码21c44a5也尚未打包。

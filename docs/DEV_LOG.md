@@ -3694,3 +3694,9 @@ PR36及PR/develop/main CI通过，NSFW main/develop/app统一b06b835，17项本�
 ## 2026-11-08 Windows真实信号隔离补验
 
 NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE EOF/订阅归零/lifespan完成，信号至退出0.329秒；退出码3未伪报0，正式carrier/任务退出仍未测。候选08eb475包含原子ready写入及可提交的单处carrier入口补丁，基线哈希等于登记源、git apply --check通过。最初补丁位置被runtime忽略规则排除，已移至docs/CARRIER_STUDIO_SERVER.patch并确认在GitHub，不改忽略规则/历史staging。最新PR37 CI进行中，旧64cfa42 CI已按准确运行ID取消，避免同时跑过期检查。生产保持b06b835，未停启任何日常服务。
+
+## 2026-11-09 生图日期图库专项启动
+
+用户明确选择等生成队列自然完成后部署；随后批准默认最新/可切最早、今天/昨天/近7天/自选日期、审核固定范围和顺序、新图只提示查看。NSFW新增只读gallery查询及可选mobile_gallery_query_v1，复用summary/revision，不回放/补写事件；范围与keyset游标绑定，scope保存原水位/上界，feed补event_type区分新图和审核更新。c9b7813已push、草稿PR38；计划与分轮命令见NSFW docs/MOBILE_GALLERY_DATE_PLAN.md。最初3项无接口失败，首次5通过1失败（局部错误码400与约定422不符），修正后日期目标1通过，正/反序增强2通过；并发读快照/旧无事件/既有feed已在首次通过目标中，不重复测试凑单轮全绿。Android接入未开始，不构建APK、无生产变更。
+
+退出修复PR37已合入6139203，develop CI42484173446/main CI42500412539成功，日用仍b06b835。部署前只读发现生成队列从37增长到112，计划任务Ready、原carrier记录意外退出，后启动实例继续使用旧Uvicorn命令；app工作树另有anime_generate/v2/workflow.json的4行对4行无关改动，完整保留。当前不对运行实例停启/覆盖；后续维护须核身份与队列，不能把官方status健康在线等同任务受管运行。ADB当前无手机，不做实机声明。
