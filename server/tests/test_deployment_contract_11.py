@@ -204,7 +204,7 @@ def test_build_deploy_version_matches_server() -> None:
     builder = _release_builder()
     builder.verify_version_ssot()
     from app import __version__
-    assert builder.VERSION == "1.6.5"
+    assert builder.VERSION == "1.6.6"
     assert builder.VERSION == __version__
     assert builder.API_CONTRACT == 2
     assert builder.ANDROID_VERSION == "2.0.0-alpha33"
