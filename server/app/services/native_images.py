@@ -90,9 +90,10 @@ def make_handler(cache, ffmpeg_dir):
                         payload, content_type, width, height = render_thumbnail(file, info.st_size, profile)
                         row.width, row.height = width, height
                     else:
-                        # ffmpeg 仅输出一张有界 JPEG，stdin 为已验证句柄，不再按路径重开源文件。
+                        # fd 协议保留已验证普通文件句柄的 seek 能力（MOV/MP4 索引可能在尾部）。
+                        # stdin 仍为同一只读句柄，不按路径重开源文件。
                         completed = subprocess.run([executor._ffmpeg(), "-v", "error", "-threads", "1",
-                            "-i", "pipe:0", "-frames:v", "1", "-vf",
+                            "-fd", "0", "-i", "fd:", "-frames:v", "1", "-vf",
                             f"scale={profile.width}:{profile.height}:force_original_aspect_ratio=decrease",
                             "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"],
                             stdin=file, capture_output=True, timeout=15, check=False,

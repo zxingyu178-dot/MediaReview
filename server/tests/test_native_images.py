@@ -84,18 +84,22 @@ def test_cancelled_thumbnail_error_does_not_override_cancel(indexed_image, app, 
         assert task.status == "cancelled"
 
 
-def test_video_cover_from_disposable_clip(app, tmp_path):
+@pytest.mark.parametrize("faststart", [True, False], ids=["faststart", "tail-index"])
+def test_video_cover_from_disposable_clip(app, tmp_path, faststart):
+    import os
     import subprocess
     from pathlib import Path
-    binaries = Path(__file__).resolve().parents[2] / "third_party/ffmpeg"
+    binaries = Path(os.environ.get("MEDIAREVIEW_TEST_FFMPEG_DIR") or
+        Path(__file__).resolve().parents[2] / "third_party/ffmpeg")
     if not (binaries / "ffmpeg.exe").is_file():
         pytest.skip("项目FFmpeg不可用")
     app.state.settings.storage.ffmpeg_dir = str(binaries)
     root = tmp_path / "clips"
     root.mkdir()
     subprocess.run([str(binaries / "ffmpeg.exe"), "-v", "error", "-f", "lavfi", "-i",
-        "color=c=blue:s=64x48:r=2", "-t", "1", "-c:v", "libx264", "-movflags", "+faststart",
-        str(root / "sample.mp4")], check=True, timeout=20, capture_output=True)
+        "testsrc2=size=320x240:rate=15", "-t", "3", "-c:v", "libx264", "-crf", "0",
+        *(["-movflags", "+faststart"] if faststart else []),
+        str(root / "sample.mov")], check=True, timeout=20, capture_output=True)
     with TestClient(app) as client:
         with app.state.database.session() as s:
             source = native_sources.register_root(s, "临时片段", str(root))
