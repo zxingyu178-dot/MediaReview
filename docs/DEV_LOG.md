@@ -3690,3 +3690,7 @@ PR36及PR/develop/main CI通过，NSFW main/develop/app统一b06b835，17项本�
 ## 2026-11-08 Studio正常结束推送候选
 
 用户选择后实现NSFW Broker关闭/端点退订/StudioServer排空前关闭，958de0e已push并提交PR37。新增3项原实现失败，修复后20项及另轮既有SSE1项通过，真实HTTP顺序通过，未测真实Windows信号/慢客户端或生产退出。未修改生产carrier/ControlHub，下一步核定启动封装来源与受管接入，再部署，当前正式b06b835不变。候选边界及命令见NSFW_BRIDGE_ERROR_RESULT_20261108.md末节。
+
+## 2026-11-08 Windows真实信号隔离补验
+
+NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE EOF/订阅归零/lifespan完成，信号至退出0.329秒；退出码3未伪报0，正式carrier/任务退出仍未测。候选08eb475包含原子ready写入及可提交的单处carrier入口补丁，基线哈希等于登记源、git apply --check通过。最初补丁位置被runtime忽略规则排除，已移至docs/CARRIER_STUDIO_SERVER.patch并确认在GitHub，不改忽略规则/历史staging。最新PR37 CI进行中，旧64cfa42 CI已按准确运行ID取消，避免同时跑过期检查。生产保持b06b835，未停启任何日常服务。

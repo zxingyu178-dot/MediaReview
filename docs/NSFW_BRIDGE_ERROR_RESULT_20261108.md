@@ -37,6 +37,12 @@ NSFW Studio 的审核桥启动失败后，后续状态查询曾将 ERROR 覆盖�
 
 新增3项旧实现失败；实现后 `python -m pytest tests/backend/test_event_shutdown.py tests/backend/test_mobile_runtime.py tests/backend/test_mobile_bridge_lifespan.py` 20通过（31.42秒）；另轮既有SSE推送1通过（5.17秒），均1既有弃用警告。不合并为单轮21项。只读审查无阻塞项，未重复本地全量；慢客户端发送背压、普通长请求仍可能延迟退出。正式carrier仍走旧Uvicorn CLI，实际Windows信号/总退出预算及受管部署均未验证，下一步先解决入口来源与官方接入边界，不能只pull便宣称生效。
 
+## Windows隔离信号补验与入口来源
+
+NSFW候选最新08eb475，PR37最新CI进行中。隐藏自有控制台/进程组上的真实CTRL_BREAK单项最终通过（2.97秒），SSE EOF、lifespan完成、订阅0，信号至退出0.329秒；前轮3.46秒后因ready写入改原子替换而只重跑该项。退出码实测3、非0，日志明确完成应用清理；不归一化退出码，不代表正式carrier任务返回0。未加载正式业务App或访问媒体/DataRoot，未操作生产。
+
+日用carrier与既有onboarding-staging源SHA256一致（ebf3891e846413ecb6b16ec7061d3c4d4d6d18f042ee23f9d2289c9f7d11aad0），无需复制重写框架。NSFW已提交docs/CARRIER_STUDIO_SERVER.patch，将唯一子进程命令转为app.runtime_server，git apply --check通过，尚未实际应用。保留既有ControlHub任务、端口和载体；正式切换须备份后受管验证并补新版独立handoff/官方提交，不改旧交接或自行审批。旧说明“实际Windows信号未验”现仅对正式业务实例成立，隔离样本已按本节补验。
+
 ## 验证边界
 
 本轮没有手机/HomeLAN复测，没有故意破坏生产审核桥制造启动失败。错误状态恢复由隔离回归证明；生产证据仅覆盖部署身份、健康、自有桥自动恢复、配对保留和ComfyUI未停启。私有收据在NSFW开发工作树temp/bridge-error-deploy-private.json，程序与数据快照保留用于恢复，不公开配置或令牌。
