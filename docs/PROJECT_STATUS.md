@@ -1,5 +1,7 @@
 # MediaReview 项目状态（唯一活文档 / SSOT）
 
+> **2026-11-08 Server1.6.6人工维护升级完成**：用户明确授权后经ControlHub停服、完整受保护备份及SQLite安全快照、哈希核验替换并启动；实际1.6.6/Contract2/windows_service/数据库ok、0018/quick_check通过。原失败MOV手机封面恢复并可见画面至结束，维护无删除审计，原队列54失败/55待处理保留。Android仍Alpha34。自动升级桥封锁未移除，详见[部署结果](SERVER166_DEPLOYMENT_20261108.md)。下方未部署段落为历史过程。
+
 > **2026-11-08 Alpha34最终APK真机部分通过**：同包错误回传/备用尝试后明确失败提示；4秒有效视频出帧、双向进度拖动与继续推进抽样通过。未测逐帧回跳、长视频/全格式或暂停拖动。沿用同一APK，准备切换Android唯一入口，Server仍1.6.3；详见[Alpha34结果](ALPHA34_RESULT_20261108.md)。此前候选/待解锁段落为历史过程。
 
 > **2026-11-08 Alpha34候选已安装、待解锁验收**：code41正式签名APK已保留数据覆盖手机，17项版本说明/5项打包门禁通过，原签名/哈希/280项builder输入无漂移已核对。手机锁屏，尚未验证最终包错误提示/回退和有效视频seek；CURRENT_RELEASE暂仍Alpha33，生产Server1.6.3不变。见[候选结果](ALPHA34_RESULT_20261108.md)。
@@ -125,15 +127,15 @@
 
 | 组件 | 权威值 | 证据（文件:行 / 来源） |
 | --- | --- | --- |
-| Server 版本（源码/已验证交付包，未部署） | `1.6.5` | 三处声明与builder一致，实际EXE健康/合成查询通过，CURRENT_RELEASE指向新包；不是生产已装版本 |
+| Server 版本（源码/已部署） | `1.6.6` | 候选c86ece4构建，实际服务及安装哈希通过；SERVER166_DEPLOYMENT_20261108.md |
 | API Contract | `2` | `server/app/__init__.py:8`、`deployment/version.ps1:13` |
-| Server 能力（源码15项） | 前述生产14项另加`delete_result_v1`；完整列表以`SERVER_CAPABILITIES`为准 | 源码重查；生产1.6.3于2026-10-31 10:06健康实查14项，不得混同 |
-| 数据库迁移 head（源码/EXE隔离库） | `0018` | revision字段与实际隔离EXE初始化库一致；生产未据此升级 |
-| Android 版本（源码/当前正式APK） | `versionCode 34` / `versionName 2.0.0-alpha27` | 构建源码c7c53eb，aapt/签名/SHA256与CURRENT_RELEASE一致；不是已安装手机版本 |
-| 当前Server包内APK | `versionCode 36` / `2.0.0-alpha29` | 与独立APK SHA256完全一致；旧1.6.4/Alpha22包不再是当前入口 |
-| 手机最近核验版本 | `versionCode 36` / `2.0.0-alpha29` | 2026-11-01保留数据安装及包版本实查；生图/相册/全选部分验证，批阅后续记录单列 |
+| Server 能力（源码及生产15项） | 包含`delete_result_v1`等15项 | 2026-11-08真实1.6.6健康返回，完整清单见部署收据 |
+| 数据库迁移 head（生产） | `0018` | 生产只读确认，quick_check=ok；维护无新增删除审计 |
+| Android 版本（源码/当前独立APK） | `versionCode 41` / `2.0.0-alpha34` | 最终包签名/哈希及定向真机检查，ALPHA34_RESULT_20261108.md |
+| 当前Server包内APK | `versionCode 40` / `2.0.0-alpha33` | 冻结1.6.6部署包内快照；手机安装入口使用独立Alpha34 |
+| 手机最近核验版本 | `versionCode 41` / `2.0.0-alpha34` | 保留数据安装及错误可见/短视频双向seek、1.6.6本地MOV定向验证 |
 | Android 包名 | `com.mediareview.app` | `android/app/build.gradle.kts:27` |
-| 生产最近核验版本 | `1.6.3` | 2026-10-31交付收口只读健康复查windows_service/14cap；1.6.5包已验证未部署，发布清单不能替代生产实测 |
+| 生产最近核验版本 | `1.6.6` | 2026-11-08实际windows_service/15cap/数据库ok，人工维护授权及ControlHub收据 |
 
 ## 2. 产物状态
 
