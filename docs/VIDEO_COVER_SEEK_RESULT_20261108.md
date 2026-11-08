@@ -19,3 +19,12 @@
 复用package_sources/release_manifest/write_sha256/verify_zip生成独立候选，复用已交付Alpha33并重新校验哈希、版本、签名，不重建APK。候选zip：deploy_handoff/candidates/MediaReview_Server_1.6.6_candidate.zip，112038206字节，SHA256 95d9fbb2d37e17ca5b1411f5805bea71c9fab2bd6da4a93ebf3fb7f25eb21e89，184文件校验通过。包内manifest明确CANDIDATE_NOT_PRODUCTION_VERIFIED。
 
 CURRENT_RELEASE未改，生产仍1.6.3，未停启或部署；EXE健康不等于真实封面恢复或数据库升级验收。本轮验证过程曾因工作目录导致版本更新/pytest导入失败，已在正确目录重跑；APK校验首次缺ANDROID_HOME，设置已登记的SDK/JDK进程级变量后通过，未修改用户/系统环境。完整运行日志及候选清单位于review_meta/server166-*。
+
+## 部署预检（2026-11-08）
+
+- 已登记upgrade-aihome-managed.ps1默认Dry Run实际接受候选，识别CurrentVersion1.6.3、目标1.6.6、服务Running；SourcePackageHash=b511b66185cb3cce2402c4640fac31c29d4347712f2188e65b55f86b011407c5，EXE匹配。未Execute、未停服、未备份或修改生产。
+- 生产迁移头只读为0017；升级会进入0018（新增删除回执字段）。仅聚合检查删除队列：failed54、pending55，无committing；没有读出或操作具体媒体。
+- python -m pytest tests/test_delete_result_recovery.py -k migration：1通过、6未选，9.04秒，1既有警告。临时库验证0017→0018旧回执保留，running阻止downgrade，终态可退回0017并保留原大小。
+- 生产入口明确返回BLOCKED_OFFICIAL_BRIDGE / OFFICIAL_COORDINATOR_BRIDGE_REQUIRED，缺同实例IPC、事务互斥、升级计划绑定、逐步审计；未将本地PlanDigest当作官方批准，未调用旧临时部署脚本替代该入口。
+- 首轮-WhatIf触发PowerShell读包辅助操作被WhatIf抑制，返回SOURCE_PACKAGE_INVALID；改用脚本已有默认只读模式后候选验证通过。因此首次结果不是候选损坏证据。该WhatIf行为另记为未修复诊断问题。
+- 仍未生产部署、未切换CURRENT_RELEASE、未称真机封面已恢复；正式升级入口需进一步核实。已形成可审查的候选、哈希与迁移/回滚证据。
