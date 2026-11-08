@@ -3658,3 +3658,7 @@ PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；dev
 ## 2026-11-08 第253项AVI异常定位
 
 Jellyfin元数据及有界HTTP头/尾Range只读解析确认：出错AVI视频轨length0，音频1977块，idx1仅1977条音频。对应Media3无索引轨getSeekPoints返回初始-1的链路；第253项不能作为有效视频出帧/seek验收样本。未保存或修改媒体，未强制修复文件或升级依赖。详情见PHONE_CHECK_20261108.md末节。后续用有效视频补验及发布当前错误回传修复。
+
+## 2026-11-08 Alpha34候选已安装
+
+Alpha34/code41正式签名APK一次构建成功（5m43s），17项更新说明及5项入口门禁通过，原证书、哈希、280项builder输入无漂移与演示媒体0核验。已install -r保留数据覆盖，手机锁屏阻断交互验收，已发解锁提示。CURRENT_RELEASE暂保持Alpha33；详见ALPHA34_RESULT_20261108.md。生产Server未升级。
