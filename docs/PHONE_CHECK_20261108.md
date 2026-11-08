@@ -37,3 +37,13 @@ Media3 1.10.1官方ChunkReader.java：firstIndexChunkOffset初始化INDEX_UNSET(
 官方源码入口：https://github.com/androidx/media/blob/1.10.1/libraries/extractor/src/main/java/androidx/media3/extractor/avi/ChunkReader.java ，同目录AviExtractor.java。
 
 据此修正验收边界：第253项此前进度前进只证明时间轴/音频推进，不能称视频出帧通过。它不能作为有效视频的seek验收样本。已修复的当前错误回传仍有必要，避免此类源异常静默黑屏；不修改用户文件、不强行钳制字节位置、不自动全量转码或升级播放器依赖。接下来以有效含视频帧的样本验证拖动，并在正式新APK复核错误可见/回退。
+
+## F盘恢复与同一样本只读对比（2026-11-08）
+
+当前封面422路径诊断：只读数据库及存在性检查，33个enabled本地根全部属于F盘；初检F盘未挂载，根可达0/33，已失败样本的根与文件均不存在于当前挂载视图。没有据此删除索引或标记媒体丢失，也没有放宽路径/链接校验。用户回复“已连接”后，F盘存在、根可达33/33，同一样本文件存在，无需变更登记或重新扫描。
+
+手机对原同一卡片精准点击重试（唯一卡片bounds内唯一重试按钮），新请求对应同一media_id；服务日志reason由local_path_rejected转为local_video_cover_unavailable，约2334.5ms。因此有两个独立故障条件，不能以历史提取失败计数替代当前原因。
+
+进一步使用现有open_media完整路径/身份复验，读取原文件只读句柄，旧pipe与候选fd分别仅提取单帧（相同15秒预算）。结果：production_pipe返回4294967274、0字节；candidate_fd返回0、2201字节，PIL识别JPEG/81×144。未按路径绕过open_media重新打开，未保存原媒体或输出JPEG，未改写文件、源配置或索引。脱敏对比记录review_meta/real-cover-fd-comparison.json。
+
+已证实这一真实失败样本可由seek修复处理；不推广为全部媒体已恢复。线上仍1.6.3，候选1.6.6尚未部署，手机这张封面仍失败。F盘可达检查只代表目录/文件恢复可达，不等于全库播放、元数据或封面均通过。Android辅助会话已结束，无新增forward；无审核/删除决定或评分。
