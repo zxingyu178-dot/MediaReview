@@ -3662,3 +3662,7 @@ Jellyfin元数据及有界HTTP头/尾Range只读解析确认：出错AVI视频�
 ## 2026-11-08 Alpha34候选已安装
 
 Alpha34/code41正式签名APK一次构建成功（5m43s），17项更新说明及5项入口门禁通过，原证书、哈希、280项builder输入无漂移与演示媒体0核验。已install -r保留数据覆盖，手机锁屏阻断交互验收，已发解锁提示。CURRENT_RELEASE暂保持Alpha33；详见ALPHA34_RESULT_20261108.md。生产Server未升级。
+
+## 2026-11-08 Alpha34最终包真机定向通过
+
+空视频轨AVI先Direct异常、备用HTTP500，最终明确显示失败和重试；4秒有效视频画面及双向拖动落点/继续推进通过，不称逐帧无回跳或全库验收。无审核/删除决定，浏览产生既有已看标记。拟提升同一APK为唯一Android交付；Server不部署。详见ALPHA34_RESULT_20261108.md补验节。
