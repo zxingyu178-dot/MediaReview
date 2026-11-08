@@ -3678,3 +3678,7 @@ Alpha34/code41正式签名APK一次构建成功（5m43s），17项更新说明�
 ## 2026-11-08 NSFW审核桥错误状态已交付
 
 PR36及PR/develop/main CI通过，NSFW main/develop/app统一b06b835，17项本地定向结果复用；完整程序/配置/dist受保护备份及SQLite快照复核后，经官方发布脚本部署，前端一致性全PASS。官方start成功，自有桥自动恢复、配对记录一致，ComfyUI进程保持。stop却返回adapter_failed，carrier等待30秒后自带兜底退出；核实Ready/offline/端口释放后才替换，不能称优雅停止通过。优雅退出为新确认遗留项，不在本次静默修改carrier。未执行手机/HomeLAN复测，不改APK或MediaReview Server。详见NSFW_BRIDGE_ERROR_RESULT_20261108.md。
+
+## 2026-11-08 退出超时隔离定位
+
+真实SSE端点+EventBroker的临时回环服务复现：普通请求退出完成；保持SSE时关闭等待1.2秒仍有1连接/1任务/1订阅且lifespan未进入，主动关客户端后3秒内退出并退订。Uvicorn0.54.0先等请求再进lifespan，与生产等待连接日志吻合；尚未证明生产仅此一因。提出关闭前置通知Broker设计供选择，未动运行程序或信号处理。详情补入NSFW_BRIDGE_ERROR_RESULT_20261108.md。
