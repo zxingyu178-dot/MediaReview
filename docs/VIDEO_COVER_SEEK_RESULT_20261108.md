@@ -11,3 +11,11 @@
 验证命令：在server目录，设置测试FFmpeg目录后执行 python -m pytest tests/test_native_images.py 。先单跑video_cover：1失败（tail-index）/1通过；修复后整个文件6通过，140.26秒，1既有Starlette弃用警告。测试均使用临时来源，无真实媒体操作。
 
 源码修复尚未打包或部署，生产Server仍1.6.3。未称281项失败全部解决，未重复全量测试、未构建Android。下一步核对打包FFmpeg协议能力及部署后真机封面恢复，仍需区分不支持编码、损坏文件、超时等其他错误。
+
+## 1.6.6候选交付（2026-11-08）
+
+版本源码c86ece4（封面修复afa21d0）；Server三处声明和builder已统一1.6.6，24项部署合同用例通过。使用既有builder的build_exe/verify_server_binary；实际EXE健康1.6.6、Contract2、能力校验通过。EXE SHA256：38068db4fbccf25f93f1cd0675f101df7b204abd880b3da8a0fc2dfa681a777a。
+
+复用package_sources/release_manifest/write_sha256/verify_zip生成独立候选，复用已交付Alpha33并重新校验哈希、版本、签名，不重建APK。候选zip：deploy_handoff/candidates/MediaReview_Server_1.6.6_candidate.zip，112038206字节，SHA256 95d9fbb2d37e17ca5b1411f5805bea71c9fab2bd6da4a93ebf3fb7f25eb21e89，184文件校验通过。包内manifest明确CANDIDATE_NOT_PRODUCTION_VERIFIED。
+
+CURRENT_RELEASE未改，生产仍1.6.3，未停启或部署；EXE健康不等于真实封面恢复或数据库升级验收。本轮验证过程曾因工作目录导致版本更新/pytest导入失败，已在正确目录重跑；APK校验首次缺ANDROID_HOME，设置已登记的SDK/JDK进程级变量后通过，未修改用户/系统环境。完整运行日志及候选清单位于review_meta/server166-*。

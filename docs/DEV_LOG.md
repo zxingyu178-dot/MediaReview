@@ -3634,3 +3634,7 @@ PR34已合并，main/develop统一5153cfe74d98d88b79a7e0eee00707dccb65b747；dev
 ## 2026-11-08 本地视频封面seek修复
 
 隔离MOV尾索引复现pipe:0失败，fd:成功；处理器改为继承已验证普通文件句柄的可寻址fd输入。回归先1失败/1通过，修复后test_native_images.py六项通过（140.26秒）。源码未打包/部署，不声称真实281项全部解决。详见VIDEO_COVER_SEEK_RESULT_20261108.md。
+
+## 2026-11-08 Server1.6.6候选
+
+24项版本/部署合同通过，实际EXE健康及候选184项文件校验通过。复用Alpha33未重建。独立候选zip及哈希见VIDEO_COVER_SEEK_RESULT_20261108.md。生产仍1.6.3，CURRENT_RELEASE未切换，真机修复待部署验收。
