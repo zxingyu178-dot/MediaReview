@@ -25,3 +25,15 @@
 回归：ReviewErrorOwnershipTest原严格判定2项中1失败（当前源释放）、1通过；修复后该2项和V2PlaybackSourceControllerTest10项共12项通过，Gradle BUILD SUCCESSFUL（2m23s）。命令testDebugUnitTest --tests '*ReviewErrorOwnershipTest' --tests '*V2PlaybackSourceControllerTest'。首次wrapper锁/原生库加载失败不算RED；使用已登记Gradle8.9绝对入口和已有temp/gradle-home2/TEMP后取得有效RED（6m51s）。未改系统权限或环境，未跑全量或connected。
 
 此修复仅源码，尚未构建新Release或安装手机；正式Alpha33未包含，未声称真实异常/黑屏已消失。手机保留数据，测试未安装会冲突的debug同包名版本。后续需在正式新包复核当前错误可提示/回退，并继续追查该样本seek负字节位置。
+
+## 第253项负位置样本定位（2026-11-08）
+
+只读生产索引与Jellyfin当前用户Item元数据一致：容器AVI、51644ms、883830字节。真实HTTP请求Range0-63返回206、video/x-msvideo、RIFF/AVI签名成立，排除把它按MOV/MP4原因处理。
+
+进一步只读两个有界Range（头8192字节及尾131072字节），只在内存解析、未保存媒体：strh视频轨type=vids、scale125/rate2997、length=0；音频轨type=auds、length=1977。idx1声明/实际31632字节完整匹配，全部1977条都是01wb音频，无视频索引。没有下载整文件、转码、移动或改写媒体。
+
+Media3 1.10.1官方ChunkReader.java：firstIndexChunkOffset初始化INDEX_UNSET(-1)，appendIndexChunk才赋实际位置；无索引时getSeekPoints返回firstIndexChunkOffset。AviExtractor.AviSeekMap选择各track更小的位置。因此视频轨无索引可将-1送入ProgressiveMediaPeriod，再触发手机实际DataSpec.java:472非负断言。此链与已观测数据相符，原视频轨零帧是已确认事实；未把结论推广到其他文件。
+
+官方源码入口：https://github.com/androidx/media/blob/1.10.1/libraries/extractor/src/main/java/androidx/media3/extractor/avi/ChunkReader.java ，同目录AviExtractor.java。
+
+据此修正验收边界：第253项此前进度前进只证明时间轴/音频推进，不能称视频出帧通过。它不能作为有效视频的seek验收样本。已修复的当前错误回传仍有必要，避免此类源异常静默黑屏；不修改用户文件、不强行钳制字节位置、不自动全量转码或升级播放器依赖。接下来以有效含视频帧的样本验证拖动，并在正式新APK复核错误可见/回退。
