@@ -152,6 +152,8 @@ def safe_task_view(task: BackgroundTask) -> dict:
             safe_error = "媒体同步失败，请稍后重试"
         elif task.type == "duplicate_scan" and task.error == "library_selection_changed":
             safe_error = "媒体库范围已变化，请重新扫描"
+        elif task.type == "local_scan" and task.error == "local_index_write_failed":
+            safe_error = "媒体索引写入失败，请查看电脑端诊断"
         else:
             safe_error = "后台任务执行失败，请稍后重试"
     return {

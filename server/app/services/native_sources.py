@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import sqlalchemy as sa
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.adapters.media_source import MediaItem, can_delete
 from app.core.errors import (
@@ -382,13 +383,18 @@ def run_scan(database, task_id):
             task.status, task.progress, task.finished_at = "succeeded", 100, utc_now()
             task.result = json.dumps({"seen": seen, "changed": changed})
             session.commit()
-    except Exception:  # 中断/失败均落安全终态，绝不留running孤儿或记录源路径。
+    except Exception as error:  # 中断/失败落安全终态，不记录源路径或SQL参数。
+        error_code = (
+            "local_index_write_failed"
+            if isinstance(error, SQLAlchemyError) else "local_source_unavailable"
+        )
+        logger.warning("本地扫描失败 code=%s exception=%s", error_code, type(error).__name__)
         with database.session() as session:
             task = session.get(BackgroundTask, task_id)
             if task.status != "running":
                 return
             task.status, task.error, task.finished_at = (
-                "failed", "local_source_unavailable", utc_now()
+                "failed", error_code, utc_now()
             )
             root = session.get(LocalRoot, root_id)
             root.status = "offline" if offline else "scan_failed"

@@ -79,6 +79,28 @@ def test_identity_scoped_by_root_and_reject_unsafe_paths(native_db, tmp_path):
                 native_sources.safe_path(registered, relative)
 
 
+def test_scan_index_write_failure_is_not_source_offline(native_db, tmp_path, monkeypatch, caplog):
+    from sqlalchemy.exc import OperationalError
+    from app.services.tasks import safe_task_view
+
+    folder, root_id = _register_and_scan(native_db, tmp_path)
+
+    def fail_write(*args):
+        raise OperationalError("INSERT private-path", {}, OSError("private-path"))
+
+    monkeypatch.setattr(native_sources, "_save_batch", fail_write)
+    task = scan(native_db, root_id)
+    assert task.status == "failed"
+    assert task.error == "local_index_write_failed"
+    assert safe_task_view(task)["error"] == "媒体索引写入失败，请查看电脑端诊断"
+    assert "local_index_write_failed" in caplog.text
+    assert "private-path" not in caplog.text
+    with native_db.session() as session:
+        assert session.get(LocalRoot, root_id).status == "scan_failed"
+        assert session.scalar(sa.select(MediaCacheIndex)).is_available
+    assert (folder / "sample.jpg").read_bytes() == b"temporary"
+
+
 def test_scan_skips_symlink(native_db, tmp_path):
     root = tmp_path / "valid"
     root.mkdir()
