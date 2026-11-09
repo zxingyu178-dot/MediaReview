@@ -38,3 +38,15 @@ git diff --check
 修复后2通过、diff检查通过。既有Starlette/httpx弃用警告保留，未扩大处理；未跑全套pytest/Gradle/connected，未构建APK或新EXE。诊断修复仅在源码，冻结EXE与生产仍1.6.6旧诊断行为。
 
 阶段结论：有条件合格。删除二进制定向证据成立，真实设备及认证/未知结果恢复边界仍待补验；不声明PRODUCTION_READY或REAL_LAN_PASS。
+
+## 追加：持久化中断边界后的真实EXE重启
+
+没有重复上述5场景。一次性脚本`temp/verify_delete166_restart.py`复用原启动/隔离/身份检查代码；脚本SHA256为`ed37c8cb3eb20d9694aa69e3b1f154c00b6d3ebec71da7f914a346c0b7476d1d`，结果在本地忽略文件`review_meta/delete166-restart-result.json`。运行命令为项目既有venv的`python temp/verify_delete166_restart.py`，退出0。
+
+两个场景均先由实际EXE扫描临时样本、入队并prepare，再终止自己的实例，在离线隔离数据库构造`nonce.used=1/receipt_state=running`与队列`committing`。分别保留原文件、移除自己的样本；每次重启同一冻结EXE并重新核对监听所有者后才查询/重试：
+
+- 原文件存在：文件字节保持不变，队列failed/interrupted_not_deleted，审计failed:interrupted_not_deleted一条。
+- 原文件缺失：队列与媒体元数据收敛，审计recovered_deleted一条。
+- 两次批次查询均为`state=unknown,result=null,confirmed_partial_result=null`；原nonce重发均409，不编造成功数或释放字节。
+
+2场景通过，验证了真实程序启动恢复消费这些持久化状态的行为；**不是实际删除调用中途断电/崩溃注入**，也不证明手机丢响应后的完整恢复体验。认证依然未测。结束后隔离端口无监听、生产Server1.6.6健康且服务Running；没有修改或重启生产实例。测试脚本终止自身EXE的退出码仍1，不代表正常服务退出。
