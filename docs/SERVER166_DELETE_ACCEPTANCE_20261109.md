@@ -50,3 +50,13 @@ git diff --check
 - 两次批次查询均为`state=unknown,result=null,confirmed_partial_result=null`；原nonce重发均409，不编造成功数或释放字节。
 
 2场景通过，验证了真实程序启动恢复消费这些持久化状态的行为；**不是实际删除调用中途断电/崩溃注入**，也不证明手机丢响应后的完整恢复体验。认证依然未测。结束后隔离端口无监听、生产Server1.6.6健康且服务Running；没有修改或重启生产实例。测试脚本终止自身EXE的退出码仍1，不代表正常服务退出。
+
+## 追加：源码ASGI双设备真实配对与回执所有权
+
+新增既有`test_delete_result_recovery.py::test_real_pairing_enforces_receipt_owner_and_revocation`，使用真实配对码签发和Bearer认证，不替换认证依赖，不手工篡改owner来模拟第二台设备。仅空删除批次，不操作任何媒体。未配对/伪造凭据查询或提交均401；另一合法配对设备在prepare后及完成后查询/提交均404，无法探测回执内容；拒绝请求不消耗nonce。原设备可查prepared、提交空批并查completed，撤销原设备后查询/重发均401。
+
+第一次复用默认ASGI夹具通过，但该夹具会启动局域网发现应答器；随后收紧为本用例专属的小型夹具，启动时关闭sprites/duplicate_scan/配对发现触发条件，启动完成后、所有HTTP请求之前打开pairing_required。未覆盖生产配置，也未改变其他测试夹具。修订后再验1通过，既有Starlette弃用警告仍1；两次结果不合称不同的2场景。
+
+命令：在当前server工作目录，使用既有venv和进程级可写TEMP/TMP/PYTHONPATH运行`python -m pytest tests/test_delete_result_recovery.py::test_real_pairing_enforces_receipt_owner_and_revocation -q`；`git diff --check`通过。
+
+此证据限当前源码ASGI请求链、空批所有权与撤销，**不是冻结EXE的配对验收、真实手机双设备验证或局域网发现验收**。前面冻结EXE记录的authentication_tested=false仍成立；未改生产文件、未构建/部署。双向翻页方案仍待用户选择；当前队列运行等待60、暂停0、ADB无设备，继续遵守不打断生图与不重试被拒模拟器启动。

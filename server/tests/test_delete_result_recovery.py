@@ -82,6 +82,56 @@ def test_receipt_does_not_disclose_other_device_batch(client):
     assert client.post("/api/v1/delete-queue/commit", json={"nonce": nonce}).status_code == 404
 
 
+@pytest.fixture
+def isolated_receipt_client(app_config, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    app_config.features.sprites = False
+    app_config.features.duplicate_scan = False
+    # 启动时关闭发现触发条件，认证在请求前启用；不替换认证依赖。
+    with TestClient(create_app(app_config)) as client:
+        monkeypatch.setattr(client.app.state.settings.security, "pairing_required", True)
+        yield client
+
+
+def test_real_pairing_enforces_receipt_owner_and_revocation(isolated_receipt_client):
+    client = isolated_receipt_client
+
+    def pair(device_id):
+        code_response = client.post("/api/v1/pairing/code")
+        assert code_response.status_code == 200
+        response = client.post("/api/v1/pairing/verify", json={
+            "code": code_response.json()["data"]["code"], "device_id": device_id,
+        })
+        assert response.status_code == 200
+        assert response.json()["data"]["paired"]
+        return {"Authorization": "Bearer " + response.json()["data"]["token"]}
+
+    owner, other = pair("receipt-owner"), pair("receipt-other")
+    prepared = client.post("/api/v1/delete-queue/commit/prepare", headers=owner)
+    assert prepared.status_code == 200
+    nonce = prepared.json()["data"]["nonce"]
+    result_url = f"/api/v1/delete-queue/commit/{nonce}/result"
+    commit_url = "/api/v1/delete-queue/commit"
+    for headers, expected in (({}, 401), ({"Authorization": "Bearer invalid"}, 401), (other, 404)):
+        assert client.get(result_url, headers=headers).status_code == expected
+        assert client.post(commit_url, headers=headers, json={"nonce": nonce}).status_code == expected
+    with client.app.state.database.session() as session:
+        row = session.get(DeleteCommitNonce, nonce)
+        assert row.owner_device_id == "receipt-owner"
+        assert not row.used and row.receipt_state == "prepared"
+    assert client.get(result_url, headers=owner).json()["data"]["state"] == "prepared"
+    assert client.post(commit_url, headers=owner, json={"nonce": nonce}).status_code == 200
+    assert client.get(result_url, headers=owner).json()["data"]["state"] == "completed"
+    assert client.get(result_url, headers=other).status_code == 404
+    assert client.post(commit_url, headers=other, json={"nonce": nonce}).status_code == 404
+    revoked = client.post("/api/v1/pairing/revoke", headers=owner, json={"device_id": "receipt-owner"})
+    assert revoked.status_code == 200
+    assert client.get(result_url, headers=owner).status_code == 401
+    assert client.post(commit_url, headers=owner, json={"nonce": nonce}).status_code == 401
+
+
 def test_interrupted_batch_stays_unknown_without_fabricated_receipt(client, tmp_path):
     database = client.app.state.database
     path = tmp_path / "interrupted.mp4"
