@@ -391,6 +391,18 @@ object ReleaseNotesCatalog {
                 "继续拦截上一条视频的迟到错误，避免影响正在批阅的视频",
             ),
         ),
+        ReleaseNote(
+            versionCode = 42,
+            versionName = "2.0.0-alpha35",
+            title = "MediaReview 2.0 Alpha 35",
+            highlights = listOf(
+                "电脑端更新后，生图图库默认显示最新图片，可切换最早在前",
+                "支持按今天、昨天、近7天或自选日期筛选生图",
+                "继续上次审核时保留原日期范围和图片顺序",
+                "新生成图片只显示提醒，点击查看最新后再加载",
+                "完善视频播放失败提示，区分没有备用方式与备用也失败",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

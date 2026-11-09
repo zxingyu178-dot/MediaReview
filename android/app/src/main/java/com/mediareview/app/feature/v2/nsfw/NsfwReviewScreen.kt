@@ -425,7 +425,8 @@ private fun ReadyPane(
 
         if (state.newImageCount > 0) {
             Text(
-                "队尾新增 ${state.newImageCount} 张 · 点击查看最新图片",
+                if (state.galleryEnabled) "有 ${state.newImageCount} 张新图片 · 查看最新"
+                else "队尾新增 ${state.newImageCount} 张 · 点击查看最新图片",
                 color = V2Colors.Accent,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.clickable(onClick = { if (state.galleryEnabled) galleryOpen = true; onViewLatest() })

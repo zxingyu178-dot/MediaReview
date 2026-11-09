@@ -242,9 +242,13 @@ class NsfwReviewViewModel @Inject constructor(
             var galleryAnchor: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor? = null
             var readFailed = false
             var galleryReadFailed = false
-            try { galleryAnchor = positions.loadGalleryAnchor(origin) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { galleryReadFailed = true }
+            // 日期图库首次进入创建新快照，不能在首屏加载前暴露旧快照的滚动锚点。
+            // 旧图片及范围仍由 savedGalleryReview 保留，用户点“继续上次”才恢复。
+            if (NSFW_GALLERY_CAPABILITY !in snapshot.capabilities) {
+                try { galleryAnchor = positions.loadGalleryAnchor(origin) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { galleryReadFailed = true }
+            }
             val saved = try {
                 positions.loadPosition(origin)
             }

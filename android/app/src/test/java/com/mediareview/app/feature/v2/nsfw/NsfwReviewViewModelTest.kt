@@ -124,13 +124,20 @@ class NsfwReviewViewModelTest {
 
     @Test fun galleryResumeUsesSavedScopeWithoutReplayingHistory() = runTest {
         val positions = MemoryBrowsePositions()
+        val initialPage = CompletableDeferred<Unit>()
         val query = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST).resolve()
         positions.reviews["http://nsfw.test:8877"] = com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview(query, "old-scope", "old")
+        positions.anchors["http://nsfw.test:8877"] = com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor("old", 37)
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
-        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
+        data.galleryResponder = { call ->
+            if (call.scope == null) initialPage.await()
+            com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
             items = listOf(nsfwItem(call.anchor ?: "new")), syncCursor = "watermark", scopeCursor = call.scope ?: "fresh", sort = call.query.filter.sort.wire,
         ) }
         val model = vm(positions = positions)
+        // 新范围首屏尚在加载时，也不能让界面记住旧范围的滚动锚点。
+        assertNull(model.state.value.galleryAnchor)
+        initialPage.complete(Unit)
         assertEquals("new", model.state.value.currentId)
         model.resumeGalleryReview()
         assertEquals("old-scope", data.galleryCalls.last().scope)
