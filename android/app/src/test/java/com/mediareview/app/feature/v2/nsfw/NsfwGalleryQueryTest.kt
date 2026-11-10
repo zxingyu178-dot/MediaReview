@@ -8,6 +8,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NsfwGalleryQueryTest {
+    @Test fun libraryMembershipMatchesAllFiltersAndRequiresCategoryEvidence() {
+        val filter = NsfwGalleryFilter(promptId = "p", versionId = "v", status = "NEW", favorite = false, category = "anime")
+        val query = filter.resolve()
+        val image = nsfwItem("a").copy(createdAt = "2026-11-10T00:00:00Z", prompt = NsfwPromptLink("p", "v", "EXACT"), categories = setOf("anime", "imported"))
+        assertEquals(true, query.matches(image))
+        assertEquals(false, query.matches(image.copy(status = "KEEP")))
+        assertEquals(false, query.matches(image.copy(isFavorite = true)))
+        assertEquals(false, query.matches(image.copy(prompt = NsfwPromptLink("p", "other", "EXACT"))))
+        assertNull(query.matches(image.copy(categories = null)))
+        assertEquals(false, query.matches(image.copy(categories = emptySet())))
+        assertEquals(true, NsfwGalleryFilter(category = "imported").resolve().matches(image))
+    }
+
     @Test fun todayUsesPhoneCalendarAndExclusiveNextDay() {
         val query = NsfwGalleryFilter(dates = NsfwGalleryDates.TODAY)
             .resolve(Instant.parse("2026-11-09T01:00:00Z"), ZoneId.of("Asia/Shanghai"))

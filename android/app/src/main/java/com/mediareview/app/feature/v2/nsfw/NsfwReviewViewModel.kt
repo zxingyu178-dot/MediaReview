@@ -107,6 +107,7 @@ data class NsfwUiState(
     val galleryEnabled: Boolean = false,
     val bidirectionalGallery: Boolean = false,
     val galleryFiltersEnabled: Boolean = false,
+    val galleryMembershipUnknown: Boolean = false,
     val batchReviewEnabled: Boolean = false,
     val previousPageCursor: String? = null,
     val galleryStartIndex: Int = 0,
@@ -1117,7 +1118,7 @@ class NsfwReviewViewModel @Inject constructor(
             previousPageCursor = null, galleryStartIndex = 0, galleryTotal = 0, galleryPositionValid = false,
             items = emptyList(), currentId = null, detail = null, detailLoading = false,
             galleryAnchor = null, restoringBrowsePosition = anchor != null,
-            newImageCount = 0, hasMore = false, nextCursor = null, message = null,
+            newImageCount = 0, galleryMembershipUnknown = false, hasMore = false, nextCursor = null, message = null,
             cursorExpired = false, panel = null, syncing = false) }
         manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
             withFeedRead { loadGalleryPage(it, scope = scope, anchor = anchor) }
@@ -1185,19 +1186,29 @@ class NsfwReviewViewModel @Inject constructor(
                     ?: throw NsfwApiException("CURSOR_MISSING", "缺少增量游标，请查看最新重新加载")
                 if (page.hasMore && next == cursor) throw NsfwApiException("CURSOR_STALLED", "增量游标未推进，请查看最新重新加载")
                 val known = feed.snapshot().mapTo(mutableSetOf()) { it.imageId }
+                val query = _state.value.galleryQuery
+                var unknown = false
                 for (item in page.items) {
                     if (item.event == "REMOVE") pendingNewImageIds.remove(item.imageId)
-                    else if (item.imageId !in known && item.eventType in setOf("IMAGE_CREATED", "IMAGE_IMPORTED") &&
-                        item.revision.matches(Regex("[0-9]+")) && _state.value.galleryQuery.contains(item.createdAt)) pendingNewImageIds.add(item.imageId)
+                    else if (item.revision.matches(Regex("[0-9]+"))) {
+                        when (query.matches(item)) {
+                            false -> pendingNewImageIds.remove(item.imageId)
+                            null -> unknown = true
+                            true -> if (item.imageId !in known && item.eventType in setOf("IMAGE_CREATED", "IMAGE_IMPORTED")) pendingNewImageIds.add(item.imageId)
+                        }
+                    }
                 }
                 val merge = feed.merge(page.copy(items = page.items.filter { it.imageId in known }))
-                pendingNewImageIds.removeAll(merge.removedIds.toSet())
+                val outside = feed.snapshot().filter { query.matches(it) == false }.map { it.imageId }
+                outside.forEach { feed.remove(it) }
+                pendingNewImageIds.removeAll((merge.removedIds + outside).toSet())
                 val items = feed.snapshot()
                 val previous = _state.value
                 val target = previous.currentId?.takeIf { feed.find(it) != null }
                     ?: items.getOrNull(previous.currentIndex.coerceAtMost(items.lastIndex.coerceAtLeast(0)))?.imageId
                 _state.update { state -> state.copy(items = items, currentId = target, newImageCount = pendingNewImageIds.size,
-                    galleryPositionValid = state.galleryPositionValid && page.items.none { it.event == "REMOVE" },
+                    galleryMembershipUnknown = state.galleryMembershipUnknown || unknown,
+                    galleryPositionValid = state.galleryPositionValid && outside.isEmpty() && page.items.none { it.event == "REMOVE" },
                     detail = state.detail?.takeIf { it.imageId == target }) }
                 if (target != null && (target != previous.currentId || (target in merge.updatedIds && previous.detail != null))) loadDetails(target)
                 lastCursor = next

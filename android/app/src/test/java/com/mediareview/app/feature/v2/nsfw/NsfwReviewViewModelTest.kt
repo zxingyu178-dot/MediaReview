@@ -198,6 +198,23 @@ class NsfwReviewViewModelTest {
         assertNull(model.state.value.message)
     }
 
+    @Test fun galleryFiltersSyncRemovesOutOfScopeAndCountsOnlyMatchingNewImages() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1", "mobile_gallery_bidirectional_v1"))
+        data.galleryResponder = { bidirectionalPage(listOf("a", "b"), 0) }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NEW", category = "anime"))
+        data.feedResponder = { nsfwPage(listOf(
+            nsfwItem("a", revision = "2", status = "KEEP").copy(eventType = "IMAGE_REVIEW_UPDATED", categories = setOf("anime")),
+            nsfwItem("outside").copy(eventType = "IMAGE_CREATED", createdAt = "2026-11-10T00:00:00Z", categories = setOf("imported")),
+            nsfwItem("inside").copy(eventType = "IMAGE_CREATED", createdAt = "2026-11-10T00:00:00Z", categories = setOf("anime")),
+        ), nextCursor = "w2") }
+        model.refresh()
+        assertEquals(listOf("b"), model.state.value.items.map { it.imageId })
+        assertEquals(1, model.state.value.newImageCount)
+        assertFalse(model.state.value.galleryPositionValid)
+    }
+
     @Test fun galleryNewImagesOnlyNotifyAndReviewUpdatesStayInPlace() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
         data.galleryResponder = { com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("a"), nsfwItem("b")), syncCursor = "w1", scopeCursor = "s1") }

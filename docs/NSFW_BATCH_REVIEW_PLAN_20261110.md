@@ -95,3 +95,9 @@ NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执�
 6. 保持运行实例旧能力明确降级，待完整候选准备好后再统一两端版本并做隔离样本联通，不借机覆盖日用工作流。
 
 分类筛选UI及旧桥保护：运行 `:app:testDebugUnitTest --tests '*NsfwReviewViewModelTest.galleryFilters*'`，实际XML 1项、0失败/错误，BUILD SUCCESSFUL（10m20s），同时编译状态/分类/收藏菜单。用例证明无能力旧桥拒绝筛选、不多发请求、不清空既有query/items。新菜单尚未安装到真机，当前日用桥不声明筛选能力，因此不把旧版图库恢复称为新功能验收。后端分类集合与手机增量范围匹配继续开发。
+
+### 分类增量与对比范围基础验证
+
+后端分类集合已经提交a4ff273并push，相关gallery文件14项通过。手机新增nullable categories，区分未知和明确空分类；query.matches组合日期/prompt/version/status/favorite/category。同步后明确不匹配的已加载图片移出，并使全局位置计数待校验；新增通知只计确认匹配项，缺分类时提示刷新，不把未知冒称匹配。同版本对比范围模型支持6/10张、要求EXACT关联、固定query并拒绝混版本页；此阶段只有范围模型，尚无完整对比界面/评分入口。
+
+新增用例首次缺字段/模型造成单测编译失败（2m55s），不是运行时断言失败。补实现后运行 `:app:testDebugUnitTest --tests '*NsfwGalleryQueryTest*' --tests '*NsfwReviewViewModelTest.galleryFiltersSync*' --tests '*NsfwPromptComparisonTest*'`，BUILD SUCCESSFUL（8m49s）；对应XML共9项、0失败/错误。覆盖5项日期与成员范围、1项同步移出/新增计数、3项对比范围。没有全量、设备、真实审核/评分测试，没有部署。旧桥范围更新、断网和UI仍需组合验收；仅有此模型不代表6/10图功能已经交付。

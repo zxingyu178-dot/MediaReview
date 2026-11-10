@@ -172,6 +172,7 @@ data class NsfwFeedItem(
     val status: String = "NEW",
     @SerialName("is_favorite") val isFavorite: Boolean = false,
     val kind: String = "original",
+    val categories: Set<String>? = null,
     @SerialName("job_id") val jobId: String? = null,
     val seed: Long? = null,
     val width: Int? = null,

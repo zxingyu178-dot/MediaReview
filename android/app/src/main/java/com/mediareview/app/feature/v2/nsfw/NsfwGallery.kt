@@ -90,6 +90,7 @@ internal fun NsfwGallery(
             }
         }
         if (state.galleryEnabled) GalleryFilters(state.galleryQuery.filter, !state.busy, onChangeFilter)
+        if (state.galleryMembershipUnknown) Text("部分更新缺少分类信息，请刷新范围以确认；新增数仅统计已确认匹配的图片", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (state.galleryFiltersEnabled) LibraryFilters(state.galleryQuery.filter, !state.busy && !state.syncing, onChangeFilter)
         else Text("排序和日期筛选需更新电脑端生图审核服务", color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
         TextButton(onClick = onOpenBatch, enabled = !state.busy && !state.syncing) { Text("9图批量审核") }

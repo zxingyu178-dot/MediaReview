@@ -63,6 +63,16 @@ data class NsfwGalleryQuery(
     val fromUtc: String? = null,
     val beforeUtc: String? = null,
 ) {
+    /** null表示桥未提供分类证据，不等同于不属于任何分类。 */
+    fun matches(item: NsfwFeedItem): Boolean? {
+        if ((fromUtc != null || beforeUtc != null) && !contains(item.createdAt)) return false
+        if (filter.promptId != null && item.prompt?.promptId != filter.promptId) return false
+        if (filter.versionId != null && (item.prompt?.isExact != true || item.prompt.promptVersionId != filter.versionId)) return false
+        if (filter.status != null && if (filter.status == "FAVORITE") !item.isFavorite else item.status != filter.status) return false
+        if (filter.favorite != null && item.isFavorite != filter.favorite) return false
+        return filter.category?.let { category -> item.categories?.contains(category) } ?: if (filter.category == null) true else null
+    }
+
     fun contains(timestamp: String): Boolean = runCatching {
         val instant = Instant.parse(timestamp)
         (fromUtc == null || !instant.isBefore(Instant.parse(fromUtc))) &&
