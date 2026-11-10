@@ -106,6 +106,7 @@ data class NsfwUiState(
     val evaluationRecoveryHint: String? = null,
     val galleryEnabled: Boolean = false,
     val bidirectionalGallery: Boolean = false,
+    val galleryFiltersEnabled: Boolean = false,
     val batchReviewEnabled: Boolean = false,
     val previousPageCursor: String? = null,
     val galleryStartIndex: Int = 0,
@@ -290,6 +291,7 @@ class NsfwReviewViewModel @Inject constructor(
                 hasSavedPairing = true,
                 missingCapabilities = emptyList(),
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
+                galleryFiltersEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_FILTERS_CAPABILITY in snapshot.capabilities,
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
                 batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
             )
@@ -412,7 +414,7 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         galleryResumeAnchor = null
         savedGalleryReview = null
-        _state.update { it.copy(galleryEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
+        _state.update { it.copy(galleryEnabled = false, galleryFiltersEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
@@ -1096,6 +1098,10 @@ class NsfwReviewViewModel @Inject constructor(
     private fun requestGallery(query: NsfwGalleryQuery, scope: String? = null, anchor: String? = null) {
         val state = _state.value
         if (!state.galleryEnabled || state.phase != NsfwPhase.READY || state.busy || state.panel?.submitting == true) return
+        if (query.filter.selection.active && !state.galleryFiltersEnabled) {
+            _state.update { it.copy(message = "当前审核桥不支持图库分类筛选，请升级审核桥") }
+            return
+        }
         stopPolling()
         galleryGeneration += 1
         detailSeq += 1

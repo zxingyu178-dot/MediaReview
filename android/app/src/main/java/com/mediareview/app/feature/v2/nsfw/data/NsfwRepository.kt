@@ -82,7 +82,12 @@ class NsfwRepository internal constructor(
     }
 
     override suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String?, scopeCursor: String?, anchorId: String?, limit: Int): NsfwGalleryPage {
-        val page = call { api().gallery(query.filter.sort.wire, query.fromUtc, query.beforeUtc, pageCursor, scopeCursor, anchorId, limit.coerceIn(1, 100)) }
+        val selection = query.filter.selection
+        val page = call { api().gallery(query.filter.sort.wire, query.fromUtc, query.beforeUtc, pageCursor, scopeCursor, anchorId, limit.coerceIn(1, 100),
+            selection.promptId, selection.versionId, selection.status, selection.category, selection.favorite) }
+        if ((page.filters ?: NsfwGallerySelection()) != selection) {
+            throw mismatch("图库筛选条件未获服务端确认，请升级审核桥或重试")
+        }
         if (page.sort != query.filter.sort.wire || page.range.fromUtc != query.fromUtc || page.range.beforeUtc != query.beforeUtc ||
             (scopeCursor != null && page.scopeCursor != scopeCursor) || (anchorId != null && page.items.firstOrNull()?.imageId != anchorId) ||
             page.syncCursor.isBlank() || page.scopeCursor.isBlank() || (page.hasMore && (page.nextPageCursor.isNullOrBlank() || page.nextPageCursor == pageCursor))) {

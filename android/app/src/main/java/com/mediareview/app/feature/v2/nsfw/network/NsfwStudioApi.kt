@@ -46,6 +46,11 @@ interface NsfwStudioApi {
         @Query("scope_cursor") scopeCursor: String?,
         @Query("anchor_id") anchorId: String?,
         @Query("limit") limit: Int,
+        @Query("prompt_id") promptId: String? = null,
+        @Query("version_id") versionId: String? = null,
+        @Query("status") status: String? = null,
+        @Query("category") category: String? = null,
+        @Query("favorite") favorite: Boolean? = null,
     ): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>
 
     @GET("/mobile/system/health")

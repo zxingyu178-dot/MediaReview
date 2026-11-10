@@ -76,3 +76,11 @@ NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执�
 日志在忽略temp/batch-android-contract-{red,green}-20261110.log。请求/回执接入完成不等于9图页完成；界面状态、持久化冻结批次、断网核对与同版本提示词评分仍待实现。双端源码核对另见NSFW_SYNC_AUDIT_20261110.md，评分实时刷新缺口不能隐去。
 
 本文件是已确认主流程的执行约定，不代表功能已实现。正式仍Alpha34；Alpha35候选及现有在研改动保留。库管理先复用并贯通现有字段，不扩展为新资产中心；不停止ComfyUI，不自动删除REJECT图片。未执行的测试与手机验收必须明确保留。
+
+### 2026-11-10 手机图库筛选合同
+
+手机端新增 prompt/version/status/category/favorite 可选筛选，false收藏值不会丢失；要求服务端 filters 回显与请求相同，忽略条件或返回其他版本范围时拒绝响应。未筛选请求仍兼容旧桥不返回 filters；能力 mobile_gallery_filters_v1 控制带条件请求，旧桥明确提示升级。复用现有日期范围、游标及位置保存结构。
+
+新增2项 HTTP 合同用例最初因模型字段未实现而编译失败；补实现后运行 `:app:testDebugUnitTest --tests '*NsfwRepositoryContractTest*' --offline --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process`，XML证据40项、0失败、0错误，BUILD SUCCESSFUL（10m33s）。没有全量、connected或真实审核写入。能力保护尚待ViewModel专项用例；过滤UI、同版本6/10图和评分同步仍在后续范围，不称已经完成。
+
+真机已连接，当前安装Alpha34/code41；生图入口连接失败，电脑Studio8000/桥8877直连无监听。官方ControlHub第一次start就绪超时，载体正常清理其创建进程。构建结束后受控重试尚待结果；未升级、重配对或操作真实图片。详细一次性诊断在忽略temp中。

@@ -8,6 +8,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 const val NSFW_GALLERY_CAPABILITY = "mobile_gallery_query_v1"
+const val NSFW_GALLERY_FILTERS_CAPABILITY = "mobile_gallery_filters_v1"
 const val NSFW_BIDIRECTIONAL_CAPABILITY = "mobile_gallery_bidirectional_v1"
 
 @Serializable
@@ -26,10 +27,20 @@ data class NsfwGalleryFilter(
     val dates: NsfwGalleryDates = NsfwGalleryDates.ALL,
     val startDate: String? = null,
     val endDate: String? = null,
+    val promptId: String? = null,
+    val versionId: String? = null,
+    val status: String? = null,
+    val category: String? = null,
+    val favorite: Boolean? = null,
 ) {
+    val selection: NsfwGallerySelection get() = NsfwGallerySelection(promptId, versionId, status, category, favorite)
     val label: String get() = if (dates == NsfwGalleryDates.CUSTOM) "$startDate 至 $endDate" else dates.label
 
     fun resolve(now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): NsfwGalleryQuery {
+        require(promptId == null || promptId.isNotBlank())
+        require(versionId == null || (versionId.isNotBlank() && promptId != null)) { "提示词版本需要所属提示词" }
+        require(status == null || status in setOf("NEW", "KEEP", "REJECT", "ARCHIVED", "FAVORITE"))
+        require(category == null || category in setOf("anime", "imported"))
         if (dates == NsfwGalleryDates.ALL) return NsfwGalleryQuery(this)
         val today = now.atZone(zone).toLocalDate()
         val (start, end) = when (dates) {
@@ -66,7 +77,19 @@ data class NsfwGalleryRange(
 )
 
 @Serializable
+data class NsfwGallerySelection(
+    @SerialName("prompt_id") val promptId: String? = null,
+    @SerialName("version_id") val versionId: String? = null,
+    val status: String? = null,
+    val category: String? = null,
+    val favorite: Boolean? = null,
+) {
+    val active: Boolean get() = promptId != null || versionId != null || status != null || category != null || favorite != null
+}
+
+@Serializable
 data class NsfwGalleryPage(
+    val filters: NsfwGallerySelection? = null,
     val items: List<NsfwFeedItem> = emptyList(),
     @SerialName("previous_page_cursor") val previousPageCursor: String? = null,
     @SerialName("start_index") val startIndex: Int? = null,

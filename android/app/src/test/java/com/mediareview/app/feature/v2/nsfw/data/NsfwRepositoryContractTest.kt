@@ -20,6 +20,25 @@ import org.junit.Test
  * 这里证明"客户端契约与模拟接口"可用，不代表真实 Bridge 已实现。
  */
 class NsfwRepositoryContractTest {
+    @Test fun galleryFiltersBindPromptVersionStatusCategoryAndFavoriteToRequest() = runTest {
+        val query = NsfwGalleryFilter(promptId = "p", versionId = "v", status = "NEW", category = "anime", favorite = false).resolve()
+        server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"scope","sync_cursor":"events","sort":"created_desc","range":{},"filters":{"prompt_id":"p","version_id":"v","status":"NEW","category":"anime","favorite":false}}}"""))
+        repository.gallery(query)
+        val request = server.takeRequest().requestUrl!!
+        assertEquals("p", request.queryParameter("prompt_id"))
+        assertEquals("v", request.queryParameter("version_id"))
+        assertEquals("NEW", request.queryParameter("status"))
+        assertEquals("anime", request.queryParameter("category"))
+        assertEquals("false", request.queryParameter("favorite"))
+    }
+
+    @Test fun galleryFiltersRejectDifferentVersionOrUnacknowledgedFilter() = runTest {
+        val query = NsfwGalleryFilter(promptId = "p", versionId = "v").resolve()
+        for (filters in listOf("{\"prompt_id\":\"p\",\"version_id\":\"other\"}", "{}")) {
+            server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"scope","sync_cursor":"events","sort":"created_desc","range":{},"filters":$filters}}"""))
+            assertTrue(runCatching { repository.gallery(query) }.exceptionOrNull() is NsfwApiException)
+        }
+    }
     @Test fun batchRefreshReadsAuthoritativeImageStatusFromDetails() = runTest {
         server.enqueue(okay("""{"success":true,"data":{"image_id":"a","status":"KEEP","revision":"15","updated_at":"2026-11-10T01:00:00Z"}}"""))
         val detail = repository.details("a")
