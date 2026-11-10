@@ -28,6 +28,7 @@ internal fun NsfwBatchReviewScreen(
     state: NsfwUiState, loader: NsfwImageLoader, onClose: () -> Unit,
     onRefresh: () -> Unit, onLoadMore: () -> Unit,
     onOpenOriginal: (NsfwFeedItem) -> Unit, originalOpen: Boolean,
+    pageSize: Int = 9,
 ) {
     val context = LocalContext.current
     val ports = remember(context) { EntryPointAccessors.fromApplication(context, NsfwEntryPoint::class.java) }
@@ -35,7 +36,7 @@ internal fun NsfwBatchReviewScreen(
     val scope = rememberCoroutineScope()
     var remaining by remember(state.baseUrl) { mutableStateOf(state.items.filter { it.status == "NEW" }.distinctBy { it.imageId }) }
     var completedIds by remember(state.baseUrl) { mutableStateOf(emptySet<String>()) }
-    var draft by remember(state.baseUrl) { mutableStateOf(NsfwBatchDraft.open(remaining)) }
+    var draft by remember(state.baseUrl) { mutableStateOf(NsfwBatchDraft.open(remaining, pageSize)) }
     var pending by remember(state.baseUrl) { mutableStateOf<NsfwFrozenBatch?>(null) }
     var locked by remember(state.baseUrl) { mutableStateOf(true) }
     var working by remember { mutableStateOf(false) }
@@ -66,7 +67,7 @@ internal fun NsfwBatchReviewScreen(
     LaunchedEffect(state.items, completedIds) {
         if (draft.items.isEmpty() && !locked) {
             remaining = state.items.filter { it.status == "NEW" && it.imageId !in completedIds }.distinctBy { it.imageId }
-            draft = NsfwBatchDraft.open(remaining)
+            draft = NsfwBatchDraft.open(remaining, pageSize)
         }
     }
     LaunchedEffect(coordinator) {
@@ -109,7 +110,7 @@ internal fun NsfwBatchReviewScreen(
         remaining = remaining.filterNot { it.imageId in ids }
         pending = null; locked = false
         confirmation = null
-        draft = NsfwBatchDraft.open(remaining)
+        draft = NsfwBatchDraft.open(remaining, pageSize)
         message = "已保留 ${result.keptCount} 张、淘汰 ${result.rejectedCount} 张；其余图片不改状态"
         onRefresh()
     }
@@ -150,7 +151,7 @@ internal fun NsfwBatchReviewScreen(
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color(0xFF121212)).padding(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = close, enabled = !working) { Text("返回图库") }
-            Text("9图批量审核", color = Color.White, modifier = Modifier.weight(1f))
+            Text("${pageSize}图批量审核", color = Color.White, modifier = Modifier.weight(1f))
             Text("${draft.items.size} 张", color = Color.LightGray)
         }
         Text("勾选保留，未选且加载成功的图片淘汰；不会删除文件", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)

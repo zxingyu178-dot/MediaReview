@@ -101,3 +101,13 @@ NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执�
 后端分类集合已经提交a4ff273并push，相关gallery文件14项通过。手机新增nullable categories，区分未知和明确空分类；query.matches组合日期/prompt/version/status/favorite/category。同步后明确不匹配的已加载图片移出，并使全局位置计数待校验；新增通知只计确认匹配项，缺分类时提示刷新，不把未知冒称匹配。同版本对比范围模型支持6/10张、要求EXACT关联、固定query并拒绝混版本页；此阶段只有范围模型，尚无完整对比界面/评分入口。
 
 新增用例首次缺字段/模型造成单测编译失败（2m55s），不是运行时断言失败。补实现后运行 `:app:testDebugUnitTest --tests '*NsfwGalleryQueryTest*' --tests '*NsfwReviewViewModelTest.galleryFiltersSync*' --tests '*NsfwPromptComparisonTest*'`，BUILD SUCCESSFUL（8m49s）；对应XML共9项、0失败/错误。覆盖5项日期与成员范围、1项同步移出/新增计数、3项对比范围。没有全量、设备、真实审核/评分测试，没有部署。旧桥范围更新、断网和UI仍需组合验收；仅有此模型不代表6/10图功能已经交付。
+
+### 同版本6/10图对比与评分入口
+
+新增独立同版本对比页，从精确关联图片的信息面板进入；固定原日期/排序与prompt/version，读取当前6/10张，原图复用既有Dialog。前后keyset按需请求，失败保留原页；新图不插入旧scope。已审核图片可比较；“审核本页待审核图”复用原BatchDraft/Coordinator，仅NEW且加载/展示合格者进入冻结批次，评分独立复用原面板、评分服务和Journal。openComparisonScore绑定被冻结版本，不依赖主图库currentId。
+
+首次评分绑定用例因缺openComparisonScore单测编译失败（2m10s）。补实现及屏幕后运行 `:app:testDebugUnitTest --tests '*NsfwReviewViewModelTest.comparisonScore*' --tests '*NsfwPromptComparisonTest*' --tests '*NsfwBatchDraftTest*'`，实际9项通过（1+3+5）、0失败/错误，BUILD SUCCESSFUL（9m33s），日志temp/comparison-screen-green-20261110.log。
+
+定向只读审查发现2项Important：张数切换失败时scope先变而旧page保留；批量成功onRefresh空回调使主图库滞后。已改为requestedSize与成功scope分离，验证成功才提交scope/page；onChanged接vm.refresh。复核确认静态闭环、无新增Important。最终仅补 `:app:compileDebugKotlin` 通过（3m19s，temp/comparison-review-compile-20261110.log），未声称最终修改后重跑9项，也未做全量/connected。原有warning及未来Kotlin2.1私有data copy告警保留。
+
+未安装APK或升级桥，真机布局、失败/离线交互、DataStore重启与两端组合仍待验收。搜索/Prompt tags筛选、评分可见期远端校验仍未完成；不能把这个页面提交等同整体目标完成。

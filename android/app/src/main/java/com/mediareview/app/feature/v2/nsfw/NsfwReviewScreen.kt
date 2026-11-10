@@ -98,6 +98,7 @@ fun NsfwReviewScreen(
     var detailsOpen by rememberSaveable { mutableStateOf(false) }
     var originalItem by remember(state.baseUrl, state.phase) { mutableStateOf<NsfwFeedItem?>(null) }
     val originalOpen = originalItem != null
+    var comparison by remember(state.baseUrl, state.phase) { mutableStateOf<NsfwPromptComparison?>(null) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, originalOpen) {
@@ -136,7 +137,11 @@ fun NsfwReviewScreen(
                 onPair = { vm.pair(baseUrlInput, codeInput) },
                 onRetryConnection = vm::retryConnectionCheck,
             )
-            NsfwPhase.READY -> ReadyPane(
+            NsfwPhase.READY -> if (comparison != null) NsfwPromptComparisonScreen(
+                state, comparison!!, imageLoader, originalOpen,
+                onClose = { comparison = null }, onOpenOriginal = { originalItem = it },
+                onScore = vm::openComparisonScore, onChanged = vm::refresh,
+            ) else ReadyPane(
                 state = state,
                 imageLoader = imageLoader,
                 onRefresh = vm::refresh,
@@ -170,6 +175,10 @@ fun NsfwReviewScreen(
             detail = detail,
             item = state.currentItem,
             onDismiss = { detailsOpen = false },
+            onCompare = if (state.galleryFiltersEnabled && detail.promptLink.isExact) ({
+                comparison = NsfwPromptComparison.open(detail.promptLink, state.galleryQuery.filter)
+                detailsOpen = false
+            }) else null,
             onScore = {
                 detailsOpen = false
                 vm.openPromptPanel()
@@ -558,6 +567,7 @@ private fun DetailsDialog(
     item: NsfwFeedItem?,
     onDismiss: () -> Unit,
     onScore: () -> Unit,
+    onCompare: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -582,7 +592,10 @@ private fun DetailsDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onScore, enabled = detail.promptId != null) { Text("提示词评分") }
+            Column {
+                onCompare?.let { TextButton(onClick = it) { Text("同版本 6/10 图对比") } }
+                Button(onClick = onScore, enabled = detail.promptId != null) { Text("提示词评分") }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )

@@ -721,13 +721,23 @@ class NsfwReviewViewModel @Inject constructor(
         }
         val promptId = detail.promptId ?: return
         val explicitVersion = if (link.linkState == NsfwPromptLink.LINK_EXACT) detail.promptVersionId else null
+        openScoreScope(promptId, explicitVersion, detail.linkState, detail.positivePrompt)
+    }
+
+    fun openComparisonScore(scope: NsfwPromptComparison) {
+        if (_state.value.phase != NsfwPhase.READY || _state.value.busy || _state.value.panel != null) return
+        val filter = scope.query.filter
+        openScoreScope(requireNotNull(filter.promptId), requireNotNull(filter.versionId), NsfwPromptLink.LINK_EXACT, null)
+    }
+
+    private fun openScoreScope(promptId: String, explicitVersion: String?, linkState: String, snapshot: String?) {
         val matching = pendingListFor(promptId, explicitVersion, originOf(_state.value.baseUrl))
         val existingPending = matching.firstOrNull()
         val panel = NsfwPromptPanel(
             promptId = promptId,
             versionId = explicitVersion,
-            linkState = detail.linkState,
-            promptSnapshot = detail.positivePrompt,
+            linkState = linkState,
+            promptSnapshot = snapshot,
             requestId = existingPending?.request?.clientRequestId ?: UUID.randomUUID().toString(),
             wholePromptScopeConfirmed = explicitVersion != null ||
                 (existingPending != null && existingPending.request.promptVersionId == null),

@@ -31,6 +31,17 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class NsfwReviewViewModelTest {
 
+    @Test fun comparisonScoreUsesFrozenVersionInsteadOfCurrentImage() = runTest {
+        val model = bootstrapPaired(details = nsfwDetails("img_a", promptId = "other", versionId = "other-v", linkState = "EXACT"))
+        val scope = NsfwPromptComparison.open(com.mediareview.app.feature.v2.nsfw.data.NsfwPromptLink("p", "v", "EXACT"), com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter())
+        model.openComparisonScore(scope)
+        assertEquals("p", model.state.value.panel!!.promptId)
+        assertEquals("v", model.state.value.panel!!.versionId)
+        assertEquals("v", model.state.value.panel!!.summary!!.promptVersionId)
+        model.submitEvaluation(4, emptyMap(), "isolated comparison")
+        assertEquals("v", model.state.value.panel!!.submitted!!.promptVersionId)
+    }
+
     private fun bidirectionalPage(ids: List<String>, start: Int, previous: String? = null, next: String? = null): com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage {
         val body = """{"items":[${ids.joinToString(",") { """{"image_id":"$it","revision":"1"}""" }}],"start_index":$start,"total":4,"previous_page_cursor":${previous?.let { "\"$it\"" } ?: "null"},"next_page_cursor":${next?.let { "\"$it\"" } ?: "null"},"has_more":${next != null},"sync_cursor":"w","scope_cursor":"s"}"""
         return Json { ignoreUnknownKeys = true }.decodeFromString(body)
