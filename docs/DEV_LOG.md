@@ -3758,3 +3758,7 @@ NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE 
 用户明确选择等生成队列自然完成后部署；随后批准默认最新/可切最早、今天/昨天/近7天/自选日期、审核固定范围和顺序、新图只提示查看。NSFW新增只读gallery查询及可选mobile_gallery_query_v1，复用summary/revision，不回放/补写事件；范围与keyset游标绑定，scope保存原水位/上界，feed补event_type区分新图和审核更新。c9b7813已push、草稿PR38；计划与分轮命令见NSFW docs/MOBILE_GALLERY_DATE_PLAN.md。最初3项无接口失败，首次5通过1失败（局部错误码400与约定422不符），修正后日期目标1通过，正/反序增强2通过；并发读快照/旧无事件/既有feed已在首次通过目标中，不重复测试凑单轮全绿。Android接入未开始，不构建APK、无生产变更。
 
 退出修复PR37已合入6139203，develop CI42484173446/main CI42500412539成功，日用仍b06b835。部署前只读发现生成队列从37增长到112，计划任务Ready、原carrier记录意外退出，后启动实例继续使用旧Uvicorn命令；app工作树另有anime_generate/v2/workflow.json的4行对4行无关改动，完整保留。当前不对运行实例停启/覆盖；后续维护须核身份与队列，不能把官方status健康在线等同任务受管运行。ADB当前无手机，不做实机声明。
+
+### 2026-11-10 Alpha36候选版本准备
+
+源码版本递增至2.0.0-alpha36/code43，新增5条面向用户说明，同步既有登记builder的Android版本目标；保留Alpha35旧条目与旧APK、正式指针不变。`:app:testDebugUnitTest --tests '*releasenotes.*'` 24项通过（合同17+ViewModel7，3m14s）；登记Python执行`pytest server/tests/test_release_package_integrity_8e.py -q -k 'version_ssot_matches or manifest_and_handover or release_build_reuses'` 3项通过，测试只使用隔离夹具，不打包Server。日志temp/alpha36-{version-gate,builder-gate}-20261110.log。本节仅版本准备，新签名APK尚未构建/安装，生产不变。
