@@ -31,6 +31,85 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class NsfwReviewViewModelTest {
 
+    private fun bidirectionalPage(ids: List<String>, start: Int, previous: String? = null, next: String? = null): com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage {
+        val body = """{"items":[${ids.joinToString(",") { """{"image_id":"$it","revision":"1"}""" }}],"start_index":$start,"total":4,"previous_page_cursor":${previous?.let { "\"$it\"" } ?: "null"},"next_page_cursor":${next?.let { "\"$it\"" } ?: "null"},"has_more":${next != null},"sync_cursor":"w","scope_cursor":"s"}"""
+        return Json { ignoreUnknownKeys = true }.decodeFromString(body)
+    }
+
+    private fun enableBidirectionalGallery() {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_bidirectional_v1"))
+    }
+
+    @Test fun galleryBidirectionalPreviousLoadsNearestPageAndPreservesNextCursor() = runTest {
+        enableBidirectionalGallery()
+        val before = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        data.galleryResponder = { call -> when (call.page) {
+            "back" -> before.await()
+            "forward" -> bidirectionalPage(listOf("d"), 3, previous = "before-d")
+            else -> bidirectionalPage(listOf("b", "c"), 1, previous = "back", next = "forward")
+        } }
+        val model = vm()
+        model.select("b")
+        assertEquals("2 / 4", model.state.value.reviewPositionLabel)
+        model.previous()
+        assertEquals("back", data.galleryCalls.last().page)
+        assertEquals("b", model.state.value.currentId)
+        before.complete(bidirectionalPage(listOf("a"), 0, next = "after-a"))
+        assertEquals("a", model.state.value.currentId)
+        assertEquals("1 / 4", model.state.value.reviewPositionLabel)
+        assertEquals(listOf("a", "b", "c"), model.state.value.items.map { it.imageId })
+        model.next(); model.next(); model.next()
+        assertEquals("forward", data.galleryCalls.last().page)
+        assertEquals("d", model.state.value.currentId)
+        assertEquals("4 / 4", model.state.value.reviewPositionLabel)
+        assertEquals(listOf("a", "b", "c", "d"), model.state.value.items.map { it.imageId })
+        assertEquals(0, data.feedCalls)
+    }
+
+    @Test fun galleryBidirectionalPreviousFailureKeepsImageAndCanRetry() = runTest {
+        enableBidirectionalGallery()
+        var attempts = 0
+        data.galleryResponder = { call ->
+            if (call.page == "back") {
+                attempts++
+                if (attempts == 1) throw java.io.IOException("临时断网")
+                bidirectionalPage(listOf("a"), 0, next = "after-a")
+            } else bidirectionalPage(listOf("b", "c"), 1, previous = "back", next = "forward")
+        }
+        val model = vm()
+        model.select("b")
+        model.previous()
+        assertEquals(1, attempts)
+        assertEquals("b", model.state.value.currentId)
+        assertTrue(model.state.value.message.orEmpty().contains("临时断网"))
+        model.previous()
+        assertEquals(2, attempts)
+        assertEquals("a", model.state.value.currentId)
+    }
+
+    @Test fun galleryBidirectionalLatePreviousCannotChangeNewScopeOrPairing() = runTest {
+        enableBidirectionalGallery()
+        val release = CompletableDeferred<Unit>()
+        data.galleryResponder = { call -> when {
+            call.page == "back" -> {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { release.await() }
+                throw NsfwApiException("UNAUTHORIZED", "旧前页401", 401)
+            }
+            call.query.filter.sort == com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST ->
+                bidirectionalPage(listOf("fresh"), 0).copy(scopeCursor = "fresh", sort = "created_asc")
+            else -> bidirectionalPage(listOf("b", "c"), 1, previous = "back", next = "forward")
+        } }
+        val model = vm()
+        model.previous()
+        assertEquals("back", data.galleryCalls.last().page)
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST))
+        release.complete(Unit)
+        assertEquals("fresh", model.state.value.currentId)
+        assertEquals(NsfwPhase.READY, model.state.value.phase)
+        assertEquals(0, gateway.authRejectedCalls)
+    }
+
     @Test fun galleryViewLatestSwitchesOldestToNewestAndKeepsDates() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
         data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = emptyList(), syncCursor = "watermark", scopeCursor = "scope", sort = call.query.filter.sort.wire) }

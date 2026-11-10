@@ -141,6 +141,7 @@ fun NsfwReviewScreen(
                 imageLoader = imageLoader,
                 onRefresh = vm::refresh,
                 onLoadMore = vm::loadMore,
+                onLoadPrevious = vm::loadPrevious,
                 onSelect = vm::select,
                 onGalleryAnchor = vm::updateGalleryAnchor,
                 onPrevious = vm::previous,
@@ -293,6 +294,7 @@ private fun ReadyPane(
     imageLoader: NsfwImageLoader,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onLoadPrevious: () -> Unit,
     onSelect: (String) -> Unit,
     onGalleryAnchor: (com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor, Boolean) -> Unit,
     onPrevious: () -> Unit,
@@ -338,7 +340,7 @@ private fun ReadyPane(
     if (galleryOpen) {
         NsfwGallery(state, imageLoader, galleryGrid,
             onSelect = { id -> onSelect(id); galleryOpen = false },
-            onRefresh = onRefresh, onLoadMore = onLoadMore,
+            onRefresh = onRefresh, onLoadMore = onLoadMore, onLoadPrevious = onLoadPrevious,
             onDisconnect = { confirmDisconnect = true }, onAnchor = onGalleryAnchor,
             onChangeFilter = onGalleryFilter, onLatest = onViewLatest,
             onResume = { onResumeGallery(); galleryOpen = false })
@@ -475,9 +477,9 @@ private fun ReadyPane(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            TextButton(onClick = onPrevious, enabled = state.currentIndex > 0) { Text("上一张") }
+            TextButton(onClick = onPrevious, enabled = !state.busy && (state.currentIndex > 0 || !state.syncing && state.bidirectionalGallery && state.previousPageCursor != null)) { Text("上一张") }
             Text(
-                if (state.items.isEmpty()) "0 / 0" else "${state.currentIndex + 1} / ${state.items.size}",
+                state.reviewPositionLabel,
                 color = MediaTextSecondary,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
@@ -486,7 +488,7 @@ private fun ReadyPane(
             )
             TextButton(onClick = onOpenDetails, enabled = state.detail != null,
                 contentPadding = PaddingValues(horizontal = 4.dp)) { Text("图片信息") }
-            TextButton(onClick = onNext, enabled = state.currentIndex + 1 < state.items.size) { Text("下一张") }
+            TextButton(onClick = onNext, enabled = !state.busy && (state.currentIndex + 1 < state.items.size || !state.syncing && state.bidirectionalGallery && state.hasMore)) { Text("下一张") }
             Box {
                 IconButton(onClick = { moreOpen = true }) { Icon(Icons.Default.MoreVert, "更多操作", tint = MediaTextPrimary) }
                 DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {

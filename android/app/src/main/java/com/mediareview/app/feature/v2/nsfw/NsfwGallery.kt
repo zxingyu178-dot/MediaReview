@@ -40,6 +40,7 @@ internal fun NsfwGallery(
     onChangeFilter: (NsfwGalleryFilter) -> Unit = {},
     onLatest: () -> Unit = onRefresh,
     onResume: () -> Unit = { state.currentId?.let(onSelect) },
+    onLoadPrevious: () -> Unit = {},
 ) {
     val initialAnchor = remember(state.baseUrl, state.galleryViewEpoch) { state.galleryAnchor }
     var restorePending by remember(state.baseUrl, state.galleryViewEpoch) { mutableStateOf(initialAnchor != null) }
@@ -102,6 +103,9 @@ internal fun NsfwGallery(
         state.message?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
         state.conflictMessage?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
         state.evaluationRecoveryHint?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
+        if (state.bidirectionalGallery && state.previousPageCursor != null) TextButton(onClick = onLoadPrevious, enabled = !state.syncing && !state.busy) {
+            Text(if (state.syncing) "正在加载…" else "加载前页")
+        }
         if (state.items.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (state.syncing) "正在同步图库…" else if (state.galleryEnabled) "当前日期范围没有图片，可调整日期或查看最新" else "图库暂无图片，生成后会自动追加", color = MediaTextSecondary)
@@ -110,7 +114,7 @@ internal fun NsfwGallery(
             modifier = Modifier.weight(1f).testTag("nsfw_gallery_grid"),
             contentPadding = PaddingValues(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             itemsIndexed(state.items, key = { _, item -> item.imageId }) { index, item ->
-                GalleryImage(item, index + 1, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
+                GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
             }
         }
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text(if (state.syncing) "正在加载…" else "加载更多") }

@@ -8,6 +8,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 const val NSFW_GALLERY_CAPABILITY = "mobile_gallery_query_v1"
+const val NSFW_BIDIRECTIONAL_CAPABILITY = "mobile_gallery_bidirectional_v1"
 
 @Serializable
 enum class NsfwGallerySort(val wire: String, val label: String) {
@@ -67,6 +68,8 @@ data class NsfwGalleryRange(
 @Serializable
 data class NsfwGalleryPage(
     val items: List<NsfwFeedItem> = emptyList(),
+    @SerialName("previous_page_cursor") val previousPageCursor: String? = null,
+    @SerialName("start_index") val startIndex: Int? = null,
     @SerialName("next_page_cursor") val nextPageCursor: String? = null,
     @SerialName("has_more") val hasMore: Boolean = false,
     val total: Int = 0,

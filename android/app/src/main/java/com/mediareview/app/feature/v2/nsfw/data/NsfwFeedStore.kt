@@ -92,6 +92,14 @@ class NsfwFeedStore {
 
     fun snapshot(): List<NsfwFeedItem> = order.mapNotNull { byId[it] }
 
+    /** 前页只前插新接受的身份，保留已有revision与tombstone约束。 */
+    fun prepend(page: NsfwFeedPage): NsfwMergeResult {
+        val result = merge(page)
+        order.removeAll(result.addedIds.toSet())
+        order.addAll(0, result.addedIds)
+        return result
+    }
+
     fun find(imageId: String): NsfwFeedItem? = byId[imageId]
 
     fun indexOf(imageId: String): Int = order.indexOf(imageId)

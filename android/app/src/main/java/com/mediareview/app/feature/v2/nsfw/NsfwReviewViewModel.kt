@@ -105,6 +105,11 @@ data class NsfwUiState(
     /** 进程重启后发现上次评分未确认时的提示（不自动重发）。 */
     val evaluationRecoveryHint: String? = null,
     val galleryEnabled: Boolean = false,
+    val bidirectionalGallery: Boolean = false,
+    val previousPageCursor: String? = null,
+    val galleryStartIndex: Int = 0,
+    val galleryTotal: Int = 0,
+    val galleryPositionValid: Boolean = false,
     val galleryQuery: NsfwGalleryQuery = NsfwGalleryQuery(),
     val galleryViewEpoch: Int = 0,
 ) {
@@ -113,6 +118,13 @@ data class NsfwUiState(
 
     val currentItem: NsfwFeedItem?
         get() = items.firstOrNull { it.imageId == currentId }
+
+    val reviewPositionLabel: String get() = when {
+        items.isEmpty() -> "0 / 0"
+        bidirectionalGallery && galleryPositionValid -> "${galleryStartIndex + currentIndex + 1} / $galleryTotal"
+        bidirectionalGallery -> "位置待校验 · 已加载 ${items.size} 张"
+        else -> "${currentIndex + 1} / ${items.size} · 已加载"
+    }
 }
 
 /**
@@ -277,6 +289,7 @@ class NsfwReviewViewModel @Inject constructor(
                 hasSavedPairing = true,
                 missingCapabilities = emptyList(),
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
+                bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
             )
         }
         syncFromCursor(reset = true)
@@ -397,7 +410,9 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         galleryResumeAnchor = null
         savedGalleryReview = null
-        _state.update { it.copy(galleryEnabled = false, galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
+        _state.update { it.copy(galleryEnabled = false, bidirectionalGallery = false, previousPageCursor = null,
+            galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
+            galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
         pendingBrowseId = null
         browseReadFailed = false
@@ -546,12 +561,35 @@ class NsfwReviewViewModel @Inject constructor(
         val state = _state.value
         val index = state.currentIndex
         if (index + 1 < state.items.size) select(state.items[index + 1].imageId)
+        else if (state.bidirectionalGallery && state.hasMore) loadGalleryBoundary(previous = false, navigate = true)
     }
 
     fun previous() {
         val state = _state.value
         val index = state.currentIndex
         if (index > 0) select(state.items[index - 1].imageId)
+        else if (state.bidirectionalGallery && state.previousPageCursor != null) loadGalleryBoundary(previous = true, navigate = true)
+    }
+
+    fun loadPrevious() = loadGalleryBoundary(previous = true, navigate = false)
+
+    private fun loadGalleryBoundary(previous: Boolean, navigate: Boolean) {
+        val state = _state.value
+        if (!state.bidirectionalGallery || state.phase != NsfwPhase.READY || state.busy || state.syncing || manualFeedJob?.isActive == true) return
+        if (previous && state.previousPageCursor == null || !previous && !state.hasMore) return
+        val original = state.currentId
+        val generation = galleryGeneration
+        manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            withFeedRead { epoch ->
+                val success = loadGalleryPage(epoch, append = !previous, prepend = previous)
+                if (success && navigate && generation == galleryGeneration && _state.value.currentId == original) {
+                    val updated = _state.value
+                    val index = updated.items.indexOfFirst { it.imageId == original }
+                    if (index >= 0) updated.items.getOrNull(index + if (previous) -1 else 1)?.let { select(it.imageId) }
+                }
+            }
+        }
+        manualFeedJob?.start()
     }
 
     fun decision(action: String?, favorite: Boolean? = null) = submitDecision(action, favorite)
@@ -1068,6 +1106,7 @@ class NsfwReviewViewModel @Inject constructor(
         feed.clear()
         pendingNewImageIds.clear()
         _state.update { it.copy(galleryQuery = query, galleryViewEpoch = galleryGeneration,
+            previousPageCursor = null, galleryStartIndex = 0, galleryTotal = 0, galleryPositionValid = false,
             items = emptyList(), currentId = null, detail = null, detailLoading = false,
             galleryAnchor = null, restoringBrowsePosition = anchor != null,
             newImageCount = 0, hasMore = false, nextCursor = null, message = null,
@@ -1079,43 +1118,51 @@ class NsfwReviewViewModel @Inject constructor(
         manualFeedJob?.start()
     }
 
-    private suspend fun loadGalleryPage(epoch: Int, append: Boolean = false, scope: String? = null, anchor: String? = null) {
+    private suspend fun loadGalleryPage(epoch: Int, append: Boolean = false, scope: String? = null, anchor: String? = null, prepend: Boolean = false): Boolean {
         val generation = galleryGeneration
         val query = _state.value.galleryQuery
         try {
-            val cursor = galleryPageCursor.takeIf { append }
-            if (append && cursor.isNullOrBlank()) throw NsfwApiException("CURSOR_MISSING", "缺少图库分页游标，请查看最新或重新选择范围")
+            val extending = append || prepend
+            val cursor = if (prepend) _state.value.previousPageCursor else galleryPageCursor.takeIf { append }
+            if (extending && cursor.isNullOrBlank()) throw NsfwApiException("CURSOR_MISSING", "缺少图库分页游标，请查看最新或重新选择范围")
             val page = dataSource.gallery(query, pageCursor = cursor, scopeCursor = scope, anchorId = anchor, limit = PAGE_SIZE)
-            if (epoch != connectionEpoch || generation != galleryGeneration) return
+            if (epoch != connectionEpoch || generation != galleryGeneration) return false
             if (page.scopeCursor.isBlank() || page.syncCursor.isBlank() ||
                 (scope != null && page.scopeCursor != scope) ||
                 (anchor != null && page.items.firstOrNull()?.imageId != anchor) ||
                 (page.hasMore && (page.nextPageCursor.isNullOrBlank() || page.nextPageCursor == cursor)) ||
-                (append && (page.scopeCursor != galleryScope || page.syncCursor != galleryWatermark))) {
+                (extending && (page.scopeCursor != galleryScope || page.syncCursor != galleryWatermark)) ||
+                (_state.value.bidirectionalGallery && (page.startIndex == null || page.startIndex < 0 || page.total < page.startIndex + page.items.size))) {
                 throw NsfwApiException("GALLERY_SCOPE_MISMATCH", "图库范围或分页信息不一致，请重新选择范围")
             }
-            if (!append) {
+            if (!extending) {
                 feed.clear()
                 pendingNewImageIds.clear()
                 galleryScope = page.scopeCursor
                 galleryWatermark = page.syncCursor
                 lastCursor = page.syncCursor
             }
-            feed.merge(NsfwFeedPage(items = page.items))
-            galleryPageCursor = page.nextPageCursor
+            val beforeCount = feed.size()
+            if (prepend) feed.prepend(NsfwFeedPage(items = page.items)) else feed.merge(NsfwFeedPage(items = page.items))
+            if (!prepend) galleryPageCursor = page.nextPageCursor
             val items = feed.snapshot()
-            val target = if (append) _state.value.currentId?.takeIf { feed.find(it) != null } ?: items.firstOrNull()?.imageId
+            val target = if (extending) _state.value.currentId?.takeIf { feed.find(it) != null } ?: items.firstOrNull()?.imageId
                 else anchor?.takeIf { feed.find(it) != null } ?: items.firstOrNull()?.imageId
-            _state.update { it.copy(items = items, currentId = target, hasMore = page.hasMore,
-                nextCursor = page.nextPageCursor, restoringBrowsePosition = false,
-                galleryAnchor = if (append) it.galleryAnchor else null, newImageCount = pendingNewImageIds.size,
+            _state.update { it.copy(items = items, currentId = target, hasMore = if (prepend) it.hasMore else page.hasMore,
+                nextCursor = galleryPageCursor, restoringBrowsePosition = false,
+                previousPageCursor = if (append) it.previousPageCursor else page.previousPageCursor,
+                galleryStartIndex = if (append) ((page.startIndex ?: 0) - beforeCount).coerceAtLeast(0) else page.startIndex ?: 0,
+                galleryTotal = page.total, galleryPositionValid = page.startIndex != null,
+                galleryAnchor = if (extending) it.galleryAnchor else null, newImageCount = pendingNewImageIds.size,
                 detail = it.detail?.takeIf { detail -> detail.imageId == target },
                 message = null, cursorExpired = false) }
             galleryResumeAnchor = null
             if (anchor != null && target == anchor) { pendingBrowseId = null; persistBrowsePosition(anchor); loadDetails(anchor) }
+            return true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             if (epoch == connectionEpoch && generation == galleryGeneration) galleryFailure(error)
+            return false
         }
     }
 
@@ -1142,6 +1189,7 @@ class NsfwReviewViewModel @Inject constructor(
                 val target = previous.currentId?.takeIf { feed.find(it) != null }
                     ?: items.getOrNull(previous.currentIndex.coerceAtMost(items.lastIndex.coerceAtLeast(0)))?.imageId
                 _state.update { state -> state.copy(items = items, currentId = target, newImageCount = pendingNewImageIds.size,
+                    galleryPositionValid = state.galleryPositionValid && page.items.none { it.event == "REMOVE" },
                     detail = state.detail?.takeIf { it.imageId == target }) }
                 if (target != null && (target != previous.currentId || (target in merge.updatedIds && previous.detail != null))) loadDetails(target)
                 lastCursor = next
