@@ -40,6 +40,8 @@
 
 ### D：提示词6/10对比、评分与筛选
 
+接入调查补充：现有promptImages只返回image_id/thumbnail/status，不含审核revision或完整预览元数据，且按offset分页。对比审核改复用现有gallery keyset，在同一查询中绑定prompt_id+version_id、审核状态、现有category/收藏及必要搜索条件；空筛选保留旧scope兼容，新能力必须显式声明。Android复用GalleryQuery/Repository和BatchDraft可选pageSize（6或10），仅在EXACT版本身份下进入版本对比；不把不明版本图片混进一页。评分继续现有版本评价服务，独立于图片审核回执，可见期/返回时校验远端评分而不重置未提交草稿。先补真实V2 details的权威status字段（旧详情另一端点有状态不代表V2也有），再实现此阶段。
+
 - [ ] 版本分组分页、评分面板复用、分别显示审核和评分结果；不额外建立图片评分体系。
 - [ ] 查询状态/category/prompt绑定游标；同版本分组无跨页漏重、新图不混入、双端修改冲突可恢复。
 
