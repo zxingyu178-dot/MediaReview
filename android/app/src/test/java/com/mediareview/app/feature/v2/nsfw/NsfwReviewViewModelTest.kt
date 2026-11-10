@@ -110,6 +110,20 @@ class NsfwReviewViewModelTest {
         assertEquals(0, gateway.authRejectedCalls)
     }
 
+    @Test fun galleryFiltersOldBridgeRejectsScopeWithoutFetchingOrClearingGallery() = runTest {
+        enableBidirectionalGallery()
+        data.galleryResponder = { bidirectionalPage(listOf("a"), 0) }
+        val model = vm()
+        val query = model.state.value.galleryQuery
+        val calls = data.galleryCalls.size
+        val items = model.state.value.items
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NEW"))
+        assertEquals(calls, data.galleryCalls.size)
+        assertEquals(query, model.state.value.galleryQuery)
+        assertEquals(items, model.state.value.items)
+        assertTrue(model.state.value.message!!.contains("不支持"))
+    }
+
     @Test fun galleryViewLatestSwitchesOldestToNewestAndKeepsDates() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
         data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = emptyList(), syncCursor = "watermark", scopeCursor = "scope", sort = call.query.filter.sort.wire) }

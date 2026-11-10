@@ -84,3 +84,14 @@ NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执�
 新增2项 HTTP 合同用例最初因模型字段未实现而编译失败；补实现后运行 `:app:testDebugUnitTest --tests '*NsfwRepositoryContractTest*' --offline --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process`，XML证据40项、0失败、0错误，BUILD SUCCESSFUL（10m33s）。没有全量、connected或真实审核写入。能力保护尚待ViewModel专项用例；过滤UI、同版本6/10图和评分同步仍在后续范围，不称已经完成。
 
 真机已连接，当前安装Alpha34/code41；生图入口连接失败，电脑Studio8000/桥8877直连无监听。官方ControlHub第一次start就绪超时，载体正常清理其创建进程。构建结束后受控重试尚待结果；未升级、重配对或操作真实图片。详细一次性诊断在忽略temp中。
+
+### 同版本对比接入顺序（执行细化）
+
+1. 先完成分类入口与旧桥保护，保持状态/分类/收藏与日期排序同时生效；不把已有日期筛选替换掉。
+2. 从有EXACT关联的图片打开同版本对比，固定prompt_id/version_id和日期排序；默认6张，可切10张。缺少可靠版本时禁止混组，并说明原因。
+3. 复用图库keyset分页与批量协调器；比较浏览覆盖该版本所有状态，批量提交仍仅处理NEW且实际展示/加载成功的图片，已审核图片显示结果。评分独立于保留比例。
+4. 对比页评分绑定冻结的prompt/version，不跟随主页面currentId；复用现有评分面板及未确认请求Journal。刷新远端汇总不覆盖未提交草稿。
+5. 分类增量必须识别范围变化：现有feed没有category，不能直接用日期匹配虚报分类内新增数。先补可验证字段或受控查询，不把无证据的推断当事实。
+6. 保持运行实例旧能力明确降级，待完整候选准备好后再统一两端版本并做隔离样本联通，不借机覆盖日用工作流。
+
+分类筛选UI及旧桥保护：运行 `:app:testDebugUnitTest --tests '*NsfwReviewViewModelTest.galleryFilters*'`，实际XML 1项、0失败/错误，BUILD SUCCESSFUL（10m20s），同时编译状态/分类/收藏菜单。用例证明无能力旧桥拒绝筛选、不多发请求、不清空既有query/items。新菜单尚未安装到真机，当前日用桥不声明筛选能力，因此不把旧版图库恢复称为新功能验收。后端分类集合与手机增量范围匹配继续开发。

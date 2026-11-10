@@ -90,6 +90,7 @@ internal fun NsfwGallery(
             }
         }
         if (state.galleryEnabled) GalleryFilters(state.galleryQuery.filter, !state.busy, onChangeFilter)
+        if (state.galleryFiltersEnabled) LibraryFilters(state.galleryQuery.filter, !state.busy && !state.syncing, onChangeFilter)
         else Text("排序和日期筛选需更新电脑端生图审核服务", color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
         TextButton(onClick = onOpenBatch, enabled = !state.busy && !state.syncing) { Text("9图批量审核") }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -158,6 +159,31 @@ private fun GalleryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange
             }) { Text("应用日期") }
         }, dismissButton = { TextButton(onClick = { customOpen = false }) { Text("取消") } }) {
             DateRangePicker(state = picker, modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp), title = { Text("选择审核日期", modifier = Modifier.padding(16.dp)) })
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LibraryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
+    FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LibraryFilterMenu("状态", filter.status, listOf(null to "全部状态", "NEW" to "待审核", "KEEP" to "已保留", "REJECT" to "已淘汰", "ARCHIVED" to "已归档"), enabled) { onChange(filter.copy(status = it)) }
+        LibraryFilterMenu("分类", filter.category, listOf(null to "全部分类", "anime" to "动漫", "imported" to "导入"), enabled) { onChange(filter.copy(category = it)) }
+        LibraryFilterMenu("收藏", filter.favorite?.toString(), listOf(null to "全部收藏状态", "true" to "已收藏", "false" to "未收藏"), enabled) { onChange(filter.copy(favorite = it?.toBooleanStrict())) }
+        if (filter.selection.active) TextButton(enabled = enabled, onClick = {
+            onChange(filter.copy(promptId = null, versionId = null, status = null, category = null, favorite = null))
+        }) { Text("清除分类筛选") }
+    }
+    if (filter.promptId != null) Text(if (filter.versionId != null) "限定同一提示词版本" else "限定同一提示词", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
+private fun LibraryFilterMenu(label: String, value: String?, options: List<Pair<String?, String>>, enabled: Boolean, onSelect: (String?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(enabled = enabled, onClick = { open = true }) { Text(options.firstOrNull { it.first == value }?.second ?: label) }
+        DropdownMenu(open, onDismissRequest = { open = false }) {
+            options.forEach { (key, text) -> DropdownMenuItem(text = { Text(text) }, onClick = { open = false; onSelect(key) }) }
         }
     }
 }
