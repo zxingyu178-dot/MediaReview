@@ -7,6 +7,10 @@ import retrofit2.HttpException
 
 /** 审核页只依赖该接口；真实实现走 Bridge，测试用 MockWebServer 或假实现。 */
 interface NsfwReviewDataSource {
+    suspend fun batchReview(requestId: String, items: List<NsfwBatchReviewItem>): NsfwBatchReviewResult =
+        throw NsfwApiException("BATCH_REVIEW_UNSUPPORTED", "批量审核需要更新电脑端生图审核服务")
+    suspend fun batchReviewReceipt(requestId: String): NsfwBatchReviewResult =
+        throw NsfwApiException("BATCH_REVIEW_UNSUPPORTED", "批量回执需要更新电脑端生图审核服务")
     suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String? = null, scopeCursor: String? = null, anchorId: String? = null, limit: Int = 50): NsfwGalleryPage =
         throw NsfwApiException("GALLERY_UNSUPPORTED", "日期查询需要更新电脑端生图审核服务")
     suspend fun feed(cursor: String?, limit: Int = 50): NsfwFeedPage
@@ -45,6 +49,37 @@ class NsfwRepository internal constructor(
     private val baseUrlPort: NsfwBaseUrlPort,
     private val apiFactory: NsfwApiFactory,
 ) : NsfwReviewDataSource {
+
+    override suspend fun batchReview(requestId: String, items: List<NsfwBatchReviewItem>): NsfwBatchReviewResult {
+        validateBatchKey(requestId)
+        require(items.size in 1..10 && items.map { it.imageId }.distinct().size == items.size) { "批量审核需包含1至10张不同图片" }
+        require(items.all { it.imageId.isNotBlank() && it.imageId.length <= 64 && it.action in setOf("KEEP", "REJECT") && it.expectedRevision.matches(Regex("[0-9]{1,64}")) }) { "批次图片、操作或版本无效" }
+        val frozen = items.toList()
+        val result = call { api().batchReview(requestId, NsfwBatchReviewRequest(frozen)) }
+        validateBatchResult(result)
+        val expected = frozen.associateBy { it.imageId }
+        if (result.items.map { it.imageId }.toSet() != expected.keys || result.items.any { it.status != expected[it.imageId]?.action }) {
+            throw mismatch("批量审核回执图片或操作不一致，请核对原批次")
+        }
+        return result
+    }
+
+    override suspend fun batchReviewReceipt(requestId: String): NsfwBatchReviewResult {
+        validateBatchKey(requestId)
+        return call { api().batchReviewReceipt(requestId) }.also(::validateBatchResult)
+    }
+
+    private fun validateBatchKey(requestId: String) {
+        require(requestId.isNotBlank() && requestId.length <= 128 && requestId.all { it in '!'..'~' }) { "批次请求号无效" }
+    }
+
+    private fun validateBatchResult(result: NsfwBatchReviewResult) {
+        if (result.items.size !in 1..10 || result.items.map { it.imageId }.distinct().size != result.items.size ||
+            result.items.any { it.imageId.isBlank() || it.status !in setOf("KEEP", "REJECT") || !it.revision.matches(Regex("[0-9]+")) } ||
+            result.keptCount != result.items.count { it.status == "KEEP" } || result.rejectedCount != result.items.count { it.status == "REJECT" }) {
+            throw mismatch("批量审核回执不完整，请核对原批次")
+        }
+    }
 
     override suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String?, scopeCursor: String?, anchorId: String?, limit: Int): NsfwGalleryPage {
         val page = call { api().gallery(query.filter.sort.wire, query.fromUtc, query.beforeUtc, pageCursor, scopeCursor, anchorId, limit.coerceIn(1, 100)) }

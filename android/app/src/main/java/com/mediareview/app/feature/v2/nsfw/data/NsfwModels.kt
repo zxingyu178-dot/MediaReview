@@ -14,6 +14,32 @@ import kotlinx.serialization.Serializable
 /** 客户端要求的最低 Bridge API contract。 */
 const val NSFW_REQUIRED_API_CONTRACT: Int = 2
 
+const val NSFW_BATCH_REVIEW_CAPABILITY = "mobile_image_batch_review_v1"
+
+@Serializable
+data class NsfwBatchReviewItem(
+    @SerialName("image_id") val imageId: String,
+    val action: String,
+    @SerialName("expected_revision") val expectedRevision: String,
+)
+
+@Serializable
+data class NsfwBatchReviewRequest(val items: List<NsfwBatchReviewItem>)
+
+@Serializable
+data class NsfwBatchReviewedImage(
+    @SerialName("image_id") val imageId: String,
+    val status: String,
+    val revision: String,
+)
+
+@Serializable
+data class NsfwBatchReviewResult(
+    val items: List<NsfwBatchReviewedImage>,
+    @SerialName("kept_count") val keptCount: Int,
+    @SerialName("rejected_count") val rejectedCount: Int,
+)
+
 /** 产品标识前缀（当前 Bridge 为 nsfw-studio；不得按完整版本字符串硬判断）。 */
 const val NSFW_PRODUCT_PREFIX: String = "nsfw-studio"
 

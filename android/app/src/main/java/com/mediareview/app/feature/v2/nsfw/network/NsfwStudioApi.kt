@@ -28,6 +28,15 @@ import retrofit2.http.Query
  */
 interface NsfwStudioApi {
 
+    @POST("/mobile/images/batch-review")
+    suspend fun batchReview(
+        @retrofit2.http.Header("Idempotency-Key") requestId: String,
+        @Body body: com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewRequest,
+    ): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult>
+
+    @GET("/mobile/images/batch-review/{request_id}/result")
+    suspend fun batchReviewReceipt(@Path("request_id") requestId: String): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult>
+
     @GET("/mobile/images/gallery")
     suspend fun gallery(
         @Query("sort") sort: String,

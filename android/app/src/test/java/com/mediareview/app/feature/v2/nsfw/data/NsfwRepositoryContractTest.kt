@@ -21,6 +21,49 @@ import org.junit.Test
  */
 class NsfwRepositoryContractTest {
 
+    private val batchReply = """{"success":true,"data":{"items":[{"image_id":"a","status":"KEEP","revision":"12"},{"image_id":"b","status":"REJECT","revision":"13"}],"kept_count":1,"rejected_count":1}}"""
+
+    @Test fun batchReviewPostsFrozenMixedPageWithIdempotencyKey() = runTest {
+        server.enqueue(okay(batchReply))
+        val result = repository.batchReview("batch-1", listOf(
+            NsfwBatchReviewItem("a", "KEEP", "10"), NsfwBatchReviewItem("b", "REJECT", "11"),
+        ))
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/mobile/images/batch-review", request.requestUrl!!.encodedPath)
+        assertEquals("batch-1", request.getHeader("Idempotency-Key"))
+        val body = request.body.readUtf8()
+        assertTrue(body.contains("\"expected_revision\":\"10\""))
+        assertTrue(body.contains("\"action\":\"REJECT\""))
+        assertEquals(1, result.keptCount)
+        assertEquals(1, result.rejectedCount)
+        assertEquals(listOf("a", "b"), result.items.map { it.imageId })
+    }
+
+    @Test fun batchReviewReceiptOnlyQueriesOriginalBatchWithoutReposting() = runTest {
+        server.enqueue(okay(batchReply))
+        val result = repository.batchReviewReceipt("batch-1")
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertEquals("/mobile/images/batch-review/batch-1/result", request.requestUrl!!.encodedPath)
+        assertEquals(2, result.items.size)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun batchReviewRejectsReceiptForDifferentImages() = runTest {
+        server.enqueue(okay(batchReply))
+        val failure = runCatching { repository.batchReview("batch-1", listOf(NsfwBatchReviewItem("other", "KEEP", "1"))) }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+    }
+
+    @Test fun batchReviewConflictIsNotAutomaticallyRetried() = runTest {
+        server.enqueue(error(409, """{"success":false,"error":{"code":"REVIEW_CONFLICT","message":"图片已修改"}}"""))
+        val failure = runCatching { repository.batchReview("batch-1", listOf(NsfwBatchReviewItem("a", "KEEP", "1"))) }.exceptionOrNull()
+        assertTrue(failure is NsfwApiException)
+        assertEquals("REVIEW_CONFLICT", (failure as NsfwApiException).code)
+        assertEquals(1, server.requestCount)
+    }
+
     @Test fun galleryRejectsChangedResumeScope() = runTest {
         server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"different","sync_cursor":"events","sort":"created_desc","range":{}}}"""))
         val error = runCatching { repository.gallery(NsfwGalleryFilter().resolve(), scopeCursor = "saved") }.exceptionOrNull()

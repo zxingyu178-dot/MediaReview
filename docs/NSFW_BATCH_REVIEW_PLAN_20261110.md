@@ -51,4 +51,12 @@
 
 ## 本轮边界
 
+### 2026-11-10 手机HTTP接入阶段结果
+
+NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执，仍沿用认证API工厂和Envelope错误映射。请求限定1..10个不同图片、KEEP/REJECT及数字revision；回执校验图片/操作/计数，格式或身份不符不显示成功；409不自动重试。现有假实现默认抛不支持，不使旧桥伪装具备批量能力。
+
+新增4项既有NsfwRepositoryContractTest：混合载荷/Idempotency-Key、只GET原回执、错图拒绝、409不重试。首次接口/DTO不存在导致test Kotlin编译失败（2m19s），不是4项运行时失败；补实现后`:app:testDebugUnitTest --tests '*NsfwRepositoryContractTest.batchReview*'`实际4通过、0失败/错误，BUILD SUCCESSFUL（2m53s）。复用登记Gradle8.9/JDK17、离线/单worker/in-process/项目temp与缓存，没有全量/设备/真实审核测试，既有warning保留。
+
+日志在忽略temp/batch-android-contract-{red,green}-20261110.log。请求/回执接入完成不等于9图页完成；界面状态、持久化冻结批次、断网核对与同版本提示词评分仍待实现。双端源码核对另见NSFW_SYNC_AUDIT_20261110.md，评分实时刷新缺口不能隐去。
+
 本文件是已确认主流程的执行约定，不代表功能已实现。正式仍Alpha34；Alpha35候选及现有在研改动保留。库管理先复用并贯通现有字段，不扩展为新资产中心；不停止ComfyUI，不自动删除REJECT图片。未执行的测试与手机验收必须明确保留。
