@@ -313,6 +313,12 @@ private fun ReadyPane(
     val thumbnailState = rememberLazyListState()
     val galleryGrid = key(state.baseUrl, state.galleryViewEpoch) { rememberLazyGridState() }
     var galleryOpen by remember(state.baseUrl) { mutableStateOf(true) }
+    var batchOpen by remember(state.baseUrl) { mutableStateOf(false) }
+    if (batchOpen) {
+        NsfwBatchReviewScreen(state, imageLoader, onClose = { batchOpen = false; onRefresh() },
+            onRefresh = onRefresh, onLoadMore = onLoadMore, onOpenOriginal = onOpenOriginal, originalOpen = originalOpen)
+        return
+    }
     BackHandler(enabled = !galleryOpen && !originalOpen) {
         if (!state.busy && state.panel?.submitting != true) galleryOpen = true
     }
@@ -340,7 +346,7 @@ private fun ReadyPane(
     if (galleryOpen) {
         NsfwGallery(state, imageLoader, galleryGrid,
             onSelect = { id -> onSelect(id); galleryOpen = false },
-            onRefresh = onRefresh, onLoadMore = onLoadMore, onLoadPrevious = onLoadPrevious,
+            onRefresh = onRefresh, onLoadMore = onLoadMore, onLoadPrevious = onLoadPrevious, onOpenBatch = { batchOpen = true },
             onDisconnect = { confirmDisconnect = true }, onAnchor = onGalleryAnchor,
             onChangeFilter = onGalleryFilter, onLatest = onViewLatest,
             onResume = { onResumeGallery(); galleryOpen = false })

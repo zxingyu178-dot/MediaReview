@@ -144,4 +144,6 @@ object NsfwModule {
 @InstallIn(SingletonComponent::class)
 interface NsfwEntryPoint {
     fun nsfwImageLoader(): NsfwImageLoader
+    fun nsfwBatchSource(): NsfwReviewDataSource
+    fun nsfwBatchStore(): NsfwProfileStore
 }

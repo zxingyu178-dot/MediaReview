@@ -36,7 +36,7 @@ class NsfwProfileStore(
     private val context: Context,
     private val crypto: CredentialCipher = AndroidKeystoreCredentialCipher("nsfw_studio_pairing_token_v1"),
     private val json: Json = Json { ignoreUnknownKeys = true },
-) : NsfwEvaluationJournal, NsfwBrowsePositionStore {
+) : NsfwEvaluationJournal, NsfwBrowsePositionStore, com.mediareview.app.feature.v2.nsfw.NsfwBatchJournal {
     private val keyBaseUrl = stringPreferencesKey("base_url")
     private val keyTokenCiphertext = stringPreferencesKey("token_ciphertext")
     private val keyInstallationId = stringPreferencesKey("installation_id")
@@ -83,6 +83,33 @@ class NsfwProfileStore(
     }
 
     suspend fun installationId(): String = installationIds.getOrCreate()
+
+    private suspend fun batchKey(origin: String): androidx.datastore.preferences.core.Preferences.Key<String> {
+        require(origin.isNotBlank())
+        return stringPreferencesKey("batch_pending_" + browseKey(origin + "\n" + installationId()).name)
+    }
+
+    override suspend fun load(origin: String): NsfwFrozenBatch? {
+        val raw = context.nsfwStudioDataStore.data.first()[batchKey(origin)] ?: return null
+        return json.decodeFromString(NsfwFrozenBatch.serializer(), raw)
+    }
+
+    override suspend fun save(origin: String, batch: NsfwFrozenBatch) {
+        val key = batchKey(origin)
+        val raw = json.encodeToString(NsfwFrozenBatch.serializer(), batch)
+        context.nsfwStudioDataStore.edit { prefs ->
+            check(prefs[key] == null) { "已有待核对批次，不能覆盖" }
+            prefs[key] = raw
+        }
+    }
+
+    override suspend fun clear(origin: String, requestId: String) {
+        val key = batchKey(origin)
+        context.nsfwStudioDataStore.edit { prefs ->
+            val raw = prefs[key]
+            if (raw != null && json.decodeFromString(NsfwFrozenBatch.serializer(), raw).requestId == requestId) prefs.remove(key)
+        }
+    }
 
     suspend fun clear() {
         context.nsfwStudioDataStore.edit { prefs ->

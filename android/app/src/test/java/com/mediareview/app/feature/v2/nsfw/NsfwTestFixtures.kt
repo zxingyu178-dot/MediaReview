@@ -240,6 +240,18 @@ class FakeNsfwEvaluationJournal(
 }
 
 class FakeNsfwDataSource : NsfwReviewDataSource {
+    var batchCalls = 0
+    var batchReceiptCalls = 0
+    var batchResponder: suspend (String, List<com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewItem>) -> com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult = { _, _ -> error("unconfigured batch") }
+    var batchReceiptResponder: suspend (String) -> com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult = { error("unconfigured receipt") }
+    override suspend fun batchReview(requestId: String, items: List<com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewItem>): com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult {
+        batchCalls++
+        return batchResponder(requestId, items)
+    }
+    override suspend fun batchReviewReceipt(requestId: String): com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult {
+        batchReceiptCalls++
+        return batchReceiptResponder(requestId)
+    }
     data class GalleryCall(val query: com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryQuery, val page: String?, val scope: String?, val anchor: String?)
     val galleryCalls = mutableListOf<GalleryCall>()
     var galleryResponder: suspend (GalleryCall) -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage = { com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage() }

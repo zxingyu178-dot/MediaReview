@@ -26,6 +26,10 @@ data class NsfwBatchReviewItem(
 @Serializable
 data class NsfwBatchReviewRequest(val items: List<NsfwBatchReviewItem>)
 
+/** 确认时冻结的请求；后续勾选和图片加载不能改变原批次。 */
+@Serializable
+data class NsfwFrozenBatch(val requestId: String, val items: List<NsfwBatchReviewItem>)
+
 @Serializable
 data class NsfwBatchReviewedImage(
     @SerialName("image_id") val imageId: String,
@@ -209,6 +213,7 @@ data class NsfwImageDetails(
     val mime: String? = null,
     @SerialName("updated_at") val updatedAt: String = "",
     val revision: String = "",
+    val status: String = "",
 ) {
     val promptLink: NsfwPromptLink
         get() = NsfwPromptLink(promptId, promptVersionId, linkState)

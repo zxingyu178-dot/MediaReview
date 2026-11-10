@@ -106,6 +106,7 @@ data class NsfwUiState(
     val evaluationRecoveryHint: String? = null,
     val galleryEnabled: Boolean = false,
     val bidirectionalGallery: Boolean = false,
+    val batchReviewEnabled: Boolean = false,
     val previousPageCursor: String? = null,
     val galleryStartIndex: Int = 0,
     val galleryTotal: Int = 0,
@@ -290,6 +291,7 @@ class NsfwReviewViewModel @Inject constructor(
                 missingCapabilities = emptyList(),
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
+                batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
             )
         }
         syncFromCursor(reset = true)
@@ -410,7 +412,7 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         galleryResumeAnchor = null
         savedGalleryReview = null
-        _state.update { it.copy(galleryEnabled = false, bidirectionalGallery = false, previousPageCursor = null,
+        _state.update { it.copy(galleryEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""

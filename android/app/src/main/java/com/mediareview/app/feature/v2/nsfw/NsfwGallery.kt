@@ -41,6 +41,7 @@ internal fun NsfwGallery(
     onLatest: () -> Unit = onRefresh,
     onResume: () -> Unit = { state.currentId?.let(onSelect) },
     onLoadPrevious: () -> Unit = {},
+    onOpenBatch: () -> Unit = {},
 ) {
     val initialAnchor = remember(state.baseUrl, state.galleryViewEpoch) { state.galleryAnchor }
     var restorePending by remember(state.baseUrl, state.galleryViewEpoch) { mutableStateOf(initialAnchor != null) }
@@ -90,6 +91,7 @@ internal fun NsfwGallery(
         }
         if (state.galleryEnabled) GalleryFilters(state.galleryQuery.filter, !state.busy, onChangeFilter)
         else Text("排序和日期筛选需更新电脑端生图审核服务", color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
+        TextButton(onClick = onOpenBatch, enabled = !state.busy && !state.syncing) { Text("9图批量审核") }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(enabled = (state.currentItem != null || state.hasBrowsePosition) && !state.busy && !state.syncing,
                 onClick = onResume) { Text(if (state.hasBrowsePosition) "继续上次" else "开始审核") }

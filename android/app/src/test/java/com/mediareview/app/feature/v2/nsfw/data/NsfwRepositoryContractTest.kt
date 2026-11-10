@@ -20,6 +20,13 @@ import org.junit.Test
  * 这里证明"客户端契约与模拟接口"可用，不代表真实 Bridge 已实现。
  */
 class NsfwRepositoryContractTest {
+    @Test fun batchRefreshReadsAuthoritativeImageStatusFromDetails() = runTest {
+        server.enqueue(okay("""{"success":true,"data":{"image_id":"a","status":"KEEP","revision":"15","updated_at":"2026-11-10T01:00:00Z"}}"""))
+        val detail = repository.details("a")
+        assertEquals("KEEP", detail.status)
+        assertEquals("15", detail.revision)
+        assertEquals("/mobile/images/a/details", server.takeRequest().requestUrl!!.encodedPath)
+    }
 
     private val batchReply = """{"success":true,"data":{"items":[{"image_id":"a","status":"KEEP","revision":"12"},{"image_id":"b","status":"REJECT","revision":"13"}],"kept_count":1,"rejected_count":1}}"""
 

@@ -51,7 +51,21 @@
 
 ## 本轮边界
 
+### 2026-11-10 9图页源码结果
+
+新增NsfwBatchDraft（页面选择/展示资格/请求冻结）、NsfwBatchCoordinator（保存先于POST、恢复只GET原回执、核对后确认清除）、NsfwBatchReviewScreen；复用ProfileStore DataStore，按origin+installationId隔离，不覆盖未知旧批次。已有图库进入9图页，放大复用原图页；全选/清空、数量确认、全淘汰二次确认、失败留页、成功后处理剩余分页均已接入。审核仅改状态，不物理删除。当前队列来自已加载的原图库范围，后续按需续页；服务端NEW/category/prompt过滤及6/10图分组尚未完成，不称库管理已完成。
+
+新增选择3项最初缺类编译失败44s，补实现后3通过3m19s；新增协调3项最初缺类编译失败44s，补持久化/协调后两类共6通过3m19s。随后明确冲突不释放冻结记录的1项运行时RED（1m54s），仅REVIEW_CONFLICT+409才清未写请求，网络/未知/幂等冲突保留；合入界面曾因按钮插入if/else间编译失败38s，修正后7项通过3m42s。
+
+只读审查2项Important均修正：原页冲突后须读取原ID权威详情更新revision/status，保留仍NEW选择，不插新图；图片须加载成功且实际进入视口（单元格可见面积至少50%）才纳入提交。仅预取未展示不可淘汰的1项先运行失败58s；修正加入交集和原页重绑回归，曾因详情DTO漏status编译失败43s，补字段（缺状态拒绝刷新）及HTTP解析断言后，共10项通过0失败/错误（Draft5、Coordinator4、HTTP详情1，2m39s）。具体命令为`:app:testDebugUnitTest --tests '*NsfwBatchDraftTest' --tests '*NsfwBatchCoordinatorTest' --tests '*NsfwRepositoryContractTest.batchRefresh*'`，日志temp/batch-page-reviewed-status-green-20261110.log。
+
+最终又把确认弹窗改为使用打开时冻结的请求清单/数量，防弹窗期间新加载图加入本批；复用已有冻结不变回归，仅`:app:compileDebugKotlin`另轮通过（1m29s），日志temp/batch-confirmation-compile-20261110.log。10项与最终编译分轮记录，不称最后改动后重跑全绿。原有warning保留；新Draft私有data构造器copy可见性有未来Kotlin2.1告警，当前编译通过，未为告警做扩展改造。
+
+没有全量/connected、真实媒体审核、评分、删除、生产升级或新APK。内存Journal用例验证协调器重建后的核对逻辑；DataStore接入只编译，手机磁盘重启、小屏/横屏真实可见性、触控/放大返回及部署组合均NOT TESTED。两项静态复核闭环不替代设备验收。下一步同版本对比与评分、库筛选、双端隔离联通，再统一候选发布。
+
 ### 2026-11-10 手机HTTP接入阶段结果
+
+后端f2f3a77草稿PR39（develop目标）已只读核对CI运行42735006473成功：Backend pytest/工作流G0/资源登记校验、Frontend类型检查/Vitest/build及store回归均完成success。没有为写报告另起CI，也未将草稿转正式、合并或部署；该证据不覆盖Android或设备。
 
 NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执，仍沿用认证API工厂和Envelope错误映射。请求限定1..10个不同图片、KEEP/REJECT及数字revision；回执校验图片/操作/计数，格式或身份不符不显示成功；409不自动重试。现有假实现默认抛不支持，不使旧桥伪装具备批量能力。
 
