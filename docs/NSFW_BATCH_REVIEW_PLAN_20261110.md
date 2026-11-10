@@ -111,3 +111,14 @@ NsfwModels/NsfwStudioApi/NsfwRepository已接批量POST和原请求号GET回执�
 定向只读审查发现2项Important：张数切换失败时scope先变而旧page保留；批量成功onRefresh空回调使主图库滞后。已改为requestedSize与成功scope分离，验证成功才提交scope/page；onChanged接vm.refresh。复核确认静态闭环、无新增Important。最终仅补 `:app:compileDebugKotlin` 通过（3m19s，temp/comparison-review-compile-20261110.log），未声称最终修改后重跑9项，也未做全量/connected。原有warning及未来Kotlin2.1私有data copy告警保留。
 
 未安装APK或升级桥，真机布局、失败/离线交互、DataStore重启与两端组合仍待验收。搜索/Prompt tags筛选、评分可见期远端校验仍未完成；不能把这个页面提交等同整体目标完成。
+
+
+### 搜索、当前标签与评分汇总刷新收口
+
+手机支持字面关键词搜索与Prompt当前版本文字标签精确筛选；输入去首尾空白，空值不改变旧空scope，最长200/100，回显必须完全一致。保留独立能力门禁，旧桥不会默默返回整库。只复用现有分类/标签，不编辑或另存标签。关键词范围与后端f12a202一致，UI明确当前标签不等于生成时版本标签。进入同版本比较会清除关键词/tag限制，显示版本原日期范围。
+
+评分汇总刷新保持草稿身份/冻结请求和图片页，前台沿既有退避周期核对，也可手动重试；面板/连接切换隔离旧响应。首次评分测试缺入口/标记导致单测编译失败（2m8s），搜索测试缺字段再次单测编译失败（3m52s），不是运行时全部RED。补实现后 `:app:testDebugUnitTest --tests '*NsfwGalleryQueryTest*' --tests '*NsfwRepositoryContractTest.gallerySearch*' --tests '*NsfwReviewViewModelTest.gallerySearch*' --tests '*NsfwReviewViewModelTest.promptUpdates*'` 实际10项通过、0失败/错误（3m52s）。
+
+定向只读审查1项Important：归属未知仍保留确定序号。新增单例先运行1失败（assertFalse位置，1m8s）；位置有效条件增加&&!unknown后，只复跑该单例1通过（1m44s），不称最后11项单轮通过。日志temp/gallery-search-score-{red,green}-20261110.log、prompt-updates-red-20261110.log、search-ordinal-{red,green}-20261110.log。既有警告保留，无全量/connected/真实评分或审核写入。
+
+后端f12a202草稿PR39最新CI42812033628已成功，尚未合并/部署；当前正式Alpha34、旧候选Alpha35不改。下一步统一递增编号候选与桥部署前检查，完成具备设备条件时的核心组合验收；源码通过不代表UI/生产验收通过。

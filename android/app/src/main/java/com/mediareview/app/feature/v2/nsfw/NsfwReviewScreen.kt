@@ -628,6 +628,9 @@ private fun PromptScoreDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MediaTextSecondary,
                 )
+                TextButton(onClick = vm::checkPromptUpdates, enabled = !panel.loading && !panel.submitting) { Text("核对最新评分") }
+                if (panel.remoteUpdated) Text("评分记录已更新；当前打分与备注草稿已保留", color = V2Colors.Warning, style = MaterialTheme.typography.bodySmall)
+                panel.summaryCheckMessage?.let { Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall) }
                 panel.promptSnapshot?.let {
                     Text(
                         "生成快照：" + it.take(120),

@@ -84,7 +84,7 @@ class NsfwRepository internal constructor(
     override suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String?, scopeCursor: String?, anchorId: String?, limit: Int): NsfwGalleryPage {
         val selection = query.filter.selection
         val page = call { api().gallery(query.filter.sort.wire, query.fromUtc, query.beforeUtc, pageCursor, scopeCursor, anchorId, limit.coerceIn(1, 100),
-            selection.promptId, selection.versionId, selection.status, selection.category, selection.favorite) }
+            selection.promptId, selection.versionId, selection.status, selection.category, selection.favorite, selection.search, selection.tag) }
         if ((page.filters ?: NsfwGallerySelection()) != selection) {
             throw mismatch("图库筛选条件未获服务端确认，请升级审核桥或重试")
         }

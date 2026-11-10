@@ -51,6 +51,8 @@ interface NsfwStudioApi {
         @Query("status") status: String? = null,
         @Query("category") category: String? = null,
         @Query("favorite") favorite: Boolean? = null,
+        @Query("search") search: String? = null,
+        @Query("tag") tag: String? = null,
     ): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>
 
     @GET("/mobile/system/health")

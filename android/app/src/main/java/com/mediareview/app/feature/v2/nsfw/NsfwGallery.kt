@@ -90,7 +90,8 @@ internal fun NsfwGallery(
             }
         }
         if (state.galleryEnabled) GalleryFilters(state.galleryQuery.filter, !state.busy, onChangeFilter)
-        if (state.galleryMembershipUnknown) Text("部分更新缺少分类信息，请刷新范围以确认；新增数仅统计已确认匹配的图片", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+        if (state.galleryMembershipUnknown) Text("部分更新的筛选归属待确认，请重新查询；新增数仅统计已确认匹配的图片", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+        if (state.gallerySearchEnabled) LibrarySearch(state.galleryQuery.filter, !state.busy && !state.syncing, onChangeFilter)
         if (state.galleryFiltersEnabled) LibraryFilters(state.galleryQuery.filter, !state.busy && !state.syncing, onChangeFilter)
         else Text("排序和日期筛选需更新电脑端生图审核服务", color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
         TextButton(onClick = onOpenBatch, enabled = !state.busy && !state.syncing) { Text("9图批量审核") }
@@ -172,10 +173,28 @@ private fun LibraryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange
         LibraryFilterMenu("分类", filter.category, listOf(null to "全部分类", "anime" to "动漫", "imported" to "导入"), enabled) { onChange(filter.copy(category = it)) }
         LibraryFilterMenu("收藏", filter.favorite?.toString(), listOf(null to "全部收藏状态", "true" to "已收藏", "false" to "未收藏"), enabled) { onChange(filter.copy(favorite = it?.toBooleanStrict())) }
         if (filter.selection.active) TextButton(enabled = enabled, onClick = {
-            onChange(filter.copy(promptId = null, versionId = null, status = null, category = null, favorite = null))
-        }) { Text("清除分类筛选") }
+            onChange(filter.copy(promptId = null, versionId = null, status = null, category = null, favorite = null, search = null, tag = null))
+        }) { Text("清除库筛选") }
     }
     if (filter.promptId != null) Text(if (filter.versionId != null) "限定同一提示词版本" else "限定同一提示词", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium)
+}
+
+@Composable
+private fun LibrarySearch(filter: NsfwGalleryFilter, enabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
+    var search by remember(filter.search) { mutableStateOf(filter.search.orEmpty()) }
+    var tag by remember(filter.tag) { mutableStateOf(filter.tag.orEmpty()) }
+    var expanded by remember { mutableStateOf(false) }
+    TextButton(onClick = { expanded = !expanded }) { Text(if (filter.search != null || filter.tag != null) "搜索/标签筛选已启用" else "搜索与文字标签") }
+    if (expanded) Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        OutlinedTextField(value = search, onValueChange = { search = it }, enabled = enabled, singleLine = true,
+            label = { Text("提示词名称/历史正文/生成快照/导入文件名") }, supportingText = { Text("字面关键词，最多200字") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(value = tag, onValueChange = { tag = it }, enabled = enabled, singleLine = true,
+            label = { Text("提示词当前版本文字标签") }, supportingText = { Text("精确匹配，最多100字；不代表生成时版本标签") }, modifier = Modifier.fillMaxWidth())
+        Row {
+            TextButton(enabled = enabled, onClick = { onChange(filter.copy(search = search, tag = tag)) }) { Text("应用搜索") }
+            TextButton(enabled = enabled, onClick = { search = ""; tag = ""; onChange(filter.copy(search = null, tag = null)) }) { Text("清除搜索") }
+        }
+    }
 }
 
 @Composable

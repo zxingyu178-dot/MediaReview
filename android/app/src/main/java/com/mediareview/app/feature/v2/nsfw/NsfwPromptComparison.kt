@@ -9,7 +9,7 @@ data class NsfwPromptComparison private constructor(val query: NsfwGalleryQuery,
             require(link.isExact) { "需要可靠的提示词版本关联才能对比" }
             require(pageSize == 6 || pageSize == 10)
             return NsfwPromptComparison(base.copy(promptId = link.promptId, versionId = link.promptVersionId,
-                status = null, category = null, favorite = null).resolve(), pageSize)
+                status = null, category = null, favorite = null, search = null, tag = null).resolve(), pageSize)
         }
     }
     fun withPageSize(size: Int): NsfwPromptComparison {

@@ -20,6 +20,20 @@ import org.junit.Test
  * 这里证明"客户端契约与模拟接口"可用，不代表真实 Bridge 已实现。
  */
 class NsfwRepositoryContractTest {
+    @Test fun gallerySearchSendsNormalizedLiteralTextAndCurrentPromptTag() = runTest {
+        val query = NsfwGalleryFilter(search = "  silver %_  ", tag = "  style  ").resolve()
+        server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"s","sync_cursor":"w","filters":{"search":"silver %_","tag":"style"}}}"""))
+        repository.gallery(query)
+        val request = server.takeRequest().requestUrl!!
+        assertEquals("silver %_", request.queryParameter("search"))
+        assertEquals("style", request.queryParameter("tag"))
+    }
+
+    @Test fun gallerySearchRejectsIgnoredSearchResponse() = runTest {
+        server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"s","sync_cursor":"w","filters":{}}}"""))
+        assertTrue(runCatching { repository.gallery(NsfwGalleryFilter(search = "needle").resolve()) }.exceptionOrNull() is NsfwApiException)
+    }
+
     @Test fun galleryFiltersBindPromptVersionStatusCategoryAndFavoriteToRequest() = runTest {
         val query = NsfwGalleryFilter(promptId = "p", versionId = "v", status = "NEW", category = "anime", favorite = false).resolve()
         server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"scope","sync_cursor":"events","sort":"created_desc","range":{},"filters":{"prompt_id":"p","version_id":"v","status":"NEW","category":"anime","favorite":false}}}"""))

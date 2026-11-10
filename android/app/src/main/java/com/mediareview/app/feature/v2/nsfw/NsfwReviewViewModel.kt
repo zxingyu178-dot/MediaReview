@@ -70,6 +70,8 @@ data class NsfwPromptPanel(
     /** 同一提示词版本下的全部未确认记录；多条时必须能逐条切换核对。 */
     val pendingRequests: List<NsfwPendingEvaluation> = emptyList(),
     val pendingIndex: Int = 0,
+    val remoteUpdated: Boolean = false,
+    val summaryCheckMessage: String? = null,
 ) {
     val scoringEnabled: Boolean
         get() = versionId != null || wholePromptScopeConfirmed
@@ -107,6 +109,7 @@ data class NsfwUiState(
     val galleryEnabled: Boolean = false,
     val bidirectionalGallery: Boolean = false,
     val galleryFiltersEnabled: Boolean = false,
+    val gallerySearchEnabled: Boolean = false,
     val galleryMembershipUnknown: Boolean = false,
     val batchReviewEnabled: Boolean = false,
     val previousPageCursor: String? = null,
@@ -157,6 +160,7 @@ class NsfwReviewViewModel @Inject constructor(
     private var lastCursor: String? = null
     private var historyCatchup = true
     private var pollJob: Job? = null
+    private var promptSummaryJob: Job? = null
     private val pollBackoff = NsfwPollBackoff()
     private var screenVisible = false
     private var detailSeq = 0
@@ -292,6 +296,7 @@ class NsfwReviewViewModel @Inject constructor(
                 hasSavedPairing = true,
                 missingCapabilities = emptyList(),
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
+                gallerySearchEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_SEARCH_CAPABILITY in snapshot.capabilities,
                 galleryFiltersEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_FILTERS_CAPABILITY in snapshot.capabilities,
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
                 batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
@@ -385,11 +390,13 @@ class NsfwReviewViewModel @Inject constructor(
         // 先保存LAZY任务再启动，避免测试dispatcher下同步回包重入启动轮询。
         pollJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
             syncFromCursor(reset = false)
+            checkPromptUpdates()
             while (isActive) {
                 delay(pollBackoff.interval(pollIntervalMs))
                 val snapshot = _state.value
                 if (snapshot.phase == NsfwPhase.READY && !snapshot.busy) {
                     syncFromCursor(reset = false)
+                    checkPromptUpdates()
                 }
             }
         }
@@ -401,6 +408,8 @@ class NsfwReviewViewModel @Inject constructor(
     }
 
     private fun stopPolling() {
+        promptSummaryJob?.cancel()
+        promptSummaryJob = null
         pollJob?.cancel()
         pollJob = null
         manualFeedJob?.cancel()
@@ -415,7 +424,7 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         galleryResumeAnchor = null
         savedGalleryReview = null
-        _state.update { it.copy(galleryEnabled = false, galleryFiltersEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
+        _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
@@ -1011,6 +1020,36 @@ class NsfwReviewViewModel @Inject constructor(
         _state.update { it.copy(panel = panel.copy(message = null)) }
     }
 
+    /** 只校验汇总，不改草稿requestId、冻结载荷和图片页；旧面板回包不越界。 */
+    fun checkPromptUpdates() {
+        val panel = _state.value.panel ?: return
+        if (_state.value.phase != NsfwPhase.READY || panel.loading || panel.submitting || promptSummaryJob?.isActive == true) return
+        val epoch = connectionEpoch
+        val sequence = panelSeq
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                val summary = dataSource.promptSummary(panel.promptId, panel.versionId)
+                if (epoch != connectionEpoch || sequence != panelSeq) return@launch
+                _state.update { state ->
+                    val current = state.panel ?: return@update state
+                    if (current.requestId != panel.requestId || current.submitting || current.promptId != panel.promptId || current.versionId != panel.versionId) return@update state
+                    val previous = current.summary
+                    val changed = previous != null && (previous.evaluationCount != summary.evaluationCount || previous.versionLatest != summary.versionLatest || previous.promptLatest != summary.promptLatest)
+                    state.copy(panel = current.copy(summary = summary, remoteUpdated = current.remoteUpdated || changed, summaryCheckMessage = null))
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (epoch != connectionEpoch || sequence != panelSeq) return@launch
+                if (error is NsfwApiException && error.isAuthRejected) { handleAuthFailure(); return@launch }
+                _state.update { state ->
+                    if (state.panel?.requestId == panel.requestId) state.copy(panel = state.panel.copy(summaryCheckMessage = "暂未完成评分核对，已保留草稿，可重试")) else state
+                }
+            }
+        }
+        promptSummaryJob = job
+        job.start()
+    }
+
     private fun refreshPromptPanel(panel: NsfwPromptPanel) {
         val seq = ++panelSeq
         val epoch = connectionEpoch
@@ -1109,6 +1148,10 @@ class NsfwReviewViewModel @Inject constructor(
     private fun requestGallery(query: NsfwGalleryQuery, scope: String? = null, anchor: String? = null) {
         val state = _state.value
         if (!state.galleryEnabled || state.phase != NsfwPhase.READY || state.busy || state.panel?.submitting == true) return
+        if ((query.filter.search != null || query.filter.tag != null) && !state.gallerySearchEnabled) {
+            _state.update { it.copy(message = "当前审核桥不支持搜索或标签筛选，请升级审核桥") }
+            return
+        }
         if (query.filter.selection.active && !state.galleryFiltersEnabled) {
             _state.update { it.copy(message = "当前审核桥不支持图库分类筛选，请升级审核桥") }
             return
@@ -1218,7 +1261,7 @@ class NsfwReviewViewModel @Inject constructor(
                     ?: items.getOrNull(previous.currentIndex.coerceAtMost(items.lastIndex.coerceAtLeast(0)))?.imageId
                 _state.update { state -> state.copy(items = items, currentId = target, newImageCount = pendingNewImageIds.size,
                     galleryMembershipUnknown = state.galleryMembershipUnknown || unknown,
-                    galleryPositionValid = state.galleryPositionValid && outside.isEmpty() && page.items.none { it.event == "REMOVE" },
+                    galleryPositionValid = state.galleryPositionValid && !unknown && outside.isEmpty() && page.items.none { it.event == "REMOVE" },
                     detail = state.detail?.takeIf { it.imageId == target }) }
                 if (target != null && (target != previous.currentId || (target in merge.updatedIds && previous.detail != null))) loadDetails(target)
                 lastCursor = next

@@ -19,6 +19,8 @@ class NsfwGalleryQueryTest {
         assertNull(query.matches(image.copy(categories = null)))
         assertEquals(false, query.matches(image.copy(categories = emptySet())))
         assertEquals(true, NsfwGalleryFilter(category = "imported").resolve().matches(image))
+        assertNull(filter.copy(search = "needle").resolve().matches(image))
+        assertNull(filter.copy(tag = "curated").resolve().matches(image))
     }
 
     @Test fun todayUsesPhoneCalendarAndExclusiveNextDay() {

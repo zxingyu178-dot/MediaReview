@@ -8,6 +8,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 const val NSFW_GALLERY_CAPABILITY = "mobile_gallery_query_v1"
+const val NSFW_GALLERY_SEARCH_CAPABILITY = "mobile_gallery_search_v1"
 const val NSFW_GALLERY_FILTERS_CAPABILITY = "mobile_gallery_filters_v1"
 const val NSFW_BIDIRECTIONAL_CAPABILITY = "mobile_gallery_bidirectional_v1"
 
@@ -32,11 +33,17 @@ data class NsfwGalleryFilter(
     val status: String? = null,
     val category: String? = null,
     val favorite: Boolean? = null,
+    val search: String? = null,
+    val tag: String? = null,
 ) {
-    val selection: NsfwGallerySelection get() = NsfwGallerySelection(promptId, versionId, status, category, favorite)
+    val selection: NsfwGallerySelection get() = NsfwGallerySelection(promptId, versionId, status, category, favorite, search, tag)
     val label: String get() = if (dates == NsfwGalleryDates.CUSTOM) "$startDate 至 $endDate" else dates.label
 
     fun resolve(now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): NsfwGalleryQuery {
+        require((search?.length ?: 0) <= 200) { "搜索关键词最多200字" }
+        require((tag?.length ?: 0) <= 100) { "标签最多100字" }
+        val normalized = copy(search = search?.trim()?.takeIf { it.isNotEmpty() }, tag = tag?.trim()?.takeIf { it.isNotEmpty() })
+        if (normalized != this) return normalized.resolve(now, zone)
         require(promptId == null || promptId.isNotBlank())
         require(versionId == null || (versionId.isNotBlank() && promptId != null)) { "提示词版本需要所属提示词" }
         require(status == null || status in setOf("NEW", "KEEP", "REJECT", "ARCHIVED", "FAVORITE"))
@@ -70,7 +77,11 @@ data class NsfwGalleryQuery(
         if (filter.versionId != null && (item.prompt?.isExact != true || item.prompt.promptVersionId != filter.versionId)) return false
         if (filter.status != null && if (filter.status == "FAVORITE") !item.isFavorite else item.status != filter.status) return false
         if (filter.favorite != null && item.isFavorite != filter.favorite) return false
-        return filter.category?.let { category -> item.categories?.contains(category) } ?: if (filter.category == null) true else null
+        if (filter.category != null) {
+            val categories = item.categories ?: return null
+            if (filter.category !in categories) return false
+        }
+        return if (filter.search != null || filter.tag != null) null else true
     }
 
     fun contains(timestamp: String): Boolean = runCatching {
@@ -93,8 +104,10 @@ data class NsfwGallerySelection(
     val status: String? = null,
     val category: String? = null,
     val favorite: Boolean? = null,
+    val search: String? = null,
+    val tag: String? = null,
 ) {
-    val active: Boolean get() = promptId != null || versionId != null || status != null || category != null || favorite != null
+    val active: Boolean get() = promptId != null || versionId != null || status != null || category != null || favorite != null || search != null || tag != null
 }
 
 @Serializable

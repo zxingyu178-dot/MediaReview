@@ -42,6 +42,68 @@ class NsfwReviewViewModelTest {
         assertEquals("v", model.state.value.panel!!.submitted!!.promptVersionId)
     }
 
+    @Test fun promptUpdatesRefreshSummaryWithoutReplacingDraftIdentityOrImages() = runTest {
+        val model = bootstrapPaired()
+        var count = 1
+        var imageReads = 0
+        data.summaryResponder = { id, version -> NsfwPromptSummary(promptId = id, promptVersionId = version, evaluationCount = count) }
+        data.promptImagesResponder = { _, _ -> imageReads++; NsfwPromptImagesPage() }
+        model.openPromptPanel()
+        val original = model.state.value.panel!!
+        count = 2
+        model.checkPromptUpdates()
+        val updated = model.state.value.panel!!
+        assertEquals(2, updated.summary!!.evaluationCount)
+        assertEquals(original.requestId, updated.requestId)
+        assertEquals(original.pendingRequest, updated.pendingRequest)
+        assertEquals(1, imageReads)
+        assertTrue(updated.remoteUpdated)
+    }
+
+    @Test fun promptUpdatesLateResponseCannotReplaceClosedAndReopenedPanel() = runTest {
+        val model = bootstrapPaired()
+        model.openPromptPanel()
+        val old = model.state.value.panel!!
+        val deferred = CompletableDeferred<NsfwPromptSummary>()
+        data.summaryResponder = { _, _ -> deferred.await() }
+        model.checkPromptUpdates()
+        model.closePromptPanel()
+        data.summaryResponder = { id, version -> NsfwPromptSummary(promptId = id, promptVersionId = version, evaluationCount = 3) }
+        model.openPromptPanel()
+        val reopened = model.state.value.panel!!
+        assertFalse(old.requestId == reopened.requestId)
+        deferred.complete(NsfwPromptSummary(promptId = old.promptId, promptVersionId = old.versionId, evaluationCount = 99))
+        assertEquals(reopened.requestId, model.state.value.panel!!.requestId)
+        assertEquals(3, model.state.value.panel!!.summary!!.evaluationCount)
+    }
+
+    @Test fun gallerySearchRequiresSearchCapabilityEvenWhenOtherFiltersAreSupported() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1"))
+        data.galleryResponder = { bidirectionalPage(listOf("a"), 0) }
+        val model = vm()
+        val before = model.state.value.galleryQuery
+        val calls = data.galleryCalls.size
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(search = "needle"))
+        assertEquals(calls, data.galleryCalls.size)
+        assertEquals(before, model.state.value.galleryQuery)
+        assertTrue(model.state.value.message!!.contains("搜索"))
+    }
+
+    @Test fun gallerySearchUnknownMembershipInvalidatesOrdinalWithoutRemovingImage() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1", "mobile_gallery_search_v1", "mobile_gallery_bidirectional_v1"))
+        data.galleryResponder = { bidirectionalPage(listOf("a"), 0) }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(search = "needle"))
+        assertTrue(model.state.value.galleryPositionValid)
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("a", revision = "2").copy(eventType = "IMAGE_REVIEW_UPDATED")), nextCursor = "next") }
+        model.refresh()
+        assertEquals(listOf("a"), model.state.value.items.map { it.imageId })
+        assertTrue(model.state.value.galleryMembershipUnknown)
+        assertFalse(model.state.value.galleryPositionValid)
+    }
+
     private fun bidirectionalPage(ids: List<String>, start: Int, previous: String? = null, next: String? = null): com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage {
         val body = """{"items":[${ids.joinToString(",") { """{"image_id":"$it","revision":"1"}""" }}],"start_index":$start,"total":4,"previous_page_cursor":${previous?.let { "\"$it\"" } ?: "null"},"next_page_cursor":${next?.let { "\"$it\"" } ?: "null"},"has_more":${next != null},"sync_cursor":"w","scope_cursor":"s"}"""
         return Json { ignoreUnknownKeys = true }.decodeFromString(body)
