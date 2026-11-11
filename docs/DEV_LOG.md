@@ -3765,6 +3765,12 @@ NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE 
 
 ### 2026-11-11 Alpha36真机部分验证
 
+### 2026-11-11 手机UI技能调查与设计草案
+
+用户在四项手机端修复需求后要求先调查/安装合适界面技能，再开始设计。联网比较原生Android、通用UI/UX Pro Max、交互及设计系统方案，使用Codex现有skill-installer安装wshobson/agents的mobile-android-design，固定提交9c61ab243def98f72da12abd41cfcf5bcd91af9d；验证仅5份Markdown，无执行脚本/依赖/服务。安装在用户Codex技能目录，没有改共享基础设施或环境变量。已读取入口与相关参考，草案位于 `superpowers/specs/2026-11-11-mobile-generated-gallery-design.md`；自查范围、手势分工、最新范围与未部署边界、错误和删除保护一致，待用户审阅批准后再制定实施计划。未改业务代码/构建APK，未操作真实删除；本轮临时手机辅助会话已停止，ADB forward为空。
+
+### 2026-11-11 Alpha36真机部分验证（详细）
+
 手机保留数据从Alpha34/code41覆盖安装原签名Alpha36/code43成功，实际APK SHA256及证书重新校验一致。Studio/桥通过既有ControlHub入口启动，原配对无需重新输入代码；图库421附近/当前422、原图100%到250%、关闭返回及App进程重启后的同位置恢复验证通过。仅做只读浏览，未真实审核、收藏、评分或删除，未部署代码，正式发布指针仍Alpha34。旧桥0.13.0缺新版图库/批量接口，9图与6/10图评分、未知回执、新图时延仍待配套后端。观察单图失败/网络提示及旧feed历史补齐成本，未声称全量加载或长时稳定通过。无新构建和全量测试；停止本轮uiautomator并确认forward为空，Studio/桥保留运行，ComfyUI未启动。详情见 `ALPHA36_PHONE_CHECK_20261111.md`。
 
 ### 2026-11-10 Alpha36候选版本准备
