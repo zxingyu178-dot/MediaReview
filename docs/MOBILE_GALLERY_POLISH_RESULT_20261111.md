@@ -64,3 +64,5 @@ USB真机保留数据安装Alpha38成功，原配对保留。定向只读验证�
 排序菜单在同一新桥上分别选最早/最新：实际请求created_asc/created_desc，打开首图ID分别等于桌面API最早/最新首图；最后恢复最新。未启动生图验证新增图片的端到端出现时延，不把3秒轮询配置称为实测同步时延。PR39仍未合并，批量/高级筛选组合验收不在本次通过范围。
 
 结束时停止uiautomator并关闭会话，ADB forward为空。生产Server重新只读核实仍1.6.6/interactive；正式升级入口生产封锁仍在。130项真实删除未由Agent重新提交，真实删除尚未完成；本次部分验收不能提升正式Alpha34指针。
+
+交付位于主工作区deploy_handoff/alpha38-candidate-20261111及开发工作区同名目录。官方builder最终184项SHA256核验通过，ZIP SHA256 `412b40df12a468896e3ab597c51231b2bcf0ded9cebaf472148449e2d51c5534`，独立APK同上述14c18b哈希；复制至主工作区逐文件重新比对一致。构建源码b95a9b4，发布收据HEAD 3cfe9f9（仅后续验证文档差异）。首轮打包期间文档写入使末端clean检查拒绝，自身输出已由原builder清理；提交文档、保持clean后重打包成功，最终日志temp/alpha38-package-final-20261111.log。不覆盖旧Alpha37组合包或正式发布指针。
