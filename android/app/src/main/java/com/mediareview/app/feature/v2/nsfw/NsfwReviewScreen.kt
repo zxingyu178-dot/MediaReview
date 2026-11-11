@@ -319,7 +319,6 @@ private fun ReadyPane(
     originalOpen: Boolean,
     onOpenOriginal: (NsfwFeedItem) -> Unit,
 ) {
-    val thumbnailState = rememberLazyListState()
     val galleryGrid = key(state.baseUrl, state.galleryViewEpoch) { rememberLazyGridState() }
     var galleryOpen by remember(state.baseUrl) { mutableStateOf(true) }
     var batchOpen by remember(state.baseUrl) { mutableStateOf(false) }
@@ -331,14 +330,6 @@ private fun ReadyPane(
     BackHandler(enabled = !galleryOpen && !originalOpen) {
         if (!state.busy && state.panel?.submitting != true) galleryOpen = true
     }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
-    val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
-    var previewReadyFor by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf<String?>(null) }
-    var previewFailureFor by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf<String?>(null) }
-    var previewAttempt by remember(state.currentId, state.currentItem?.previewUrl) { mutableStateOf(0) }
-    var showThumbnails by rememberSaveable { mutableStateOf(false) }
-    var moreOpen by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }
     val canDisconnect = !state.busy && !state.pairingBusy && state.panel?.submitting != true
     if (confirmDisconnect) {
@@ -361,167 +352,11 @@ private fun ReadyPane(
             onResume = { onResumeGallery(); galleryOpen = false })
         return
     }
-    val nextUrl = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
-    LaunchedEffect(state.currentId, state.baseUrl, nextUrl, previewReadyFor, state.busy, state.panel?.requestId, originalOpen) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            try {
-                if (!originalOpen && state.currentId != null && previewReadyFor == state.currentId && !state.busy && state.panel == null) prefetch.update(nextUrl)
-                else prefetch.stop()
-                awaitCancellation()
-            } finally { prefetch.stop() }
-        }
-    }
-    LaunchedEffect(state.currentId, state.items.size) {
-        if (state.items.isNotEmpty()) thumbnailState.animateScrollToItem(state.currentIndex)
-    }
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { galleryOpen = true }, enabled = !state.busy && state.panel?.submitting != true) { Text("图库") }
-            Text("生图审核", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MediaTextPrimary)
-            TextButton(onClick = onRefresh, enabled = !state.busy && !state.syncing) {
-                Text(if (state.syncing) "同步中…" else "同步新图")
-            }
-        }
-
-        state.browseRecoveryMessage?.let { Banner(it, warning = true) }
-        state.message?.let { Banner(it, warning = false) }
-        state.conflictMessage?.let { Banner(it, warning = true) }
-        if (state.cursorExpired) Banner("游标已过期，已从头同步；当前图片位置保持不变", warning = true)
-        state.evaluationRecoveryHint?.let { Banner(it, warning = true) }
-
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .background(Color.Black),
-        ) {
-            val item = state.currentItem
-            if (item == null) {
-                Text(
-                    if (state.galleryEnabled) {
-                        if (state.syncing) "正在读取当前日期范围…" else "当前范围没有可查看的图片，请返回图库调整日期或查看最新"
-                    } else "暂无待审核图片。新图会自动追加到队尾。",
-                    color = MediaTextSecondary,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            } else {
-                key(previewAttempt) {
-                    AsyncImage(
-                        model = imageLoader.request(safeNsfwImageUrl(state.baseUrl, item.previewUrl)),
-                        imageLoader = imageLoader.loader,
-                        onLoading = { previewReadyFor = null; previewFailureFor = null },
-                        onSuccess = { previewReadyFor = item.imageId; previewFailureFor = null },
-                        onError = { previewReadyFor = null; previewFailureFor = item.imageId },
-                        contentDescription = "待审核图片",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().clickable(enabled = !state.busy) { onOpenOriginal(item) },
-                    )
-                }
-                if (previewFailureFor == item.imageId) {
-                    TextButton(
-                        onClick = { previewFailureFor = null; previewAttempt += 1 },
-                        modifier = Modifier.align(Alignment.Center).background(Color(0xCC000000)),
-                    ) { Text("图片加载失败 · 点击重试", color = MediaTextPrimary) }
-                } else if (previewReadyFor != item.imageId) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(28.dp), color = V2Colors.Accent)
-                }
-                if (state.detailLoading) {
-                    CircularProgressIndicator(
-                        color = V2Colors.Accent,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(V2Spacing.Md).size(22.dp),
-                    )
-                }
-            }
-        }
-
-        if (state.newImageCount > 0) {
-            Text(
-                if (state.galleryEnabled) "有 ${state.newImageCount} 张新图片 · 查看最新"
-                else "队尾新增 ${state.newImageCount} 张 · 点击查看最新图片",
-                color = V2Colors.Accent,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.clickable(onClick = { if (state.galleryEnabled) galleryOpen = true; onViewLatest() })
-                    .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
-            )
-        }
-
-        if (showThumbnails) LazyRow(
-            state = thumbnailState,
-            modifier = Modifier.fillMaxWidth().height(76.dp),
-            contentPadding = PaddingValues(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
-            horizontalArrangement = Arrangement.spacedBy(V2Spacing.Xs),
-        ) {
-            items(state.items, key = { it.imageId }) { item ->
-                Thumbnail(
-                    url = safeNsfwImageUrl(state.baseUrl, item.thumbnailUrl),
-                    imageLoader = imageLoader,
-                    selected = item.imageId == state.currentId,
-                    onClick = { onSelect(item.imageId) },
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Md),
-            horizontalArrangement = Arrangement.spacedBy(V2Spacing.Sm),
-        ) {
-            Button(
-                onClick = { onDecision("KEEP", null) },
-                enabled = !state.busy && state.detail != null && previewReadyFor == state.currentId,
-                modifier = Modifier.weight(1f),
-            ) { Text("保留", style = MaterialTheme.typography.labelLarge) }
-            Button(
-                onClick = { onDecision("REJECT", null) },
-                enabled = !state.busy && state.detail != null && previewReadyFor == state.currentId,
-                modifier = Modifier.weight(1f),
-            ) { Text("淘汰", style = MaterialTheme.typography.labelLarge) }
-        }
-        if (state.undoDecision != null) {
-            TextButton(onClick = onUndo, enabled = !state.busy) { Text("撤销上一次审核") }
-        }
-        FlowRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = V2Spacing.Md, vertical = V2Spacing.Xs),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.Center,
-        ) {
-            TextButton(onClick = onPrevious, enabled = !state.busy && (state.currentIndex > 0 || !state.syncing && state.bidirectionalGallery && state.previousPageCursor != null)) { Text("上一张") }
-            Text(
-                state.reviewPositionLabel,
-                color = MediaTextSecondary,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
-            )
-            TextButton(onClick = onOpenDetails, enabled = state.detail != null,
-                contentPadding = PaddingValues(horizontal = 4.dp)) { Text("图片信息") }
-            TextButton(onClick = onNext, enabled = !state.busy && (state.currentIndex + 1 < state.items.size || !state.syncing && state.bidirectionalGallery && state.hasMore)) { Text("下一张") }
-            Box {
-                IconButton(onClick = { moreOpen = true }) { Icon(Icons.Default.MoreVert, "更多操作", tint = MediaTextPrimary) }
-                DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                    if (state.hasMore) DropdownMenuItem(text = { Text("加载更多") }, enabled = !state.busy && !state.syncing,
-                        onClick = { moreOpen = false; onLoadMore() })
-                    DropdownMenuItem(text = { Text(if (showThumbnails) "收起缩略图" else "展开缩略图") },
-                        onClick = { showThumbnails = !showThumbnails; moreOpen = false })
-                    DropdownMenuItem(text = { Text(if (state.currentItem?.isFavorite == true) "取消收藏" else "收藏") },
-                        enabled = !state.busy && state.detail != null,
-                        onClick = { moreOpen = false; onToggleFavorite() })
-                    DropdownMenuItem(text = { Text("重置审核状态") }, enabled = !state.busy && state.detail != null,
-                        onClick = { moreOpen = false; onDecision("RESET", null) })
-                    DropdownMenuItem(text = { Text("解除生图配对") }, enabled = canDisconnect,
-                        onClick = { moreOpen = false; confirmDisconnect = true })
-                }
-            }
-        }
-    }
+    NsfwImageReviewPane(state, imageLoader,
+        onGallery = { galleryOpen = true }, onRefresh = onRefresh,
+        onPrevious = onPrevious, onNext = onNext, onSelect = onSelect, onDecision = onDecision,
+        onToggleFavorite = onToggleFavorite, onUndo = onUndo, onDetails = onOpenDetails,
+        onLatest = onViewLatest, onDisconnect = { confirmDisconnect = true })
 }
 
 @Composable
@@ -538,7 +373,7 @@ private fun Banner(text: String, warning: Boolean) {
 }
 
 @Composable
-private fun Thumbnail(
+internal fun NsfwReviewThumbnail(
     url: String,
     imageLoader: NsfwImageLoader,
     selected: Boolean,

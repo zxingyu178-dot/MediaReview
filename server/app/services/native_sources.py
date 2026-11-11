@@ -96,6 +96,11 @@ class LocalDeleteNotVerifiedError(LocalDeleteError):
     default_message = "无法确认文件已删除，已停止本次操作"
 
 
+class LocalDeletePendingError(LocalDeleteNotVerifiedError):
+    """句柄已接受延迟删除，当前仍不能确认名字消失；只能观察恢复。"""
+    delete_code = "delete_pending"
+
+
 class LocalDeleteNotSupportedError(LocalDeleteError):
     status_code = 409
     code = "LOCAL_DELETE_NOT_SUPPORTED"
@@ -476,6 +481,34 @@ def _close_windows_handle(close_handle, handle) -> bool:
     return bool(close_handle(handle))
 
 
+def _set_windows_delete_disposition(handle, set_info, last_error, *, force_posix_unsupported=False):
+    """仅对不支持 POSIX disposition 的错误，用原 DELETE 句柄兼容删除。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class DispositionEx(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD)]
+
+    class Disposition(ctypes.Structure):
+        _fields_ = [("DeleteFile", wintypes.BOOL)]
+
+    info = DispositionEx(3)
+    if not force_posix_unsupported and set_info(handle, 21, ctypes.byref(info), ctypes.sizeof(info)):
+        return False
+    error = 50 if force_posix_unsupported else last_error()
+    if error in (50, 87):
+        legacy = Disposition(True)
+        if set_info(handle, 4, ctypes.byref(legacy), ctypes.sizeof(legacy)):
+            return True
+        error = last_error()
+    logger.warning("本地删除 disposition 失败 winerror=%s", error)
+    if error in (32, 33):
+        raise LocalFileInUseError()
+    if error == 5:
+        raise LocalDeleteAccessDeniedError()
+    raise LocalDeleteNotSupportedError()
+
+
 def _windows_delete_bound(
     target: VerifiedLocalDelete, *, force_posix_unsupported: bool = False
 ) -> str:
@@ -488,11 +521,7 @@ def _windows_delete_bound(
     share_all = 0x00000001 | 0x00000002 | 0x00000004
     open_existing = 3
     open_reparse_point = 0x00200000
-    file_disposition_info_ex = 21
-    file_disposition_delete = 0x00000001
-    file_disposition_posix_semantics = 0x00000002
     error_file_not_found = 2
-    unsupported_posix_errors = {50, 87}
     sharing_errors = {32, 33}
     error_access_denied = 5
     reparse_attribute = 0x00000400
@@ -510,9 +539,6 @@ def _windows_delete_bound(
             ("nFileIndexHigh", wintypes.DWORD),
             ("nFileIndexLow", wintypes.DWORD),
         ]
-
-    class FileDispositionInformationEx(ctypes.Structure):
-        _fields_ = [("Flags", wintypes.DWORD)]
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
@@ -592,26 +618,10 @@ def _windows_delete_bound(
         if os.path.normcase(str(final_path)) != os.path.normcase(str(target.path.absolute())):
             raise SourcePathError()
 
-        disposition_ex = FileDispositionInformationEx(
-            file_disposition_delete | file_disposition_posix_semantics
+        legacy_pending = _set_windows_delete_disposition(
+            handle, set_info, ctypes.get_last_error,
+            force_posix_unsupported=force_posix_unsupported,
         )
-        disposition_set = False if force_posix_unsupported else bool(
-            set_info(
-                handle,
-                file_disposition_info_ex,
-                ctypes.byref(disposition_ex),
-                ctypes.sizeof(disposition_ex),
-            )
-        )
-        if not disposition_set:
-            error = 50 if force_posix_unsupported else ctypes.get_last_error()
-            if error in unsupported_posix_errors:
-                raise LocalDeleteNotSupportedError() from None
-            if error in sharing_errors:
-                raise LocalFileInUseError() from None
-            if error == error_access_denied:
-                raise LocalDeleteAccessDeniedError() from None
-            raise LocalDeleteNotSupportedError() from None
     finally:
         close_succeeded = _close_windows_handle(close_handle, handle)
         if not close_succeeded:
@@ -624,8 +634,8 @@ def _windows_delete_bound(
     except FileNotFoundError:
         return "success"
     except OSError:
-        raise LocalDeleteNotVerifiedError() from None
-    raise LocalDeleteNotVerifiedError()
+        raise (LocalDeletePendingError() if legacy_pending else LocalDeleteNotVerifiedError()) from None
+    raise (LocalDeletePendingError() if legacy_pending else LocalDeleteNotVerifiedError())
 
 
 def _posix_delete_bound(target: VerifiedLocalDelete) -> None:

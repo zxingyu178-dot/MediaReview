@@ -10,6 +10,7 @@ Task D 起最终删除采用一次性 nonce 合同:
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -871,6 +872,17 @@ def _delete_one(
     return "success", actual_size
 
 
+def _delete_os_error_code(error: OSError) -> str:
+    winerror = getattr(error, "winerror", None)
+    if winerror in (32, 33):
+        return "file_in_use"
+    if winerror == 5 or (winerror is None and error.errno in (errno.EACCES, errno.EPERM)):
+        return "delete_access_denied"
+    if winerror in (50, 87):
+        return "delete_not_supported"
+    return "delete_failed"
+
+
 def _commit_one(
     session: Session,
     entry: _SnapshotEntry,
@@ -904,8 +916,13 @@ def _commit_one(
     except FileNotFoundError:
         result, actual_size = "missing", 0
     except AppError as exc:
-        from app.services.native_sources import deletion_failure_code
+        from app.services.native_sources import LocalDeletePendingError, deletion_failure_code
 
+        if isinstance(exc, LocalDeletePendingError):
+            row.status = "delete_pending"
+            row.error = "delete_pending"
+            session.commit()
+            return "failed", 0
         failure_code = deletion_failure_code(exc)
         result, actual_size = "failed", 0
     except ValueError as exc:
@@ -913,8 +930,12 @@ def _commit_one(
         if failure_code.startswith(_GUARD_STAT + ":"):
             failure_code = _GUARD_STAT
         result, actual_size = "failed", 0
-    except OSError:
-        failure_code = _GUARD_STAT if media and media.source_type == "local" else "delete_failed"
+    except OSError as exc:
+        failure_code = _GUARD_STAT if media and media.source_type == "local" else _delete_os_error_code(exc)
+        logger.warning(
+            "删除失败 code=%s exception=%s errno=%s winerror=%s",
+            failure_code, type(exc).__name__, exc.errno, getattr(exc, "winerror", None),
+        )
         result, actual_size = "failed", 0
     except Exception:
         session.rollback()
@@ -986,7 +1007,7 @@ def _commit_claims(
             result, deleted_bytes = "failed", 0
         if receipt_nonce is not None and result == "failed":
             queued = session.get(DeleteQueue, media_id)
-            if queued is not None and queued.status == "committing":
+            if queued is not None and queued.status in ("committing", "delete_pending"):
                 # Unexpected exceptions can occur after unlink: failed is not a
                 # confirmed filesystem fact while the intent is unresolved.
                 receipt_row = session.get(DeleteCommitNonce, receipt_nonce)

@@ -2,6 +2,14 @@ package com.mediareview.app.feature.v2.nsfw
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
@@ -11,6 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
@@ -27,6 +37,7 @@ import com.mediareview.app.ui.theme.MediaTextSecondary
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** 共用既有feed与图片认证；网格只为可见单元创建缩略图请求。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NsfwGallery(
     state: NsfwUiState,
@@ -48,6 +59,17 @@ internal fun NsfwGallery(
     var restoringNow by remember { mutableStateOf(false) }
     var userMoved by remember(state.baseUrl) { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var filtersOpen by remember { mutableStateOf(false) }
+    var sortOpen by remember { mutableStateOf(false) }
+    var capabilityOpen by remember { mutableStateOf(false) }
+    val filter = state.galleryQuery.filter
+    // 未确认提交类消息即使来自通用消息字段，也不能被普通提示隐藏。
+    val criticalMessage = state.message?.takeIf { message ->
+        listOf("未知", "未确认", "无法确认", "待核对", "核对回执", "冲突").any { it in message }
+    }
+    val ordinaryMessages = listOfNotNull(state.browseRecoveryMessage, state.message?.takeIf { it != criticalMessage }).distinct()
+    var messageExpanded by remember(ordinaryMessages) { mutableStateOf(false) }
+    var messageDismissed by remember(ordinaryMessages) { mutableStateOf(false) }
     LaunchedEffect(state.items.size, initialAnchor) {
         if (restorePending && initialAnchor != null) {
             val index = state.items.indexOfFirst { it.imageId == initialAnchor.imageId }
@@ -73,43 +95,74 @@ internal fun NsfwGallery(
             }
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().testTag("nsfw_gallery")) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("生图图库", color = MediaTextPrimary, style = MaterialTheme.typography.titleLarge)
-                Text("已加载 ${state.items.size} 张${if (state.hasMore) " · 仍有更多" else ""}", color = MediaTextSecondary)
-            }
-            TextButton(onClick = if (state.galleryEnabled) onLatest else onRefresh, enabled = !state.syncing && !state.busy) {
-                Text(if (state.syncing) "同步中…" else if (state.galleryEnabled) "查看最新" else "同步新图")
-            }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("生图", color = MediaTextPrimary, style = MaterialTheme.typography.titleMedium)
+            Text(if (state.galleryEnabled) " ${state.galleryTotal}张" else " 已载${state.items.size}",
+                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
             Box {
-                TextButton(onClick = { moreOpen = true }) { Text("更多") }
+                TextButton(onClick = { if (state.galleryEnabled) sortOpen = true else capabilityOpen = true },
+                    modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                    Text(if (!state.galleryEnabled) "需更新电脑端" else if (filter.sort == NsfwGallerySort.NEWEST) "最新" else "最早",
+                        maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                }
+                DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
+                    NsfwGallerySort.entries.forEach { sort ->
+                        DropdownMenuItem(text = { Text(sort.label) }, enabled = !state.busy && !state.syncing,
+                            onClick = { sortOpen = false; onChangeFilter(filter.copy(sort = sort)) })
+                    }
+                }
+            }
+            GalleryIconButton("筛选", Icons.Default.FilterList, { filtersOpen = true })
+            GalleryIconButton(if (state.syncing) "正在同步图库" else "刷新图库", Icons.Default.Refresh, onRefresh,
+                enabled = !state.syncing && !state.busy, loading = state.syncing)
+            Box {
+                GalleryIconButton("更多操作", Icons.Default.MoreVert, { moreOpen = true })
                 DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                    if (state.galleryEnabled) DropdownMenuItem(text = { Text("查看最新") },
+                        enabled = !state.busy && !state.syncing,
+                        onClick = { moreOpen = false; onLatest() })
+                    DropdownMenuItem(text = { Text("9图批量审核") }, enabled = !state.busy,
+                        onClick = { moreOpen = false; onOpenBatch() })
+                    DropdownMenuItem(text = { Text(if (state.hasBrowsePosition) "继续上次" else "开始审核") },
+                        enabled = (state.currentItem != null || state.hasBrowsePosition) && !state.busy,
+                        onClick = { moreOpen = false; onResume() })
                     DropdownMenuItem(text = { Text("解除生图配对") }, enabled = !state.busy && state.panel?.submitting != true,
                         onClick = { moreOpen = false; onDisconnect() })
                 }
             }
         }
-        if (state.galleryEnabled) GalleryFilters(state.galleryQuery.filter, !state.busy, onChangeFilter)
-        if (state.galleryMembershipUnknown) Text("部分更新的筛选归属待确认，请重新查询；新增数仅统计已确认匹配的图片", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-        if (state.gallerySearchEnabled) LibrarySearch(state.galleryQuery.filter, !state.busy && !state.syncing, onChangeFilter)
-        if (state.galleryFiltersEnabled) LibraryFilters(state.galleryQuery.filter, !state.busy && !state.syncing, onChangeFilter)
-        else Text("排序和日期筛选需更新电脑端生图审核服务", color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp))
-        TextButton(onClick = onOpenBatch, enabled = !state.busy && !state.syncing) { Text("9图批量审核") }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(enabled = (state.currentItem != null || state.hasBrowsePosition) && !state.busy && !state.syncing,
-                onClick = onResume) { Text(if (state.hasBrowsePosition) "继续上次" else "开始审核") }
-            if (state.restoringBrowsePosition) Text("正在恢复上次图片…", color = MediaTextSecondary)
-            if (state.newImageCount > 0) {
-                if (state.galleryEnabled) TextButton(onClick = onLatest, enabled = !state.busy && !state.syncing) { Text("${state.newImageCount} 张新图 · 查看最新") }
-                else Text("队尾新增 ${state.newImageCount} 张", color = MediaTextSecondary)
+        if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) {
+                    TextButton(onClick = { filtersOpen = true }) { Text("筛选已启用") }
+                    TextButton(enabled = !state.busy && !state.syncing, onClick = {
+                        onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
+                    }) { Text("清除") }
+                }
+                Spacer(Modifier.weight(1f))
+                if (state.newImageCount > 0) TextButton(
+                    onClick = { if (state.galleryEnabled) onLatest() else capabilityOpen = true },
+                    enabled = !state.busy && !state.syncing) { Text("新图 ${state.newImageCount}") }
             }
         }
-        state.browseRecoveryMessage?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
-        state.message?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
-        state.conflictMessage?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
-        state.evaluationRecoveryHint?.let { Text(it, color = MediaTextSecondary, modifier = Modifier.padding(horizontal = 12.dp)) }
+        if (ordinaryMessages.isNotEmpty() && !messageDismissed) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(ordinaryMessages.joinToString("；"), color = MediaTextSecondary,
+                    modifier = Modifier.weight(1f).clickable { messageExpanded = !messageExpanded },
+                    maxLines = if (messageExpanded) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onRefresh, enabled = !state.syncing && !state.busy) { Text("重试") }
+                TextButton(onClick = { messageDismissed = true }) { Text("收起") }
+            }
+        }
+        // 冲突、未知结果与筛选归属必须持续可见，不参与普通提示的收起。
+        criticalMessage?.let { Text(it, modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
+        state.conflictMessage?.let { Text(it, modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
+        state.evaluationRecoveryHint?.let { Text(it, modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
+        if (state.galleryMembershipUnknown) Text("筛选归属待确认，请重新查询", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error)
         if (state.bidirectionalGallery && state.previousPageCursor != null) TextButton(onClick = onLoadPrevious, enabled = !state.syncing && !state.busy) {
-            Text(if (state.syncing) "正在加载…" else "加载前页")
+            Text("加载前页")
         }
         if (state.items.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -122,7 +175,38 @@ internal fun NsfwGallery(
                 GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
             }
         }
-        if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text(if (state.syncing) "正在加载…" else "加载更多") }
+        if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text("加载更多") }
+    }
+    if (filtersOpen) ModalBottomSheet(onDismissRequest = { filtersOpen = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("筛选生图", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { filtersOpen = false }) { Text("完成") }
+            }
+            if (state.galleryEnabled) GalleryFilters(filter, !state.busy && !state.syncing, onChangeFilter)
+            else Text("排序和日期筛选需更新电脑端生图审核服务；当前保持旧版队列顺序。", modifier = Modifier.padding(16.dp))
+            if (state.galleryFiltersEnabled) LibraryFilters(filter, !state.busy && !state.syncing, onChangeFilter)
+            else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
+            if (state.gallerySearchEnabled) LibrarySearch(filter, !state.busy && !state.syncing, onChangeFilter)
+            else Text("搜索与文字标签需更新电脑端", modifier = Modifier.padding(16.dp))
+        }
+    }
+    if (capabilityOpen) AlertDialog(onDismissRequest = { capabilityOpen = false },
+        title = { Text("需更新电脑端") },
+        text = { Text("当前电脑端未提供图库查询能力，不能按全库创建时间排序。请更新配套生图审核服务；当前保持旧版队列顺序，新图追加在队尾。") },
+        confirmButton = { TextButton(onClick = { capabilityOpen = false }) { Text("知道了") } })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GalleryIconButton(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true, loading: Boolean = false) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp).semantics { contentDescription = label }, strokeWidth = 2.dp)
+            } else Icon(icon, contentDescription = label)
+        }
     }
 }
 

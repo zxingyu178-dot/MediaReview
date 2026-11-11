@@ -962,8 +962,8 @@ def test_windows_production_close_handle_failure_has_recoverable_semantics(
     assert not target.exists()
 
 
-def test_windows_posix_unsupported_fails_closed_without_deleting(native_db, tmp_path):
-    """POSIX disposition 不受支持时返回稳定失败码，文件与元数据保持原样。"""
+def test_windows_posix_unsupported_uses_bound_handle_fallback(native_db, tmp_path):
+    """POSIX 不支持时同句柄兼容删除，关闭后复验缺失才成功。"""
     if os.name != "nt":
         pytest.skip("Windows POSIX disposition 专项")
 
@@ -977,13 +977,10 @@ def test_windows_posix_unsupported_fails_closed_without_deleting(native_db, tmp_
     receipt = _commit_pending_with_nonce(
         native_db, nonce, force_posix_unsupported=True
     )
-    assert receipt == {mid: "failed"}
-    assert target.read_bytes() == b"keep"
+    assert receipt == {mid: "success"}
+    assert not target.exists()
     with native_db.session() as session:
-        queued = session.get(DeleteQueue, mid)
-        assert queued.status == "failed"
-        assert queued.error == "delete_not_supported"
-        assert session.get(MediaCacheIndex, mid) is not None
+        assert session.get(DeleteQueue, mid) is None
 
 
 def test_windows_handle_without_share_delete_fails_file_in_use(native_db, tmp_path):
@@ -1299,3 +1296,63 @@ def test_registration_success_means_task_visible_to_next_connection(native_db, t
         with native_db.session() as next_connection:
             assert next_connection.get(BackgroundTask, response.data["task"]["task_id"]) is not None
             assert next_connection.get(LocalRoot, response.data["source"]["source_id"]) is not None
+
+
+@pytest.mark.parametrize("error, fallback, expected", [(50, True, None), (87, True, None), (50, False, "delete_not_supported"), (32, False, "file_in_use"), (5, False, "delete_access_denied"), (1234, False, "delete_not_supported")])
+def test_windows_disposition_fallback_only_on_unsupported(error, fallback, expected):
+    calls = []
+    def set_info(handle, kind, data, size):
+        calls.append((handle, kind))
+        return fallback if kind == 4 else False
+    if expected:
+        with pytest.raises(native_sources.LocalDeleteError) as caught:
+            native_sources._set_windows_delete_disposition(123, set_info, lambda: error)
+        assert caught.value.delete_code == expected
+    else:
+        native_sources._set_windows_delete_disposition(123, set_info, lambda: error)
+    assert calls == ([(123, 21), (123, 4)] if error in (50, 87) else [(123, 21)])
+
+
+@pytest.mark.parametrize("winerror, expected", [(5, "delete_access_denied"), (32, "file_in_use"), (33, "file_in_use"), (50, "delete_not_supported"), (1234, "delete_failed")])
+def test_jellyfin_os_error_classification_is_path_free(winerror, expected):
+    error = OSError("private-media-path")
+    error.winerror = winerror
+    assert delete_queue._delete_os_error_code(error) == expected
+
+
+def test_windows_legacy_disposition_with_live_reader_never_claims_success(native_db, tmp_path, monkeypatch):
+    if os.name != "nt":
+        pytest.skip("Windows disposition")
+    from app.db.models import DeleteCommitNonce
+    root, _ = _register_and_scan(native_db, tmp_path, {"reader.jpg": b"keep"})
+    target, mid = root / "reader.jpg", _indexed(native_db)[0]
+    with native_db.session() as session:
+        delete_queue.enqueue(session, mid, size_bytes=4)
+        nonce = delete_queue.prepare_commit(session).nonce
+        session.commit()
+    kernel32, reader = _open_windows_read_handle(target, share_delete=True)
+    try:
+        receipt = _commit_pending_with_nonce(native_db, nonce, force_posix_unsupported=True)
+        assert receipt == {} and receipt.deleted_bytes == 0
+        with native_db.session() as session:
+            assert session.get(DeleteQueue, mid).status == "delete_pending"
+            assert session.get(DeleteCommitNonce, nonce).receipt_state == "unknown"
+            assert not delete_queue.dequeue(session, mid)
+            with pytest.raises(OSError):
+                delete_queue.enqueue(session, mid, size_bytes=4)
+            assert session.get(DeleteQueue, mid).status == "delete_pending"
+            assert delete_queue.prepare_commit(session).count == 0
+    finally:
+        kernel32.CloseHandle(reader)
+    def forbidden_delete(*args, **kwargs):
+        raise AssertionError("recovery must only observe")
+    monkeypatch.setattr(native_sources, "_windows_delete_bound", forbidden_delete)
+    with native_db.session() as session:
+        delete_queue.recover_interrupted_deletes(session)
+        assert session.get(DeleteQueue, mid) is None
+        assert session.get(MediaCacheIndex, mid) is None
+        batch = session.get(DeleteCommitNonce, nonce)
+        assert batch.receipt_state == "unknown"
+        assert json.loads(batch.result_json)["deleted_bytes"] == 0
+        assert json.loads(batch.result_json)["outcome"] == {}
+    assert not target.exists()

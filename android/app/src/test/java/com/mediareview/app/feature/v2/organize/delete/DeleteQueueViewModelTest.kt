@@ -40,6 +40,50 @@ class DeleteQueueViewModelTest {
     private fun prepare(count: Int = 2, bytes: Long = 2_000) =
         DeleteCommitPrepare("nonce-1", "2026-10-01T12:10:00", count, bytes, listOf("aaa", "bbb"))
 
+    @Test fun `待核对计数覆盖三种中间状态并独立于待处理失败`() {
+        val ui = DeleteQueueUiState(entries = listOf(
+            entry("pending"), entry("failed", "failed"),
+            entry("committing", "committing"), entry("delete_pending", "delete_pending"),
+            entry("delete_done", "delete_done"),
+        ))
+        assertEquals(1, ui.pendingCount)
+        assertEquals(1, ui.failedCount)
+        assertEquals(3, ui.unconfirmedCount)
+        assertEquals(1_000L, ui.pendingBytes)
+    }
+
+    @Test fun `待核对行拒绝恢复且保留列表和阶段`() = runTest(main.dispatcher) {
+        val entries = listOf("committing", "delete_pending", "delete_done").map { entry(it, it) }
+        val repo = FakeOrganizeRepository().apply { deleteQueueResult = Result.success(entries) }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        val before = vm.ui.value
+        val loadsBefore = repo.loadDeleteQueueCalls
+
+        entries.forEach { vm.restore(it.mediaId) }
+        vm.restore("not-in-current-list")
+        advanceUntilIdle()
+
+        assertTrue(repo.restoreCalls.isEmpty())
+        assertEquals(loadsBefore, repo.loadDeleteQueueCalls)
+        assertEquals(before, vm.ui.value)
+        assertEquals(0, repo.prepareCalls)
+        assertEquals(0, repo.commitCalls)
+    }
+
+    @Test fun `待处理与失败行仍可恢复并刷新`() = runTest(main.dispatcher) {
+        val repo = FakeOrganizeRepository().apply {
+            deleteQueueResult = Result.success(listOf(entry("pending"), entry("failed", "failed")))
+        }
+        val vm = DeleteQueueViewModel(repo)
+        vm.load(); advanceUntilIdle()
+        val loadsBefore = repo.loadDeleteQueueCalls
+        vm.restore("pending"); advanceUntilIdle()
+        vm.restore("failed"); advanceUntilIdle()
+        assertEquals(listOf("pending", "failed"), repo.restoreCalls)
+        assertEquals(loadsBefore + 2, repo.loadDeleteQueueCalls)
+    }
+
     @Test fun `提交超时仅查询结果不重发删除`() = runTest(main.dispatcher) {
         val response = com.mediareview.app.feature.v2.organize.data.DeleteCommitResponse(
             mapOf("aaa" to DeleteOutcomeStatus.Success),

@@ -128,8 +128,8 @@ data class NsfwUiState(
     val reviewPositionLabel: String get() = when {
         items.isEmpty() -> "0 / 0"
         bidirectionalGallery && galleryPositionValid -> "${galleryStartIndex + currentIndex + 1} / $galleryTotal"
-        bidirectionalGallery -> "位置待校验 · 已加载 ${items.size} 张"
-        else -> "${currentIndex + 1} / ${items.size} · 已加载"
+        bidirectionalGallery -> "位置待确认"
+        else -> "第 ${currentIndex + 1} 张"
     }
 }
 

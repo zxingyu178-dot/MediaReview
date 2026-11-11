@@ -96,6 +96,9 @@ fun ZoomableImage(
     onScaleChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     source: ZoomImageSource? = null,
+    resetZoomToken: Int = 0,
+    onImageReady: (Boolean) -> Unit = {},
+    fitScaleTolerance: Float = 0f,
 ) {
     var viewport by remember { mutableStateOf(Size.Zero) }
     var scale by remember { mutableFloatStateOf(1f) }
@@ -105,6 +108,9 @@ fun ZoomableImage(
     val scaleRef = rememberUpdatedState(scale)
     val animatedOffset by animateOffsetAsState(offset, spring(dampingRatio = 0.72f, stiffness = 520f), label = "image_rebound")
     val offsetRef = rememberUpdatedState(if (gestureActive) offset else animatedOffset)
+    val currentOnTap = rememberUpdatedState(onTap)
+    val currentOnScaleChange = rememberUpdatedState(onScaleChange)
+    val currentOnImageReady = rememberUpdatedState(onImageReady)
 
     // 封面(媒体墙已缓存)作为渐进加载的第一帧: 进入 Viewer 立即有内容,不黑屏
     val context = LocalContext.current
@@ -152,11 +158,11 @@ fun ZoomableImage(
     fun viewportOrigin(v: Size): Offset = Offset(v.width / 2f, v.height / 2f)
 
     // 翻页成为当前页时统一重置缩放（不记忆每张图独立缩放位置）
-    LaunchedEffect(isCurrent) {
+    LaunchedEffect(isCurrent, resetZoomToken) {
         if (isCurrent) {
             scale = 1f
             offset = Offset.Zero
-            onScaleChange(1f)
+            currentOnScaleChange.value(1f)
         }
     }
 
@@ -188,7 +194,8 @@ fun ZoomableImage(
                                 val dist = (c0 - c1).getDistance()
                                 val centroid = (c0 + c1) / 2f
                                 if (lastDist > 0f) {
-                                    val newScale = ZoomMath.clampScale(scale * dist / lastDist)
+                                    val candidate = ZoomMath.clampScale(scale * dist / lastDist)
+                                    val newScale = if (candidate <= 1f + fitScaleTolerance) 1f else candidate
                                     val effectiveK = newScale / scale
                                     if (effectiveK != 1f) {
                                         // 与 graphicsLayer 默认中心 TransformOrigin 对齐的焦点缩放
@@ -199,7 +206,7 @@ fun ZoomableImage(
                                     scale = newScale
                                     offset = ZoomMath.resetOffsetIfScaleOne(scale, offset)
                                     offset = ZoomMath.clampOffset(offset, viewport, imageSize, scale)
-                                    onScaleChange(scale)
+                                    currentOnScaleChange.value(scale)
                                 }
                                 lastDist = dist
                                 pressed.forEach { it.consume() }
@@ -225,7 +232,7 @@ fun ZoomableImage(
             }
             .pointerInput(previewUri, fullUri) {
                 detectTapGestures(
-                    onTap = { onTap() },
+                    onTap = { currentOnTap.value() },
                     onDoubleTap = { pos ->
                         val target = ZoomMath.doubleTapTarget(scale)
                         if (target > 1f) {
@@ -239,7 +246,7 @@ fun ZoomableImage(
                         // 双击放大后必须立即 clamp，边缘双击不能跳出有效边界
                         offset = ZoomMath.resetOffsetIfScaleOne(scale, offset)
                         offset = ZoomMath.clampOffset(offset, viewport, imageSize, scale)
-                        onScaleChange(scale)
+                        currentOnScaleChange.value(scale)
                     },
                 )
             },
@@ -267,6 +274,9 @@ fun ZoomableImage(
             val fullState = fullPainter.state
             val fullReady = fullState is AsyncImagePainter.State.Success
             val fullFailed = fullState is AsyncImagePainter.State.Error
+            LaunchedEffect(previewHasContent, fullReady, isCurrent, previewUri, fullUri) {
+                if (isCurrent) currentOnImageReady.value(previewHasContent || fullReady)
+            }
             // 性能打点: 原图就绪(渐进加载的"清晰度提升"时刻)
             LaunchedEffect(fullReady, isCurrent, fullUri, originalSession.namespace) {
                 if (source == null && fullReady && isCurrent) {

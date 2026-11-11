@@ -110,10 +110,19 @@ data class DeleteQueueUiState(
 ) {
     /** 可最终删除的条数（服务端只允许 pending 被删除）。 */
     val pendingCount: Int get() = entries.count { it.status == "pending" }
+    val failedCount: Int get() = entries.count { it.status == "failed" }
+    val unconfirmedCount: Int get() = entries.count { it.resultUnconfirmed }
 
     val pendingBytes: Long get() = entries.filter { it.status == "pending" }.sumOf { it.sizeBytes }
     val pendingUnknownSizes: Int get() = entries.count { it.status == "pending" && !it.sizeKnown }
 }
+
+/** 服务端仍在处理或等待核验的记录，不可恢复或当作已确认结果。 */
+internal val DeleteQueueEntry.resultUnconfirmed: Boolean
+    get() = status in setOf("committing", "delete_pending", "delete_done")
+
+internal val DeleteQueueEntry.canRestore: Boolean
+    get() = status == "pending" || status == "failed"
 
 /**
  * 待删除中心 ViewModel（Stage 8C §15/§17/§19~§25）。
@@ -159,6 +168,8 @@ class DeleteQueueViewModel @Inject constructor(
 
     /** 撤销待删除：只有服务端成功才刷新列表（失败保持原样 + 提示，§17）。 */
     fun restore(mediaId: String) {
+        // 使用当前列表重新判断，避免旧按钮或直接调用绕过未知结果保护。
+        if (_ui.value.entries.none { it.mediaId == mediaId && it.canRestore }) return
         if (!restoringIds.add(mediaId)) return
         viewModelScope.launch {
             try {

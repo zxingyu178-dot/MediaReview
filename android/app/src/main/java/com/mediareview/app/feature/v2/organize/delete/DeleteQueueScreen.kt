@@ -127,20 +127,28 @@ fun DeleteQueueScreen(
                     )
                     Text(
                         text = if (ui.phase is DeleteCommitPhase.Checking || ui.phase is DeleteCommitPhase.Unconfirmed) {
-                            "有一批删除结果待核对"
+                            "有一批删除结果待核对\n待处理 ${ui.pendingCount} 项 · 失败 ${ui.failedCount} 项 · 待核对 ${ui.unconfirmedCount} 项"
                         } else if (ui.loading && ui.entries.isEmpty()) {
                             "正在加载待删除列表…"
                         } else if (ui.error != null && ui.entries.isEmpty()) {
                             "待删除数量暂不可用"
-                        } else if (ui.pendingCount > 0) {
-                            "${ui.pendingCount} 项 · ${estimatedDeleteBytes(ui.pendingCount, ui.pendingBytes, ui.pendingUnknownSizes)}"
+                        } else if (ui.entries.isNotEmpty()) {
+                            "待处理 ${ui.pendingCount} 项 · 失败 ${ui.failedCount} 项 · 待核对 ${ui.unconfirmedCount} 项" +
+                                if (ui.pendingCount > 0) "\n${estimatedDeleteBytes(ui.pendingCount, ui.pendingBytes, ui.pendingUnknownSizes)}" else ""
                         } else {
-                            val failures = ui.entries.count { it.status == "failed" }
-                            if (failures > 0) "待处理 0 项 · 保留 $failures 项失败记录" else "没有待删除内容"
+                            "没有待删除内容"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MediaTextSecondary,
                     )
+                }
+            }
+
+            if (ui.unconfirmedCount > 0) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg), verticalAlignment = Alignment.CenterVertically) {
+                    Text("部分删除结果待核对", modifier = Modifier.weight(1f), color = MediaTextSecondary,
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { vm.load() }, enabled = !ui.loading) { Text("重新核对") }
                 }
             }
 
@@ -393,9 +401,14 @@ private fun DeleteQueueItemRow(
                     )
                 }
             }
+            if (entry.resultUnconfirmed) {
+                Text("结果待核对", style = MaterialTheme.typography.labelSmall, color = MediaDanger)
+            }
         }
-        TextButton(onClick = onRestore) {
-            Text("恢复", color = MediaTextPrimary)
+        if (entry.canRestore) {
+            TextButton(onClick = onRestore) {
+                Text("恢复", color = MediaTextPrimary)
+            }
         }
     }
 }

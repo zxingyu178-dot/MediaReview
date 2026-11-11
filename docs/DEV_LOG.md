@@ -3765,6 +3765,12 @@ NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE 
 
 ### 2026-11-11 手机UI技能调查与设计草案
 
+### 2026-11-11 Alpha37手机图库与Server1.6.7候选
+
+用户批准实施后完成紧凑图库、原位直接缩放/左右切图/信息显隐与稳定序号，增加删除待核对行UI/VM保护。Server兼容删除保持同句柄身份校验，延迟删除保持原nonce unknown与delete_pending，不虚算成功；Jellyfin只补脱敏错误分类。JVM28项、发布入口3项、Server12+4及安全修订后1项按分轮通过；Release门禁27项26通过/1旧版本断言失败，修正后仅失败1项通过，最终Release构建通过。Alpha37/code44原签名、288项输入无漂移；Server167隔离健康通过。冻结用户授权130项真实待删除清单尚未由Agent重试，旧生产运行身份/官方升级封锁仍需处理。Studio经单独用户授权部署main c984129，配置和一致数据库备份校验保留，手机实际验证继续。详见 `MOBILE_GALLERY_POLISH_RESULT_20261111.md`。
+
+### 2026-11-11 手机UI技能调查与设计草案（已完成）
+
 用户在四项手机端修复需求后要求先调查/安装合适界面技能，再开始设计。联网比较原生Android、通用UI/UX Pro Max、交互及设计系统方案，使用Codex现有skill-installer安装wshobson/agents的mobile-android-design，固定提交9c61ab243def98f72da12abd41cfcf5bcd91af9d；验证仅5份Markdown，无执行脚本/依赖/服务。安装在用户Codex技能目录，没有改共享基础设施或环境变量。已读取入口与相关参考，草案位于 `superpowers/specs/2026-11-11-mobile-generated-gallery-design.md`；自查范围、手势分工、最新范围与未部署边界、错误和删除保护一致，待用户审阅批准后再制定实施计划。未改业务代码/构建APK，未操作真实删除；本轮临时手机辅助会话已停止，ADB forward为空。
 
 ### 2026-11-11 Alpha36真机部分验证

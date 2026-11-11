@@ -415,6 +415,18 @@ object ReleaseNotesCatalog {
                 "评分面板可核对最新记录，保留尚未提交的打分和备注",
             ),
         ),
+        ReleaseNote(
+            versionCode = 44,
+            versionName = "2.0.0-alpha37",
+            title = "MediaReview 2.0 Alpha 37",
+            highlights = listOf(
+                "生图图库精简工具栏，筛选和说明按需展开",
+                "看图可直接双指缩放，放大后自动收起信息和操作",
+                "适屏时左右滑动切图，放大后拖动图片，缩回恢复信息",
+                "后台同步保持看图布局与当前位置，减少文字跳动",
+                "更新配套电脑端后可按最新生成排序和筛选日期",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
