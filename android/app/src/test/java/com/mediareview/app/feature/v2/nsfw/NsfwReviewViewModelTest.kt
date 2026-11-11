@@ -31,6 +31,25 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class NsfwReviewViewModelTest {
 
+    @Test fun foregroundDefaultChecksNewImagesWithinThreeSecondsEvenAfterEmptyPolls() = runTest {
+        val model = bootstrapPaired()
+        data.feedResponder = { nsfwPage(emptyList(), nextCursor = "live", hasMore = false) }
+        try {
+            model.setScreenVisible(true)
+            val afterInitial = data.feedCalls
+            dispatcher.scheduler.advanceTimeBy(3_100)
+            dispatcher.scheduler.runCurrent()
+            assertEquals(afterInitial + 1, data.feedCalls)
+            dispatcher.scheduler.advanceTimeBy(3_000)
+            dispatcher.scheduler.runCurrent()
+            assertEquals(afterInitial + 2, data.feedCalls)
+        } finally { model.setScreenVisible(false) }
+        val stopped = data.feedCalls
+        dispatcher.scheduler.advanceTimeBy(10_000)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(stopped, data.feedCalls)
+    }
+
     @Test fun comparisonScoreUsesFrozenVersionInsteadOfCurrentImage() = runTest {
         val model = bootstrapPaired(details = nsfwDetails("img_a", promptId = "other", versionId = "other-v", linkState = "EXACT"))
         val scope = NsfwPromptComparison.open(com.mediareview.app.feature.v2.nsfw.data.NsfwPromptLink("p", "v", "EXACT"), com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter())

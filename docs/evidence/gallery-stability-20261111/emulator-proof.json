@@ -1,0 +1,35 @@
+{
+  "sampleCount": 72,
+  "minimumSeconds": 0.5970327854156494,
+  "maximumSeconds": 6.021255254745483,
+  "averageSeconds": 3.0431851744651794,
+  "galleryRequests": [
+    {
+      "time": 1794365606.4905329,
+      "query": {
+        "sort": [
+          "created_desc"
+        ],
+        "limit": [
+          "50"
+        ]
+      }
+    },
+    {
+      "time": 1794365652.9323926,
+      "query": {
+        "sort": [
+          "created_desc"
+        ],
+        "limit": [
+          "50"
+        ]
+      }
+    }
+  ],
+  "debugSha256": "9df08ad0cc13efd034cf180f28762464d29127d96dff0469ae18806705a03b54",
+  "data": "synthetic color blocks only",
+  "phone": "NOT TESTED",
+  "homeLan": "NOT TESTED",
+  "measurementNote": "All consecutive feed intervals captured; includes immediate resync after explicit gallery refresh. Not generation-to-screen latency or a performance benchmark."
+}

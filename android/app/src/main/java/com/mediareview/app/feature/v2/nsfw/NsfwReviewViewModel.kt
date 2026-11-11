@@ -1266,7 +1266,7 @@ class NsfwReviewViewModel @Inject constructor(
                 if (target != null && (target != previous.currentId || (target in merge.updatedIds && previous.detail != null))) loadDetails(target)
                 lastCursor = next
                 cursor = next
-                pollBackoff.result(page.items.isNotEmpty())
+                pollBackoff.result(true)
                 if (!page.hasMore) return
             }
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -1290,7 +1290,6 @@ class NsfwReviewViewModel @Inject constructor(
         }
         val indexBefore = _state.value.currentIndex
         val receivedNewIds = mutableSetOf<String>()
-        var receivedChanges = false
         var pages = 0
         var cursor = lastCursor
         var recovered = false
@@ -1310,7 +1309,6 @@ class NsfwReviewViewModel @Inject constructor(
             }
             if (epoch != connectionEpoch) return
             val page = result.page
-            receivedChanges = receivedChanges || page.items.isNotEmpty()
             if (result.resetApplied) {
                 recovered = true
                 historyCatchup = true
@@ -1355,7 +1353,7 @@ class NsfwReviewViewModel @Inject constructor(
             cursor = page.nextCursor
         }
         if (epoch != connectionEpoch) return
-        pollBackoff.result(receivedChanges)
+        pollBackoff.result(true)
         val state = _state.value
         val snapshotNow = feed.snapshot()
         val targetId = browseTarget(snapshotNow, state.currentId, indexBefore, !historyCatchup)
@@ -1633,7 +1631,7 @@ class NsfwReviewViewModel @Inject constructor(
     private companion object {
         const val PAGE_SIZE = 50
         const val MAX_SYNC_PAGES = 10
-        const val DEFAULT_POLL_INTERVAL_MS = 15_000L
+        const val DEFAULT_POLL_INTERVAL_MS = 3_000L
         const val MAX_PENDING_EVALUATIONS = 5
         const val KEY_PENDING_EVALUATIONS = "nsfw_pending_evaluations"
         const val KEY_LEGACY_PENDING_EVALUATION = "nsfw_pending_evaluation"

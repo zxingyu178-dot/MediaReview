@@ -9,7 +9,7 @@ import org.junit.Assert.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NsfwLoadingPolicyTest {
-    @Test fun idlePollingBacksOffAndActivityResets() {
+    @Test fun failedPollingBacksOffAndSuccessResets() {
         val policy = NsfwPollBackoff()
         assertEquals(15000L, policy.interval(15000))
         policy.result(false)

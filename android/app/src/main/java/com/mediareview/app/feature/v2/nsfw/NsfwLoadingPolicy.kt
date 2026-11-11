@@ -6,11 +6,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 无新事件或网络失败时降频；活动/回焦恢复基础间隔。 */
+/** 仅失败时退避；健康空响应仍保持前台追新周期，回焦恢复基础间隔。 */
 internal class NsfwPollBackoff {
     private var idleRounds = 0
     fun interval(baseMs: Long): Long = (baseMs.coerceIn(1L, 60_000L) * (1L shl idleRounds)).coerceAtMost(60_000L)
-    fun result(changed: Boolean) { idleRounds = if (changed) 0 else (idleRounds + 1).coerceAtMost(2) }
+    fun result(success: Boolean) { idleRounds = if (success) 0 else (idleRounds + 1).coerceAtMost(2) }
     fun reset() { idleRounds = 0 }
 }
 
