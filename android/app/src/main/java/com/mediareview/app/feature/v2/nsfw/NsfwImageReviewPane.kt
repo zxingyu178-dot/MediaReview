@@ -114,23 +114,27 @@ internal fun NsfwImageReviewPane(
             val source = remember(item.imageId, preview, original, imageLoader) {
                 ZoomImageSource(imageLoader.loader, imageLoader.request(preview), imageLoader.request(original, original = true))
             }
-            // 只观察未被缩放器消费的单指横移；不把双指缩放或拖图误判成切图。
+            // 达到横移阈值后先声明手势，让子级点击识别取消；双指和放大拖图仍交给缩放器。
             val gestures = Modifier.pointerInput(item.imageId, chrome.zoomed, canNavigate) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     var end = down.position
                     var multiTouch = false
-                    var consumedMovement = false
+                    var swipeClaimed = false
                     do {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
                         if (event.changes.count { it.pressed || it.previousPressed } > 1) multiTouch = true
                         event.changes.firstOrNull { it.id == down.id }?.let { change ->
                             end = change.position
-                            if (change.isConsumed && change.position != change.previousPosition) consumedMovement = true
+                            val delta = end - down.position
+                            if (!multiTouch && scale <= 1.01f && canNavigate) {
+                                if (!change.isConsumed && abs(delta.x) >= swipeThreshold && abs(delta.x) > abs(delta.y) * 1.5f) swipeClaimed = true
+                                if (swipeClaimed) change.consume()
+                            }
                         }
                     } while (event.changes.any { it.pressed })
                     val delta = end - down.position
-                    if (!multiTouch && !consumedMovement && scale <= 1.01f && canNavigate &&
+                    if (swipeClaimed && !multiTouch && scale <= 1.01f && canNavigate &&
                         abs(delta.x) >= swipeThreshold && abs(delta.x) > abs(delta.y) * 1.5f) {
                         if (delta.x < 0 && latestCanNext) latestNext()
                         else if (delta.x > 0 && latestCanPrevious) latestPrevious()

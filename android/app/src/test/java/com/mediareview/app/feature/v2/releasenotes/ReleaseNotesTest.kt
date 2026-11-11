@@ -31,8 +31,8 @@ private class FakeReleaseNotesStore(private var lastSeen: Int?) : ReleaseNotesDa
  */
 class ReleaseNotesContractTest {
     @Test fun `当前版本和更新说明匹配`() {
-        assertEquals(44, BuildConfig.VERSION_CODE)
-        assertEquals("2.0.0-alpha37", BuildConfig.VERSION_NAME)
+        assertEquals(45, BuildConfig.VERSION_CODE)
+        assertEquals("2.0.0-alpha38", BuildConfig.VERSION_NAME)
         val current = requireNotNull(ReleaseNotesCatalog.forVersionCode(BuildConfig.VERSION_CODE))
         assertEquals(BuildConfig.VERSION_NAME, current.versionName)
     }

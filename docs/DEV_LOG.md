@@ -3763,8 +3763,6 @@ NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE 
 
 退出修复PR37已合入6139203，develop CI42484173446/main CI42500412539成功，日用仍b06b835。部署前只读发现生成队列从37增长到112，计划任务Ready、原carrier记录意外退出，后启动实例继续使用旧Uvicorn命令；app工作树另有anime_generate/v2/workflow.json的4行对4行无关改动，完整保留。当前不对运行实例停启/覆盖；后续维护须核身份与队列，不能把官方status健康在线等同任务受管运行。ADB当前无手机，不做实机声明。
 
-### 2026-11-11 手机UI技能调查与设计草案
-
 ### 2026-11-11 Alpha37手机图库与Server1.6.7候选
 
 用户批准实施后完成紧凑图库、原位直接缩放/左右切图/信息显隐与稳定序号，增加删除待核对行UI/VM保护。Server兼容删除保持同句柄身份校验，延迟删除保持原nonce unknown与delete_pending，不虚算成功；Jellyfin只补脱敏错误分类。JVM28项、发布入口3项、Server12+4及安全修订后1项按分轮通过；Release门禁27项26通过/1旧版本断言失败，修正后仅失败1项通过，最终Release构建通过。Alpha37/code44原签名、288项输入无漂移；Server167隔离健康通过。冻结用户授权130项真实待删除清单尚未由Agent重试，旧生产运行身份/官方升级封锁仍需处理。Studio经单独用户授权部署main c984129，配置和一致数据库备份校验保留，手机实际验证继续。详见 `MOBILE_GALLERY_POLISH_RESULT_20261111.md`。
@@ -3780,3 +3778,8 @@ NSFW新增隐藏子进程真实CTRL_BREAK测试，最终1项通过2.97秒，SSE 
 ### 2026-11-10 Alpha36候选版本准备
 
 源码版本递增至2.0.0-alpha36/code43，新增5条面向用户说明，同步既有登记builder的Android版本目标；保留Alpha35旧条目与旧APK、正式指针不变。`:app:testDebugUnitTest --tests '*releasenotes.*'` 24项通过（合同17+ViewModel7，3m14s）；登记Python执行`pytest server/tests/test_release_package_integrity_8e.py -q -k 'version_ssot_matches or manifest_and_handover or release_build_reuses'` 3项通过，测试只使用隔离夹具，不打包Server。日志temp/alpha36-{version-gate,builder-gate}-20261110.log。本节仅版本准备，新签名APK尚未构建/安装，生产不变。
+
+
+### 2026-11-11 Alpha38手势真机修正
+
+Alpha37真机确认最新首图与桌面排序一致，直接pinch322%、信息显隐、放大拖图、返回复位和刷新边界保持通过，但适屏左滑实际未前进；旧候选保留，不称左右切图通过。定位为Final观察晚于子级点击消费，改为Initial阶段声明符合阈值的单指横移，放大与双指不接管，抬起才调用既有VM前后。递增Alpha38/code45、补更新说明与版本合同，元数据/发布入口3项通过，原签名构建与新真机验证继续。Server1.6.7二进制不因客户端修正重建。

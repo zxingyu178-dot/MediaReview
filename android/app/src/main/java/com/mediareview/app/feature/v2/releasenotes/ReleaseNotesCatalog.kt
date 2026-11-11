@@ -427,6 +427,16 @@ object ReleaseNotesCatalog {
                 "更新配套电脑端后可按最新生成排序和筛选日期",
             ),
         ),
+        ReleaseNote(
+            versionCode = 45,
+            versionName = "2.0.0-alpha38",
+            title = "MediaReview 2.0 Alpha 38",
+            highlights = listOf(
+                "修正适屏左右滑动被点击手势拦截的问题",
+                "保留直接双指缩放、放大拖图和信息自动显隐",
+                "配套电脑端已接通最新与最早排序入口",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
