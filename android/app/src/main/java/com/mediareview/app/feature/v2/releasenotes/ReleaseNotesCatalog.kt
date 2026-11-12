@@ -437,6 +437,16 @@ object ReleaseNotesCatalog {
                 "配套电脑端已接通最新与最早排序入口",
             ),
         ),
+        ReleaseNote(
+            versionCode = 46,
+            versionName = "2.0.0-alpha39",
+            title = "MediaReview 2.0 Alpha 39",
+            highlights = listOf(
+                "补齐只看未审核与隐藏已淘汰筛选（需配套电脑端）",
+                "记住审核状态筛选，空列表也保留选择",
+                "修正筛选内审核、撤销和列表恢复",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
