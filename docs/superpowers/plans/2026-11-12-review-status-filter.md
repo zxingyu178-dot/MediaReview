@@ -14,8 +14,8 @@
 
 ## 任务
 
-- [ ] 后端子任务：图库status新增NOT_REJECTED及能力声明，先定向RED再实现GREEN，验证total、分页、条件绑定及状态变更。
-- [ ] 手机：NsfwGalleryQueryTest新增排除淘汰/序列化测试RED；NsfwGalleryQuery成员匹配、状态菜单与VM能力门禁实现GREEN。
-- [ ] 定向检查保存恢复和审核后成员移除，修复实际缺口，不改无关架构。
-- [ ] 复查diff，定向JVM测试与界面编译；更新结果/项目状态并提交手机代码，后端按规则交Lead、不commit。
+- [x] 后端子任务：图库status新增NOT_REJECTED及能力声明，先定向RED再实现GREEN，验证total、分页、条件绑定及状态变更。
+- [x] 手机：NsfwGalleryQueryTest新增排除淘汰/序列化测试RED；NsfwGalleryQuery成员匹配、状态菜单与VM能力门禁实现GREEN。
+- [x] 定向检查保存恢复和审核后成员移除，修复实际缺口，不改无关架构。
+- [x] 复查diff，定向JVM测试与界面编译；更新结果/项目状态并提交手机代码，后端按规则交Lead、不commit。
 - [ ] 匹配后端可用后再部署及实机验证；若部署被未合并PR39边界限制，如实交付可审查结果与待办，不声称功能已上线。

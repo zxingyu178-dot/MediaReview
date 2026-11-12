@@ -77,7 +77,7 @@ data class NsfwPromptPanel(
         get() = versionId != null || wholePromptScopeConfirmed
 }
 
-data class NsfwUndoDecision(val imageId: String, val restoreAction: String, val expectedUpdatedAt: String)
+data class NsfwUndoDecision(val imageId: String, val restoreAction: String, val expectedUpdatedAt: String, val expectedRevision: String? = null)
 
 data class NsfwUiState(
     val phase: NsfwPhase = NsfwPhase.LOADING,
@@ -109,6 +109,7 @@ data class NsfwUiState(
     val galleryEnabled: Boolean = false,
     val bidirectionalGallery: Boolean = false,
     val galleryFiltersEnabled: Boolean = false,
+    val galleryReviewFilterEnabled: Boolean = false,
     val gallerySearchEnabled: Boolean = false,
     val galleryMembershipUnknown: Boolean = false,
     val batchReviewEnabled: Boolean = false,
@@ -253,6 +254,19 @@ class NsfwReviewViewModel @Inject constructor(
         val browseEpoch = connectionEpoch
         val origin = originOf(snapshot.baseUrl)
         if (browseOrigin != origin) {
+            var statusHint: String? = null
+            val reviewFilter = try {
+                val status = positions.loadReviewStatus(origin)
+                val filter = NsfwGalleryFilter(status = status).also { it.resolve() }
+                val supported = status == null ||
+                    (com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_FILTERS_CAPABILITY in snapshot.capabilities &&
+                        (status != "NOT_REJECTED" || com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_REVIEW_FILTER_CAPABILITY in snapshot.capabilities))
+                if (supported) filter else {
+                    statusHint = "上次审核状态筛选需升级电脑端；当前显示全部"
+                    NsfwGalleryFilter()
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { statusHint = "审核状态筛选读取失败，当前显示全部"; NsfwGalleryFilter() }
             var scopeReadFailed = false
             val savedGallery = try {
                 positions.loadGalleryReview(origin)
@@ -279,8 +293,9 @@ class NsfwReviewViewModel @Inject constructor(
             browseReadFailed = readFailed
             galleryAnchorReadFailed = galleryReadFailed
             pendingBrowseId = saved?.takeIf { it.isNotBlank() && !scopeReadFailed }
-            _state.update { it.copy(restoringBrowsePosition = pendingBrowseId != null, hasBrowsePosition = pendingBrowseId != null || savedGallery != null, galleryAnchor = galleryAnchor,
+            _state.update { it.copy(galleryQuery = reviewFilter.resolve(), restoringBrowsePosition = pendingBrowseId != null, hasBrowsePosition = pendingBrowseId != null || savedGallery != null, galleryAnchor = galleryAnchor,
                 browseRecoveryMessage = when {
+                    statusHint != null -> statusHint
                     scopeReadFailed -> "上次审核范围读取失败，请从图库选择图片重新开始"
                     readFailed -> "上次浏览位置读取失败，可手动选择图片继续"
                     galleryReadFailed -> "图库位置读取失败，滑动图库后将记录新位置"
@@ -298,6 +313,7 @@ class NsfwReviewViewModel @Inject constructor(
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
                 gallerySearchEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_SEARCH_CAPABILITY in snapshot.capabilities,
                 galleryFiltersEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_FILTERS_CAPABILITY in snapshot.capabilities,
+                galleryReviewFilterEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_REVIEW_FILTER_CAPABILITY in snapshot.capabilities,
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
                 batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
             )
@@ -424,7 +440,7 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         galleryResumeAnchor = null
         savedGalleryReview = null
-        _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
+        _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, galleryReviewFilterEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
@@ -631,7 +647,17 @@ class NsfwReviewViewModel @Inject constructor(
                     clientRequestId = UUID.randomUUID().toString(),
                 )
                 if (epoch != connectionEpoch) return@launch
-                val applied = applyDecision(result)
+                if (result.imageId != detail.imageId) throw NsfwApiException("RECEIPT_MISMATCH", "审核回执不匹配，请刷新核对")
+                // 被筛选移出的撤销目标不在feed，权威回执接受后重查；不把缺席当旧revision冲突。
+                val filtered = state.galleryEnabled && state.galleryQuery.filter.selection.active
+                val applied = if (undo != null && filtered && feed.find(result.imageId) == null) {
+                    val advanced = result.revision.matches(Regex("[0-9]+")) &&
+                        undo.expectedRevision?.let { previous ->
+                            previous.matches(Regex("[0-9]+")) && result.revision.toBigInteger() > previous.toBigInteger()
+                        } == true
+                    if (!advanced) throw NsfwApiException("RECEIPT_UNCONFIRMED", "撤销回执版本无法确认，请刷新核对")
+                    true
+                } else applyDecision(result)
                 if (!applied) {
                     // 较旧的审核结果被 revision 拒绝：不显示旧动作成功，刷新权威状态。
                     _state.update {
@@ -648,10 +674,20 @@ class NsfwReviewViewModel @Inject constructor(
                     it.copy(busy = false, message = if (undo != null) "已撤销上一次审核" else decisionMessage(action),
                         undoDecision = when {
                             undo != null -> null
-                            action in setOf("KEEP", "REJECT") -> restoreAction?.let { restore -> NsfwUndoDecision(detail.imageId, restore, result.updatedAt) }
+                            action in setOf("KEEP", "REJECT") -> restoreAction?.let { restore -> NsfwUndoDecision(detail.imageId, restore, result.updatedAt, result.revision) }
                             it.undoDecision?.imageId == detail.imageId -> null
                             else -> it.undoDecision
                         })
+                }
+                if (filtered && (undo != null || feed.find(result.imageId)?.let { state.galleryQuery.matches(it) } != true)) {
+                    val candidates = listOfNotNull(_state.value.currentId) +
+                        state.items.drop(state.currentIndex + 1).map { it.imageId } +
+                        state.items.take(state.currentIndex.coerceAtLeast(0)).asReversed().map { it.imageId }
+                    val anchor = candidates.firstOrNull { id ->
+                        id != result.imageId && feed.find(id)?.let { state.galleryQuery.matches(it) != false } == true
+                    }
+                    requestGallery(state.galleryQuery, anchor = if (undo == null) anchor else null, afterDecision = true)
+                    return@launch
                 }
                 if (undo != null && _state.value.currentId == state.currentId) select(undo.imageId)
                 // 只有回执已接受且用户仍停留在提交图片时才前进。
@@ -1145,7 +1181,7 @@ class NsfwReviewViewModel @Inject constructor(
         requestGallery(saved?.query ?: _state.value.galleryQuery, saved?.scopeCursor, anchor)
     }
 
-    private fun requestGallery(query: NsfwGalleryQuery, scope: String? = null, anchor: String? = null) {
+    private fun requestGallery(query: NsfwGalleryQuery, scope: String? = null, anchor: String? = null, afterDecision: Boolean = false) {
         val state = _state.value
         if (!state.galleryEnabled || state.phase != NsfwPhase.READY || state.busy || state.panel?.submitting == true) return
         if ((query.filter.search != null || query.filter.tag != null) && !state.gallerySearchEnabled) {
@@ -1155,6 +1191,18 @@ class NsfwReviewViewModel @Inject constructor(
         if (query.filter.selection.active && !state.galleryFiltersEnabled) {
             _state.update { it.copy(message = "当前审核桥不支持图库分类筛选，请升级审核桥") }
             return
+        }
+        if (query.filter.status == "NOT_REJECTED" && !state.galleryReviewFilterEnabled) {
+            _state.update { it.copy(message = "隐藏已淘汰需升级电脑端审核桥") }
+            return
+        }
+        if (query.filter.status != state.galleryQuery.filter.status) {
+            val origin = originOf(state.baseUrl)
+            viewModelScope.launch {
+                try { browseWriteGate.withLock { positions.saveReviewStatus(origin, query.filter.status) } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { _state.update { it.copy(browseRecoveryMessage = "审核状态筛选保存失败") } }
+            }
         }
         stopPolling()
         galleryGeneration += 1
@@ -1167,14 +1215,30 @@ class NsfwReviewViewModel @Inject constructor(
         feedReadGate = Mutex()
         feed.clear()
         pendingNewImageIds.clear()
-        _state.update { it.copy(galleryQuery = query, galleryViewEpoch = galleryGeneration,
+        _state.update { it.copy(galleryQuery = query, galleryViewEpoch = galleryGeneration, busy = afterDecision,
             previousPageCursor = null, galleryStartIndex = 0, galleryTotal = 0, galleryPositionValid = false,
             items = emptyList(), currentId = null, detail = null, detailLoading = false,
             galleryAnchor = null, restoringBrowsePosition = anchor != null,
             newImageCount = 0, galleryMembershipUnknown = false, hasMore = false, nextCursor = null, message = null,
             cursorExpired = false, panel = null, syncing = false) }
         manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
-            withFeedRead { loadGalleryPage(it, scope = scope, anchor = anchor) }
+            val generation = galleryGeneration
+            try {
+                withFeedRead { epoch ->
+                    val loaded = loadGalleryPage(epoch, scope = scope, anchor = anchor)
+                    if (loaded && afterDecision && generation == galleryGeneration) {
+                        _state.value.currentId?.let { id ->
+                            persistBrowsePosition(id)
+                            if (_state.value.detail?.imageId != id) loadDetails(id)
+                        }
+                    }
+                    if (!loaded && afterDecision && generation == galleryGeneration) _state.update {
+                        it.copy(message = "审核已保存，列表待刷新；" + it.message.orEmpty())
+                    }
+                }
+            } finally {
+                if (afterDecision && generation == galleryGeneration) _state.update { it.copy(busy = false) }
+            }
             maybeStartPolling()
         }
         manualFeedJob?.start()

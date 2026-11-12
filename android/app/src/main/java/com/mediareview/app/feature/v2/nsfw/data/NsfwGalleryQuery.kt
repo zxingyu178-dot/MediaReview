@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
 const val NSFW_GALLERY_CAPABILITY = "mobile_gallery_query_v1"
 const val NSFW_GALLERY_SEARCH_CAPABILITY = "mobile_gallery_search_v1"
 const val NSFW_GALLERY_FILTERS_CAPABILITY = "mobile_gallery_filters_v1"
+const val NSFW_GALLERY_REVIEW_FILTER_CAPABILITY = "mobile_gallery_review_filter_v1"
 const val NSFW_BIDIRECTIONAL_CAPABILITY = "mobile_gallery_bidirectional_v1"
 
 @Serializable
@@ -46,7 +47,7 @@ data class NsfwGalleryFilter(
         if (normalized != this) return normalized.resolve(now, zone)
         require(promptId == null || promptId.isNotBlank())
         require(versionId == null || (versionId.isNotBlank() && promptId != null)) { "提示词版本需要所属提示词" }
-        require(status == null || status in setOf("NEW", "KEEP", "REJECT", "ARCHIVED", "FAVORITE"))
+        require(status == null || status in setOf("NEW", "KEEP", "REJECT", "ARCHIVED", "FAVORITE", "NOT_REJECTED"))
         require(category == null || category in setOf("anime", "imported"))
         if (dates == NsfwGalleryDates.ALL) return NsfwGalleryQuery(this)
         val today = now.atZone(zone).toLocalDate()
@@ -75,7 +76,10 @@ data class NsfwGalleryQuery(
         if ((fromUtc != null || beforeUtc != null) && !contains(item.createdAt)) return false
         if (filter.promptId != null && item.prompt?.promptId != filter.promptId) return false
         if (filter.versionId != null && (item.prompt?.isExact != true || item.prompt.promptVersionId != filter.versionId)) return false
-        if (filter.status != null && if (filter.status == "FAVORITE") !item.isFavorite else item.status != filter.status) return false
+        if (filter.status == "NOT_REJECTED") {
+            if (item.status == "REJECT") return false
+            if (item.status !in setOf("NEW", "KEEP", "ARCHIVED")) return null
+        } else if (filter.status != null && if (filter.status == "FAVORITE") !item.isFavorite else item.status != filter.status) return false
         if (filter.favorite != null && item.isFavorite != filter.favorite) return false
         if (filter.category != null) {
             val categories = item.categories ?: return null

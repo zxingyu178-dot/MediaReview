@@ -132,6 +132,18 @@ class NsfwProfileStore(
         }
     }
 
+    override suspend fun loadReviewStatus(origin: String): String? =
+        context.nsfwStudioDataStore.data.first()[stringPreferencesKey("review_status_" + browseKey(origin).name)]?.takeUnless { it == "ALL" }
+
+    override suspend fun saveReviewStatus(origin: String, status: String?) {
+        require(origin.isNotBlank())
+        NsfwGalleryFilter(status = status).resolve()
+        val key = stringPreferencesKey("review_status_" + browseKey(origin).name)
+        context.nsfwStudioDataStore.edit { prefs ->
+            prefs[key] = status ?: "ALL"
+        }
+    }
+
     override suspend fun saveGalleryReview(origin: String, review: NsfwSavedGalleryReview) {
         require(origin.isNotBlank() && review.scopeCursor.isNotBlank() && review.imageId.isNotBlank())
         context.nsfwStudioDataStore.edit {

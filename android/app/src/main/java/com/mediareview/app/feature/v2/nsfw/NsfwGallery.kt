@@ -135,7 +135,11 @@ internal fun NsfwGallery(
         if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) {
-                    TextButton(onClick = { filtersOpen = true }) { Text("筛选已启用") }
+                    TextButton(onClick = { filtersOpen = true }) { Text(when (filter.status) {
+                        "NEW" -> "只看未审核"; "NOT_REJECTED" -> "隐藏已淘汰"
+                        "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; "ARCHIVED" -> "已归档"
+                        else -> "筛选已启用"
+                    }) }
                     TextButton(enabled = !state.busy && !state.syncing, onClick = {
                         onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
                     }) { Text("清除") }
@@ -185,7 +189,7 @@ internal fun NsfwGallery(
             }
             if (state.galleryEnabled) GalleryFilters(filter, !state.busy && !state.syncing, onChangeFilter)
             else Text("排序和日期筛选需更新电脑端生图审核服务；当前保持旧版队列顺序。", modifier = Modifier.padding(16.dp))
-            if (state.galleryFiltersEnabled) LibraryFilters(filter, !state.busy && !state.syncing, onChangeFilter)
+            if (state.galleryFiltersEnabled) LibraryFilters(filter, !state.busy && !state.syncing, state.galleryReviewFilterEnabled, onChangeFilter)
             else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
             if (state.gallerySearchEnabled) LibrarySearch(filter, !state.busy && !state.syncing, onChangeFilter)
             else Text("搜索与文字标签需更新电脑端", modifier = Modifier.padding(16.dp))
@@ -251,9 +255,11 @@ private fun GalleryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LibraryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
+private fun LibraryFilters(filter: NsfwGalleryFilter, enabled: Boolean, reviewFilterEnabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
     FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        LibraryFilterMenu("状态", filter.status, listOf(null to "全部状态", "NEW" to "待审核", "KEEP" to "已保留", "REJECT" to "已淘汰", "ARCHIVED" to "已归档"), enabled) { onChange(filter.copy(status = it)) }
+        val statuses = listOf(null to "全部状态", "NEW" to "只看未审核", "KEEP" to "已保留", "REJECT" to "已淘汰", "ARCHIVED" to "已归档") +
+            if (reviewFilterEnabled) listOf("NOT_REJECTED" to "隐藏已淘汰") else emptyList()
+        LibraryFilterMenu("状态", filter.status, statuses, enabled) { onChange(filter.copy(status = it)) }
         LibraryFilterMenu("分类", filter.category, listOf(null to "全部分类", "anime" to "动漫", "imported" to "导入"), enabled) { onChange(filter.copy(category = it)) }
         LibraryFilterMenu("收藏", filter.favorite?.toString(), listOf(null to "全部收藏状态", "true" to "已收藏", "false" to "未收藏"), enabled) { onChange(filter.copy(favorite = it?.toBooleanStrict())) }
         if (filter.selection.active) TextButton(enabled = enabled, onClick = {

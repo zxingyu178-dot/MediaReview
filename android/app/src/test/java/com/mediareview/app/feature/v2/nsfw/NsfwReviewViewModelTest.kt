@@ -30,6 +30,94 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NsfwReviewViewModelTest {
+    @Test fun statusFilterRestoresSelectionEvenWhenGalleryIsEmpty() = runTest {
+        val store = object : com.mediareview.app.feature.v2.nsfw.data.NsfwBrowsePositionStore {
+            var status: String? = "NEW"
+            override suspend fun loadReviewStatus(origin: String) = status
+            override suspend fun saveReviewStatus(origin: String, status: String?) { this.status = status }
+            override suspend fun loadPosition(origin: String): String? = null
+            override suspend fun savePosition(origin: String, imageId: String) = Unit
+        }
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1", "mobile_gallery_review_filter_v1"))
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
+            filters = call.query.filter.selection, syncCursor = "w1", scopeCursor = "s1") }
+        val model = vm(positions = store)
+        assertEquals("NEW", data.galleryCalls.last().query.filter.status)
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NOT_REJECTED"))
+        assertEquals("NOT_REJECTED", store.status)
+        vm(positions = store)
+        assertEquals("NOT_REJECTED", data.galleryCalls.last().query.filter.status)
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter())
+        assertNull(store.status)
+        vm(positions = store)
+        assertNull(data.galleryCalls.last().query.filter.status)
+    }
+
+    @Test fun statusFilterLocalDecisionReloadsMembershipWithoutSecondWrite() = runTest {
+        data.detailsResponder = { nsfwDetails(it, updatedAt = "2026-10-28T12:00:01Z") }
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1", "mobile_gallery_review_filter_v1"))
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
+            items = if (data.decisionCalls == 1) listOf(nsfwItem("b")) else listOf(nsfwItem("a"), nsfwItem("b")),
+            filters = call.query.filter.selection, total = if (data.decisionCalls == 1) 1 else 2, syncCursor = "w1", scopeCursor = "s1") }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NEW"))
+        model.select("a")
+        model.decision("KEEP")
+        assertEquals(1, data.decisionCalls)
+        assertEquals(listOf("b"), model.state.value.items.map { it.imageId })
+        assertEquals(1, model.state.value.galleryTotal)
+        assertNotNull(model.state.value.undoDecision)
+        for ((id, revision) in listOf("wrong" to "3", "a" to "2", "a" to "invalid")) {
+            data.decisionResponder = { _, _, _ -> NsfwDecisionResult(id, "NEW", false, "2026-11-12T10:00:00Z", revision) }
+            model.undoLastDecision()
+            assertNotNull(model.state.value.undoDecision)
+        }
+        data.decisionResponder = { id, _, _ -> NsfwDecisionResult(id, "NEW", false, "2026-11-12T10:00:00Z", "3") }
+        model.undoLastDecision()
+        assertEquals(5, data.decisionCalls)
+        assertEquals(listOf("a", "b"), model.state.value.items.map { it.imageId })
+        assertEquals(model.state.value.currentId, model.state.value.detail?.imageId)
+        assertNull(model.state.value.undoDecision)
+        assertNull(model.state.value.conflictMessage)
+    }
+
+    @Test fun statusFilterReadFailureAfterDecisionNeverResubmitsAndKeepsUndo() = runTest {
+        data.detailsResponder = { nsfwDetails(it, updatedAt = "2026-10-28T12:00:01Z") }
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1", "mobile_gallery_review_filter_v1"))
+        val read = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        data.galleryResponder = { call ->
+            if (data.decisionCalls > 0) read.await()
+            else com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("a")),
+                filters = call.query.filter.selection, total = 1, syncCursor = "w1", scopeCursor = "s1")
+        }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NEW"))
+        model.select("a")
+        model.decision("KEEP")
+        assertTrue(model.state.value.busy)
+        model.undoLastDecision()
+        model.decision("REJECT")
+        assertEquals(1, data.decisionCalls)
+        read.completeExceptionally(java.io.IOException("offline"))
+        assertFalse(model.state.value.busy)
+        assertEquals(1, data.decisionCalls)
+        assertNotNull(model.state.value.undoDecision)
+        assertTrue(model.state.value.message.orEmpty().contains("审核已保存"))
+    }
+
+    @Test fun statusFilterRejectsUnsupportedHideRejectedBeforeNetworkRequest() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1"))
+        val model = vm()
+        val before = data.galleryCalls.size
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NOT_REJECTED"))
+        assertEquals(before, data.galleryCalls.size)
+        assertTrue(model.state.value.message.orEmpty().contains("升级"))
+    }
+
 
     @Test fun foregroundDefaultChecksNewImagesWithinThreeSecondsEvenAfterEmptyPolls() = runTest {
         val model = bootstrapPaired()

@@ -8,6 +8,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NsfwGalleryQueryTest {
+    @Test fun hideRejectedUsesWholeQueryAndPreservesOtherStates() {
+        val filter = NsfwGalleryFilter(status = "NOT_REJECTED", sort = NsfwGallerySort.OLDEST)
+        val query = filter.resolve()
+        for (status in listOf("NEW", "KEEP", "ARCHIVED")) {
+            assertEquals(true, query.matches(nsfwItem("a").copy(status = status)))
+        }
+        assertEquals(false, query.matches(nsfwItem("a").copy(status = "REJECT")))
+        assertNull(query.matches(nsfwItem("a").copy(status = "")))
+        val json = kotlinx.serialization.json.Json
+        val restored = json.decodeFromString(NsfwGalleryQuery.serializer(), json.encodeToString(NsfwGalleryQuery.serializer(), query))
+        assertEquals(query, restored)
+        assertEquals("NOT_REJECTED", restored.filter.selection.status)
+        assertTrue(restored.filter.selection.active)
+    }
+
+    @Test fun unreviewedMembershipDropsBothDecisionOutcomes() {
+        val query = NsfwGalleryFilter(status = "NEW").resolve()
+        assertEquals(true, query.matches(nsfwItem("a").copy(status = "NEW")))
+        assertEquals(false, query.matches(nsfwItem("a").copy(status = "KEEP")))
+        assertEquals(false, query.matches(nsfwItem("a").copy(status = "REJECT")))
+    }
+
     @Test fun libraryMembershipMatchesAllFiltersAndRequiresCategoryEvidence() {
         val filter = NsfwGalleryFilter(promptId = "p", versionId = "v", status = "NEW", favorite = false, category = "anime")
         val query = filter.resolve()
