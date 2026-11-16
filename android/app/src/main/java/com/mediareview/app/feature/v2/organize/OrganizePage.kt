@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CopyAll
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Icon
@@ -38,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.mediareview.app.feature.v2.data.V2DataMode
 import com.mediareview.app.feature.v2.ui.V2Radius
 import com.mediareview.app.feature.v2.ui.V2Spacing
+import com.mediareview.app.ui.theme.MediaDanger
 import com.mediareview.app.ui.theme.MediaBackground
 import com.mediareview.app.ui.theme.MediaSurfaceRaised
 import com.mediareview.app.ui.theme.MediaTextPrimary
@@ -77,8 +80,8 @@ fun OrganizePage(
                 text = "整理",
                 style = MaterialTheme.typography.titleLarge,
                 color = MediaTextPrimary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
             )
         }
         LazyColumn(
@@ -203,20 +206,25 @@ private fun OrganizeCardRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(V2Radius.Card))
-            .background(MediaSurfaceRaised)
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(enabled = onClick != null) { onClick?.invoke() }
+            .heightIn(min = 88.dp)
             .padding(V2Spacing.Lg),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon,
-            null,
-            tint = tint,
-            modifier = Modifier.size(28.dp),
-        )
-        Column(modifier = Modifier.padding(start = V2Spacing.Lg)) {
+        val iconTint = if (icon == Icons.Default.DeleteSweep) MediaDanger else tint
+        Box(
+            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(iconTint.copy(alpha = 0.09f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = iconTint, modifier = Modifier.size(24.dp))
+        }
+        Column(modifier = Modifier.weight(1f).padding(start = V2Spacing.Lg)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MediaTextPrimary)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MediaTextSecondary)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MediaTextSecondary, modifier = Modifier.padding(top = 4.dp))
+        }
+        if (onClick != null) {
+            Icon(Icons.Default.ChevronRight, null, tint = MediaTextSecondary, modifier = Modifier.size(20.dp))
         }
     }
 }

@@ -374,8 +374,8 @@ private fun FavoritesPage(
                 text = "收藏",
                 style = MaterialTheme.typography.titleLarge,
                 color = MediaTextPrimary,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = V2Spacing.Lg),
             )
         }
         if (favorites.isEmpty()) {

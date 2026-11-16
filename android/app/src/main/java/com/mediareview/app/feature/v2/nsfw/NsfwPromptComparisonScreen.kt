@@ -3,6 +3,9 @@ package com.mediareview.app.feature.v2.nsfw
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import com.mediareview.app.ui.theme.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
@@ -57,10 +60,10 @@ internal fun NsfwPromptComparisonScreen(
         return
     }
     BackHandler(enabled = !originalOpen && state.panel == null) { onClose() }
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(8.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth()) {
             TextButton(onClick = onClose) { Text("返回审核") }
-            Text("同版本对比", Modifier.weight(1f), color = Color.White)
+            Text("同版本对比", Modifier.weight(1f), color = MediaTextPrimary)
             TextButton(onClick = { onScore(scope) }, enabled = !loading && page != null && state.panel == null) { Text("版本评分") }
         }
         Row {
@@ -68,21 +71,21 @@ internal fun NsfwPromptComparisonScreen(
                 onClick = { requestedSize = size; cursor = null; anchor = page?.items?.firstOrNull()?.imageId; request++ }, label = { Text("${size}张") }) }
             TextButton(onClick = { batch = true }, enabled = !loading && page?.items?.any { it.status == "NEW" } == true) { Text("审核本页待审核图") }
         }
-        Text("范围已固定，新图不插入；评分对应整个提示词版本", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-        error?.let { Text(it, color = Color.Yellow); TextButton(onClick = { request++ }, enabled = !loading) { Text("重试本次加载") } }
+        Text("范围已固定，新图不插入；评分对应整个提示词版本", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+        error?.let { Text(it, color = MediaDanger); TextButton(onClick = { request++ }, enabled = !loading) { Text("重试本次加载") } }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         val current = page
-        if (current != null) Text(if (current.items.isEmpty()) "该版本当前范围没有图片" else "${(current.startIndex ?: 0) + 1}–${(current.startIndex ?: 0) + current.items.size} / ${current.total}", color = Color.LightGray)
+        if (current != null) Text(if (current.items.isEmpty()) "该版本当前范围没有图片" else "${(current.startIndex ?: 0) + 1}–${(current.startIndex ?: 0) + current.items.size} / ${current.total}", color = MediaTextSecondary)
         LazyVerticalGrid(GridCells.Fixed(2), state = grid, modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(current?.items.orEmpty(), key = { it.imageId }) { image ->
-                Column {
+                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(MediaSurfaceRaised)) {
                     var failed by remember(image.imageId, image.thumbnailUrl) { mutableStateOf(false) }
                     AsyncImage(model = loader.request(safeNsfwImageUrl(state.baseUrl, image.thumbnailUrl)), imageLoader = loader.loader,
                         contentDescription = "同版本图片，点击放大", contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black).clickable { onOpenOriginal(image) },
                         onError = { failed = true }, onSuccess = { failed = false })
-                    Text(if (failed) "缩略图失败，可点击查看原图" else when(image.status) { "NEW" -> "待审核"; "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; else -> "已归档" }, color = Color.LightGray)
+                    Text(if (failed) "缩略图失败，可点击查看原图" else when(image.status) { "NEW" -> "待审核"; "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; else -> "已归档" }, color = MediaTextSecondary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
                 }
             }
         }

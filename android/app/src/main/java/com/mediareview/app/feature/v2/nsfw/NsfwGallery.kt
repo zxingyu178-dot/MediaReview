@@ -1,7 +1,9 @@
 package com.mediareview.app.feature.v2.nsfw
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -62,6 +65,7 @@ internal fun NsfwGallery(
     var filtersOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
     var capabilityOpen by remember { mutableStateOf(false) }
+    val interaction = nsfwGalleryInteraction(state.busy, state.syncing)
     val filter = state.galleryQuery.filter
     // 未确认提交类消息即使来自通用消息字段，也不能被普通提示隐藏。
     val criticalMessage = state.message?.takeIf { message ->
@@ -95,7 +99,7 @@ internal fun NsfwGallery(
             }
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().testTag("nsfw_gallery")) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().background(Color(0xFF151A22)).padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("生图", color = MediaTextPrimary, style = MaterialTheme.typography.titleMedium)
             Text(if (state.galleryEnabled) " ${state.galleryTotal}张" else " 已载${state.items.size}",
                 modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -108,19 +112,19 @@ internal fun NsfwGallery(
                 }
                 DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
                     NsfwGallerySort.entries.forEach { sort ->
-                        DropdownMenuItem(text = { Text(sort.label) }, enabled = !state.busy && !state.syncing,
+                        DropdownMenuItem(text = { Text(sort.label) }, enabled = interaction.canChangeQuery,
                             onClick = { sortOpen = false; onChangeFilter(filter.copy(sort = sort)) })
                     }
                 }
             }
             GalleryIconButton("筛选", Icons.Default.FilterList, { filtersOpen = true })
-            GalleryIconButton(if (state.syncing) "正在同步图库" else "刷新图库", Icons.Default.Refresh, onRefresh,
-                enabled = !state.syncing && !state.busy, loading = state.syncing)
+            GalleryIconButton("刷新图库", Icons.Default.Refresh, onRefresh,
+                enabled = interaction.canRefresh, loading = state.syncing)
             Box {
                 GalleryIconButton("更多操作", Icons.Default.MoreVert, { moreOpen = true })
                 DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                     if (state.galleryEnabled) DropdownMenuItem(text = { Text("查看最新") },
-                        enabled = !state.busy && !state.syncing,
+                        enabled = interaction.canChangeQuery,
                         onClick = { moreOpen = false; onLatest() })
                     DropdownMenuItem(text = { Text("9图批量审核") }, enabled = !state.busy,
                         onClick = { moreOpen = false; onOpenBatch() })
@@ -140,14 +144,14 @@ internal fun NsfwGallery(
                         "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; "ARCHIVED" -> "已归档"
                         else -> "筛选已启用"
                     }) }
-                    TextButton(enabled = !state.busy && !state.syncing, onClick = {
+                    TextButton(enabled = interaction.canChangeQuery, onClick = {
                         onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
                     }) { Text("清除") }
                 }
                 Spacer(Modifier.weight(1f))
                 if (state.newImageCount > 0) TextButton(
                     onClick = { if (state.galleryEnabled) onLatest() else capabilityOpen = true },
-                    enabled = !state.busy && !state.syncing) { Text("新图 ${state.newImageCount}") }
+                    enabled = interaction.canChangeQuery) { Text("新图 ${state.newImageCount}") }
             }
         }
         if (ordinaryMessages.isNotEmpty() && !messageDismissed) {
@@ -156,7 +160,7 @@ internal fun NsfwGallery(
                     modifier = Modifier.weight(1f).clickable { messageExpanded = !messageExpanded },
                     maxLines = if (messageExpanded) Int.MAX_VALUE else 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onRefresh, enabled = !state.syncing && !state.busy) { Text("重试") }
+                TextButton(onClick = onRefresh, enabled = interaction.canRefresh) { Text("重试") }
                 TextButton(onClick = { messageDismissed = true }) { Text("收起") }
             }
         }
@@ -165,7 +169,7 @@ internal fun NsfwGallery(
         state.conflictMessage?.let { Text(it, modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
         state.evaluationRecoveryHint?.let { Text(it, modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
         if (state.galleryMembershipUnknown) Text("筛选归属待确认，请重新查询", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error)
-        if (state.bidirectionalGallery && state.previousPageCursor != null) TextButton(onClick = onLoadPrevious, enabled = !state.syncing && !state.busy) {
+        if (state.bidirectionalGallery && state.previousPageCursor != null) TextButton(onClick = onLoadPrevious, enabled = interaction.canRefresh) {
             Text("加载前页")
         }
         if (state.items.isEmpty()) {
@@ -174,24 +178,24 @@ internal fun NsfwGallery(
             }
         } else LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid,
             modifier = Modifier.weight(1f).testTag("nsfw_gallery_grid"),
-            contentPadding = PaddingValues(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            contentPadding = PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             itemsIndexed(state.items, key = { _, item -> item.imageId }) { index, item ->
                 GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
             }
         }
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text("加载更多") }
     }
-    if (filtersOpen) ModalBottomSheet(onDismissRequest = { filtersOpen = false }) {
+    if (filtersOpen) ModalBottomSheet(onDismissRequest = { filtersOpen = false }, containerColor = Color(0xFF181E28)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("筛选生图", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { filtersOpen = false }) { Text("完成") }
             }
-            if (state.galleryEnabled) GalleryFilters(filter, !state.busy && !state.syncing, onChangeFilter)
+            if (state.galleryEnabled) GalleryFilters(filter, interaction.canChangeQuery, onChangeFilter)
             else Text("排序和日期筛选需更新电脑端生图审核服务；当前保持旧版队列顺序。", modifier = Modifier.padding(16.dp))
-            if (state.galleryFiltersEnabled) LibraryFilters(filter, !state.busy && !state.syncing, state.galleryReviewFilterEnabled, onChangeFilter)
+            if (state.galleryFiltersEnabled) LibraryFilters(filter, interaction.canChangeQuery, state.galleryReviewFilterEnabled, onChangeFilter)
             else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
-            if (state.gallerySearchEnabled) LibrarySearch(filter, !state.busy && !state.syncing, onChangeFilter)
+            if (state.gallerySearchEnabled) LibrarySearch(filter, interaction.canChangeQuery, onChangeFilter)
             else Text("搜索与文字标签需更新电脑端", modifier = Modifier.padding(16.dp))
         }
     }
@@ -207,9 +211,14 @@ private fun GalleryIconButton(label: String, icon: ImageVector, onClick: () -> U
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-            if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp).semantics { contentDescription = label }, strokeWidth = 2.dp)
-            } else Icon(icon, contentDescription = label)
+            // 读取只在图标边缘标示；不替换整个图标，也不因后台轮询改变它的颜色。
+            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = label,
+                    tint = if (enabled || loading) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                if (loading) CircularProgressIndicator(
+                    modifier = Modifier.size(10.dp).align(Alignment.TopEnd).semantics { contentDescription = "同步中" },
+                    strokeWidth = 1.5.dp)
+            }
         }
     }
 }
@@ -302,9 +311,14 @@ private fun LibraryFilterMenu(label: String, value: String?, options: List<Pair<
 private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, loader: NsfwImageLoader, selected: Boolean, enabled: Boolean, onOpen: () -> Unit) {
     var failed by remember(item.imageId, item.thumbnailUrl) { mutableStateOf(false) }
     var attempt by remember(item.imageId, item.thumbnailUrl) { mutableIntStateOf(0) }
-    Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color(0xFF202126)).clickable(enabled = enabled, onClick = onOpen)) {
+    val url = safeNsfwImageUrl(baseUrl, item.thumbnailUrl)
+    val request = remember(loader, url, attempt) { loader.request(url) }
+    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
+        .background(Color(0xFF202630))
+        .border(if (selected) 2.dp else 0.dp, if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
+        .clickable(enabled = enabled, onClick = onOpen)) {
         key(attempt) {
-            AsyncImage(model = loader.request(safeNsfwImageUrl(baseUrl, item.thumbnailUrl)), imageLoader = loader.loader,
+            AsyncImage(model = request, imageLoader = loader.loader,
                 contentDescription = "第 $ordinal 张生图缩略图${if (selected) "，当前" else ""}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
                 onLoading = { failed = false }, onError = { failed = true }, onSuccess = { failed = false })
         }

@@ -263,7 +263,7 @@ private fun ModeTabRow(current: V2HomeTab, onSelect: (V2HomeTab) -> Unit, modifi
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = MediaDimensions.MinimumTouchTarget)
-                    .background(if (selectedTab) MediaAccent else androidx.compose.ui.graphics.Color.Transparent, MaterialTheme.shapes.medium)
+                    .background(if (selectedTab) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent, MaterialTheme.shapes.medium)
                     .clickable { onSelect(tab) }
                     .semantics { selected = selectedTab }
                     .testTag("home_segment_${tab.name.lowercase()}"),
@@ -272,7 +272,7 @@ private fun ModeTabRow(current: V2HomeTab, onSelect: (V2HomeTab) -> Unit, modifi
                 Text(
                     label,
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (selectedTab) MediaOnImmersive else MediaTextSecondary,
+                    color = if (selectedTab) MaterialTheme.colorScheme.onPrimaryContainer else MediaTextSecondary,
                 )
             }
         }

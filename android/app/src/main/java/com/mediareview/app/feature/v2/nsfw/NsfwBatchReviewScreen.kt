@@ -3,9 +3,16 @@ package com.mediareview.app.feature.v2.nsfw
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import com.mediareview.app.ui.theme.*
+import com.mediareview.app.feature.v2.ui.components.MediaActionButton
+import com.mediareview.app.feature.v2.ui.components.MediaActionTone
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +30,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 /** 只对当前页加载成功的NEW图提交；放大查看不影响勾选。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun NsfwBatchReviewScreen(
     state: NsfwUiState, loader: NsfwImageLoader, onClose: () -> Unit,
@@ -148,21 +156,21 @@ internal fun NsfwBatchReviewScreen(
     }
     val close = { if (draft.selectedIds.isNotEmpty() && !locked) exitConfirm = true else onClose() }
     BackHandler(enabled = !originalOpen) { close() }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(Color(0xFF121212)).padding(8.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().background(MediaBackground).padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = close, enabled = !working) { Text("返回图库") }
-            Text("${pageSize}图批量审核", color = Color.White, modifier = Modifier.weight(1f))
-            Text("${draft.items.size} 张", color = Color.LightGray)
+            Text("${pageSize}图批量审核", color = MediaTextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text("${draft.items.size} 张", color = MediaTextSecondary)
         }
-        Text("勾选保留，未选且加载成功的图片淘汰；不会删除文件", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-        if (!supported) Text("电脑端暂不支持批量审核，请更新审核桥", color = Color.Yellow)
-        message?.let { Text(it, color = Color.LightGray) }
+        Text("勾选保留，未选且加载成功的图片淘汰；不会删除文件", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+        if (!supported) Text("电脑端暂不支持批量审核，请更新审核桥", color = MediaDanger)
+        message?.let { Text(it, color = MediaTextSecondary) }
         if (locked) TextButton(onClick = ::recover, enabled = !working) { Text(if (working) "核对中…" else "核对上次批次结果") }
         if (refreshRequired) TextButton(onClick = ::refreshPage, enabled = !working && !locked) { Text(if (refreshingPage) "刷新中…" else "刷新本页并重新确认") }
         LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid, modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(draft.items, key = { it.imageId }) { item ->
-                Column(Modifier.background(if (item.imageId in draft.selectedIds) Color(0xFF24573B) else Color(0xFF242424))) {
+                Column(Modifier.clip(RoundedCornerShape(12.dp)).background(if (item.imageId in draft.selectedIds) MediaAccent.copy(alpha = 0.16f) else MediaSurfaceRaised)) {
                     key(item.imageId, retryImages) {
                         AsyncImage(model = loader.request(safeNsfwImageUrl(state.baseUrl, item.thumbnailUrl)), imageLoader = loader.loader,
                             contentDescription = "待审核图片", contentScale = ContentScale.Fit,
@@ -170,12 +178,12 @@ internal fun NsfwBatchReviewScreen(
                             onSuccess = { draft = draft.loaded(item.imageId, true) },
                             onError = { draft = draft.loaded(item.imageId, false) })
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                         Checkbox(checked = item.imageId in draft.selectedIds, enabled = !working && !locked && item.imageId in draft.eligibleIds,
                             onCheckedChange = { draft = draft.toggle(item.imageId) })
-                        TextButton(onClick = { onOpenOriginal(item) }, enabled = !working) { Text("放大") }
+                        IconButton(onClick = { onOpenOriginal(item) }, enabled = !working, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.ZoomIn, "放大") }
                     }
-                    if (item.imageId !in draft.eligibleIds) Text("未展示或未加载，不会处理", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                    if (item.imageId !in draft.eligibleIds) Text("未展示或未加载，不会处理", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -184,19 +192,18 @@ internal fun NsfwBatchReviewScreen(
             TextButton(onClick = { draft = draft.clearSelection() }, enabled = !working && !locked) { Text("清空") }
             TextButton(onClick = { retryImages++ }, enabled = !working && !locked) { Text("重试图片") }
         }
-        Text("保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}", color = Color.LightGray)
+        Text("保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}", color = MediaTextSecondary)
         if (draft.items.isEmpty()) TextButton(onClick = onLoadMore, enabled = state.hasMore && !state.syncing && !working && !locked) {
             Text(if (state.syncing) "正在加载…" else if (state.hasMore) "加载下一批" else "当前范围没有更多待审核图片")
         }
-        Button(onClick = {
+        MediaActionButton(onClick = {
             try {
                 confirmation = draft.freeze(UUID.randomUUID().toString(), allowRejectAll = true)
                 confirmationSkipped = draft.unloadedCount
                 confirm = true
             } catch (error: Exception) { message = error.message }
-        }, enabled = supported && !working && !locked && !refreshRequired && draft.eligibleIds.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text(if (working) "提交中…" else "提交本页")
-        }
+        }, enabled = supported && !working && !locked && !refreshRequired && draft.eligibleIds.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+            label = if (working) "提交中…" else "提交本页", tone = MediaActionTone.PRIMARY)
     }
     val confirmedKeep = confirmation?.items?.count { it.action == "KEEP" } ?: 0
     val confirmedReject = confirmation?.items?.count { it.action == "REJECT" } ?: 0

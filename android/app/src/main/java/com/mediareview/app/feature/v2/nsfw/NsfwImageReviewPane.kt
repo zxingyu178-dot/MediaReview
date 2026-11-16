@@ -4,6 +4,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -40,6 +49,8 @@ import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 import kotlin.math.abs
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 
 /** 图片始终占据同一个视口；同步、提示和控制层不会改变它的尺寸。 */
 @Composable
@@ -69,8 +80,41 @@ internal fun NsfwImageReviewPane(
     val canNavigate = !state.busy && state.panel?.submitting != true
     val canPrevious = canNavigate && (state.currentIndex > 0 || state.bidirectionalGallery && state.previousPageCursor != null)
     val canNext = canNavigate && (state.currentIndex + 1 < state.items.size || state.bidirectionalGallery && state.hasMore)
-    val latestPrevious by rememberUpdatedState(onPrevious)
-    val latestNext by rememberUpdatedState(onNext)
+    var requestedDirection by remember { mutableIntStateOf(0) }
+    val previous = { requestedDirection = -1; onPrevious() }
+    val next = { requestedDirection = 1; onNext() }
+    val latestPrevious by rememberUpdatedState(previous)
+    val latestNext by rememberUpdatedState(next)
+    val currentIdentity by rememberUpdatedState(item?.imageId)
+    var previousFrame by remember { mutableStateOf<ViewerMotionFrame?>(null) }
+    // 身份变化的第一次组合就有旧帧及零进度，避免新图先全亮再回退到动画起点。
+    val transition = remember(item?.imageId) {
+        val direction = imageMotionDirection(previousFrame?.id, item?.imageId,
+            previousFrame?.index ?: -1, state.currentIndex)
+        ViewerMotionTransition(
+            outgoing = previousFrame.takeIf { direction != 0 },
+            direction = requestedDirection.takeIf { it != 0 } ?: direction,
+        )
+    }
+    val motion = transition.progress
+    val transitionFinished = motion.value >= 1f
+    val motionDirection = transition.direction
+    val motionDistance = with(LocalDensity.current) { 40.dp.toPx() }
+    SideEffect {
+        val frame = item?.let { ViewerMotionFrame(it.imageId, state.currentIndex,
+            safeNsfwImageUrl(state.baseUrl, it.previewUrl)) }
+        if (previousFrame != frame) {
+            if (previousFrame?.id != frame?.id) requestedDirection = 0
+            previousFrame = frame
+        }
+    }
+    LaunchedEffect(transition) {
+        if (transition.outgoing != null) {
+            // 冷加载时短暂保留旧预览；错误/离线也必须有界退场，露出当前图的重试入口。
+            withTimeoutOrNull(1200L) { snapshotFlow { ready }.first { it } }
+            motion.animateTo(1f, tween(190, easing = FastOutSlowInEasing))
+        }
+    }
     val latestCanPrevious by rememberUpdatedState(canPrevious)
     val latestCanNext by rememberUpdatedState(canNext)
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
@@ -102,10 +146,19 @@ internal fun NsfwImageReviewPane(
         onDismissRequest = { messageDetailsOpen = false }, title = { Text(if (important) "结果需核对" else "连接提示") },
         text = { Text(messages.joinToString("\n\n")) },
         confirmButton = { TextButton(onClick = { messageDetailsOpen = false }) { Text("关闭") } },
-        dismissButton = { if (state.detail != null) TextButton(onClick = { messageDetailsOpen = false; onDetails() }) { Text("图片信息") } },
+        dismissButton = { if (transitionFinished && state.detail != null) TextButton(onClick = { messageDetailsOpen = false; onDetails() }) { Text("图片信息") } },
     )
 
-    Box(Modifier.fillMaxSize().background(Color.Black).testTag("nsfw_image_stage")) {
+    Box(Modifier.fillMaxSize().clipToBounds().background(Color(0xFF080B10)).testTag("nsfw_image_stage")) {
+        // 出场层只有静态预览：没有手势、审核入口或 ready/scale 回调。
+        transition.outgoing?.takeIf { motion.value < 1f }?.let { frame ->
+            AsyncImage(model = imageLoader.request(frame.preview), imageLoader = imageLoader.loader,
+                contentDescription = null, contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    alpha = 1f - motion.value
+                    translationX = -motionDirection * motionDistance * motion.value
+                })
+        }
         if (item == null) {
             Text("暂无图片", color = MediaTextSecondary, modifier = Modifier.align(Alignment.Center))
         } else {
@@ -146,30 +199,36 @@ internal fun NsfwImageReviewPane(
                     CustomAccessibilityAction("下一张") { if (latestCanNext) { latestNext(); true } else false },
                 )
             }
-            key(item.imageId) { Box(Modifier.fillMaxSize().then(gestures)) {
+            key(item.imageId) { Box(Modifier.fillMaxSize().graphicsLayer {
+                alpha = motion.value
+                translationX = motionDirection * motionDistance * (1f - motion.value)
+            }.then(gestures)) {
                 ZoomableImage(preview, original, true, true, item.width ?: 0, item.height ?: 0,
-                    onTap = { chrome = chrome.toggle() },
-                    onScaleChange = { scale = it; chrome = chrome.scaleChanged(it) },
+                    onTap = { if (currentIdentity == item.imageId) chrome = chrome.toggle() },
+                    onScaleChange = { if (currentIdentity == item.imageId) { scale = it; chrome = chrome.scaleChanged(it) } },
                     modifier = Modifier.fillMaxSize(), source = source, resetZoomToken = resetZoom,
-                    onImageReady = { ready = it }, fitScaleTolerance = 0.01f)
+                    onImageReady = { if (currentIdentity == item.imageId) ready = it }, fitScaleTolerance = 0.01f)
             } }
         }
         AnimatedVisibility(chrome.visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
-            Column(Modifier.fillMaxWidth().background(Color(0xDD121212)).statusBarsPadding()) {
+            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xF2080B10), Color(0xD9080B10), Color.Transparent))).statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     ViewerIcon("返回图库", Icons.AutoMirrored.Filled.ArrowBack, onGallery, canNavigate)
-                    Text(state.reviewPositionLabel, Modifier.weight(1f), color = MediaTextPrimary, maxLines = 1)
-                    ViewerIcon("刷新图库", Icons.Default.Refresh, onRefresh, !state.syncing && !state.busy)
+                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        Text("生图审阅", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
+                        Text(state.reviewPositionLabel, color = MediaTextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    }
+                    ViewerIcon("刷新图库", Icons.Default.Refresh, { requestedDirection = 0; onRefresh() }, !state.syncing && !state.busy, loading = state.syncing)
                     Box {
                         ViewerIcon("更多操作", Icons.Default.MoreVert, { moreOpen = true })
                         DropdownMenu(moreOpen, onDismissRequest = { moreOpen = false }) {
-                            DropdownMenuItem(text = { Text("上一张") }, enabled = canPrevious, onClick = { moreOpen = false; onPrevious() })
-                            DropdownMenuItem(text = { Text("下一张") }, enabled = canNext, onClick = { moreOpen = false; onNext() })
+                            DropdownMenuItem(text = { Text("上一张") }, enabled = canPrevious, onClick = { moreOpen = false; previous() })
+                            DropdownMenuItem(text = { Text("下一张") }, enabled = canNext, onClick = { moreOpen = false; next() })
                             DropdownMenuItem(text = { Text(if (showThumbnails) "收起缩略图" else "展开缩略图") },
                                 onClick = { moreOpen = false; showThumbnails = !showThumbnails })
                             if (state.undoDecision != null) DropdownMenuItem(text = { Text("撤销上次审核") }, enabled = !state.busy,
                                 onClick = { moreOpen = false; onUndo() })
-                            DropdownMenuItem(text = { Text("重置审核状态") }, enabled = !state.busy && state.detail != null,
+                            DropdownMenuItem(text = { Text("重置审核状态") }, enabled = ready && transitionFinished && !state.busy && state.detail != null,
                                 onClick = { moreOpen = false; onDecision("RESET", null) })
                             DropdownMenuItem(text = { Text("解除生图配对") }, enabled = canNavigate,
                                 onClick = { moreOpen = false; onDisconnect() })
@@ -185,24 +244,32 @@ internal fun NsfwImageReviewPane(
             }
         }
         AnimatedVisibility(chrome.visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
-            Column(Modifier.fillMaxWidth().background(Color(0xDD121212)).navigationBarsPadding().padding(8.dp)) {
+            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xED080B10), Color(0xFF080B10)))).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
                 if (showThumbnails) LazyRow(state = thumbnails, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().height(72.dp)) {
                     items(state.items, key = { it.imageId }) { thumbnail ->
                         NsfwReviewThumbnail(safeNsfwImageUrl(state.baseUrl, thumbnail.thumbnailUrl), imageLoader,
-                            thumbnail.imageId == state.currentId) { if (canNavigate) onSelect(thumbnail.imageId) }
+                            thumbnail.imageId == state.currentId) { if (canNavigate) { requestedDirection = 0; onSelect(thumbnail.imageId) } }
                     }
                 }
                 if (state.newImageCount > 0) TextButton(onClick = onLatest, enabled = !state.busy && !state.syncing) { Text("新图 ${state.newImageCount}") }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    ViewerIcon("上一张", Icons.Default.ChevronLeft, previous, canPrevious)
+                    Text(if (chrome.zoomed) "双指缩回以切换" else "左右滑动切换 · 双指缩放", Modifier.weight(1f),
+                        color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    ViewerIcon("下一张", Icons.Default.ChevronRight, next, canNext)
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onDecision("KEEP", null) }, enabled = ready && !state.busy && state.detail != null, modifier = Modifier.weight(1f)) {
+                    Button(onClick = { requestedDirection = 1; onDecision("KEEP", null) }, enabled = ready && transitionFinished && !state.busy && state.detail != null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
                         Icon(Icons.Default.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保留")
                     }
-                    OutlinedButton(onClick = { onDecision("REJECT", null) }, enabled = ready && !state.busy && state.detail != null, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = { requestedDirection = 1; onDecision("REJECT", null) }, enabled = ready && transitionFinished && !state.busy && state.detail != null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
                         Icon(Icons.Default.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("淘汰")
                     }
                     ViewerIcon(if (item?.isFavorite == true) "取消收藏" else "收藏", if (item?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        onToggleFavorite, !state.busy && state.detail != null)
-                    ViewerIcon("图片信息", Icons.Default.Info, onDetails, state.detail != null)
+                        onToggleFavorite, ready && transitionFinished && !state.busy && state.detail != null)
+                    ViewerIcon("图片信息", Icons.Default.Info, onDetails, transitionFinished && state.detail != null)
                 }
             }
         }
@@ -217,8 +284,17 @@ internal fun NsfwImageReviewPane(
 }
 
 @Composable
-private fun ViewerIcon(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-        Icon(icon, contentDescription = label, tint = if (enabled) MediaTextPrimary else MediaTextSecondary)
+private fun ViewerIcon(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true, loading: Boolean = false) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp).background(Color(0x66232C3A), RoundedCornerShape(16.dp))) {
+        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = label, tint = if (enabled || loading) MediaTextPrimary else MediaTextSecondary)
+            if (loading) CircularProgressIndicator(Modifier.size(10.dp).align(Alignment.TopEnd), strokeWidth = 1.5.dp)
+        }
     }
+}
+
+private data class ViewerMotionFrame(val id: String, val index: Int, val preview: String)
+
+private class ViewerMotionTransition(val outgoing: ViewerMotionFrame?, val direction: Int) {
+    val progress = Animatable(if (outgoing == null) 1f else 0f)
 }

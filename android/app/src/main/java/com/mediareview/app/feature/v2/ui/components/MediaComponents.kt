@@ -354,3 +354,42 @@ fun TopBar(
         actions()
     }
 }
+
+/** 主要操作用实心强调色，普通操作用低对比容器，危险操作独立红色。 */
+enum class MediaActionTone { PRIMARY, SECONDARY, DANGER }
+
+@Composable
+fun MediaActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+    tone: MediaActionTone = MediaActionTone.SECONDARY,
+) {
+    val colors = MaterialTheme.colorScheme
+    val container = when (tone) {
+        MediaActionTone.PRIMARY -> colors.primary
+        MediaActionTone.SECONDARY -> colors.surfaceVariant
+        MediaActionTone.DANGER -> colors.errorContainer
+    }
+    val foreground = when (tone) {
+        MediaActionTone.PRIMARY -> colors.onPrimary
+        MediaActionTone.SECONDARY -> colors.onSurface
+        MediaActionTone.DANGER -> colors.onErrorContainer
+    }
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = MediaDimensions.MinimumTouchTarget),
+        shape = MaterialTheme.shapes.medium,
+        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = foreground),
+        contentPadding = PaddingValues(horizontal = MediaSpacing.Medium, vertical = MediaSpacing.Regular),
+    ) {
+        if (icon != null) {
+            Icon(icon, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(MediaSpacing.Small))
+        }
+        Text(label, style = MaterialTheme.typography.labelLarge)
+    }
+}

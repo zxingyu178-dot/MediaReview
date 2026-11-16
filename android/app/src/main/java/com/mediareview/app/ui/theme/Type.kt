@@ -42,6 +42,30 @@ val MediaTypography = Typography(
         fontSize = 14.sp,
         lineHeight = 20.sp,
     ),
+    titleSmall = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+    ),
+    bodyMedium = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 22.sp,
+    ),
+    labelMedium = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 18.sp,
+    ),
+    labelSmall = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+    ),
     bodySmall = androidx.compose.ui.text.TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,

@@ -1,7 +1,9 @@
 package com.mediareview.app.feature.v2.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,6 +59,7 @@ fun V2BottomNavBar(
         modifier = modifier
             .fillMaxWidth()
             .background(MediaSurface)
+            .selectableGroup()
             .padding(horizontal = V2Spacing.Sm, vertical = V2Spacing.Sm)
             .navigationBarsPadding(),
         verticalAlignment = Alignment.CenterVertically,
@@ -78,17 +81,23 @@ private fun NavItem(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .heightIn(min = 48.dp)
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Box(
+            Modifier.clip(RoundedCornerShape(16.dp))
+                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
         Icon(
             imageVector = icon,
-            contentDescription = label,
+            contentDescription = null,
             tint = if (selected) V2Colors.Accent else MediaTextSecondary,
             modifier = Modifier.size(22.dp),
         )
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
