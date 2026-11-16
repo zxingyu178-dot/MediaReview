@@ -37,8 +37,9 @@ class NsfwVisualPolishTest {
     private fun capture(name: String) {
         val target = File(context.filesDir, "visual-polish/$name.png")
         target.parentFile!!.mkdirs()
-        val node = if (name == "gallery-filters") compose.onNode(isRoot() and hasAnyDescendant(hasText("筛选生图"))) else compose.onRoot()
-        val bitmap = node.captureToImage().asAndroidBitmap()
+        // ModalBottomSheet uses another window; capture all windows instead of its underlay.
+        val bitmap = if (name == "gallery-filters") InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            else compose.onRoot().captureToImage().asAndroidBitmap()
         target.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
