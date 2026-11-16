@@ -214,10 +214,8 @@ internal fun NsfwImageReviewPane(
             Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xF2080B10), Color(0xD9080B10), Color.Transparent))).statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     ViewerIcon("返回图库", Icons.AutoMirrored.Filled.ArrowBack, onGallery, canNavigate)
-                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                        Text("生图审阅", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
-                        Text(state.reviewPositionLabel, color = MediaTextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    }
+                    Text(state.reviewPositionLabel, Modifier.weight(1f).padding(horizontal = 8.dp),
+                        color = MediaTextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     ViewerIcon("刷新图库", Icons.Default.Refresh, { requestedDirection = 0; onRefresh() }, !state.syncing && !state.busy, loading = state.syncing)
                     Box {
                         ViewerIcon("更多操作", Icons.Default.MoreVert, { moreOpen = true })
@@ -238,8 +236,8 @@ internal fun NsfwImageReviewPane(
                 if (messages.isNotEmpty() && (!messageDismissed || important)) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
                         style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(onClick = { messageDetailsOpen = true }) { Text("详情") }
-                    if (!important) TextButton(onClick = { messageDismissed = true }) { Text("收起") }
+                    ViewerIcon("查看提示详情", Icons.Default.Info, { messageDetailsOpen = true })
+                    if (!important) ViewerIcon("收起提示", Icons.Default.Close, { messageDismissed = true })
                 }
             }
         }
@@ -252,14 +250,6 @@ internal fun NsfwImageReviewPane(
                     }
                 }
                 if (state.newImageCount > 0) TextButton(onClick = onLatest, enabled = !state.busy && !state.syncing) { Text("新图 ${state.newImageCount}") }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ViewerIcon("上一张", Icons.Default.ChevronLeft, previous, canPrevious)
-                    Text(if (chrome.zoomed) "双指缩回以切换" else "左右滑动切换 · 双指缩放", Modifier.weight(1f),
-                        color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    ViewerIcon("下一张", Icons.Default.ChevronRight, next, canNext)
-                }
-                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { requestedDirection = 1; onDecision("KEEP", null) }, enabled = ready && transitionFinished && !state.busy && state.detail != null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
                         Icon(Icons.Default.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保留")

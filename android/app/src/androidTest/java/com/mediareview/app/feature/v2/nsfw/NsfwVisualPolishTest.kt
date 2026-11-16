@@ -77,7 +77,7 @@ class NsfwVisualPolishTest {
         capture("viewer-first")
         compose.mainClock.autoAdvance = false
         try {
-            compose.onNodeWithContentDescription("下一张").performClick()
+            compose.onNodeWithContentDescription("图片").performTouchInput { swipeLeft(durationMillis = 350L) }
             compose.mainClock.advanceTimeByFrame()
             compose.onAllNodesWithContentDescription("图片").assertCountEquals(1)
             compose.onNodeWithText("保留").assertIsNotEnabled()

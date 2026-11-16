@@ -7,6 +7,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
@@ -174,7 +178,7 @@ internal fun NsfwGallery(
         }
         if (state.items.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(if (state.syncing) "正在同步图库…" else if (state.galleryEnabled) "当前日期范围没有图片，可调整日期或查看最新" else "图库暂无图片，生成后会自动追加", color = MediaTextSecondary)
+                Text(if (state.syncing) "正在同步图库…" else if (state.galleryEnabled) "此日期无图片" else "暂无图片", color = MediaTextSecondary)
             }
         } else LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid,
             modifier = Modifier.weight(1f).testTag("nsfw_gallery_grid"),
@@ -192,16 +196,16 @@ internal fun NsfwGallery(
                 TextButton(onClick = { filtersOpen = false }) { Text("完成") }
             }
             if (state.galleryEnabled) GalleryFilters(filter, interaction.canChangeQuery, onChangeFilter)
-            else Text("排序和日期筛选需更新电脑端生图审核服务；当前保持旧版队列顺序。", modifier = Modifier.padding(16.dp))
+            else Text("排序与日期不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
             if (state.galleryFiltersEnabled) LibraryFilters(filter, interaction.canChangeQuery, state.galleryReviewFilterEnabled, onChangeFilter)
             else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
             if (state.gallerySearchEnabled) LibrarySearch(filter, interaction.canChangeQuery, onChangeFilter)
-            else Text("搜索与文字标签需更新电脑端", modifier = Modifier.padding(16.dp))
+            else Text("搜索与标签不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
         }
     }
     if (capabilityOpen) AlertDialog(onDismissRequest = { capabilityOpen = false },
         title = { Text("需更新电脑端") },
-        text = { Text("当前电脑端未提供图库查询能力，不能按全库创建时间排序。请更新配套生图审核服务；当前保持旧版队列顺序，新图追加在队尾。") },
+        text = { Text("排序需更新电脑端。当前按队列顺序显示。") },
         confirmButton = { TextButton(onClick = { capabilityOpen = false }) { Text("知道了") } })
 }
 
@@ -286,9 +290,9 @@ private fun LibrarySearch(filter: NsfwGalleryFilter, enabled: Boolean, onChange:
     TextButton(onClick = { expanded = !expanded }) { Text(if (filter.search != null || filter.tag != null) "搜索/标签筛选已启用" else "搜索与文字标签") }
     if (expanded) Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         OutlinedTextField(value = search, onValueChange = { search = it }, enabled = enabled, singleLine = true,
-            label = { Text("提示词名称/历史正文/生成快照/导入文件名") }, supportingText = { Text("字面关键词，最多200字") }, modifier = Modifier.fillMaxWidth())
+            label = { Text("搜索提示词或文件名") }, supportingText = { Text("关键词，最多200字") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = tag, onValueChange = { tag = it }, enabled = enabled, singleLine = true,
-            label = { Text("提示词当前版本文字标签") }, supportingText = { Text("精确匹配，最多100字；不代表生成时版本标签") }, modifier = Modifier.fillMaxWidth())
+            label = { Text("当前版本标签") }, supportingText = { Text("精确匹配，最多100字 · 非生成版本标签") }, modifier = Modifier.fillMaxWidth())
         Row {
             TextButton(enabled = enabled, onClick = { onChange(filter.copy(search = search, tag = tag)) }) { Text("应用搜索") }
             TextButton(enabled = enabled, onClick = { search = ""; tag = ""; onChange(filter.copy(search = null, tag = null)) }) { Text("清除搜索") }
@@ -311,6 +315,18 @@ private fun LibraryFilterMenu(label: String, value: String?, options: List<Pair<
 private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, loader: NsfwImageLoader, selected: Boolean, enabled: Boolean, onOpen: () -> Unit) {
     var failed by remember(item.imageId, item.thumbnailUrl) { mutableStateOf(false) }
     var attempt by remember(item.imageId, item.thumbnailUrl) { mutableIntStateOf(0) }
+    val statusLabel = when (item.status) {
+        "KEEP", "KEPT" -> "已保留"
+        "REJECT", "REJECTED" -> "已淘汰"
+        "NEW", "PENDING" -> "待审核"
+        else -> "状态待确认"
+    }
+    val statusIcon = when (item.status) {
+        "KEEP", "KEPT" -> Icons.Default.Check
+        "REJECT", "REJECTED" -> Icons.Default.Close
+        "NEW", "PENDING" -> Icons.Default.Schedule
+        else -> Icons.Default.HelpOutline
+    }
     val url = safeNsfwImageUrl(baseUrl, item.thumbnailUrl)
     val request = remember(loader, url, attempt) { loader.request(url) }
     Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
@@ -319,12 +335,12 @@ private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, load
         .clickable(enabled = enabled, onClick = onOpen)) {
         key(attempt) {
             AsyncImage(model = request, imageLoader = loader.loader,
-                contentDescription = "第 $ordinal 张生图缩略图${if (selected) "，当前" else ""}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                contentDescription = "第 $ordinal 张生图缩略图，$statusLabel${if (selected) "，当前" else ""}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
                 onLoading = { failed = false }, onError = { failed = true }, onSuccess = { failed = false })
         }
         if (failed) TextButton(onClick = { attempt++; failed = false }, modifier = Modifier.align(Alignment.Center).background(Color(0xCC000000))) { Text("加载失败 · 重试") }
-        Text(when (item.status) { "KEEP", "KEPT" -> "已保留"; "REJECT", "REJECTED" -> "已淘汰"; "NEW", "PENDING" -> "待审核"; else -> "状态待确认" },
-            modifier = Modifier.align(Alignment.BottomStart).background(Color(0xAA000000)).padding(4.dp), color = Color.White, style = MaterialTheme.typography.labelSmall)
-        if (selected) Text("当前", Modifier.align(Alignment.TopEnd).background(Color(0xCC000000)).padding(4.dp), color = Color.White)
+        Icon(statusIcon, contentDescription = null,
+            modifier = Modifier.align(Alignment.BottomStart).background(Color(0xAA000000)).padding(4.dp).size(16.dp),
+            tint = Color.White)
     }
 }

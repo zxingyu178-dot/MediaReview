@@ -412,7 +412,7 @@ private fun FavoritesPage(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "收藏刷新失败，显示的是上次结果",
+                            text = "刷新失败 · 上次收藏",
                             color = MediaTextSecondary,
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.weight(1f),

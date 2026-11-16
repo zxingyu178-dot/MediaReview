@@ -320,9 +320,9 @@ fun MediaGrid(
             Box(Modifier.fillMaxWidth().padding(MediaSpacing.Medium), contentAlignment = Alignment.Center) {
                 when {
                     loading && !refreshing -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                    error != null -> TextButton(onClick = vm::retryList) { Text("加载失败，点击重试") }
-                    hasMore -> Text("继续下滑加载更多", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
-                    else -> Text("已加载全部 $total 项", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    error != null -> TextButton(onClick = vm::retryList) { Text("加载失败 · 重试") }
+                    hasMore -> Text("加载更多", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    else -> Text("共 $total 项", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },

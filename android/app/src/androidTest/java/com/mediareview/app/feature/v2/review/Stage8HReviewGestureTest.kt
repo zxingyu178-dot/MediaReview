@@ -1,6 +1,9 @@
 package com.mediareview.app.feature.v2.review
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -25,12 +28,17 @@ class Stage8HReviewGestureTest {
         fixture?.close()
     }
 
-    private fun launch(blockSecond: Boolean = false, blockFirstVideo: Boolean = false, awaitPlayback: Boolean = true) {
+    private fun launch(blockSecond: Boolean = false, blockFirstVideo: Boolean = false, awaitPlayback: Boolean = true, fontScale: Float = 1f) {
         val live = RealHttpPlaybackFixture(longVideo = true, blockSecondPlayback = blockSecond,
             blockFirstVideo = blockFirstVideo).also { fixture = it }
         vm = V2ReviewViewModel(live.repository, live.sessions)
         compose.activity.viewModelStore.put("stage8h-review", vm)
-        compose.setContent { MediaReviewTheme { V2ReviewScreen(vm, {}, {}) } }
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                MediaReviewTheme { V2ReviewScreen(vm, {}, {}) }
+            }
+        }
         if (!awaitPlayback) return
         compose.waitUntil(60_000) { kernel { it.isPlaying && it.duration >= 59_000 && it.currentPosition > 500 } }
         val first = position()
@@ -43,6 +51,16 @@ class Stage8HReviewGestureTest {
         var result: T? = null
         compose.runOnUiThread { result = block(GSYVideoManager.instance()) }
         @Suppress("UNCHECKED_CAST") return result as T
+    }
+
+    @Test fun largeFontKeepsSeekOutsideReviewActions() {
+        launch(fontScale = 2f)
+        compose.onNodeWithTag("review_keep").assertIsDisplayed()
+        compose.onNodeWithTag("review_delete").assertIsDisplayed()
+        val seek = bar().fetchSemanticsNode().boundsInRoot
+        val actions = compose.onNodeWithTag("review_bottom_actions").fetchSemanticsNode().boundsInRoot
+        ReviewFrameEvidence.capture("video-review-large-font-20261116")
+        Assert.assertTrue("Seek touch area must not overlap actions: seek=$seek actions=$actions", seek.bottom <= actions.top + 1f)
     }
     private fun position() = kernel { it.currentPosition }
     private fun speed() = kernel { (it.player.mediaPlayer as IjkExo2MediaPlayer).speed }
@@ -99,11 +117,12 @@ class Stage8HReviewGestureTest {
         // Physical More tap with the reminder still present detects moving the obstruction to the action rail.
         reminder.assertIsDisplayed()
         compose.onNodeWithContentDescription("更多").performTouchInput { click(center) }
-        compose.onNodeWithText("打开完整播放器").assertIsDisplayed()
+        compose.onNodeWithText("完整播放器").assertIsDisplayed()
         Assert.assertFalse("打开更多应暂停当前真实内核", kernel { it.isPlaying })
     }
     @Test fun reviewTapPausesAndResumesWithoutReloading() {
         launch()
+        ReviewFrameEvidence.capture("video-review-compact-20261116")
         compose.onNodeWithContentDescription("播放").assertDoesNotExist()
         bar().performTouchInput { click(Offset(width * .5f, centerY)) }
         near(30_000)
@@ -278,7 +297,7 @@ class Stage8HReviewGestureTest {
         launch(blockSecond = true, blockFirstVideo = true, awaitPlayback = false)
         compose.waitUntil(10_000) { fixture!!.firstVideoRequested.count == 0L }
         compose.onNodeWithContentDescription("更多").performTouchInput { click(center) }
-        compose.onNodeWithText("打开完整播放器").assertExists()
+        compose.onNodeWithText("完整播放器").assertExists()
         fixture!!.releaseFirstVideo()
         compose.waitUntil(60_000) { kernel { it.duration >= 59_000 } }
         val until = android.os.SystemClock.elapsedRealtime() + 1_500
@@ -289,7 +308,7 @@ class Stage8HReviewGestureTest {
         Assert.assertEquals(1L, fixture!!.secondPlaybackRequested.count)
         androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
             .sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("打开完整播放器").fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("完整播放器").fetchSemanticsNodes().isEmpty() }
         compose.waitUntil(10_000) { kernel { it.isPlaying } && position() > 500 }
         compose.waitUntil(5_000) { fixture!!.secondPlaybackRequested.count == 0L }
     }

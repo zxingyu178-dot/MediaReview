@@ -162,8 +162,8 @@ internal fun NsfwBatchReviewScreen(
             Text("${pageSize}图批量审核", color = MediaTextPrimary, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             Text("${draft.items.size} 张", color = MediaTextSecondary)
         }
-        Text("勾选保留，未选且加载成功的图片淘汰；不会删除文件", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
-        if (!supported) Text("电脑端暂不支持批量审核，请更新审核桥", color = MediaDanger)
+        Text("勾选保留 · 未选就绪图淘汰 · 不删除文件", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+        if (!supported) Text("批量审核不可用 · 请更新电脑端", color = MediaDanger)
         message?.let { Text(it, color = MediaTextSecondary) }
         if (locked) TextButton(onClick = ::recover, enabled = !working) { Text(if (working) "核对中…" else "核对上次批次结果") }
         if (refreshRequired) TextButton(onClick = ::refreshPage, enabled = !working && !locked) { Text(if (refreshingPage) "刷新中…" else "刷新本页并重新确认") }
@@ -183,7 +183,7 @@ internal fun NsfwBatchReviewScreen(
                             onCheckedChange = { draft = draft.toggle(item.imageId) })
                         IconButton(onClick = { onOpenOriginal(item) }, enabled = !working, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.ZoomIn, "放大") }
                     }
-                    if (item.imageId !in draft.eligibleIds) Text("未展示或未加载，不会处理", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
+                    if (item.imageId !in draft.eligibleIds) Text("未就绪 · 跳过", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -194,7 +194,7 @@ internal fun NsfwBatchReviewScreen(
         }
         Text("保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}", color = MediaTextSecondary)
         if (draft.items.isEmpty()) TextButton(onClick = onLoadMore, enabled = state.hasMore && !state.syncing && !working && !locked) {
-            Text(if (state.syncing) "正在加载…" else if (state.hasMore) "加载下一批" else "当前范围没有更多待审核图片")
+            Text(if (state.syncing) "正在加载…" else if (state.hasMore) "加载下一批" else "本范围已审完")
         }
         MediaActionButton(onClick = {
             try {
@@ -208,7 +208,7 @@ internal fun NsfwBatchReviewScreen(
     val confirmedKeep = confirmation?.items?.count { it.action == "KEEP" } ?: 0
     val confirmedReject = confirmation?.items?.count { it.action == "REJECT" } ?: 0
     if (confirm) AlertDialog(onDismissRequest = { confirm = false; confirmation = null }, title = { Text("确认本页审核") },
-        text = { Text("保留 $confirmedKeep 张、淘汰 $confirmedReject 张。$confirmationSkipped 张未展示或未加载，不会处理。") },
+        text = { Text("保留 $confirmedKeep 张、淘汰 $confirmedReject 张。$confirmationSkipped 张未就绪 · 跳过。") },
         confirmButton = { TextButton(onClick = { submit(false) }) { Text("确认提交") } },
         dismissButton = { TextButton(onClick = { confirm = false; confirmation = null }) { Text("返回选择") } })
     if (rejectAll) AlertDialog(onDismissRequest = { rejectAll = false; confirmation = null }, title = { Text("确认全部淘汰？") },

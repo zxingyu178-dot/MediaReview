@@ -97,7 +97,7 @@ fun LibraryManagerScreen(
                         color = MediaTextPrimary,
                     )
                     Text(
-                        text = "本地目录请在电脑管理后台登记；此处选择参与媒体墙与批阅的来源",
+                        text = "选择媒体来源 · 本地目录在电脑端登记",
                         style = MaterialTheme.typography.bodySmall,
                         color = MediaTextSecondary,
                     )
@@ -110,9 +110,9 @@ fun LibraryManagerScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("媒体库管理仅在服务器模式可用", color = MediaTextPrimary)
+                        Text("仅服务器可用", color = MediaTextPrimary)
                         Text(
-                            text = "切换到「我的服务器」后可管理媒体库勾选",
+                            text = "请连接「我的服务器」",
                             color = MediaTextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                             textAlign = TextAlign.Center,

@@ -160,7 +160,7 @@ fun DuplicateCompareScreen(
                                     )
                                 }
                                 Text(
-                                    text = "点击下方卡片选择要保留的文件；保留选择只记录在服务器，不会自动删除其它文件。",
+                                    text = "选择保留 · 不会自动删除文件",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MediaTextSecondary,
                                     modifier = Modifier.padding(top = V2Spacing.Xs),

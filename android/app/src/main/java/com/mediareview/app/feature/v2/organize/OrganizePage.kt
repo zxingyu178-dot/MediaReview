@@ -170,7 +170,7 @@ private fun <T> DataCard(
             action = onOpen
         }
         is OrganizeCard.Error -> {
-            subtitle = "加载失败 · 点击重试"
+            subtitle = "加载失败 · 重试"
             action = onRetry
         }
         is OrganizeCard.Unavailable -> {
@@ -188,7 +188,7 @@ private fun <T> DataCard(
         )
         if (card is OrganizeCard.Ready && card.refreshError != null) {
             androidx.compose.material3.TextButton(onClick = onRetry) {
-                Text("刷新失败，显示上次结果 · 点击重试", color = MediaTextSecondary)
+                Text("刷新失败 · 上次结果 · 重试", color = MediaTextSecondary)
             }
         }
     }

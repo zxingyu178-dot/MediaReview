@@ -69,10 +69,9 @@ internal fun NsfwPromptComparisonScreen(
         Row {
             listOf(6, 10).forEach { size -> FilterChip(selected = scope.pageSize == size, enabled = !loading,
                 onClick = { requestedSize = size; cursor = null; anchor = page?.items?.firstOrNull()?.imageId; request++ }, label = { Text("${size}张") }) }
-            TextButton(onClick = { batch = true }, enabled = !loading && page?.items?.any { it.status == "NEW" } == true) { Text("审核本页待审核图") }
+            TextButton(onClick = { batch = true }, enabled = !loading && page?.items?.any { it.status == "NEW" } == true) { Text("审核本页") }
         }
-        Text("范围已固定，新图不插入；评分对应整个提示词版本", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
-        error?.let { Text(it, color = MediaDanger); TextButton(onClick = { request++ }, enabled = !loading) { Text("重试本次加载") } }
+        error?.let { Text(it, color = MediaDanger); TextButton(onClick = { request++ }, enabled = !loading) { Text("重试") } }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         val current = page
         if (current != null) Text(if (current.items.isEmpty()) "该版本当前范围没有图片" else "${(current.startIndex ?: 0) + 1}–${(current.startIndex ?: 0) + current.items.size} / ${current.total}", color = MediaTextSecondary)
@@ -85,7 +84,7 @@ internal fun NsfwPromptComparisonScreen(
                         contentDescription = "同版本图片，点击放大", contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxWidth().aspectRatio(1f).background(Color.Black).clickable { onOpenOriginal(image) },
                         onError = { failed = true }, onSuccess = { failed = false })
-                    Text(if (failed) "缩略图失败，可点击查看原图" else when(image.status) { "NEW" -> "待审核"; "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; else -> "已归档" }, color = MediaTextSecondary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
+                    Text(if (failed) "缩略图失败 · 查看原图" else when(image.status) { "NEW" -> "待审核"; "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; else -> "已归档" }, color = MediaTextSecondary, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
                 }
             }
         }

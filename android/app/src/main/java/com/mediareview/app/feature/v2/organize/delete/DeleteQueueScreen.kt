@@ -127,9 +127,9 @@ fun DeleteQueueScreen(
                     )
                     Text(
                         text = if (ui.phase is DeleteCommitPhase.Checking || ui.phase is DeleteCommitPhase.Unconfirmed) {
-                            "有一批删除结果待核对\n待处理 ${ui.pendingCount} 项 · 失败 ${ui.failedCount} 项 · 待核对 ${ui.unconfirmedCount} 项"
+                            "删除结果待核对\n待处理 ${ui.pendingCount} 项 · 失败 ${ui.failedCount} 项 · 待核对 ${ui.unconfirmedCount} 项"
                         } else if (ui.loading && ui.entries.isEmpty()) {
-                            "正在加载待删除列表…"
+                            "加载中…"
                         } else if (ui.error != null && ui.entries.isEmpty()) {
                             "待删除数量暂不可用"
                         } else if (ui.entries.isNotEmpty()) {

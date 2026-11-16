@@ -214,7 +214,7 @@ private fun PairingPane(
     ) {
         Text("生图审核", style = MaterialTheme.typography.titleLarge, color = MediaTextPrimary)
         Text(
-            "连接 NSFW Studio 审核服务（默认端口 8877），使用电脑端生成的配对码。",
+            "使用电脑端配对码连接 NSFW Studio",
             style = MaterialTheme.typography.bodySmall,
             color = MediaTextSecondary,
             modifier = Modifier.padding(top = V2Spacing.Sm, bottom = V2Spacing.Lg),
@@ -222,7 +222,7 @@ private fun PairingPane(
         OutlinedTextField(
             value = baseUrl,
             onValueChange = onBaseUrlChange,
-            label = { Text("生图服务地址（如 192.168.1.20:8877）") },
+            label = { Text("生图服务地址（IP:8877）") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -252,13 +252,13 @@ private fun PairingPane(
                 enabled = !state.pairingBusy,
                 modifier = Modifier.fillMaxWidth().padding(top = V2Spacing.Md),
             ) {
-                Text("重新检查已保存连接（无需配对码）")
+                Text("重连已配对服务")
             }
         }
 
         if (state.missingCapabilities.isNotEmpty()) {
             Text(
-                "当前 Bridge 缺少生图审核 v2 能力：",
+                "审核服务缺少能力：",
                 color = V2Colors.Warning,
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(top = V2Spacing.Lg),
@@ -267,7 +267,7 @@ private fun PairingPane(
                 Text("· $capability", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                "请先升级 NSFW Studio Mobile Review Bridge；本轮客户端不会把旧 Bridge 当成可用。",
+                "请升级 NSFW Studio Mobile Review Bridge",
                 color = MediaTextSecondary,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = V2Spacing.Sm),
@@ -288,11 +288,6 @@ private fun PairingPane(
         }
 
         Spacer(Modifier.weight(1f))
-        Text(
-            "生图审核独立连接，配对不会影响媒体库和视频批阅。",
-            style = MaterialTheme.typography.labelSmall,
-            color = MediaTextSecondary,
-        )
     }
 }
 
@@ -336,7 +331,7 @@ private fun ReadyPane(
         AlertDialog(
             onDismissRequest = { confirmDisconnect = false },
             title = { Text("解除生图配对？") },
-            text = { Text("将清除手机保存的生图连接和当前图片列表，下次需要重新配对。电脑上的图片、审核结果和评分会保留，媒体服务器连接不受影响。") },
+            text = { Text("清除手机端生图连接，下次需重新配对。电脑数据和媒体服务器连接保留。") },
             confirmButton = { TextButton(enabled = canDisconnect, onClick = {
                 if (canDisconnect) { confirmDisconnect = false; onDisconnect() }
             }) { Text("解除配对") } },

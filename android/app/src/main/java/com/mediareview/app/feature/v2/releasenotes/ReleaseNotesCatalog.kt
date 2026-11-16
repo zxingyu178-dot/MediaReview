@@ -457,6 +457,16 @@ object ReleaseNotesCatalog {
                 "生图切换加入方向动效，优化看图操作布局",
             ),
         ),
+        ReleaseNote(
+            versionCode = 48,
+            versionName = "2.0.0-alpha41",
+            title = "MediaReview 2.0 Alpha 41",
+            highlights = listOf(
+                "精简视频批阅布局，媒体画面优先",
+                "生图移除底部翻页按钮，保留左右滑动切换",
+                "主要页面改用状态图标与短文案",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -121,8 +121,8 @@ fun DuplicatesScreen(
 
             when {
                 ui.demoUnavailable -> CenteredHint(
-                    title = "重复媒体仅在服务器模式可用",
-                    subtitle = "切换到「我的服务器」后可扫描完全重复与疑似重复",
+                    title = "仅服务器可用",
+                    subtitle = "请连接「我的服务器」",
                     modifier = Modifier.weight(1f),
                 )
                 ui.loading -> Box(
@@ -319,7 +319,7 @@ private fun ScanStatusCard(
             }
             if (scan.status == "succeeded" && !ui.scanBusy) {
                 Text(
-                    text = "扫描完成，以下分组来自最近一次扫描",
+                    text = "最近扫描结果",
                     style = MaterialTheme.typography.labelSmall,
                     color = MediaTextSecondary,
                     modifier = Modifier.align(Alignment.CenterVertically),

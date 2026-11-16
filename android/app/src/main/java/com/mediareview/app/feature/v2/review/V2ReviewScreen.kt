@@ -8,6 +8,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +17,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -72,6 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -83,7 +89,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -323,6 +330,14 @@ private fun ReviewPagerContent(
     var seekPreview by remember { mutableStateOf<Long?>(null) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var lastDeleteMediaId by remember { mutableStateOf<String?>(null) }
+    // Includes navigation-bar inset and the actions' font-dependent content height.
+    var bottomActionsHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
+    val bottomActionsHeight = with(density) {
+        if (bottomActionsHeightPx > 0) bottomActionsHeightPx.toDp()
+        else 64.dp + navigationBottomPx.toDp()
+    }
     val verticalSettling = pagerState.isScrollInProgress
 
     LaunchedEffect(state.sessionId) {
@@ -937,7 +952,9 @@ private fun ReviewPagerContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding(),
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.74f), Color.Transparent)))
+                .statusBarsPadding()
+                .height(56.dp),
         ) {
             IconButton(
                 onClick = onBack,
@@ -965,10 +982,9 @@ private fun ReviewPagerContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(progress.positionLabel, color = MediaTextPrimary, style = MaterialTheme.typography.labelLarge)
-                Text(progress.summaryLabel, color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
                 LinearProgressIndicator(
                     progress = { animatedProgress },
-                    modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 1.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(2.dp),
                     color = V2Colors.Accent,
                     trackColor = Color.White.copy(alpha = 0.18f),
                 )
@@ -981,40 +997,17 @@ private fun ReviewPagerContent(
             }
         }
 
-        // 底部：标题 + 编号 · 文件夹 · 时长。
+        // 标题和文件属性收进视频信息，给媒体留出完整视野。
         currentItem?.let { item ->
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 112.dp),
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MediaTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = item.subtitle(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MediaTextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-
             // 固定底部动作区：按钮均 >=48dp，按钮与手势语义一致。
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .onSizeChanged { bottomActionsHeightPx = it.height }
                     .navigationBarsPadding()
-                    .background(Color.Black.copy(alpha = 0.68f))
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .background(Color.Black.copy(alpha = 0.82f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
                     .testTag("review_bottom_actions"),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
@@ -1053,8 +1046,23 @@ private fun ReviewPagerContent(
 
         // 更多 → 统一 ModalBottomSheet（外部点击 / Back 可关闭）。
         if (moreSheet) {
-            ModalBottomSheet(onDismissRequest = { moreSheet = false; closeSheetAndResume() }) {
-                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            ModalBottomSheet(
+                onDismissRequest = { moreSheet = false; closeSheetAndResume() },
+                containerColor = Color(0xFF191C22),
+                contentColor = MediaTextPrimary,
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+                    Text(
+                        reviewProgress(
+                            absoluteIndex = currentItem?.absoluteIndex ?: state.absoluteCurrentIndex,
+                            totalCount = state.totalCount,
+                            seenCount = state.seenCount,
+                            remainingCount = state.remainingCount,
+                        ).summaryLabel,
+                        Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        color = MediaTextSecondary,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                     MoreSheetItem(
                         icon = Icons.Default.NavigateNext,
                         label = "快进一屏",
@@ -1069,7 +1077,7 @@ private fun ReviewPagerContent(
                     )
                     MoreSheetItem(
                         icon = Icons.Default.CheckCircle,
-                        label = "重新选择批阅范围",
+                        label = "重选范围",
                         tag = "review_scope_reselect",
                         onClick = {
                             moreSheet = false
@@ -1088,19 +1096,22 @@ private fun ReviewPagerContent(
                             },
                         )
                     }
-                    Text("播放倍速", Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                    Text("倍速", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = MediaTextSecondary, style = MaterialTheme.typography.labelLarge)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                         SpeedGestureState.FORMAL_SPEEDS.forEach { formal ->
-                            TextButton(onClick = {
+                            TextButton(modifier = Modifier.heightIn(min = 48.dp).background(
+                                if (speed.formalSpeed == formal) V2Colors.Accent.copy(alpha = 0.16f) else Color.Transparent,
+                                RoundedCornerShape(12.dp),
+                            ), onClick = {
                                 applySpeed(speed.formalSpeedChanged(formal))
                                 moreSheet = false
                                 closeSheetAndResume()
-                            }) { Text("${formal}×") }
+                            }) { Text("${formal}×", color = if (speed.formalSpeed == formal) V2Colors.Accent else MediaTextPrimary) }
                         }
                     }
                     MoreSheetItem(
                         icon = Icons.Default.PlayArrow,
-                        label = "打开完整播放器",
+                        label = "完整播放器",
                         onClick = {
                             moreSheet = false
                             closeSheetWithoutResume()
@@ -1143,7 +1154,9 @@ private fun ReviewPagerContent(
         }
 
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 76.dp),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottomActionsHeight)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f))))
+                .padding(horizontal = 16.dp),
         ) {
             if (showSourceLoading && playbackFailure == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(20.dp)
@@ -1187,13 +1200,6 @@ private fun ReviewPagerContent(
         scope.launch { pagerState.scrollToPage(0) }
     }
 }
-
-/** 队列项副标题：编号（可能为空）· 文件夹 · 时长。 */
-private fun ReviewQueueItemUi.subtitle(): String = listOfNotNull(
-    code.takeIf { it.isNotBlank() },
-    folderName.takeIf { it.isNotBlank() },
-    "${durationSeconds}s",
-).joinToString(" · ")
 
 /**
  * Poster Layer 组合：整个层由一个 [posterAlpha] 控制。
@@ -1244,7 +1250,7 @@ private fun logSourceState(tag: String, item: ReviewQueueItemUi?, loadedMediaId:
     )
 }
 
-/** 抖音式右侧动作按钮：圆形半透明底 + 图标 + 小字。 */
+/** 紧凑底部动作：图标与短标签共享至少 48dp 的点击区域。 */
 @Composable
 private fun ReviewActionButton(
     icon: ImageVector,
@@ -1254,22 +1260,23 @@ private fun ReviewActionButton(
     enabled: Boolean = true,
     tag: String? = null,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = Modifier
-                .size(52.dp)
-                .then(if (tag != null) Modifier.testTag(tag) else Modifier)
-                .background(V2Colors.CardScrim, CircleShape),
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(16.dp),
+        color = tint.copy(alpha = if (enabled) 0.14f else 0.04f),
+        contentColor = if (enabled) tint else MediaTextSecondary.copy(alpha = 0.45f),
+        modifier = Modifier.heightIn(min = 48.dp)
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge)
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MediaTextPrimary,
-        )
     }
 }
 
@@ -1311,8 +1318,12 @@ private fun GsyNativeReviewInfoSheet(
     media: ReviewQueueItemUi,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF191C22),
+        contentColor = MediaTextPrimary,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text(
                 text = media.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -1326,8 +1337,6 @@ private fun GsyNativeReviewInfoSheet(
             )
             if (media.code.isNotBlank()) InfoSheetRow("编号", media.code)
             InfoSheetRow("文件夹", media.folderName)
-            InfoSheetRow("媒体 ID", media.mediaId)
-            InfoSheetRow("队列位置", "${media.absoluteIndex + 1}")
         }
     }
 }
@@ -1335,11 +1344,11 @@ private fun GsyNativeReviewInfoSheet(
 @Composable
 private fun InfoSheetRow(label: String, value: String) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MediaTextSecondary, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodyMedium, color = MediaTextPrimary)
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = MediaTextPrimary, modifier = Modifier.weight(2f).padding(start = 12.dp))
     }
 }
 
