@@ -59,15 +59,19 @@ class NsfwReviewViewModelTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
             capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1", "mobile_gallery_review_filter_v1"))
         data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
-            items = if (data.decisionCalls == 1) listOf(nsfwItem("b")) else listOf(nsfwItem("a"), nsfwItem("b")),
-            filters = call.query.filter.selection, total = if (data.decisionCalls == 1) 1 else 2, syncCursor = "w1", scopeCursor = "s1") }
+            items = when (call.anchor) {
+                "a" -> listOf(nsfwItem("a"), nsfwItem("b"))
+                "b" -> listOf(nsfwItem("b"))
+                else -> listOf(nsfwItem("earlier"), nsfwItem("a"), nsfwItem("b"))
+            },
+            filters = call.query.filter.selection, total = if (data.decisionCalls == 1) 2 else 3, syncCursor = "w1", scopeCursor = "s1") }
         val model = vm()
         model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NEW"))
         model.select("a")
         model.decision("KEEP")
         assertEquals(1, data.decisionCalls)
         assertEquals(listOf("b"), model.state.value.items.map { it.imageId })
-        assertEquals(1, model.state.value.galleryTotal)
+        assertEquals(2, model.state.value.galleryTotal)
         assertNotNull(model.state.value.undoDecision)
         for ((id, revision) in listOf("wrong" to "3", "a" to "2", "a" to "invalid")) {
             data.decisionResponder = { _, _, _ -> NsfwDecisionResult(id, "NEW", false, "2026-11-12T10:00:00Z", revision) }
@@ -77,8 +81,10 @@ class NsfwReviewViewModelTest {
         data.decisionResponder = { id, _, _ -> NsfwDecisionResult(id, "NEW", false, "2026-11-12T10:00:00Z", "3") }
         model.undoLastDecision()
         assertEquals(5, data.decisionCalls)
+        assertEquals("a", data.galleryCalls.last().anchor)
         assertEquals(listOf("a", "b"), model.state.value.items.map { it.imageId })
-        assertEquals(model.state.value.currentId, model.state.value.detail?.imageId)
+        assertEquals("a", model.state.value.currentId)
+        assertEquals("a", model.state.value.detail?.imageId)
         assertNull(model.state.value.undoDecision)
         assertNull(model.state.value.conflictMessage)
     }
@@ -98,7 +104,7 @@ class NsfwReviewViewModelTest {
         model.select("a")
         model.decision("KEEP")
         assertTrue(model.state.value.busy)
-        assertEquals("a", model.state.value.currentItem?.imageId)
+        assertEquals("b", model.state.value.currentItem?.imageId)
         model.undoLastDecision()
         model.decision("REJECT")
         assertEquals(1, data.decisionCalls)
@@ -224,6 +230,27 @@ class NsfwReviewViewModelTest {
             capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_bidirectional_v1"))
     }
 
+    @Test fun prefetchStartsBeforeBoundaryAndHonorsSwipeWhilePageIsInFlight() = runTest {
+        enableBidirectionalGallery()
+        val next = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        data.galleryResponder = { call ->
+            if (call.page == "next") next.await()
+            else bidirectionalPage(listOf("a", "b", "c", "d"), 0, next = "next")
+        }
+        val model = vm()
+        model.select("b")
+        model.prefetchNextPage()
+        assertEquals("next", data.galleryCalls.last().page)
+        assertEquals("b", model.state.value.currentId)
+        model.select("d")
+        model.prefetchNextPage()
+        model.next()
+        assertEquals("d", model.state.value.currentId)
+        assertEquals(1, data.galleryCalls.count { it.page == "next" })
+        next.complete(bidirectionalPage(listOf("e"), 4).copy(total = 5))
+        assertEquals("e", model.state.value.currentId)
+        assertEquals("e", model.state.value.prefetchedPageStartId)
+    }
     @Test fun galleryBidirectionalPreviousLoadsNearestPageAndPreservesNextCursor() = runTest {
         enableBidirectionalGallery()
         val before = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
@@ -307,6 +334,26 @@ class NsfwReviewViewModelTest {
         assertTrue(model.state.value.message!!.contains("不支持"))
     }
 
+    @Test fun latestKeepsCurrentImageUntilReplacementIsReady() = runTest {
+        val read = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1"))
+        data.galleryResponder = { call ->
+            when {
+                call.query.filter.sort == com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST ->
+                    bidirectionalPage(listOf("old"), 0)
+                data.galleryCalls.size > 2 -> read.await()
+                else -> bidirectionalPage(listOf("first"), 0)
+            }
+        }
+        val model = vm()
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(
+            sort = com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort.OLDEST))
+        model.viewLatestImages()
+        assertEquals("old", model.state.value.currentItem?.imageId)
+        read.complete(bidirectionalPage(listOf("new"), 0))
+        assertEquals("new", model.state.value.currentItem?.imageId)
+    }
     @Test fun galleryViewLatestSwitchesOldestToNewestAndKeepsDates() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true, capabilities = setOf("mobile_gallery_query_v1"))
         data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = emptyList(), syncCursor = "watermark", scopeCursor = "scope", sort = call.query.filter.sort.wire) }

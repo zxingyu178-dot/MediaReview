@@ -146,6 +146,7 @@ fun NsfwReviewScreen(
                 imageLoader = imageLoader,
                 onRefresh = vm::refresh,
                 onLoadMore = vm::loadMore,
+                onPrefetchNext = vm::prefetchNextPage,
                 onLoadPrevious = vm::loadPrevious,
                 onSelect = vm::select,
                 onGalleryAnchor = vm::updateGalleryAnchor,
@@ -298,6 +299,7 @@ private fun ReadyPane(
     imageLoader: NsfwImageLoader,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
+    onPrefetchNext: () -> Boolean,
     onLoadPrevious: () -> Unit,
     onSelect: (String) -> Unit,
     onGalleryAnchor: (com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor, Boolean) -> Unit,
@@ -315,7 +317,7 @@ private fun ReadyPane(
     onOpenOriginal: (NsfwFeedItem) -> Unit,
 ) {
     val galleryGrid = key(state.baseUrl, state.galleryViewEpoch) { rememberLazyGridState() }
-    var galleryOpen by remember(state.baseUrl) { mutableStateOf(true) }
+    var galleryOpen by rememberSaveable(state.baseUrl) { mutableStateOf(true) }
     var batchOpen by remember(state.baseUrl) { mutableStateOf(false) }
     if (batchOpen) {
         NsfwBatchReviewScreen(state, imageLoader, onClose = { batchOpen = false; onRefresh() },
@@ -351,7 +353,7 @@ private fun ReadyPane(
         onGallery = { galleryOpen = true }, onRefresh = onRefresh,
         onPrevious = onPrevious, onNext = onNext, onSelect = onSelect, onDecision = onDecision,
         onToggleFavorite = onToggleFavorite, onUndo = onUndo, onDetails = onOpenDetails,
-        onLatest = onViewLatest, onDisconnect = { confirmDisconnect = true })
+        onLatest = onViewLatest, onDisconnect = { confirmDisconnect = true }, onPrefetchNext = onPrefetchNext)
 }
 
 @Composable

@@ -4,7 +4,14 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -89,6 +96,46 @@ class NsfwVisualPolishTest {
         capture("viewer-next")
     }
 
+    @Test fun undoStaysInViewerAndActionBarFitsLargeText() = withImages { base, loader, items ->
+        val first = items[0]
+        val second = items[1]
+        val state = mutableStateOf(NsfwUiState(phase = NsfwPhase.READY, baseUrl = base, items = items,
+            currentId = second.imageId, detail = NsfwImageDetails(imageId = second.imageId),
+            undoDecision = NsfwUndoDecision(first.imageId, "RESET", "", "2")))
+        var returnToGallery = false
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 2f)) {
+                MediaReviewTheme { Surface {
+                    Box(Modifier.width(320.dp)) {
+                        NsfwImageReviewPane(state.value, loader, { returnToGallery = true }, {}, {}, {}, {},
+                            { _, _ -> }, {}, { state.value = state.value.copy(busy = true) }, {}, {}, {})
+                    }
+                } }
+            }
+        }
+        compose.waitUntil(15_000) { runCatching { compose.onNodeWithText("保留").assertIsEnabled(); true }.getOrDefault(false) }
+        val undo = compose.onNodeWithContentDescription("撤销上次审核")
+        val keep = compose.onNodeWithText("保留")
+        val reject = compose.onNodeWithText("淘汰")
+        val keepBounds = keep.fetchSemanticsNode().boundsInRoot
+        val rejectBounds = reject.fetchSemanticsNode().boundsInRoot
+        val undoBounds = undo.fetchSemanticsNode().boundsInRoot
+        assertTrue(keepBounds.right <= rejectBounds.left && rejectBounds.right <= undoBounds.left)
+        capture("viewer-large-type-undo")
+        undo.performClick()
+        undo.assertIsNotEnabled()
+        compose.onNodeWithTag("nsfw_image_stage").assertIsDisplayed()
+        compose.onNodeWithContentDescription("图片").assertIsDisplayed()
+        compose.runOnIdle {
+            assertTrue(!returnToGallery)
+            state.value = state.value.copy(currentId = first.imageId, busy = false,
+                detail = NsfwImageDetails(imageId = first.imageId), undoDecision = null)
+        }
+        compose.waitUntil(15_000) { runCatching { keep.assertIsEnabled(); true }.getOrDefault(false) }
+        undo.assertIsNotEnabled()
+        compose.onNodeWithTag("nsfw_image_stage").assertIsDisplayed()
+    }
     private fun withImages(block: (String, NsfwImageLoader, List<NsfwFeedItem>) -> Unit) {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {

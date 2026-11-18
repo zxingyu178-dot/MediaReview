@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,6 +69,7 @@ internal fun NsfwImageReviewPane(
     onDetails: () -> Unit,
     onLatest: () -> Unit,
     onDisconnect: () -> Unit,
+    onPrefetchNext: () -> Boolean = { false },
 ) {
     val item = state.currentItem
     var chrome by remember(item?.imageId) { mutableStateOf(NsfwViewerChrome()) }
@@ -118,20 +120,20 @@ internal fun NsfwImageReviewPane(
     val latestCanPrevious by rememberUpdatedState(canPrevious)
     val latestCanNext by rememberUpdatedState(canNext)
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
-    val scope = rememberCoroutineScope()
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
-    val nextPreview = item?.let { state.items.getOrNull(state.currentIndex + 1) }
-        ?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl).takeIf(String::isNotBlank) }
-    DisposableEffect(prefetch) { onDispose { prefetch.stop() } }
-    LaunchedEffect(nextPreview, lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            try {
-                prefetch.update(nextPreview)
-                awaitCancellation()
-            } finally { prefetch.stop() }
+    var prefetchAttempted by remember(state.nextCursor) { mutableStateOf(false) }
+    LaunchedEffect(item?.imageId, state.nextCursor, state.busy, state.syncing) {
+        if (item != null && !state.busy && !state.syncing && !prefetchAttempted && onPrefetchNext()) {
+            prefetchAttempted = true
         }
     }
+    val nextPreview = item?.let { state.items.getOrNull(state.currentIndex + 1) }
+    val pagePreview = state.prefetchedPageStartId?.let { id ->
+        (2..3).firstNotNullOfOrNull { distance ->
+            state.items.getOrNull(state.currentIndex + distance)?.takeIf { it.imageId == id }
+        }
+    }
+    PrefetchPreview(nextPreview?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }, imageLoader)
+    PrefetchPreview(pagePreview?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }, imageLoader)
     LaunchedEffect(item?.imageId, showThumbnails) {
         if (showThumbnails && state.currentIndex >= 0) thumbnails.scrollToItem(state.currentIndex)
     }
@@ -161,7 +163,11 @@ internal fun NsfwImageReviewPane(
                 })
         }
         if (item == null) {
-            Text("暂无图片", color = MediaTextSecondary, modifier = Modifier.align(Alignment.Center))
+            if (state.busy || state.syncing) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center).size(24.dp), strokeWidth = 2.dp)
+            } else {
+                Text("暂无待审图片", color = MediaTextSecondary, modifier = Modifier.align(Alignment.Center))
+            }
         } else {
             val preview = safeNsfwImageUrl(state.baseUrl, item.previewUrl)
             val original = safeNsfwImageUrl(state.baseUrl, item.originalUrl)
@@ -217,6 +223,12 @@ internal fun NsfwImageReviewPane(
                     ViewerIcon("返回图库", Icons.AutoMirrored.Filled.ArrowBack, onGallery, canNavigate)
                     Text(state.reviewPositionLabel, Modifier.weight(1f).padding(horizontal = 8.dp),
                         color = MediaTextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    if (state.newImageCount > 0) {
+                        TextButton(onClick = { requestedDirection = 0; onLatest() }, enabled = !state.busy && !state.syncing,
+                            contentPadding = PaddingValues(horizontal = 6.dp)) {
+                            Text("新图 ${state.newImageCount}", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                    }
                     ViewerIcon("刷新图库", Icons.Default.Refresh, { requestedDirection = 0; onRefresh() }, !state.syncing && !state.busy, loading = state.syncing)
                     Box {
                         ViewerIcon("更多操作", Icons.Default.MoreVert, { moreOpen = true })
@@ -225,8 +237,8 @@ internal fun NsfwImageReviewPane(
                             DropdownMenuItem(text = { Text("下一张") }, enabled = canNext, onClick = { moreOpen = false; next() })
                             DropdownMenuItem(text = { Text(if (showThumbnails) "收起缩略图" else "展开缩略图") },
                                 onClick = { moreOpen = false; showThumbnails = !showThumbnails })
-                            if (state.undoDecision != null) DropdownMenuItem(text = { Text("撤销上次审核") }, enabled = !state.busy,
-                                onClick = { moreOpen = false; onUndo() })
+                            DropdownMenuItem(text = { Text("图片信息") }, enabled = transitionFinished && state.detail != null,
+                                onClick = { moreOpen = false; onDetails() })
                             DropdownMenuItem(text = { Text("重置审核状态") }, enabled = ready && transitionFinished && !state.busy && state.detail != null,
                                 onClick = { moreOpen = false; onDecision("RESET", null) })
                             DropdownMenuItem(text = { Text("解除生图配对") }, enabled = canNavigate,
@@ -250,20 +262,56 @@ internal fun NsfwImageReviewPane(
                             thumbnail.imageId == state.currentId) { if (canNavigate) { requestedDirection = 0; onSelect(thumbnail.imageId) } }
                     }
                 }
-                if (state.newImageCount > 0) TextButton(onClick = onLatest, enabled = !state.busy && !state.syncing) { Text("新图 ${state.newImageCount}") }
-                Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                    shape = RoundedCornerShape(20.dp)) {
-                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(onClick = { requestedDirection = 1; onDecision("KEEP", null) }, enabled = ready && transitionFinished && !state.busy && state.detail != null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
-                        Icon(Icons.Default.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保留")
+
+                val canReview = ready && transitionFinished && !state.busy && state.detail != null
+                val showActionIcons = LocalDensity.current.fontScale <= 1.3f
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Button(
+                            onClick = { requestedDirection = 1; onDecision("KEEP", null) },
+                            enabled = canReview,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                        ) {
+                            if (showActionIcons) {
+                                Icon(Icons.Default.Check, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text("保留", maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = { requestedDirection = 1; onDecision("REJECT", null) },
+                            enabled = canReview,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                        ) {
+                            if (showActionIcons) {
+                                Icon(Icons.Default.Close, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text("淘汰", maxLines = 1)
+                        }
+                        ViewerIcon(
+                            if (item?.isFavorite == true) "取消收藏" else "收藏",
+                            if (item?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            onToggleFavorite,
+                            enabled = canReview,
+                        )
+                        ViewerIcon(
+                            "撤销上次审核", Icons.AutoMirrored.Filled.Undo,
+                            { requestedDirection = -1; onUndo() },
+                            enabled = !state.busy && state.undoDecision != null,
+                        )
                     }
-                    OutlinedButton(onClick = { requestedDirection = 1; onDecision("REJECT", null) }, enabled = ready && transitionFinished && !state.busy && state.detail != null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
-                        Icon(Icons.Default.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("淘汰")
-                    }
-                    ViewerIcon(if (item?.isFavorite == true) "取消收藏" else "收藏", if (item?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        onToggleFavorite, ready && transitionFinished && !state.busy && state.detail != null)
-                    ViewerIcon("图片信息", Icons.Default.Info, onDetails, transitionFinished && state.detail != null)
-                }
                 }
             }
         }
@@ -274,6 +322,23 @@ internal fun NsfwImageReviewPane(
         }
         if (chrome.zoomed) Text("${(scale * 100).toInt()}%", color = MediaTextSecondary,
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp))
+    }
+}
+
+@Composable
+private fun PrefetchPreview(url: String?, imageLoader: NsfwImageLoader) {
+    val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
+    LaunchedEffect(url, lifecycleOwner, prefetch) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                prefetch.update(url?.takeIf(String::isNotBlank))
+                awaitCancellation()
+            } finally {
+                prefetch.stop()
+            }
+        }
     }
 }
 
