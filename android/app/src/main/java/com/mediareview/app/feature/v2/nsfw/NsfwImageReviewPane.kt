@@ -251,7 +251,9 @@ internal fun NsfwImageReviewPane(
                     }
                 }
                 if (state.newImageCount > 0) TextButton(onClick = onLatest, enabled = !state.busy && !state.syncing) { Text("新图 ${state.newImageCount}") }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    shape = RoundedCornerShape(20.dp)) {
+                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = { requestedDirection = 1; onDecision("KEEP", null) }, enabled = ready && transitionFinished && !state.busy && state.detail != null, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
                         Icon(Icons.Default.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("保留")
                     }
@@ -261,6 +263,7 @@ internal fun NsfwImageReviewPane(
                     ViewerIcon(if (item?.isFavorite == true) "取消收藏" else "收藏", if (item?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         onToggleFavorite, ready && transitionFinished && !state.busy && state.detail != null)
                     ViewerIcon("图片信息", Icons.Default.Info, onDetails, transitionFinished && state.detail != null)
+                }
                 }
             }
         }
@@ -277,10 +280,7 @@ internal fun NsfwImageReviewPane(
 @Composable
 private fun ViewerIcon(label: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true, loading: Boolean = false) {
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp).background(Color(0x66232C3A), RoundedCornerShape(16.dp))) {
-        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = label, tint = if (enabled || loading) MediaTextPrimary else MediaTextSecondary)
-            if (loading) CircularProgressIndicator(Modifier.size(10.dp).align(Alignment.TopEnd), strokeWidth = 1.5.dp)
-        }
+        NsfwToolbarGlyph(label, icon, enabled, loading)
     }
 }
 

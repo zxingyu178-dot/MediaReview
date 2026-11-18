@@ -477,6 +477,16 @@ object ReleaseNotesCatalog {
                 "列表读取失败时保留仍可看的图片，方便重试",
             ),
         ),
+        ReleaseNote(
+            versionCode = 50,
+            versionName = "2.0.0-alpha43",
+            title = "MediaReview 2.0 Alpha 43",
+            highlights = listOf(
+                "刷新时在原位置显示单个进度图标",
+                "生图库网格按屏幕宽度调整列数",
+                "精简看图操作区与空状态提示",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
@@ -28,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
@@ -103,16 +106,19 @@ internal fun NsfwGallery(
             }
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().testTag("nsfw_gallery")) {
-        Row(Modifier.fillMaxWidth().background(Color(0xFF151A22)).padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("生图", color = MediaTextPrimary, style = MaterialTheme.typography.titleMedium)
-            Text(if (state.galleryEnabled) " ${state.galleryTotal}张" else " 已载${state.items.size}",
-                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
+        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text("生图", color = MediaTextPrimary, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+                Text(if (state.galleryEnabled) "${state.galleryTotal} 张" else "已载 ${state.items.size} 张",
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
+            }
             Box {
                 TextButton(onClick = { if (state.galleryEnabled) sortOpen = true else capabilityOpen = true },
                     modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
                     Text(if (!state.galleryEnabled) "需更新电脑端" else if (filter.sort == NsfwGallerySort.NEWEST) "最新" else "最早",
                         maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                    if (state.galleryEnabled) Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(16.dp))
                 }
                 DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
                     NsfwGallerySort.entries.forEach { sort ->
@@ -178,11 +184,16 @@ internal fun NsfwGallery(
         }
         if (state.items.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(if (state.syncing) "正在同步图库…" else if (state.galleryEnabled) "此日期无图片" else "暂无图片", color = MediaTextSecondary)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (state.syncing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
+                    Text(if (state.syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
+                        color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                }
             }
-        } else LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid,
+        } else LazyVerticalGrid(columns = GridCells.Adaptive(100.dp), state = grid,
             modifier = Modifier.weight(1f).testTag("nsfw_gallery_grid"),
-            contentPadding = PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            contentPadding = PaddingValues(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             itemsIndexed(state.items, key = { _, item -> item.imageId }) { index, item ->
                 GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
             }
@@ -215,15 +226,20 @@ private fun GalleryIconButton(label: String, icon: ImageVector, onClick: () -> U
     TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
         IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-            // 读取只在图标边缘标示；不替换整个图标，也不因后台轮询改变它的颜色。
-            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = label,
-                    tint = if (enabled || loading) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
-                if (loading) CircularProgressIndicator(
-                    modifier = Modifier.size(10.dp).align(Alignment.TopEnd).semantics { contentDescription = "同步中" },
-                    strokeWidth = 1.5.dp)
-            }
+            NsfwToolbarGlyph(label, icon, enabled, loading)
         }
+    }
+}
+
+@Composable
+internal fun NsfwToolbarGlyph(label: String, icon: ImageVector, enabled: Boolean, loading: Boolean) {
+    Box(Modifier.size(28.dp).semantics {
+        contentDescription = label
+        if (loading) stateDescription = "同步中"
+    }, contentAlignment = Alignment.Center) {
+        val color = MaterialTheme.colorScheme.onSurface
+        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = color, strokeWidth = 2.dp)
+        else Icon(icon, contentDescription = null, tint = if (enabled) color else color.copy(alpha = 0.38f))
     }
 }
 
