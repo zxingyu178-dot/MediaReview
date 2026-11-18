@@ -121,12 +121,13 @@ internal fun NsfwImageReviewPane(
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
-    val nextPreview = state.items.getOrNull(state.currentIndex + 1)?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
+    val nextPreview = item?.let { state.items.getOrNull(state.currentIndex + 1) }
+        ?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl).takeIf(String::isNotBlank) }
     DisposableEffect(prefetch) { onDispose { prefetch.stop() } }
-    LaunchedEffect(item?.imageId, ready, nextPreview, state.busy, lifecycleOwner) {
+    LaunchedEffect(nextPreview, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
-                if (ready && !state.busy) prefetch.update(nextPreview) else prefetch.stop()
+                prefetch.update(nextPreview)
                 awaitCancellation()
             } finally { prefetch.stop() }
         }

@@ -467,6 +467,16 @@ object ReleaseNotesCatalog {
                 "主要页面改用状态图标与短文案",
             ),
         ),
+        ReleaseNote(
+            versionCode = 49,
+            versionName = "2.0.0-alpha42",
+            title = "MediaReview 2.0 Alpha 42",
+            highlights = listOf(
+                "审核生图后保留画面，等待列表切换",
+                "提前预取下一张图片的预览",
+                "列表读取失败时保留仍可看的图片，方便重试",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

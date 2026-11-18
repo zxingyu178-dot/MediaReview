@@ -90,14 +90,15 @@ class NsfwReviewViewModelTest {
         val read = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
         data.galleryResponder = { call ->
             if (data.decisionCalls > 0) read.await()
-            else com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("a")),
-                filters = call.query.filter.selection, total = 1, syncCursor = "w1", scopeCursor = "s1")
+            else com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(items = listOf(nsfwItem("a"), nsfwItem("b")),
+                filters = call.query.filter.selection, total = 2, syncCursor = "w1", scopeCursor = "s1")
         }
         val model = vm()
         model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(status = "NEW"))
         model.select("a")
         model.decision("KEEP")
         assertTrue(model.state.value.busy)
+        assertEquals("a", model.state.value.currentItem?.imageId)
         model.undoLastDecision()
         model.decision("REJECT")
         assertEquals(1, data.decisionCalls)
@@ -106,6 +107,8 @@ class NsfwReviewViewModelTest {
         assertEquals(1, data.decisionCalls)
         assertNotNull(model.state.value.undoDecision)
         assertTrue(model.state.value.message.orEmpty().contains("审核已保存"))
+        assertEquals(listOf("b"), model.state.value.items.map { it.imageId })
+        assertEquals("b", model.state.value.currentItem?.imageId)
     }
 
     @Test fun statusFilterRejectsUnsupportedHideRejectedBeforeNetworkRequest() = runTest {

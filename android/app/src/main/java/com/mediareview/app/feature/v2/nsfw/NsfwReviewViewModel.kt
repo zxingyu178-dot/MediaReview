@@ -1213,31 +1213,50 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         lastCursor = null
         feedReadGate = Mutex()
-        feed.clear()
+        if (!afterDecision) feed.clear()
         pendingNewImageIds.clear()
-        _state.update { it.copy(galleryQuery = query, galleryViewEpoch = galleryGeneration, busy = afterDecision,
-            previousPageCursor = null, galleryStartIndex = 0, galleryTotal = 0, galleryPositionValid = false,
-            items = emptyList(), currentId = null, detail = null, detailLoading = false,
-            galleryAnchor = null, restoringBrowsePosition = anchor != null,
-            newImageCount = 0, galleryMembershipUnknown = false, hasMore = false, nextCursor = null, message = null,
-            cursorExpired = false, panel = null, syncing = false) }
+        _state.update { current ->
+            val pending = current.copy(galleryQuery = query, busy = afterDecision,
+                previousPageCursor = null, detail = null, detailLoading = false,
+                newImageCount = 0, galleryMembershipUnknown = false, hasMore = false, nextCursor = null,
+                message = null, cursorExpired = false, panel = null, syncing = false)
+            if (afterDecision) pending
+            else pending.copy(galleryViewEpoch = galleryGeneration, galleryStartIndex = 0, galleryTotal = 0,
+                galleryPositionValid = false, items = emptyList(), currentId = null, galleryAnchor = null,
+                restoringBrowsePosition = anchor != null)
+        }
         manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
             val generation = galleryGeneration
+            var loaded = false
             try {
                 withFeedRead { epoch ->
-                    val loaded = loadGalleryPage(epoch, scope = scope, anchor = anchor)
+                    loaded = loadGalleryPage(epoch, scope = scope, anchor = anchor)
                     if (loaded && afterDecision && generation == galleryGeneration) {
                         _state.value.currentId?.let { id ->
                             persistBrowsePosition(id)
-                            if (_state.value.detail?.imageId != id) loadDetails(id)
+                            if (_state.value.detail?.imageId != id && !_state.value.detailLoading) loadDetails(id)
                         }
-                    }
-                    if (!loaded && afterDecision && generation == galleryGeneration) _state.update {
-                        it.copy(message = "审核已保存，列表待刷新；" + it.message.orEmpty())
                     }
                 }
             } finally {
-                if (afterDecision && generation == galleryGeneration) _state.update { it.copy(busy = false) }
+                if (afterDecision && generation == galleryGeneration) {
+                    if (loaded) {
+                        _state.update { it.copy(busy = false) }
+                    } else {
+                        // GET 失败或离开页面取消时，移除已确认不符合条件的图片，保留其余已加载结果供重试。
+                        feed.snapshot().filter { query.matches(it) == false }.forEach { feed.remove(it.imageId) }
+                        val remaining = feed.snapshot()
+                        val target = remaining.firstOrNull { it.imageId == anchor }
+                            ?: remaining.firstOrNull { it.imageId == _state.value.currentId }
+                            ?: remaining.firstOrNull()
+                        galleryResumeAnchor = null
+                        _state.update { it.copy(busy = false, items = remaining, currentId = target?.imageId,
+                            detail = null, detailLoading = false,
+                            galleryPositionValid = false, restoringBrowsePosition = false,
+                            message = listOfNotNull("审核已保存，列表待刷新", it.message).joinToString(" · ")) }
+                        target?.imageId?.takeIf { screenVisible }?.let(::loadDetails)
+                    }
+                }
             }
             maybeStartPolling()
         }
