@@ -487,6 +487,17 @@ object ReleaseNotesCatalog {
                 "精简看图操作区与空状态提示",
             ),
         ),
+        ReleaseNote(
+            versionCode = 51,
+            versionName = "2.0.0-alpha44",
+            title = "MediaReview 2.0 Alpha 44",
+            highlights = listOf(
+                "保留或淘汰后更快切到下一张，临近页尾提前加载",
+                "查看新图时保留画面和当前筛选",
+                "看图底栏可直接撤销上次审核，并返回刚才那张",
+                "大字号下保留审核按钮的完整文字",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
