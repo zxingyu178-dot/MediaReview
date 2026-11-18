@@ -17,6 +17,7 @@ import com.mediareview.app.core.pairing.PairingRepository
 import com.mediareview.app.core.pairing.PairingStore
 import java.io.IOException
 import java.net.InetAddress
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.Dns
@@ -46,6 +47,22 @@ class V2ServerAccessGuardTest {
     private lateinit var statusStore: V2ServerStatusStore
     private lateinit var repository: V2ServerMediaRepository
     private lateinit var baseUrl: String
+
+    @Test fun reviewWaitsForOngoingProbeWithoutOpeningBusinessAccess() = kotlinx.coroutines.test.runTest {
+        statusStore.update(V2ServerStatus.Probing)
+        val guard = V2ServerAccessGuard(statusStore)
+        val waiting = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val job = backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+            guard.awaitProbeIfRunning()
+            waiting.complete(Unit)
+        }
+        assertFalse(waiting.isCompleted)
+        assertFalse(guard.canAccessBusiness())
+        statusStore.recordCompatible("1.6.6", 2)
+        waiting.await()
+        assertTrue(guard.canAccessBusiness())
+        job.join()
+    }
 
     @Before
     fun setUp() {

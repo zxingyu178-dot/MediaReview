@@ -498,6 +498,16 @@ object ReleaseNotesCatalog {
                 "大字号下保留审核按钮的完整文字",
             ),
         ),
+        ReleaseNote(
+            versionCode = 52,
+            versionName = "2.0.0-alpha45",
+            title = "MediaReview 2.0 Alpha 45",
+            highlights = listOf(
+                "打开目录时只查询所属媒体库，减少加载超时",
+                "批阅入口等待进行中的服务器连接检测",
+                "视频播放失败时可直接跳到下一条",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

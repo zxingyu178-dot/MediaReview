@@ -107,7 +107,7 @@ class V2HomeViewModel @Inject constructor(
             folderBrowserController.close()
             return
         }
-        folderBrowserController.open(folderId, _folderSortSpec.value, includeDescendants)
+        folderBrowserController.open(folderId, _folderSortSpec.value, includeDescendants, folderLibraryId(folderId))
     }
     fun closeFolderBrowser() = folderBrowserController.close()
     fun updateFolderAnchor(anchor: HomeGridAnchor?) = folderBrowserController.updateAnchor(anchor)
@@ -255,7 +255,14 @@ class V2HomeViewModel @Inject constructor(
     var homeAnchor: HomeGridAnchor? = null
         private set
     private var homeLeft = false
-    private fun browseKey() = WindowKey(albumSourceGeneration, _selectedFolderId.value, _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO))
+    private fun folderLibraryId(folderId: String?): String? =
+        _folderTree.value.firstOrNull { it.id == folderId }?.libraryId?.takeIf(String::isNotBlank)
+
+    private fun browseKey(): WindowKey {
+        val folderId = _selectedFolderId.value
+        return WindowKey(albumSourceGeneration, folderId, _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO),
+            libraryId = folderLibraryId(folderId))
+    }
     private fun saveHomeWindow() {
         val key = homeWindowKey ?: return
         if (loadedPage > 0 && key.sourceGeneration == albumSourceGeneration && _listError.value == null)
@@ -1016,6 +1023,7 @@ class V2HomeViewModel @Inject constructor(
         page = page,
         pageSize = V2MediaQuery.DEFAULT_PAGE_SIZE,
         folderId = _selectedFolderId.value,
+        libraryId = folderLibraryId(_selectedFolderId.value),
         search = null,
         spec = _sortSpec.value.copy(typeFilter = V2TypeFilter.VIDEO),
     )
@@ -1083,7 +1091,8 @@ class V2HomeViewModel @Inject constructor(
                 val items = mutableListOf<V2Media>()
                 var result: V2MediaPage? = null
                 for (pageNumber in 1..(cached?.page ?: 1)) {
-                    result = repository.mediaPage(V2MediaQuery(pageNumber, 50, key.folderId, spec = key.sort))
+                    result = repository.mediaPage(V2MediaQuery(pageNumber, 50, key.folderId,
+                        spec = key.sort, libraryId = key.libraryId))
                     if (generation != listGeneration || key.sourceGeneration != albumSourceGeneration) return@launch
                     check(result.page == pageNumber && result.pageSize == 50 && result.total >= 0)
                     items += result.items

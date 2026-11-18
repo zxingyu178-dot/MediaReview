@@ -55,6 +55,31 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class V2ReviewViewModelTest {
+    @Test fun skippingFailedVideoAcrossPageKeepsReviewDecisionUntouched() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 51, currentIndex = 49, window = window(50, total = 51))
+            nextHandler = {
+                gate.await()
+                ReviewQueuePageResult(window(51, total = 51, lastPage = 2))
+            }
+        }
+        val model = V2ReviewViewModel(FakeMediaRepository(51), sessions)
+        model.enterReview()
+        waitUntil("current source") { playbackMediaId(model) == "v50" }
+        model.onPlaybackFailed("v50")
+        model.onPlaybackFailed("v50")
+        assertTrue(model.playback.value is com.mediareview.app.feature.v2.player.V2PlaybackUiState.Failed)
+        model.skipFailedPlayback()
+        model.skipFailedPlayback()
+        assertEquals(49, (model.state.value as V2ReviewUiState.Ready).absoluteCurrentIndex)
+        gate.complete(Unit)
+        waitUntil("next page source") { playbackMediaId(model) == "v51" }
+        assertEquals(50, (model.state.value as V2ReviewUiState.Ready).absoluteCurrentIndex)
+        assertTrue(sessions.seenCalls.isEmpty())
+        assertEquals(listOf(50), sessions.positionCompleted)
+    }
+
     @Test fun `视频字节只在当前稳定后预取下一条并在拖动时取消`() = runTest {
         val repo = FakeMediaRepository(10)
         val sessions = FakeSessions().apply { entryResult = readyOpen(total = 10, currentIndex = 4) }

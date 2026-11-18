@@ -2,6 +2,8 @@ package com.mediareview.app.feature.v2.data.server
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Server 尚未完成兼容性探测（Probing）：业务 API 此时不得发出。 */
 class ServerNotReadyException(
@@ -38,6 +40,13 @@ class ServerNotConfiguredException(
 class V2ServerAccessGuard @Inject constructor(
     private val statusStore: V2ServerStatusStore,
 ) {
+
+    /** 进入批阅或目录时，等正在进行的探测给出结果，仍由 Guard 判定能否访问。 */
+    suspend fun awaitProbeIfRunning() {
+        if (statusStore.status.value == V2ServerStatus.Probing) {
+            withTimeoutOrNull(18_000L) { statusStore.status.first { it != V2ServerStatus.Probing } }
+        }
+    }
 
     /** 允许业务调用则直接返回，否则抛出对应的明确异常。 */
     fun requireBusinessAccess() {

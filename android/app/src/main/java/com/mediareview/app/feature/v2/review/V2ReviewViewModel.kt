@@ -143,6 +143,7 @@ class V2ReviewViewModel @Inject constructor(
         resolveJob?.cancel()
         onPlaybackUnstable()
         positionWorker?.cancel()
+        skipPlaybackJob?.cancel()
         nextPageJob?.cancel()
         prevPageJob?.cancel()
         ++sessionGeneration
@@ -204,6 +205,7 @@ class V2ReviewViewModel @Inject constructor(
     private var positionWorker: Job? = null
     private var enterJob: Job? = null
     private var nextPageJob: Job? = null
+    private var skipPlaybackJob: Job? = null
     private var prevPageJob: Job? = null
     private var sessionGeneration = 0L
 
@@ -252,6 +254,7 @@ class V2ReviewViewModel @Inject constructor(
     }
 
     private fun openSession(forceNew: Boolean) {
+        skipPlaybackJob?.cancel()
         nextPageJob?.cancel()
         prevPageJob?.cancel()
         ++sessionGeneration
@@ -544,7 +547,32 @@ class V2ReviewViewModel @Inject constructor(
 
     /** 重试当前项：必须真正回到 Direct 重新开始（与完整播放器同一套语义）。 */
     fun retryPlayback() {
+        skipPlaybackJob?.cancel()
         resolveCurrent()
+    }
+
+    /** 跳过播放失败的条目只更新当前位置。 */
+    fun skipFailedPlayback() {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        if (_playback.value !is V2PlaybackUiState.Failed || skipPlaybackJob?.isActive == true) return
+        val next = ready.localCurrentIndex + 1
+        if (next < ready.items.size) {
+            onPageSettled(next)
+            return
+        }
+        if (ready.window.atEnd) return
+        val generation = sessionGeneration
+        val failure = _playback.value
+        if (!ready.loadingNext) loadNextPage()
+        skipPlaybackJob = viewModelScope.launch {
+            nextPageJob?.join()
+            val current = _state.value as? V2ReviewUiState.Ready ?: return@launch
+            if (generation != sessionGeneration || current.absoluteCurrentIndex != ready.absoluteCurrentIndex ||
+                current.sessionId != ready.sessionId || _playback.value !== failure) return@launch
+            val following = current.localCurrentIndex + 1
+            if (following < current.items.size) onPageSettled(following)
+            else _messages.tryEmit(ReviewMessage("下一条加载失败，请重试"))
+        }
     }
 
     /** 播放内核报错：带上"播放器里实际装载的 mediaId"，旧媒体的迟到错误会被忽略。 */

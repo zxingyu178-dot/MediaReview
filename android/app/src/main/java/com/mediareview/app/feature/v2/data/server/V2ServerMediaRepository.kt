@@ -137,7 +137,11 @@ class V2ServerMediaRepository internal constructor(
     }
 
     /** 统一请求包装：**先过 Guard**（非 Online 直接失败），失败按错误类型更新连接状态。 */
-    private suspend fun <T> call(block: suspend (MediaReviewApi, String) -> T): T {
+    private suspend fun <T> call(
+        waitForProbe: Boolean = false,
+        block: suspend (MediaReviewApi, String) -> T,
+    ): T {
+        if (waitForProbe) accessGuard.awaitProbeIfRunning()
         // Stage 8D.2 §15：所有业务网络请求的最后一道防线。
         accessGuard.requireBusinessAccess()
         return try {
@@ -162,13 +166,13 @@ class V2ServerMediaRepository internal constructor(
 
     // ---------- 列表 / 文件夹 ----------
 
-    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = call { api, base ->
+    override suspend fun mediaPage(query: V2MediaQuery): V2MediaPage = call(waitForProbe = query.folderId != null) { api, base ->
         check(query.spec.sourceType != "local" || "native_sources_v1" in statusStore.capabilities.value) {
             "本地来源需要电脑端 MediaReview Server 1.5.0+，请先升级电脑端"
         }
         // Stage 8A.1: 收藏状态随 MediaSummary 一起下发,不再先拉取整个收藏列表
         val envelope = api.media(
-            libraryId = null,
+            libraryId = query.libraryId,
             mediaType = V2ServerWire.mediaType(query.spec),
             sortBy = V2ServerWire.sortBy(query.spec),
             sortOrder = V2ServerWire.sortOrder(query.spec),

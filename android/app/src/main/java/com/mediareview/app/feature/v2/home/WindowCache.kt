@@ -9,6 +9,7 @@ data class WindowKey(
     val folderId: String?,
     val sort: V2SortSpec,
     val includeDescendants: Boolean = true,
+    val libraryId: String? = null,
 )
 
 data class CachedWindow(

@@ -89,6 +89,15 @@ class V2ServerMediaRepositoryContractTest {
         runCatching { server.shutdown() }
     }
 
+    @Test fun treeFolderQuerySendsLibraryScopeWithoutChangingDirectMediaFilter() = runTest {
+        router.mediaBody = mediaPageJson(0, 1, 50, "")
+        repository.mediaPage(V2MediaQuery(folderId = "ft_folder", libraryId = "local_movies", includeDescendants = false))
+        val request = server.takeRequest()
+        assertEquals("ft_folder", request.query("folder_id"))
+        assertEquals("local_movies", request.query("library_id"))
+        assertEquals("false", request.query("include_descendants"))
+    }
+
     // ---------- 列表 / 分页 / 参数 ----------
 
     @Test

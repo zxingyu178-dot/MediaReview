@@ -109,6 +109,7 @@ class V2ServerReviewSessionRepository internal constructor(
 
     override suspend fun prepareSession(): ReviewSessionOpen = pagingMutex.withLock {
         val info = try {
+            accessGuard.awaitProbeIfRunning()
             call { api, _ -> unwrap(api.latestReviewSession()) }.toInfo()
         } catch (cancelled: CancellationException) {
             throw cancelled

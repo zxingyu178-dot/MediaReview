@@ -38,9 +38,9 @@ internal class FolderPagingController(
     private var key: WindowKey? = null
     private val favoriteOverrides = mutableMapOf<String, Boolean>()
 
-    fun open(folderId: String?, spec: V2SortSpec, includeDescendants: Boolean = false) {
+    fun open(folderId: String?, spec: V2SortSpec, includeDescendants: Boolean = false, libraryId: String? = null) {
         close()
-        key = WindowKey(sourceGeneration(), folderId, spec, includeDescendants = includeDescendants)
+        key = WindowKey(sourceGeneration(), folderId, spec, includeDescendants = includeDescendants, libraryId = libraryId)
         val cached = if (folderId != null) cache.get(key!!) else null
         mutable.value = if (cached == null) FolderBrowseState(folderId = folderId, includeDescendants = includeDescendants, sortSpec = spec)
             else FolderBrowseState(folderId, cached.items, cached.page, cached.total, cached.hasMore, anchor = cached.anchor, includeDescendants = includeDescendants, sortSpec = spec)
@@ -88,7 +88,8 @@ internal class FolderPagingController(
                 val incoming = mutableListOf<V2Media>()
                 var result: V2MediaPage? = null
                 for (p in if (refresh) 1..page else page..page) {
-                    result = load(V2MediaQuery(p, 50, folder, spec = active.sort, includeDescendants = active.includeDescendants))
+                    result = load(V2MediaQuery(p, 50, folder, spec = active.sort,
+                        includeDescendants = active.includeDescendants, libraryId = active.libraryId))
                     if (token != generation || active.sourceGeneration != sourceGeneration()) return@launch
                     check(result.page == p && result.pageSize == 50 && result.total >= 0) { "分页响应无效" }
                     incoming += result.items

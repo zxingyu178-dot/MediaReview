@@ -938,7 +938,11 @@ private fun ReviewPagerContent(
                     TextButton(onClick = { vm.retryPlayback() }) {
                         Text("重试", color = V2Colors.Accent)
                     }
-                    Text("文件移动或媒体库整理后，可重新选择批阅范围。", color = MediaTextSecondary)
+                    if (state.localCurrentIndex < items.lastIndex || !state.window.atEnd) {
+                        TextButton(onClick = vm::skipFailedPlayback) {
+                            Text("跳过此视频", color = V2Colors.Accent)
+                        }
+                    }
                     TextButton(onClick = { pauseOwnedHost(); vm.chooseReviewScope() }) {
                         Text("重新选择批阅范围", color = V2Colors.Accent)
                     }

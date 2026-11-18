@@ -43,7 +43,7 @@ class FolderPagingControllerTest {
             requests += query
             V2MediaPage(emptyList(), query.page, query.pageSize, 125)
         }
-        pager.open("ft_movies", V2SortSpec())
+        pager.open("ft_movies", V2SortSpec(), libraryId = "local_movies")
         runCurrent()
         assertEquals(1, requests.size)
         assertEquals("ft_movies", requests.single().folderId)
@@ -52,6 +52,7 @@ class FolderPagingControllerTest {
         pager.loadNextPage()
         runCurrent()
         assertEquals(listOf(1, 2), requests.map { it.page })
+        assertEquals(listOf("local_movies", "local_movies"), requests.map { it.libraryId })
         pager.close()
         assertTrue(pager.state.value.items.isEmpty())
     }

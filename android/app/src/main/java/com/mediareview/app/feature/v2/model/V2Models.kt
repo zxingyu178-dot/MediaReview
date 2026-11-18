@@ -108,6 +108,7 @@ data class V2MediaQuery(
     val search: String? = null,
     val spec: V2SortSpec = V2SortSpec(),
     val includeDescendants: Boolean = true,
+    val libraryId: String? = null,
 ) {
     companion object {
         /** 默认每页条数：真实库可能上万条，必须分页滚动加载。 */
