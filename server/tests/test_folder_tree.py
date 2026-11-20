@@ -465,3 +465,82 @@ def test_cross_library_tree_rejected_and_combined_filters_keep_page2(tree_api):
     response = client.get("/api/v1/media", params=filters)
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "MEDIA_NOT_FOUND"
+
+def test_scoped_directory_count_uses_expression_index(tree_api):
+    client, database = tree_api
+    seed(database, [
+        f"D:/Synthetic/group{i // 10}/clip-{i}.mp4"
+        for i in range(1000)
+    ], kind="video")
+    node = next(n for n in nodes(client) if n["name"] == "group42")
+    plans = []
+
+    def observe(connection, cursor, statement, parameters, context, executemany):
+        if "count(" in statement.lower() and "rtrim(" in statement.lower():
+            probe = connection.connection.cursor()
+            try:
+                probe.execute("EXPLAIN QUERY PLAN " + statement, parameters)
+                plans.extend(row[3] for row in probe.fetchall())
+            finally:
+                probe.close()
+
+    sa.event.listen(database.engine, "before_cursor_execute", observe)
+    try:
+        response = client.get("/api/v1/media", params={
+            "folder_id": node["folder_id"], "library_id": "lib",
+            "include_descendants": "false", "page_size": 2, "page": 2,
+        })
+    finally:
+        sa.event.remove(database.engine, "before_cursor_execute", observe)
+
+    assert response.status_code == 200
+    page = response.json()["data"]
+    assert page["total"] == 10
+    assert [item["media_id"] for item in page["items"]] == ["lib-422", "lib-423"]
+    assert any("ix_media_cache_dirname_available" in plan and "<expr>=?" in plan
+               for plan in plans), plans
+
+def test_dirname_index_upgrade_and_downgrade_preserve_existing_media(tmp_path):
+    from alembic import command
+    from alembic.config import Config
+
+    from app.db.migrate import _server_root
+    from app.services.media_index import _folder_dirname_expression
+
+    root = _server_root()
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "app/db/migrations"))
+    database = Database(tmp_path / "dirname-migration.sqlite")
+    config.set_main_option("sqlalchemy.url", str(database.engine.url))
+    index = "ix_media_cache_dirname_available"
+
+    def index_exists(connection):
+        return connection.execute(sa.text(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = :name"
+        ), {"name": index}).scalar_one_or_none() == 1
+
+    def current_media(connection):
+        return connection.execute(sa.select(
+            MediaCacheIndex.media_id, MediaCacheIndex.media_path, _folder_dirname_expression()
+        ).order_by(MediaCacheIndex.media_id)).all()
+
+    try:
+        command.upgrade(config, "0018")
+        seed(database, [r"Z:\Media\Clip\a.mp4", r"\\nas\share\b.mp4", None], kind="video")
+        with database.engine.connect() as connection:
+            assert not index_exists(connection)
+            original = current_media(connection)
+            assert [row[2] for row in original] == ["Z:/Media/Clip/", "/nas/share/", None]
+
+        command.upgrade(config, "0019")
+        with database.engine.connect() as connection:
+            assert index_exists(connection)
+            assert current_media(connection) == original
+
+        command.downgrade(config, "0018")
+        with database.engine.connect() as connection:
+            assert not index_exists(connection)
+            assert current_media(connection) == original
+            assert connection.exec_driver_sql("PRAGMA integrity_check").scalar_one() == "ok"
+    finally:
+        database.dispose()

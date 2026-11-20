@@ -33,6 +33,7 @@ from app.adapters.jellyfin.client import JellyfinClient
 from app.adapters.jellyfin.mapper import compute_fingerprint
 from app.adapters.jellyfin.models import JFItem, Library, MediaItem
 from app.core.config import JellyfinConfig
+from app.db.folder_path import sqlite_folder_dirname
 from app.db.models import (
     BackgroundTask,
     DeleteQueue,
@@ -391,9 +392,7 @@ def _folder_dirname_expression():
     结果形如 "D:/Media/子目录/",盘根形如 "D:/"。NULL 输入保持 NULL。
     该表达式只在服务器内部使用,绝不把结果下发客户端。
     """
-    path = MediaCacheIndex.media_path
-    unified = sa.func.replace(sa.func.replace(path, "\\", "/"), "//", "/")
-    return sa.func.rtrim(unified, sa.func.replace(unified, "/", ""))
+    return sqlite_folder_dirname(MediaCacheIndex.media_path)
 
 
 def folder_id_for_dirname(dirname: str) -> str:

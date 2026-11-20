@@ -25,6 +25,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.db.folder_path import sqlite_folder_dirname
+
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -135,6 +137,13 @@ class MediaLibraryMembership(Base):
 
 Index("ix_membership_library_available_media", MediaLibraryMembership.library_id,
       MediaLibraryMembership.is_available, MediaLibraryMembership.media_id)
+
+
+Index(
+    "ix_media_cache_dirname_available",
+    sqlite_folder_dirname(MediaCacheIndex.media_path),
+    MediaCacheIndex.is_available,
+)
 
 
 # 媒体墙的 count/filter/order/page 均在 SQLite 中执行。每种排序同时提供有/无
