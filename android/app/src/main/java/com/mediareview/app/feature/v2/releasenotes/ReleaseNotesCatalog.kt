@@ -508,6 +508,17 @@ object ReleaseNotesCatalog {
                 "视频播放失败时可直接跳到下一条",
             ),
         ),
+        ReleaseNote(
+            versionCode = 53,
+            versionName = "2.0.0-alpha46",
+            title = "MediaReview 2.0 Alpha 46",
+            highlights = listOf(
+                "视频批阅支持按住临时两倍速，松手恢复",
+                "审核保存结果明确显示，失败后可回原视频重试",
+                "目录顶部保留筛选和排序，子目录按需展开",
+                "生图单图审核优先预览，放大时按需加载原图",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
