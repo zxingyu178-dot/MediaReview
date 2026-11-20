@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -513,10 +514,25 @@ private fun ReviewPagerContent(
         vm.addPendingDelete(item.mediaId)
         if (canGoNext(page, items.size)) navigateTo(page + 1)
     }
+    val latestHoldStart by rememberUpdatedState<() -> Unit>({
+        if (!verticalSettling && !scrub.active && sourceIsCurrent()) {
+            speed.longPress(kernelPlaying())?.let { applySpeed(it.copy(feedback = "长按 2×")) }
+        }
+    })
+    val latestHoldEnd by rememberUpdatedState<() -> Unit>({
+        if (speed.ownsPointerSequence) {
+            applySpeed(speed.release())
+            if (feedback == "长按 2×") feedback = null
+        }
+    })
     // VerticalPager owns vertical drags; horizontal drags seek without decisions.
-    val bodyModifier = Modifier.pointerInput(foreground, sheetOpen) {
+    val bodyModifier = Modifier.pointerInput(foreground, sheetOpen, pagerState.settledPage, playbackReady?.endpoint?.url) {
         if (!foreground || sheetOpen) return@pointerInput
-        detectTapGestures(onTap = { togglePlayPause() }, onLongPress = {})
+        detectTapGestures(
+            onTap = { togglePlayPause() },
+            onLongPress = { latestHoldStart() },
+            onPress = { try { tryAwaitRelease() } finally { latestHoldEnd() } },
+        )
     }.pointerInput(foreground, sheetOpen) {
         if (!foreground || sheetOpen) return@pointerInput
         detectHorizontalDragGestures(
@@ -1031,6 +1047,15 @@ private fun ReviewPagerContent(
                     tag = "review_delete",
                     onClick = ::deleteCurrent,
                 )
+                val isFavorite = item.mediaId in favoriteIds
+                ReviewActionButton(
+                    icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    tint = if (isFavorite) V2Colors.Favorite else MediaTextPrimary,
+                    label = if (isFavorite) "取消收藏" else "喜欢",
+                    tag = "review_favorite",
+                    iconOnly = true,
+                    onClick = { vm.toggleFavorite(item.mediaId) },
+                )
                 val undoId = reviewUndoTarget(lastDeleteMediaId, pendingDeleteIds)
                 ReviewActionButton(
                     icon = Icons.Default.Undo,
@@ -1263,6 +1288,7 @@ private fun ReviewActionButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
     tag: String? = null,
+    iconOnly: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -1270,16 +1296,16 @@ private fun ReviewActionButton(
         shape = RoundedCornerShape(16.dp),
         color = tint.copy(alpha = if (enabled) 0.14f else 0.04f),
         contentColor = if (enabled) tint else MediaTextSecondary.copy(alpha = 0.45f),
-        modifier = Modifier.heightIn(min = 48.dp)
+        modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier),
     ) {
         Row(
             Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            Icon(icon, contentDescription = label.takeIf { iconOnly }, modifier = Modifier.size(22.dp))
+            if (!iconOnly) Text(label, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

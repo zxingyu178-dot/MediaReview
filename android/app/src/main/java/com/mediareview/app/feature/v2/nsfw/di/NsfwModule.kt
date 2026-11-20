@@ -132,7 +132,12 @@ object NsfwModule {
         @Named("nsfwAuth") http: OkHttpClient,
         tokens: NsfwTokenProvider,
     ): NsfwImageLoader = NsfwImageLoader(
-        ImageLoader.Builder(context).okHttpClient { http }
+        ImageLoader.Builder(context).okHttpClient {
+            http.newBuilder()
+                .dispatcher(okhttp3.Dispatcher().apply { maxRequestsPerHost = 6 })
+                .callTimeout(15, TimeUnit.SECONDS)
+                .build()
+        }
             .memoryCache { MemoryCache.Builder(context).maxSizeBytes(32 * 1024 * 1024).build() }
             .diskCache { DiskCache.Builder().directory(context.cacheDir.resolve("nsfw_images_v2"))
                 .maxSizeBytes(128L * 1024 * 1024).build() }.build(),

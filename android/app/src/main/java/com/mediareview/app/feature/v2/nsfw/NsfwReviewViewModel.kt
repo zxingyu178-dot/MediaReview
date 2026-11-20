@@ -37,6 +37,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GENERATION_PROGRESS_CAPABILITY
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -114,6 +118,8 @@ data class NsfwUiState(
     /** 进程重启后发现上次评分未确认时的提示（不自动重发）。 */
     val evaluationRecoveryHint: String? = null,
     val galleryEnabled: Boolean = false,
+    val generationProgressSupported: Boolean = false,
+    val generationProgress: NsfwGenerationProgress? = null,
     val bidirectionalGallery: Boolean = false,
     val galleryFiltersEnabled: Boolean = false,
     val galleryReviewFilterEnabled: Boolean = false,
@@ -168,10 +174,13 @@ class NsfwReviewViewModel @Inject constructor(
     private var lastCursor: String? = null
     private var historyCatchup = true
     private var pollJob: Job? = null
+    private var progressJob: Job? = null
+    private var boundaryNavigationJob: Job? = null
     private var promptSummaryJob: Job? = null
     private val pollBackoff = NsfwPollBackoff()
     private var screenVisible = false
     private var detailSeq = 0
+    private var detailJob: Job? = null
     private var panelSeq = 0
     private var browseOrigin = ""
     private var pendingBrowseId: String? = null
@@ -320,6 +329,7 @@ class NsfwReviewViewModel @Inject constructor(
                 hasSavedPairing = true,
                 missingCapabilities = emptyList(),
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
+                generationProgressSupported = NSFW_GENERATION_PROGRESS_CAPABILITY in snapshot.capabilities,
                 gallerySearchEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_SEARCH_CAPABILITY in snapshot.capabilities,
                 galleryFiltersEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_FILTERS_CAPABILITY in snapshot.capabilities,
                 galleryReviewFilterEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_REVIEW_FILTER_CAPABILITY in snapshot.capabilities,
@@ -410,6 +420,22 @@ class NsfwReviewViewModel @Inject constructor(
             return
         }
         if (_state.value.phase != NsfwPhase.READY) return
+        if (_state.value.generationProgressSupported && progressJob?.isActive != true) {
+            val epoch = connectionEpoch
+            progressJob = viewModelScope.launch {
+                while (isActive && epoch == connectionEpoch) {
+                    val progress = try {
+                        withTimeoutOrNull(5_000L) { dataSource.generationProgress() }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (epoch == connectionEpoch) _state.update { it.copy(generationProgress = progress) }
+                    delay(5_000L)
+                }
+            }
+        }
         if (pollJob?.isActive == true) return
         pollBackoff.reset()
         // 先保存LAZY任务再启动，避免测试dispatcher下同步回包重入启动轮询。
@@ -433,6 +459,11 @@ class NsfwReviewViewModel @Inject constructor(
     }
 
     private fun stopPolling() {
+        progressJob?.cancel()
+        progressJob = null
+        boundaryNavigationJob?.cancel()
+        boundaryNavigationJob = null
+        _state.update { it.copy(generationProgress = null) }
         promptSummaryJob?.cancel()
         promptSummaryJob = null
         pollJob?.cancel()
@@ -445,6 +476,13 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun advanceConnectionEpoch() {
         connectionEpoch += 1
+        detailJob?.cancel()
+        detailJob = null
+        progressJob?.cancel()
+        progressJob = null
+        boundaryNavigationJob?.cancel()
+        boundaryNavigationJob = null
+        _state.update { it.copy(generationProgress = null, generationProgressSupported = false) }
         galleryGeneration += 1
         galleryScope = null
         galleryPageCursor = null
@@ -518,7 +556,7 @@ class NsfwReviewViewModel @Inject constructor(
             browseRecoveryMessage = if (galleryAnchorReadFailed) "图库位置读取失败，滑动图库后将记录新位置" else null) }
         persistBrowsePosition(imageId)
         if (imageId == _state.value.currentId) {
-            if (_state.value.galleryEnabled && _state.value.detail == null && !_state.value.detailLoading) loadDetails(imageId)
+            if (_state.value.detail == null && !_state.value.detailLoading) loadDetails(imageId)
             return
         }
         _state.update {
@@ -604,7 +642,22 @@ class NsfwReviewViewModel @Inject constructor(
         if (index + 1 < state.items.size) select(state.items[index + 1].imageId)
         else if (state.bidirectionalGallery && state.hasMore) {
             if (pagePrefetchJob?.isActive == true) queuedNextFrom = state.currentId
-            else loadGalleryBoundary(previous = false, navigate = true)
+            else if (state.syncing || manualFeedJob?.isActive == true) {
+                if (boundaryNavigationJob?.isActive == true) return
+                val generation = galleryGeneration
+                val epoch = connectionEpoch
+                val pending = manualFeedJob
+                boundaryNavigationJob = viewModelScope.launch {
+                    val ready = withTimeoutOrNull(20_000L) {
+                        pending?.join()
+                        _state.first { !it.syncing }
+                    }
+                    if (epoch != connectionEpoch || generation != galleryGeneration ||
+                        _state.value.currentId != state.currentId) return@launch
+                    if (ready != null) next()
+                    else _state.update { it.copy(message = "下一页加载超时，请点击下一张重试") }
+                }
+            } else loadGalleryBoundary(previous = false, navigate = true)
         }
     }
 
@@ -664,6 +717,13 @@ class NsfwReviewViewModel @Inject constructor(
         if (state.busy) return
         if (action != null && action !in setOf("KEEP", "REJECT", "RESET")) return
         if (action == null && favorite == null) return
+        if (undo == null && favorite == null && (action == "KEEP" || action == "REJECT") &&
+            state.bidirectionalGallery && state.hasMore && state.currentIndex == state.items.lastIndex &&
+            previousItem != null && previousItem.status == action && previousItem.revision == detail.revision &&
+            previousItem.updatedAt == detail.updatedAt) {
+            next()
+            return
+        }
         _state.update { it.copy(busy = true, conflictMessage = null) }
         val epoch = connectionEpoch
         viewModelScope.launch {
@@ -1619,8 +1679,9 @@ class NsfwReviewViewModel @Inject constructor(
     private fun loadDetails(imageId: String) {
         val seq = ++detailSeq
         val epoch = connectionEpoch
+        detailJob?.cancel()
         _state.update { it.copy(detailLoading = true) }
-        viewModelScope.launch {
+        detailJob = viewModelScope.launch {
             try {
                 val detail = dataSource.details(imageId)
                 if (seq != detailSeq || epoch != connectionEpoch) return@launch

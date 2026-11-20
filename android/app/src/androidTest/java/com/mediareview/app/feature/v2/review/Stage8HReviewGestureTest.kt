@@ -189,13 +189,18 @@ class Stage8HReviewGestureTest {
         Assert.assertEquals(0, page())
     }
 
-    @Test fun longHoldDoesNotOverrideFormalSpeedOrCreateDecision() {
+    @Test fun longHoldTemporarilySetsTwoTimesAndRestoresFormalSpeed() {
         launch()
         compose.onNodeWithContentDescription("更多").performClick()
         compose.onNodeWithText("1.5×").performClick()
         compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f && kernel { it.isPlaying } }
-        body().performTouchInput { down(center); advanceEventTime(700); moveTo(center); up() }
-        Assert.assertEquals(1.5f, speed(), .01f)
+        body().performTouchInput { down(center) }
+        try {
+            compose.waitUntil(5_000) { abs(speed() - 2f) < .01f }
+        } finally {
+            body().performTouchInput { up() }
+        }
+        compose.waitUntil(5_000) { abs(speed() - 1.5f) < .01f }
         Assert.assertEquals(0, page())
         Assert.assertTrue(fixture!!.pendingWrites.isEmpty())
     }

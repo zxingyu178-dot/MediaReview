@@ -70,7 +70,7 @@ class FolderBrowserTouchTest {
         compose.onNodeWithTag("home_grid").performScrollToIndex(40)
         compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 75 }
         assertEquals(listOf(1, 2), queries.filter { it.folderId == "action" }.map { it.page })
-        assertTrue(queries.filter { it.folderId != null }.all { !it.includeDescendants && it.pageSize == 50 })
+        assertTrue(queries.filter { it.folderId != null }.all { it.includeDescendants && it.pageSize == 50 })
         compose.onNodeWithText("电影", substring = false).performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "movies" && !vm.folderBrowserState.value.loading }
         compose.onNodeWithTag("folder_action").assertIsDisplayed()
@@ -78,7 +78,7 @@ class FolderBrowserTouchTest {
         compose.waitForIdle()
         compose.onNodeWithTag("folder_movies").assertIsDisplayed()
         compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
-        android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 recursive=false; breadcrumb/back preserve parent-child")
+        android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 recursive=true; breadcrumb/back preserve parent-child")
     }
 
     @Test fun directRootMixedMediaFilterAndFolderSortStayIndependentFromHome() {
@@ -111,9 +111,13 @@ class FolderBrowserTouchTest {
         compose.setContent { FolderBrowserScreen(vm, null, {}, { m, window, folder ->
             assertTrue(vm.openFolderMedia(window, m.id, folder))
         }) }
-        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 2 }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 3 }
         compose.onNodeWithTag("folder_child").assertIsDisplayed()
         compose.onNodeWithTag("media_root-image").assertExists()
+        compose.onNodeWithTag("media_deep-image").assertExists()
+        compose.onNodeWithTag("folder_more").performTouchInput { click() }
+        compose.onNodeWithTag("folder_scope_toggle").performTouchInput { click() }
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 2 }
         compose.onAllNodesWithTag("media_deep-image").assertCountEquals(0)
         compose.onNodeWithTag("folder_type_IMAGE").performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.items.map { it.id } == listOf("root-image") }

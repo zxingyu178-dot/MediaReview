@@ -55,6 +55,9 @@ interface NsfwStudioApi {
         @Query("tag") tag: String? = null,
     ): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>
 
+    @GET("/mobile/generation/progress")
+    suspend fun generationProgress(): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress>
+
     @GET("/mobile/system/health")
     suspend fun health(): NsfwEnvelope<NsfwHealth>
 

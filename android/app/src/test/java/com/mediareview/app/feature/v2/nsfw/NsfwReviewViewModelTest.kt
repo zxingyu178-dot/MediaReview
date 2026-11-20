@@ -251,6 +251,26 @@ class NsfwReviewViewModelTest {
         assertEquals("e", model.state.value.currentId)
         assertEquals("e", model.state.value.prefetchedPageStartId)
     }
+    @Test fun nextAtBoundaryJoinsAnExistingManualPageRequest() = runTest {
+        enableBidirectionalGallery()
+        val nextPage = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()
+        data.galleryResponder = { call ->
+            if (call.page == "next") nextPage.await()
+            else bidirectionalPage(listOf("a", "b", "c", "d"), 0, next = "next")
+        }
+        val model = vm()
+        model.select("d")
+        model.loadMore()
+        model.next()
+        model.next()
+        assertEquals("d", model.state.value.currentId)
+        assertEquals(1, data.galleryCalls.count { it.page == "next" })
+
+        nextPage.complete(bidirectionalPage(listOf("e"), 4).copy(total = 5))
+        assertEquals("e", model.state.value.currentId)
+        assertEquals(1, data.galleryCalls.count { it.page == "next" })
+    }
+
     @Test fun galleryBidirectionalPreviousLoadsNearestPageAndPreservesNextCursor() = runTest {
         enableBidirectionalGallery()
         val before = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()

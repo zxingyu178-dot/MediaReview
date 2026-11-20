@@ -270,3 +270,14 @@
 | 图片 URL | 仅同源相对 URL | 客户端只接受 `/mobile/images/` 相对路径，拒绝外部 Origin/协议相对/穿越/query | 防 SSRF 与外部资源加载 |
 
 配套提案：`docs/integration/openapi-mobile-review-v2.proposal.json` 与 `docs/integration/fixtures/`（含 `feed_remove.json`、`decision_favorite_only.json`）。
+
+## 可选扩展 mobile_generation_progress_v1
+
+配对审核桥可在现有健康检查的 capabilities 中声明此能力。手机仅在审核页前台且当前连接声明该能力时，通过现有配对 Bearer 读取，下线或读取失败时隐藏旧快照。
+
+- GET /mobile/generation/progress
+- 使用既有成功响应信封，data 示例为 `{"current_image":3,"images_in_segment":6,"remaining_segments":20}`。
+- current_image 是正在生成的图的 1 基序号，images_in_segment 属于同一个提示词段。
+- remaining_segments 来自同一份队列快照，包含正在生成的段。一段提示词对应一个队列项，20 段包含当前段时显示「3/6　剩余 20 段」。
+- 没有运行段时两个图片字段均为 null。剩余段数仍取队列快照，空队列返回 0。
+- 接口只读，只返回计数，不返回提示词、路径、任务详情或图片。旧桥不声明能力时继续使用原审核流程。

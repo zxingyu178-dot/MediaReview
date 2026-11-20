@@ -49,9 +49,6 @@ import com.mediareview.app.feature.v2.viewer.ZoomImageSource
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 import kotlin.math.abs
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.flow.first
 
 /** 图片始终占据同一个视口；同步、提示和控制层不会改变它的尺寸。 */
 @Composable
@@ -75,6 +72,12 @@ internal fun NsfwImageReviewPane(
     var chrome by remember(item?.imageId) { mutableStateOf(NsfwViewerChrome()) }
     var scale by remember(item?.imageId) { mutableFloatStateOf(1f) }
     var ready by remember(item?.imageId, item?.previewUrl, item?.originalUrl) { mutableStateOf(false) }
+    val previewStartedAt = remember(item?.imageId, item?.previewUrl) { android.os.SystemClock.elapsedRealtime() }
+    LaunchedEffect(item?.imageId, ready) {
+        if (com.mediareview.app.BuildConfig.DEBUG && item != null && ready) {
+            android.util.Log.d("MRGeneratedReview", "previewReadyMs=${android.os.SystemClock.elapsedRealtime() - previewStartedAt}")
+        }
+    }
     var resetZoom by remember(item?.imageId) { mutableIntStateOf(0) }
     var moreOpen by remember { mutableStateOf(false) }
     var showThumbnails by rememberSaveable { mutableStateOf(false) }
@@ -112,9 +115,8 @@ internal fun NsfwImageReviewPane(
     }
     LaunchedEffect(transition) {
         if (transition.outgoing != null) {
-            // 冷加载时短暂保留旧预览；错误/离线也必须有界退场，露出当前图的重试入口。
-            withTimeoutOrNull(1200L) { snapshotFlow { ready }.first { it } }
-            motion.animateTo(1f, tween(190, easing = FastOutSlowInEasing))
+            // 动画结束后只保留当前图片或其加载状态，避免仍看到上一张。
+            motion.animateTo(1f, tween(90, easing = FastOutSlowInEasing))
         }
     }
     val latestCanPrevious by rememberUpdatedState(canPrevious)
@@ -126,14 +128,11 @@ internal fun NsfwImageReviewPane(
             prefetchAttempted = true
         }
     }
-    val nextPreview = item?.let { state.items.getOrNull(state.currentIndex + 1) }
-    val pagePreview = state.prefetchedPageStartId?.let { id ->
-        (2..3).firstNotNullOfOrNull { distance ->
-            state.items.getOrNull(state.currentIndex + distance)?.takeIf { it.imageId == id }
-        }
-    }
-    PrefetchPreview(nextPreview?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }, imageLoader)
-    PrefetchPreview(pagePreview?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }, imageLoader)
+    val upcomingPreviews = if (state.currentIndex < 0) emptyList() else state.items.asSequence()
+        .drop(state.currentIndex + 1).take(3)
+        .map { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }.filter(String::isNotBlank).toList()
+    val visiblePreview = item?.let { safeNsfwImageUrl(state.baseUrl, it.previewUrl) }
+    PrefetchPreviews(upcomingPreviews, visiblePreview, imageLoader)
     LaunchedEffect(item?.imageId, showThumbnails) {
         if (showThumbnails && state.currentIndex >= 0) thumbnails.scrollToItem(state.currentIndex)
     }
@@ -171,8 +170,12 @@ internal fun NsfwImageReviewPane(
         } else {
             val preview = safeNsfwImageUrl(state.baseUrl, item.previewUrl)
             val original = safeNsfwImageUrl(state.baseUrl, item.originalUrl)
-            val source = remember(item.imageId, preview, original, imageLoader) {
-                ZoomImageSource(imageLoader.loader, imageLoader.request(preview), imageLoader.request(original, original = true))
+            val thumbnail = safeNsfwImageUrl(state.baseUrl, item.thumbnailUrl)
+            val source = remember(item.imageId, preview, original, thumbnail, imageLoader) {
+                val previewRequest = imageLoader.request(preview).newBuilder()
+                    .placeholderMemoryCacheKey(imageLoader.request(thumbnail).memoryCacheKey)
+                    .build()
+                ZoomImageSource(imageLoader.loader, previewRequest, imageLoader.request(original, original = true))
             }
             // 达到横移阈值后先声明手势，让子级点击识别取消；双指和放大拖图仍交给缩放器。
             val gestures = Modifier.pointerInput(item.imageId, chrome.zoomed, canNavigate) {
@@ -210,7 +213,7 @@ internal fun NsfwImageReviewPane(
                 alpha = motion.value
                 translationX = motionDirection * motionDistance * (1f - motion.value)
             }.then(gestures)) {
-                ZoomableImage(preview, original, true, true, item.width ?: 0, item.height ?: 0,
+                ZoomableImage(preview, original, true, original.isNotBlank() && (scale > 1.01f || preview.isBlank()), item.width ?: 0, item.height ?: 0,
                     onTap = { if (currentIdentity == item.imageId) chrome = chrome.toggle() },
                     onScaleChange = { if (currentIdentity == item.imageId) { scale = it; chrome = chrome.scaleChanged(it) } },
                     modifier = Modifier.fillMaxSize(), source = source, resetZoomToken = resetZoom,
@@ -246,6 +249,19 @@ internal fun NsfwImageReviewPane(
                         }
                     }
                 }
+                state.generationProgress?.let { progress ->
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        val current = progress.currentImage
+                        val total = progress.imagesInSegment
+                        val currentLabel = if (current != null && total != null) "$current/$total　" else ""
+                        Text("${currentLabel}剩余 ${progress.remainingSegments} 段",
+                            color = MediaTextPrimary, style = MaterialTheme.typography.labelSmall)
+                        if (current != null && total != null) {
+                            LinearProgressIndicator(progress = { current.toFloat() / total },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                        }
+                    }
+                }
                 if (messages.isNotEmpty() && (!messageDismissed || important)) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
                         style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -263,7 +279,12 @@ internal fun NsfwImageReviewPane(
                     }
                 }
 
-                val canReview = ready && transitionFinished && !state.busy && state.detail != null
+                if (item != null && ready && state.detail == null && !state.detailLoading && !state.busy) {
+                    TextButton(onClick = { onSelect(item.imageId) }) { Text("重试读取审核状态") }
+                }
+                val waitingForPage = state.bidirectionalGallery && state.hasMore && state.syncing &&
+                    state.currentIndex == state.items.lastIndex
+                val canReview = ready && transitionFinished && !state.busy && !waitingForPage && state.detail != null
                 val showActionIcons = LocalDensity.current.fontScale <= 1.3f
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
@@ -326,15 +347,15 @@ internal fun NsfwImageReviewPane(
 }
 
 @Composable
-private fun PrefetchPreview(url: String?, imageLoader: NsfwImageLoader) {
+private fun PrefetchPreviews(urls: List<String>, visibleUrl: String?, imageLoader: NsfwImageLoader) {
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefetch = remember(imageLoader) { NsfwImagePrefetcher(scope, imageLoader::prefetch) }
-    LaunchedEffect(url, lifecycleOwner, prefetch) {
+    val latestUrls = rememberUpdatedState(urls to visibleUrl)
+    LaunchedEffect(lifecycleOwner, prefetch) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             try {
-                prefetch.update(url?.takeIf(String::isNotBlank))
-                awaitCancellation()
+                snapshotFlow { latestUrls.value }.collect { (upcoming, visible) -> prefetch.update(upcoming, visible) }
             } finally {
                 prefetch.stop()
             }

@@ -274,8 +274,9 @@ fun ZoomableImage(
             val fullState = fullPainter.state
             val fullReady = fullState is AsyncImagePainter.State.Success
             val fullFailed = fullState is AsyncImagePainter.State.Error
-            LaunchedEffect(previewHasContent, fullReady, isCurrent, previewUri, fullUri) {
-                if (isCurrent) currentOnImageReady.value(previewHasContent || fullReady)
+            val imageReady = (if (source == null) previewHasContent else previewReady) || fullReady
+            LaunchedEffect(imageReady, isCurrent, previewUri, fullUri) {
+                if (isCurrent) currentOnImageReady.value(imageReady)
             }
             // 性能打点: 原图就绪(渐进加载的"清晰度提升"时刻)
             LaunchedEffect(fullReady, isCurrent, fullUri, originalSession.namespace) {

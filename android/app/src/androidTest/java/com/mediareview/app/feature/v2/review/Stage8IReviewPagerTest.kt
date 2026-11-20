@@ -242,7 +242,7 @@ class Stage8IReviewPagerTest {
         Assert.assertEquals("实际翻页展示不能重复HTTP下载poster", count, live.apiRequests.count { it.path == "/api/v1/media/second/thumbnail" })
         android.util.Log.i("MRTask7Evidence", "neighbor_poster_decoded_memory_hit=true displayed_same_size=true repeated_http=0 original=0 distant_before_swipe=0")
     }
-    @Test fun horizontalSeekAndLongPressUpLockRemainExclusiveFromNativePager() {
+    @Test fun horizontalSeekAndLongPressRemainExclusiveFromNativePager() {
         launch()
         val player = kernel { it.player.mediaPlayer as IjkExo2MediaPlayer }
         body().performTouchInput {
@@ -251,12 +251,18 @@ class Stage8IReviewPagerTest {
         }
         Assert.assertEquals(0, page())
         Assert.assertSame(player, kernel { it.player.mediaPlayer })
-        body().performTouchInput {
-            down(center); advanceEventTime(450); moveTo(center)
-            advanceEventTime(50); moveTo(center.copy(y = centerY - 100 * compose.activity.resources.displayMetrics.density)); up()
+        val formalSpeed = kernel { player.speed }
+        val upDistance = 100 * compose.activity.resources.displayMetrics.density
+        body().performTouchInput { down(center) }
+        try {
+            clock.until(5000) { kernel { kotlin.math.abs(player.speed - 2f) < .01f } }
+            body().performTouchInput { moveTo(center.copy(y = centerY - upDistance)) }
+            Assert.assertEquals("长按移动时保持当前视频", 0, page())
+        } finally {
+            body().performTouchInput { up() }
         }
-        clock.until(5000) { kernel { kotlin.math.abs(player.speed - 2f) < .01f } }
-        Assert.assertEquals("长按上推锁2x不得翻页", 0, page())
+        clock.until(5000) { kernel { kotlin.math.abs(player.speed - formalSpeed) < .01f } }
+        Assert.assertEquals("松手恢复原倍速且不翻页", 0, page())
         Assert.assertSame(player, kernel { it.player.mediaPlayer })
         Assert.assertFalse(live.videos.any { it.mediaId != "first" })
     }

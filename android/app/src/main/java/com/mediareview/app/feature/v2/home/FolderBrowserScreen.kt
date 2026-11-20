@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -45,7 +47,7 @@ fun FolderBrowserScreen(
     val pendingState by vm.viewerPendingDeleteState.collectAsState()
     val pendingIds = (pendingState as? ViewerPendingDeleteState.Ready)?.ids.orEmpty()
     var folderId by rememberSaveable(initialFolderId) { mutableStateOf(initialFolderId) }
-    var includeDescendants by rememberSaveable { mutableStateOf(false) }
+    var includeDescendants by rememberSaveable { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
     val libraryRoots = tree.filter { it.parentId == null }
@@ -55,6 +57,7 @@ fun FolderBrowserScreen(
     val crumbs = folderBreadcrumbs(tree, folderId).let { path ->
         if (libraryRoots.size == 1 && path.size > 1) path.drop(1) else path
     }
+    val rootCards = children.takeIf { effectiveFolderId == null }.orEmpty()
     val currentTitle = tree.firstOrNull { it.id == effectiveFolderId }?.name ?: "浏览文件夹"
     val parents = remember(tree) { tree.associate { it.id to it.parentId } }
     val grid = rememberLazyGridState()
@@ -68,7 +71,7 @@ fun FolderBrowserScreen(
     LaunchedEffect(effectiveFolderId, tree, includeDescendants, sortSpec) {
         vm.openFolderBrowser(effectiveFolderId, includeDescendants)
         val anchor = vm.folderBrowserState.value.anchor
-        val keys = children.map { "folder_${it.id}" } + vm.folderBrowserState.value.items.map { "media_${it.id}" }
+        val keys = vm.folderBrowserState.value.items.map { "media_${it.id}" } + rootCards.map { "folder_${it.id}" }
         grid.scrollToItem(anchor?.indexIn(keys) ?: 0, anchor?.offset ?: 0)
     }
     DisposableEffect(vm) {
@@ -85,8 +88,8 @@ fun FolderBrowserScreen(
         state.error != null && visibleMedia.isEmpty() -> "加载失败"
         else -> "${typeFilterLabel(sortSpec.typeFilter)} ${state.total} 项"
     }
-    val entries = children.map(FolderEntry::Folder) + visibleMedia.map(FolderEntry::Media)
-    WindowCoverPrefetch(visibleMedia.map(vm::coverUri), grid, mode, leadingItemCount = children.size)
+    val entries = visibleMedia.map(FolderEntry::Media) + rootCards.map(FolderEntry::Folder)
+    WindowCoverPrefetch(visibleMedia.map(vm::coverUri), grid, mode, leadingItemCount = 0)
     LaunchedEffect(grid, entries) {
         snapshotFlow { grid.firstVisibleItemIndex to grid.firstVisibleItemScrollOffset }.collect { (index, offset) ->
             entries.getOrNull(index)?.let { vm.updateFolderAnchor(HomeGridAnchor(it.key, offset)) }
@@ -126,6 +129,15 @@ fun FolderBrowserScreen(
                 FilterChip(selected = sortSpec.typeFilter == type,
                     onClick = { vm.setFolderSortSpec(sortSpec.copy(typeFilter = type)) },
                     label = { Text(typeFilterLabel(type)) }, modifier = Modifier.testTag("folder_type_${type.name}"))
+            }
+        }
+        if (effectiveFolderId != null && children.isNotEmpty()) {
+            LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = MediaSpacing.Medium),
+                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
+                items(children, key = { it.id }) { node ->
+                    AssistChip(onClick = { folderId = node.id }, label = { Text(node.name, maxLines = 1) },
+                        modifier = Modifier.testTag("folder_${node.id}"))
+                }
             }
         }
         SortFilterRow(sortSpec, { showSortSheet = true }, Modifier.testTag("folder_sort"))

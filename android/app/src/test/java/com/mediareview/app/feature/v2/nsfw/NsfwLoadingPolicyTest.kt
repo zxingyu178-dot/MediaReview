@@ -25,21 +25,23 @@ class NsfwLoadingPolicyTest {
         policy.reset()
         assertEquals(15000L, policy.interval(15000))
     }
-    @Test fun prefetchHasOneTaskAndCancelsObsoleteWork() = runTest {
+    @Test fun movingWindowKeepsOverlappingWorkAndCancelsOnlyObsoleteRequests() = runTest {
         val started = mutableListOf<String>()
-        val ended = mutableListOf<String>()
+        val cancelled = mutableListOf<String>()
         val prefetch = NsfwImagePrefetcher(this) { url ->
             started += url
-            try { awaitCancellation() } finally { ended += url }
+            try { awaitCancellation() } finally { cancelled += url }
         }
-        prefetch.update("next-a"); runCurrent()
-        prefetch.update("next-a"); runCurrent()
-        assertEquals(listOf("next-a"), started)
-        prefetch.update("next-b"); runCurrent()
-        assertEquals(listOf("next-a"), ended)
-        assertEquals(listOf("next-a", "next-b"), started)
+        prefetch.update(listOf("a", "b", "c", "outside")); runCurrent()
+        assertEquals(listOf("a", "b", "c"), started)
+        prefetch.update(listOf("b", "c", "d"), visibleUrl = "a"); runCurrent()
+        assertTrue(cancelled.isEmpty())
+        assertEquals(listOf("a", "b", "c", "d"), started)
+        prefetch.update(listOf("c", "d", "e"), visibleUrl = "b"); runCurrent()
+        assertEquals(listOf("a"), cancelled)
+        assertEquals(listOf("a", "b", "c", "d", "e"), started)
         prefetch.stop(); runCurrent()
-        assertEquals(started, ended)
+        assertEquals(started, cancelled)
     }
     @Test fun cacheKeyIsScopedByCredentialAndOriginWithoutExposingToken() {
         val first = nsfwImageCacheKey("http://bridge.test:8877/mobile/images/a/preview", "fake-token-A")

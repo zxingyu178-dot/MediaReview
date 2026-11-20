@@ -14,21 +14,27 @@ internal class NsfwPollBackoff {
     fun reset() { idleRounds = 0 }
 }
 
-/** 只保留当前意图对应的一个可取消预取；失败不影响可见图片。 */
+/** 保留连续浏览窗口中仍需要的任务，不重复启动已经预热的请求。 */
 internal class NsfwImagePrefetcher(private val scope: CoroutineScope, private val load: suspend (String) -> Unit) {
-    private var target: String? = null
-    private var job: Job? = null
-    fun update(url: String?) {
-        if (url == target) return
-        stop()
-        target = url ?: return
-        job = scope.launch {
-            try { load(url) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { /* 预取失败由后续显式加载重试，不自动抢占资源。 */ }
+    private val jobs = mutableMapOf<String, Job>()
+
+    fun update(urls: List<String>, visibleUrl: String? = null) {
+        val targets = urls.distinct().take(3).toMutableSet()
+        if (visibleUrl != null && visibleUrl in jobs) targets += visibleUrl
+        (jobs.keys - targets).forEach { jobs.remove(it)?.cancel() }
+        targets.forEach { url ->
+            if (url !in jobs) jobs[url] = scope.launch {
+                try { load(url) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* 进入当前页时正常加载，失败可重试。 */ }
+            }
         }
     }
-    fun stop() { job?.cancel(); job = null; target = null }
+
+    fun stop() {
+        jobs.values.forEach { it.cancel() }
+        jobs.clear()
+    }
 }
 
 /** 不把原始凭据写入缓存键；URL含origin，因此不同服务器和凭据不会混读。 */
