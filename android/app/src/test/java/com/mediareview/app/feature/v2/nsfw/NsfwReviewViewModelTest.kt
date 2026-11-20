@@ -11,6 +11,8 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwPairResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPendingEvaluation
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptImagesPage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptSummary
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GENERATION_PROGRESS_CAPABILITY
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -287,6 +289,54 @@ class NsfwReviewViewModelTest {
         val refreshed = nsfwDetails("a")
         assertEquals(refreshed.updatedAt, current.copy(conflictMessage = "冲突", detail = refreshed).decisionTarget?.updatedAt)
         assertNull(current.copy(bidirectionalGallery = false).decisionTarget)
+    }
+
+    @Test fun generationProgressTracksNewSegmentClearsOfflineAndRestartsOnForeground() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf(NSFW_GENERATION_PROGRESS_CAPABILITY))
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("a"))) }
+        val first = NsfwGenerationProgress(3, 6, 20)
+        val next = NsfwGenerationProgress(1, 6, 19)
+        val resumed = NsfwGenerationProgress(2, 6, 19)
+        data.generationProgressResponder = {
+            when (data.generationProgressCalls) {
+                1 -> first
+                2 -> next
+                3 -> throw java.io.IOException("offline")
+                else -> resumed
+            }
+        }
+        val model = vm()
+        assertEquals(0, data.generationProgressCalls)
+        try {
+            model.setScreenVisible(true)
+            assertEquals(first, model.state.value.generationProgress)
+            dispatcher.scheduler.advanceTimeBy(5_001)
+            assertEquals(next, model.state.value.generationProgress)
+            dispatcher.scheduler.advanceTimeBy(5_000)
+            assertNull(model.state.value.generationProgress)
+
+            model.setScreenVisible(false)
+            dispatcher.scheduler.advanceTimeBy(10_000)
+            assertEquals(3, data.generationProgressCalls)
+            model.setScreenVisible(true)
+            assertEquals(resumed, model.state.value.generationProgress)
+        } finally {
+            model.setScreenVisible(false)
+        }
+        assertNull(model.state.value.generationProgress)
+    }
+
+    @Test fun oldGenerationBridgeDoesNotPollOptionalProgress() = runTest {
+        val model = bootstrapPaired()
+        try {
+            model.setScreenVisible(true)
+            dispatcher.scheduler.advanceTimeBy(12_000)
+            assertEquals(0, data.generationProgressCalls)
+            assertNull(model.state.value.generationProgress)
+        } finally {
+            model.setScreenVisible(false)
+        }
     }
 
     @Test fun nextAtBoundaryJoinsAnExistingManualPageRequest() = runTest {
