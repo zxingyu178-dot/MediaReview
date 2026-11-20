@@ -214,7 +214,13 @@ internal fun NsfwImageReviewPane(
                 alpha = motion.value
                 translationX = motionDirection * motionDistance * (1f - motion.value)
             }.then(gestures)) {
-                ZoomableImage(preview, original, true, original.isNotBlank() && (scale > 1.01f || preview.isBlank()), item.width ?: 0, item.height ?: 0,
+                ZoomableImage(
+                    previewUri = preview,
+                    fullUri = original,
+                    loadFullResolution = original.isNotBlank() && (scale > 1.01f || preview.isBlank()),
+                    isCurrent = true,
+                    naturalWidth = item.width ?: 0,
+                    naturalHeight = item.height ?: 0,
                     onTap = { if (currentIdentity == item.imageId) chrome = chrome.toggle() },
                     onScaleChange = { if (currentIdentity == item.imageId) { scale = it; chrome = chrome.scaleChanged(it) } },
                     modifier = Modifier.fillMaxSize(), source = source, resetZoomToken = resetZoom,

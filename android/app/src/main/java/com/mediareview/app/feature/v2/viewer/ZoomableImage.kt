@@ -273,7 +273,7 @@ fun ZoomableImage(
             )
             val fullState = fullPainter.state
             val fullReady = fullState is AsyncImagePainter.State.Success
-            val fullFailed = fullState is AsyncImagePainter.State.Error
+            val fullFailed = fullModel != null && fullState is AsyncImagePainter.State.Error
             val imageReady = (if (source == null) previewHasContent else previewReady) || fullReady
             LaunchedEffect(imageReady, isCurrent, previewUri, fullUri) {
                 if (isCurrent) currentOnImageReady.value(imageReady)

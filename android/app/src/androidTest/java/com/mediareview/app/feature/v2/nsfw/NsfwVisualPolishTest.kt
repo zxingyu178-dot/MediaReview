@@ -75,10 +75,10 @@ class NsfwVisualPolishTest {
     }
 
     @Test fun nextImageHasOneInteractiveViewerAndSameImageRefreshKeepsIt() = withImages { base, loader, items ->
-        val state = mutableStateOf(NsfwUiState(phase = NsfwPhase.READY, baseUrl = base, items = items, currentId = items[0].imageId, detail = NsfwImageDetails(imageId = items[0].imageId)))
+        val state = mutableStateOf(NsfwUiState(phase = NsfwPhase.READY, baseUrl = base, items = items, currentId = items[0].imageId, detail = NsfwImageDetails(imageId = items[0].imageId, updatedAt = "2026-11-20T00:00:00Z")))
         compose.setContent { MediaReviewTheme { Surface {
             NsfwImageReviewPane(state.value, loader, {}, {}, {},
-                { state.value = state.value.copy(currentId = items[1].imageId, detail = NsfwImageDetails(imageId = items[1].imageId)) }, {}, { _, _ -> }, {}, {}, {}, {}, {})
+                { state.value = state.value.copy(currentId = items[1].imageId, detail = NsfwImageDetails(imageId = items[1].imageId, updatedAt = "2026-11-20T00:00:00Z")) }, {}, { _, _ -> }, {}, {}, {}, {}, {})
         } } }
         compose.onAllNodesWithContentDescription("图片").assertCountEquals(1)
         compose.waitUntil(15_000) { runCatching { compose.onNodeWithText("保留").assertIsEnabled(); true }.getOrDefault(false) }
@@ -100,7 +100,7 @@ class NsfwVisualPolishTest {
         val first = items[0]
         val second = items[1]
         val state = mutableStateOf(NsfwUiState(phase = NsfwPhase.READY, baseUrl = base, items = items,
-            currentId = second.imageId, detail = NsfwImageDetails(imageId = second.imageId),
+            currentId = second.imageId, detail = NsfwImageDetails(imageId = second.imageId, updatedAt = "2026-11-20T00:00:00Z"),
             undoDecision = NsfwUndoDecision(first.imageId, "RESET", "", "2")))
         var returnToGallery = false
         compose.setContent {
@@ -130,7 +130,7 @@ class NsfwVisualPolishTest {
         compose.runOnIdle {
             assertTrue(!returnToGallery)
             state.value = state.value.copy(currentId = first.imageId, busy = false,
-                detail = NsfwImageDetails(imageId = first.imageId), undoDecision = null)
+                detail = NsfwImageDetails(imageId = first.imageId, updatedAt = "2026-11-20T00:00:00Z"), undoDecision = null)
         }
         compose.waitUntil(15_000) { runCatching { keep.assertIsEnabled(); true }.getOrDefault(false) }
         undo.assertIsNotEnabled()

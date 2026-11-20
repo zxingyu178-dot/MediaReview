@@ -503,7 +503,6 @@ def test_scoped_directory_count_uses_expression_index(tree_api):
 def test_dirname_index_upgrade_and_downgrade_preserve_existing_media(tmp_path):
     from alembic import command
     from alembic.config import Config
-
     from app.db.migrate import _server_root
     from app.services.media_index import _folder_dirname_expression
 
