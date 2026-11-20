@@ -89,3 +89,17 @@ data class ReviewMessage(
     val text: String,
     val undoMediaId: String? = null,
 )
+
+
+enum class ReviewVideoAction(val label: String) {
+    Keep("保留"), QueueDelete("待删除"),
+}
+
+enum class ReviewSavePhase { Saving, Saved, Failed }
+
+data class ReviewVideoDecision(
+    val mediaId: String,
+    val absoluteIndex: Int,
+    val action: ReviewVideoAction,
+    val phase: ReviewSavePhase,
+)

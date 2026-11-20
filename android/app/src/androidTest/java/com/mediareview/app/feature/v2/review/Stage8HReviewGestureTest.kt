@@ -62,6 +62,22 @@ class Stage8HReviewGestureTest {
         ReviewFrameEvidence.capture("video-review-large-font-20261116")
         Assert.assertTrue("Seek touch area must not overlap actions: seek=$seek actions=$actions", seek.bottom <= actions.top + 1f)
     }
+    @Test fun narrowLargeFontKeepsReviewActionsVisibleDuringPreparation() {
+        launch(blockFirstVideo = true, awaitPlayback = false, fontScale = 2f)
+        compose.waitUntil(30_000) {
+            runCatching { compose.onNodeWithTag("review_keep").assertIsDisplayed() }.isSuccess
+        }
+        val actions = compose.onNodeWithTag("review_bottom_actions").fetchSemanticsNode().boundsInRoot
+        val entries = listOf("review_keep","review_delete","review_favorite","review_undo").map { tag ->
+            compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        }
+        Assert.assertTrue(entries.all { it.left >= actions.left - 1f && it.right <= actions.right + 1f })
+        Assert.assertTrue(entries.zipWithNext().all { (left, right) -> left.right <= right.left + 1f })
+        val seek = bar().fetchSemanticsNode().boundsInRoot
+        Assert.assertTrue("Seek must remain above the actions", seek.bottom <= actions.top + 1f)
+        ReviewFrameEvidence.capture("video-review-320dp-large-font")
+    }
+
     private fun position() = kernel { it.currentPosition }
     private fun speed() = kernel { (it.player.mediaPlayer as IjkExo2MediaPlayer).speed }
     private fun page() = (vm.state.value as? V2ReviewUiState.Ready)?.absoluteCurrentIndex

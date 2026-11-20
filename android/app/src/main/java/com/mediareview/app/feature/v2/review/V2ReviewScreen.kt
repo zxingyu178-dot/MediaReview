@@ -34,6 +34,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -278,6 +279,13 @@ private fun ReviewPagerContent(
     val items = state.items
     val pendingDeleteIds by vm.pendingDeleteIds.collectAsState()
     val favoriteIds by vm.favoriteIds.collectAsState()
+    val videoDecision by vm.videoDecision.collectAsState()
+    LaunchedEffect(videoDecision) {
+        videoDecision?.takeIf { it.phase == ReviewSavePhase.Saved }?.let {
+            delay(1600)
+            vm.clearVideoDecision(it)
+        }
+    }
 
     var infoMedia by remember { mutableStateOf<ReviewQueueItemUi?>(null) }
     var moreSheet by remember { mutableStateOf(false) }
@@ -493,25 +501,12 @@ private fun ReviewPagerContent(
         if (page !in items.indices || page == pagerState.settledPage) return
         scope.launch { pagerState.animateScrollToPage(page) }
     }
-    fun keepCurrent() {
-        val page = pagerState.settledPage
-        if (page !in items.indices) return
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        feedback = "已标记保留"
-        vm.markSeen(page)
-        if (canGoNext(page, items.size)) navigateTo(page + 1)
-    }
-    fun deleteCurrent() {
+    fun submitReviewAction(action: ReviewVideoAction) {
         val page = pagerState.settledPage
         val item = items.getOrNull(page) ?: return
-        if (!item.canDelete) {
-            vm.addPendingDelete(item.mediaId)
-            return
-        }
+        if (!vm.submitVideoDecision(item.mediaId, action)) return
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        feedback = "已标记待删除 · 可撤销"
-        lastDeleteMediaId = item.mediaId
-        vm.addPendingDelete(item.mediaId)
+        if (action == ReviewVideoAction.QueueDelete) lastDeleteMediaId = item.mediaId
         if (canGoNext(page, items.size)) navigateTo(page + 1)
     }
     val latestHoldStart by rememberUpdatedState<() -> Unit>({
@@ -1037,15 +1032,18 @@ private fun ReviewPagerContent(
                     tint = V2Colors.Accent,
                     label = "保留",
                     tag = "review_keep",
-                    onClick = ::keepCurrent,
+                    enabled = videoDecision?.phase != ReviewSavePhase.Saving && videoDecision?.phase != ReviewSavePhase.Failed,
+                    iconOnly = density.fontScale > 1.3f,
+                    onClick = { submitReviewAction(ReviewVideoAction.Keep) },
                 )
                 ReviewActionButton(
                     icon = Icons.Default.DeleteOutline,
                     tint = MediaDanger,
                     label = if (item.canDelete) "待删除" else "不可删除",
-                    enabled = item.canDelete,
+                    enabled = item.canDelete && videoDecision?.phase != ReviewSavePhase.Saving && videoDecision?.phase != ReviewSavePhase.Failed,
                     tag = "review_delete",
-                    onClick = ::deleteCurrent,
+                    iconOnly = density.fontScale > 1.3f,
+                    onClick = { submitReviewAction(ReviewVideoAction.QueueDelete) },
                 )
                 val isFavorite = item.mediaId in favoriteIds
                 ReviewActionButton(
@@ -1063,6 +1061,7 @@ private fun ReviewPagerContent(
                     label = "撤销",
                     enabled = undoId != null,
                     tag = "review_undo",
+                    iconOnly = density.fontScale > 1.3f,
                     onClick = {
                         undoId?.let {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1071,6 +1070,19 @@ private fun ReviewPagerContent(
                     },
                 )
             }
+        }
+
+        videoDecision?.let { decision ->
+            val onOriginalVideo = items.getOrNull(pagerState.settledPage)?.mediaId == decision.mediaId
+            ReviewSaveBanner(decision, onOriginalVideo,
+                onAction = {
+                    if (onOriginalVideo) submitReviewAction(decision.action)
+                    else vm.returnToFailedVideo()
+                },
+                onDismiss = { vm.clearVideoDecision(decision) },
+                actionEnabled = !pagerState.isScrollInProgress,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding()
+                    .padding(start = 12.dp, end = 12.dp, top = 64.dp))
         }
 
         // 更多 → 统一 ModalBottomSheet（外部点击 / Back 可关闭）。
@@ -1277,6 +1289,36 @@ private fun logSourceState(tag: String, item: ReviewQueueItemUi?, loadedMediaId:
         "MRReview",
         "SourceState[$tag] UI/target mediaId=${item?.mediaId} loadedInPlayer=$loadedMediaId",
     )
+}
+
+@Composable
+internal fun ReviewSaveBanner(
+    decision: ReviewVideoDecision,
+    onOriginalVideo: Boolean,
+    onAction: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    actionEnabled: Boolean = true,
+) {
+    val status = when (decision.phase) {
+        ReviewSavePhase.Saving -> "正在保存"
+        ReviewSavePhase.Saved -> "已保存"
+        ReviewSavePhase.Failed -> "保存失败"
+    }
+    Surface(modifier.fillMaxWidth().testTag("review_save_status"),
+        shape = RoundedCornerShape(16.dp), color = Color(0xF021252C)) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("${decision.action.label} · $status", modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall, color = MediaTextPrimary)
+            if (decision.phase == ReviewSavePhase.Failed) {
+                TextButton(onClick = onAction, enabled = actionEnabled, modifier = Modifier.testTag("review_save_recover")) {
+                    Text(if (onOriginalVideo) "重试" else "回到原视频")
+                }
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "关闭保存提示") }
+            }
+        }
+    }
 }
 
 /** 紧凑底部动作：图标与短标签共享至少 48dp 的点击区域。 */

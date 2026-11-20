@@ -353,6 +353,33 @@ class V2ReviewViewModelTest {
     }
 
     @Test
+    fun manualKeepSharesPendingRequestAndReturnsToFailedVideo() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val sessions = FakeSessions().apply {
+            entryResult = readyOpen(total = 3)
+            seenGate = gate
+            failSeen = true
+        }
+        val vm = vm(sessions)
+        vm.enterReview()
+        vm.markSeen(0)
+        assertTrue(vm.submitVideoDecision("v1", ReviewVideoAction.Keep))
+        assertEquals(ReviewSavePhase.Saving, vm.videoDecision.value?.phase)
+        assertEquals(1, sessions.seenCalls.size)
+        vm.onPageSettled(1)
+        gate.complete(Unit)
+        waitUntil("审核失败仍保留目标") { vm.videoDecision.value?.phase == ReviewSavePhase.Failed }
+        assertFalse(vm.isSeen("v1"))
+        vm.returnToFailedVideo()
+        assertEquals(0, (vm.state.value as V2ReviewUiState.Ready).absoluteCurrentIndex)
+        sessions.failSeen = false
+        assertTrue(vm.submitVideoDecision("v1", ReviewVideoAction.Keep))
+        waitUntil("服务端确认后才显示保存") { vm.videoDecision.value?.phase == ReviewSavePhase.Saved }
+        assertEquals(listOf("v1", "v1"), sessions.seenCalls)
+        assertTrue(vm.isSeen("v1"))
+    }
+
+    @Test
     fun `markSeen并发防重同一媒体只发一次`() = runTest {
         val gate = CompletableDeferred<Unit>()
         val sessions = FakeSessions().apply {
@@ -601,6 +628,48 @@ class V2ReviewViewModelTest {
         vm.addPendingDelete("v1")
         waitUntil("待删除失败调用") { repo.pendingDeleteCalls.size >= 3 }
         assertFalse("失败不得假成功", vm.isPendingDelete("v1"))
+    }
+
+    @Test
+    fun manualDeleteRequiresAcknowledgementAndRetriesOriginalItem() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 3)
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 3) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+
+        repo.pendingDeleteResult = false
+        assertTrue(vm.submitVideoDecision("v1", ReviewVideoAction.QueueDelete))
+        waitUntil("待删除失败") { vm.videoDecision.value?.phase == ReviewSavePhase.Failed }
+        assertFalse(vm.isPendingDelete("v1"))
+        vm.onPageSettled(1)
+        assertFalse(vm.submitVideoDecision("v2", ReviewVideoAction.QueueDelete))
+        vm.returnToFailedVideo()
+        assertEquals(0, (vm.state.value as V2ReviewUiState.Ready).absoluteCurrentIndex)
+
+        repo.pendingDeleteResult = true
+        assertTrue(vm.submitVideoDecision("v1", ReviewVideoAction.QueueDelete))
+        waitUntil("待删除已保存") { vm.videoDecision.value?.phase == ReviewSavePhase.Saved }
+        assertTrue(vm.isPendingDelete("v1"))
+        assertEquals(2, repo.pendingDeleteCalls.size)
+    }
+
+    @Test
+    fun queueCompletionDoesNotHideFailedDecisionForLastVideo() = runTest {
+        val repo = FakeMediaRepository(mediaCount = 2).apply { pendingDeleteResult = false }
+        val sessions = FakeSessions().apply { entryResult = readyOpen(total = 2) }
+        val vm = V2ReviewViewModel(repo, sessions)
+        vm.enterReview()
+        assertTrue(vm.submitVideoDecision("v1", ReviewVideoAction.QueueDelete))
+        waitUntil("保留失败状态") { vm.videoDecision.value?.phase == ReviewSavePhase.Failed }
+        vm.markSeen(0)
+        vm.markSeen(1)
+        waitUntil("自动标记已经确认") { vm.isSeen("v1") && vm.isSeen("v2") }
+        assertEquals(0, sessions.completeCalls)
+        assertTrue(vm.state.value is V2ReviewUiState.Ready)
+
+        vm.clearVideoDecision(requireNotNull(vm.videoDecision.value))
+        waitUntil("处理失败提示后完成会话") { vm.state.value is V2ReviewUiState.Complete }
+        assertEquals(1, sessions.completeCalls)
     }
 
     // ---------- Stage 9：本地源可删除，是否可删除只信任服务端 can_delete ----------

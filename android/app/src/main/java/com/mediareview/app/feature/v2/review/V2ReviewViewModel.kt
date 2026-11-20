@@ -147,6 +147,9 @@ class V2ReviewViewModel @Inject constructor(
         nextPageJob?.cancel()
         prevPageJob?.cancel()
         ++sessionGeneration
+        closingSession = false
+        completeInFlight = false
+        _videoDecision.value = null
         positionWorker = null
         pendingPosition = null
         sources.moveTo("")
@@ -193,6 +196,9 @@ class V2ReviewViewModel @Inject constructor(
     private val _messages = MutableSharedFlow<ReviewMessage>(extraBufferCapacity = 8)
     val messages: SharedFlow<ReviewMessage> = _messages.asSharedFlow()
 
+    private val _videoDecision = MutableStateFlow<ReviewVideoDecision?>(null)
+    val videoDecision = _videoDecision.asStateFlow()
+
     /** 播放源控制器：与完整播放器共享同一套 Direct / HLS / stale 语义。 */
     private val sources = V2PlaybackSourceController()
 
@@ -220,6 +226,7 @@ class V2ReviewViewModel @Inject constructor(
 
     /** complete single-flight（§21：同一时刻只允许一个 complete 请求在飞）。 */
     private var completeInFlight = false
+    private var closingSession = false
 
     /**
      * "最后一次到达队尾时已经确认过的 seenCount"（Stage 8B.2 §14）：
@@ -258,6 +265,9 @@ class V2ReviewViewModel @Inject constructor(
         nextPageJob?.cancel()
         prevPageJob?.cancel()
         ++sessionGeneration
+        closingSession = false
+        completeInFlight = false
+        _videoDecision.value = null
         ++scopeGeneration
         scopeTreeJob?.cancel()
         titleJob?.cancel()
@@ -308,6 +318,7 @@ class V2ReviewViewModel @Inject constructor(
         )
         confirmedSeen.clear()
         seenInFlight.clear()
+        _videoDecision.value = null
         lastEndCheckSeenCount = null
         // 会话切换：丢弃上一会话未写完的位置（避免旧绝对索引写到新会话）
         positionWorker?.cancel()
@@ -403,6 +414,56 @@ class V2ReviewViewModel @Inject constructor(
         }
     }
 
+    fun submitVideoDecision(mediaId: String, action: ReviewVideoAction): Boolean {
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return false
+        if (closingSession) return false
+        val localIndex = ready.items.indexOfFirst { it.mediaId == mediaId }
+        val item = ready.items.getOrNull(localIndex) ?: return false
+        val previous = _videoDecision.value
+        if (previous?.phase == ReviewSavePhase.Saving ||
+            previous?.phase == ReviewSavePhase.Failed && (previous.mediaId != item.mediaId || previous.action != action)
+        ) return false
+        if (action == ReviewVideoAction.QueueDelete && !item.canDelete) return false
+
+        _videoDecision.value = ReviewVideoDecision(item.mediaId, item.absoluteIndex, action, ReviewSavePhase.Saving)
+        when (action) {
+            ReviewVideoAction.Keep -> {
+                if (item.seen || item.mediaId in confirmedSeen) finishVideoDecision(item.mediaId, action, true)
+                else markSeen(localIndex)
+            }
+            ReviewVideoAction.QueueDelete -> {
+                if (item.mediaId in _pendingDeleteIds.value) finishVideoDecision(item.mediaId, action, true)
+                else addPendingDelete(item.mediaId, tracked = true)
+            }
+        }
+        return true
+    }
+
+    fun returnToFailedVideo() {
+        val decision = _videoDecision.value?.takeIf { it.phase == ReviewSavePhase.Failed } ?: return
+        val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        val page = ready.window.localIndexOf(decision.absoluteIndex)
+        if (page == null || ready.items[page].mediaId != decision.mediaId) {
+            _messages.tryEmit(ReviewMessage("原视频不在当前批阅列表"))
+        } else if (ready.absoluteCurrentIndex != decision.absoluteIndex) {
+            onPageSettled(page)
+        }
+    }
+
+    fun clearVideoDecision(decision: ReviewVideoDecision) {
+        if (decision.phase != ReviewSavePhase.Saving && _videoDecision.value == decision) {
+            _videoDecision.value = null
+            maybeCompleteIfQueueFinished()
+        }
+    }
+
+    private fun finishVideoDecision(mediaId: String, action: ReviewVideoAction, saved: Boolean): Boolean {
+        val current = _videoDecision.value ?: return false
+        if (current.mediaId != mediaId || current.action != action || current.phase != ReviewSavePhase.Saving) return false
+        _videoDecision.value = current.copy(phase = if (saved) ReviewSavePhase.Saved else ReviewSavePhase.Failed)
+        return true
+    }
+
     /**
      * 内容稳定揭示后自动批阅（§25：settle + 停止滚动 + 已揭示 + 稳定 ~480ms 后调用）。
      *
@@ -415,14 +476,25 @@ class V2ReviewViewModel @Inject constructor(
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
         val item = ready.items.getOrNull(localIndex) ?: return
         if (item.seen || item.mediaId in confirmedSeen || item.mediaId in seenInFlight) return
+        val decision = _videoDecision.value
+        if (decision?.mediaId == item.mediaId && decision.action == ReviewVideoAction.Keep &&
+            decision.phase == ReviewSavePhase.Failed) return
         seenInFlight += item.mediaId
+        val generation = sessionGeneration
         viewModelScope.launch {
             val result = try {
                 sessions.markSeen(item.mediaId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
             } finally {
-                seenInFlight -= item.mediaId
+                if (generation == sessionGeneration) seenInFlight -= item.mediaId
             }
-            if (result != null && result.seen) {
+            if (generation != sessionGeneration) return@launch
+            val saved = result?.seen == true && result.mediaId == item.mediaId
+            val tracked = finishVideoDecision(item.mediaId, ReviewVideoAction.Keep, saved)
+            if (result != null && saved) {
                 val current = _state.value as? V2ReviewUiState.Ready
                 if (current == null || current.sessionId != ready.sessionId) return@launch
                 confirmedSeen += item.mediaId
@@ -442,7 +514,7 @@ class V2ReviewViewModel @Inject constructor(
                     )
                 }
                 maybeCompleteIfQueueFinished()
-            } else {
+            } else if (!tracked) {
                 // §26：不假成功 —— 保持未批阅，用户继续滑动/重试
                 _messages.tryEmit(ReviewMessage("批阅标记未保存，稍后重试"))
             }
@@ -463,7 +535,7 @@ class V2ReviewViewModel @Inject constructor(
     }
 
     /** 加入待删除（§36：服务端确认成功才更新 UI；失败保持原状态 + 提示）。 */
-    fun addPendingDelete(mediaId: String) {
+    fun addPendingDelete(mediaId: String, tracked: Boolean = false) {
         val item = (_state.value as? V2ReviewUiState.Ready)?.items?.firstOrNull { it.mediaId == mediaId }
         // Stage 9：是否可删除只信任服务端下发的 can_delete（本地源已支持两阶段安全删除）。
         if (item == null || !item.canDelete) {
@@ -472,13 +544,20 @@ class V2ReviewViewModel @Inject constructor(
             )
             return
         }
+        val generation = sessionGeneration
         viewModelScope.launch {
-            if (repository.setPendingDelete(mediaId, true)) {
-                _pendingDeleteIds.value = _pendingDeleteIds.value + mediaId
-                _messages.tryEmit(ReviewMessage("已加入待删除", undoMediaId = mediaId))
-            } else {
-                _messages.tryEmit(ReviewMessage("加入待删除失败"))
+            val saved = try {
+                repository.setPendingDelete(mediaId, true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
             }
+            if (generation != sessionGeneration) return@launch
+            if (saved) _pendingDeleteIds.value = _pendingDeleteIds.value + mediaId
+            if (tracked) finishVideoDecision(mediaId, ReviewVideoAction.QueueDelete, saved)
+            else if (!saved) _messages.tryEmit(ReviewMessage("加入待删除失败"))
+            if (saved) _messages.tryEmit(ReviewMessage("已加入待删除", undoMediaId = mediaId))
         }
     }
 
@@ -519,6 +598,10 @@ class V2ReviewViewModel @Inject constructor(
 
     /** 空队列完成页"重新批阅"（§39：Server = 新建会话；Demo = 全量重审）。 */
     fun restartAll() {
+        ++sessionGeneration
+        closingSession = false
+        completeInFlight = false
+        _videoDecision.value = null
         enterJob?.cancel()
         enterJob = viewModelScope.launch {
             _state.value = V2ReviewUiState.LoadingSession
@@ -785,16 +868,18 @@ class V2ReviewViewModel @Inject constructor(
      */
     private fun maybeCompleteIfQueueFinished() {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
-        if (!ready.window.atEnd) return
+        if (!ready.window.atEnd || _videoDecision.value != null) return
         if (completeInFlight) return
         if (lastEndCheckSeenCount == ready.seenCount) return
+        val generation = sessionGeneration
         completeInFlight = true
         viewModelScope.launch {
             val progress = try {
                 sessions.refreshProgress()
             } finally {
-                completeInFlight = false
+                if (generation == sessionGeneration) completeInFlight = false
             }
+            if (generation != sessionGeneration) return@launch
             val current = _state.value as? V2ReviewUiState.Ready ?: return@launch
             if (current.sessionId != ready.sessionId) return@launch
             if (progress == null) {
@@ -810,7 +895,7 @@ class V2ReviewViewModel @Inject constructor(
                 )
                 return@launch
             }
-            completeNow()
+            if (_videoDecision.value == null) completeNow()
         }
     }
 
@@ -830,13 +915,20 @@ class V2ReviewViewModel @Inject constructor(
     /** 服务端 complete（single-flight 由 [maybeCompleteIfQueueFinished] 保证）。 */
     private fun completeNow() {
         val ready = _state.value as? V2ReviewUiState.Ready ?: return
+        if (_videoDecision.value != null) return
+        val generation = sessionGeneration
         completeInFlight = true
+        closingSession = true
         viewModelScope.launch {
             val ok = try {
                 sessions.completeSession()
             } finally {
-                completeInFlight = false
+                if (generation == sessionGeneration) {
+                    completeInFlight = false
+                    closingSession = false
+                }
             }
+            if (generation != sessionGeneration) return@launch
             val current = _state.value as? V2ReviewUiState.Ready
             if (current?.sessionId != ready.sessionId) return@launch
             if (ok) {
