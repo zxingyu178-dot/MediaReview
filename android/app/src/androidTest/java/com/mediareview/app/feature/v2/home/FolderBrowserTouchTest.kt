@@ -1,6 +1,16 @@
 package com.mediareview.app.feature.v2.home
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.ViewModelStore
 import androidx.test.platform.app.InstrumentationRegistry
@@ -58,9 +68,13 @@ class FolderBrowserTouchTest {
         compose.runOnIdle { ownedViewModels.put("folder-fixture", vm) }
         compose.setContent { FolderBrowserScreen(vm, null, {}, { _, _, _ -> }) }
         compose.waitUntil(10_000) { vm.folderTree.value.size == 3 }
-        compose.waitForIdle()
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "root" && !vm.folderBrowserState.value.loading }
+        compose.onAllNodesWithTag("folder_movies").assertCountEquals(0)
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_movies").assertIsDisplayed().performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "movies" && !vm.folderBrowserState.value.loading }
+        compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_action").assertIsDisplayed()
         compose.onNodeWithText("电影直接媒体").assertExists()
         compose.onNodeWithTag("folder_action").performTouchInput { click() }
@@ -73,9 +87,12 @@ class FolderBrowserTouchTest {
         assertTrue(queries.filter { it.folderId != null }.all { it.includeDescendants && it.pageSize == 50 })
         compose.onNodeWithText("电影", substring = false).performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "movies" && !vm.folderBrowserState.value.loading }
+        compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_action").assertIsDisplayed()
         compose.onNodeWithTag("folder_back").performTouchInput { click() }
-        compose.waitForIdle()
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "root" && !vm.folderBrowserState.value.loading }
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_movies").assertIsDisplayed()
         compose.onAllNodesWithTag("folder_action").assertCountEquals(0)
         android.util.Log.i("Stage8HHome", "FOLDER_POINTER movies>action pages=[1,2] pageSize=50 recursive=true; breadcrumb/back preserve parent-child")
@@ -108,10 +125,20 @@ class FolderBrowserTouchTest {
         }
         val vm = testHomeViewModel(repo, SearchHistoryStore(context))
         compose.runOnIdle { ownedViewModels.put("mixed-folder", vm) }
-        compose.setContent { FolderBrowserScreen(vm, null, {}, { m, window, folder ->
-            assertTrue(vm.openFolderMedia(window, m.id, folder))
-        }) }
+        val fontScale = mutableFloatStateOf(1f)
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, fontScale.floatValue)) {
+                Box(Modifier.width(320.dp)) {
+                    FolderBrowserScreen(vm, null, {}, { m, window, folder ->
+                        assertTrue(vm.openFolderMedia(window, m.id, folder))
+                    })
+                }
+            }
+        }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.items.size == 3 }
+        compose.onAllNodesWithTag("folder_child").assertCountEquals(0)
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_child").assertIsDisplayed()
         compose.onNodeWithTag("media_root-image").assertExists()
         compose.onNodeWithTag("media_deep-image").assertExists()
@@ -147,6 +174,18 @@ class FolderBrowserTouchTest {
         assertTrue(queries.any { it.folderId == "root" && !it.includeDescendants })
         assertTrue(queries.any { it.folderId == "root" && it.includeDescendants })
         assertTrue(queries.filter { it.folderId == "child" }.all { it.spec.field == V2SortField.SIZE && it.spec.order == V2SortOrder.DESC })
+        compose.runOnIdle { fontScale.floatValue = 2f }
+        compose.onNodeWithTag("folder_sort").assertIsDisplayed().assertHasClickAction()
+        compose.onNodeWithTag("folder_type_VIDEO").assertIsDisplayed().assertHasClickAction()
+        val labelLayouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("视频", useUnmergedTree = true).performSemanticsAction(
+            SemanticsActions.GetTextLayoutResult
+        ) { action -> assertTrue(action(labelLayouts)) }
+        val overflow = labelLayouts.map { "size=${it.size}, width=${it.didOverflowWidth}, height=${it.didOverflowHeight}" }
+        assertTrue("视频标签必须完整，实际布局：$overflow",
+            labelLayouts.isNotEmpty() && labelLayouts.none { it.hasVisualOverflow })
+        compose.onNodeWithTag("media_root-video").assertIsDisplayed()
+        compose.onAllNodesWithTag("folder_child").assertCountEquals(0)
     }
 
     @Test fun folderChildrenDoNotShiftMediaCoverPrefetchWindow() {
@@ -183,8 +222,9 @@ class FolderBrowserTouchTest {
             compose.setContent { FolderBrowserScreen(vm, "root", {}, { _, _, _ -> }) }
             compose.waitUntil(10_000) { vm.folderTree.value.size == 41 && vm.folderBrowserState.value.items.size == 50 }
             compose.waitUntil(10_000) { paths.contains("/cover/prefetch-15") }
-            compose.onNodeWithTag("home_grid").performScrollToIndex(60)
-            // 40目录+media20：末端35处于预热窗口且不在当前可见卡片内。
+            compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
+            compose.onNodeWithTag("home_grid").performScrollToIndex(20)
+            // 子目录展开后也在独立的一行，媒体预热仍从第 20 项开始。
             compose.waitUntil(10_000) { (20..35).all { paths.contains("/cover/prefetch-$it") } }
         } finally { server.shutdown() }
     }

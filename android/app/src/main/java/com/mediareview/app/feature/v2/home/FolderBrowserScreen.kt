@@ -10,12 +10,18 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mediareview.app.feature.v2.model.*
 import com.mediareview.app.feature.v2.ui.components.EmptyState
@@ -50,10 +56,17 @@ fun FolderBrowserScreen(
     var includeDescendants by rememberSaveable { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
+    val largeText = LocalDensity.current.fontScale > 1.3f
+    val sortButton: @Composable () -> Unit = {
+        IconButton(onClick = { showSortSheet = true }, modifier = Modifier.testTag("folder_sort")) {
+            Icon(Icons.AutoMirrored.Filled.Sort, "排序")
+        }
+    }
     val libraryRoots = tree.filter { it.parentId == null }
     val children = folderChildren(tree, folderId, sortSpec)
     val implicitRoot = implicitFolderRoot(tree)
     val effectiveFolderId = folderId ?: implicitRoot
+    var showChildren by rememberSaveable(effectiveFolderId) { mutableStateOf(false) }
     val crumbs = folderBreadcrumbs(tree, folderId).let { path ->
         if (libraryRoots.size == 1 && path.size > 1) path.drop(1) else path
     }
@@ -123,15 +136,34 @@ fun FolderBrowserScreen(
             }
         })
         BreadcrumbRow(crumbs, onRoot = { folderId = null }, onCrumb = { folderId = it })
-        Row(Modifier.fillMaxWidth().padding(horizontal = MediaSpacing.Medium),
-            horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = MediaSpacing.Medium),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             V2TypeFilter.entries.forEach { type ->
-                FilterChip(selected = sortSpec.typeFilter == type,
-                    onClick = { vm.setFolderSortSpec(sortSpec.copy(typeFilter = type)) },
-                    label = { Text(typeFilterLabel(type)) }, modifier = Modifier.testTag("folder_type_${type.name}"))
+                FolderTypeButton(type, sortSpec.typeFilter == type, Modifier.weight(1f)) {
+                    vm.setFolderSortSpec(sortSpec.copy(typeFilter = type))
+                }
             }
+            if (!largeText) sortButton()
         }
-        if (effectiveFolderId != null && children.isNotEmpty()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = MediaSpacing.Medium),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (effectiveFolderId == null) "${children.size} 个媒体库 · 请选择目录"
+                else "${if (includeDescendants) "含子文件夹" else "仅当前目录"} · $countLabel",
+                color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f).padding(vertical = MediaSpacing.XSmall),
+            )
+            if (effectiveFolderId != null && children.isNotEmpty()) {
+                TextButton(onClick = { showChildren = !showChildren }, modifier = Modifier.testTag("folder_children_toggle")) {
+                    Text(if (showChildren) "收起子目录" else "子目录 ${children.size}")
+                }
+            }
+            if (largeText) sortButton()
+        }
+        if (showChildren && effectiveFolderId != null && children.isNotEmpty()) {
             LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = MediaSpacing.Medium),
                 horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
                 items(children, key = { it.id }) { node ->
@@ -140,13 +172,6 @@ fun FolderBrowserScreen(
                 }
             }
         }
-        SortFilterRow(sortSpec, { showSortSheet = true }, Modifier.testTag("folder_sort"))
-        Text(
-            if (effectiveFolderId == null) "${children.size} 个媒体库 · 请选择目录"
-            else "${children.size} 个子文件夹 · ${if (includeDescendants) "含子文件夹" else "仅当前目录"} · $countLabel",
-            color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = MediaSpacing.Medium, vertical = MediaSpacing.XSmall),
-        )
         if (vm.isServerMode) RuntimeDiagnosis(vm)
         hint?.let {
             Text(it, color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall,
@@ -188,6 +213,31 @@ fun FolderBrowserScreen(
         }
     }
     if (showSortSheet) SortFilterSheet(sortSpec, vm::setFolderSortSpec, showSourceFilter = false) { showSortSheet = false }
+}
+
+@Composable
+private fun FolderTypeButton(
+    type: V2TypeFilter,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+            contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MediaTextPrimary,
+        ),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        modifier = modifier.heightIn(min = 48.dp).testTag("folder_type_${type.name}")
+            .semantics { selected = active },
+    ) {
+        Text(
+            typeFilterLabel(type),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+    }
 }
 
 @Composable
