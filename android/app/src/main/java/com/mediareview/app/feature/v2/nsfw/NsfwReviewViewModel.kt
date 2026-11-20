@@ -89,6 +89,8 @@ data class NsfwUndoDecision(
     val previousItem: NsfwFeedItem? = null,
 )
 
+internal data class NsfwDecisionTarget(val imageId: String, val updatedAt: String, val revision: String)
+
 data class NsfwUiState(
     val phase: NsfwPhase = NsfwPhase.LOADING,
     val baseUrl: String = "",
@@ -138,6 +140,19 @@ data class NsfwUiState(
 
     val currentItem: NsfwFeedItem?
         get() = items.firstOrNull { it.imageId == currentId }
+
+    internal val decisionTarget: NsfwDecisionTarget?
+        get() {
+            if (conflictMessage != null && detailLoading) return null
+            detail?.takeIf { it.imageId == currentId && it.updatedAt.isNotBlank() }?.let {
+                return NsfwDecisionTarget(it.imageId, it.updatedAt, it.revision)
+            }
+            if (!bidirectionalGallery || conflictMessage != null) return null
+            val item = currentItem ?: return null
+            if (item.updatedAt.isBlank() || item.revision.length !in 1..64 ||
+                item.revision.any { it !in '0'..'9' } || item.status !in setOf("NEW", "KEEP", "REJECT")) return null
+            return NsfwDecisionTarget(item.imageId, item.updatedAt, item.revision)
+        }
 
     val reviewPositionLabel: String get() = when {
         items.isEmpty() -> "0 / 0"
@@ -708,10 +723,10 @@ class NsfwReviewViewModel @Inject constructor(
 
     private fun submitDecision(action: String?, favorite: Boolean?, undo: NsfwUndoDecision? = null) {
         val state = _state.value
-        val detail = if (undo != null) NsfwImageDetails(imageId = undo.imageId, updatedAt = undo.expectedUpdatedAt)
-            else state.detail?.takeIf { it.imageId == state.currentId } ?: return
-        val previousItem = state.items.firstOrNull { it.imageId == detail.imageId }
-        val restoreAction = previousItem?.takeIf { it.updatedAt == detail.updatedAt && it.revision == detail.revision }?.let {
+        val target = if (undo != null) NsfwDecisionTarget(undo.imageId, undo.expectedUpdatedAt, undo.expectedRevision.orEmpty())
+            else state.decisionTarget ?: return
+        val previousItem = state.items.firstOrNull { it.imageId == target.imageId }
+        val restoreAction = previousItem?.takeIf { it.updatedAt == target.updatedAt && it.revision == target.revision }?.let {
             when (it.status) { "NEW" -> "RESET"; "KEEP" -> "KEEP"; "REJECT" -> "REJECT"; else -> null }
         }
         if (state.busy) return
@@ -719,8 +734,8 @@ class NsfwReviewViewModel @Inject constructor(
         if (action == null && favorite == null) return
         if (undo == null && favorite == null && (action == "KEEP" || action == "REJECT") &&
             state.bidirectionalGallery && state.hasMore && state.currentIndex == state.items.lastIndex &&
-            previousItem != null && previousItem.status == action && previousItem.revision == detail.revision &&
-            previousItem.updatedAt == detail.updatedAt) {
+            previousItem != null && previousItem.status == action && previousItem.revision == target.revision &&
+            previousItem.updatedAt == target.updatedAt) {
             next()
             return
         }
@@ -729,14 +744,14 @@ class NsfwReviewViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val result = dataSource.decide(
-                    imageId = detail.imageId,
+                    imageId = target.imageId,
                     action = action,
                     favorite = favorite,
-                    expectedUpdatedAt = detail.updatedAt,
+                    expectedUpdatedAt = target.updatedAt,
                     clientRequestId = UUID.randomUUID().toString(),
                 )
                 if (epoch != connectionEpoch) return@launch
-                if (result.imageId != detail.imageId) throw NsfwApiException("RECEIPT_MISMATCH", "审核回执不匹配，请刷新核对")
+                if (result.imageId != target.imageId) throw NsfwApiException("RECEIPT_MISMATCH", "审核回执不匹配，请刷新核对")
                 // 被筛选移出的撤销目标不在feed，权威回执接受后重查；不把缺席当旧revision冲突。
                 val filtered = state.galleryEnabled && state.galleryQuery.filter.selection.active
                 val applied = if (undo != null && filtered && feed.find(result.imageId) == null) {
@@ -752,10 +767,11 @@ class NsfwReviewViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             busy = false,
+                            detail = it.detail?.takeUnless { d -> state.bidirectionalGallery && d.imageId == target.imageId },
                             conflictMessage = "该审核结果已过期，状态已被更新；已刷新权威状态（不会重复提交）",
                         )
                     }
-                    if (_state.value.currentId == detail.imageId) loadDetails(detail.imageId)
+                    if (_state.value.currentId == target.imageId) loadDetails(target.imageId)
                     if (undo != null) _state.update { it.copy(undoDecision = null) }
                     return@launch
                 }
@@ -763,8 +779,8 @@ class NsfwReviewViewModel @Inject constructor(
                     it.copy(busy = false, message = if (undo != null) "已撤销上一次审核" else decisionMessage(action),
                         undoDecision = when {
                             undo != null -> null
-                            action in setOf("KEEP", "REJECT") -> restoreAction?.let { restore -> NsfwUndoDecision(detail.imageId, restore, result.updatedAt, result.revision, previousItem) }
-                            it.undoDecision?.imageId == detail.imageId -> null
+                            action in setOf("KEEP", "REJECT") -> restoreAction?.let { restore -> NsfwUndoDecision(target.imageId, restore, result.updatedAt, result.revision, previousItem) }
+                            it.undoDecision?.imageId == target.imageId -> null
                             else -> it.undoDecision
                         })
                 }
@@ -787,7 +803,7 @@ class NsfwReviewViewModel @Inject constructor(
                 }
                 if (undo != null && _state.value.currentId == state.currentId) select(undo.imageId)
                 // 只有回执已接受且用户仍停留在提交图片时才前进。
-                if (undo == null && action in setOf("KEEP", "REJECT") && _state.value.currentId == detail.imageId) {
+                if (undo == null && action in setOf("KEEP", "REJECT") && _state.value.currentId == target.imageId) {
                     next()
                 }
             } catch (error: CancellationException) {
@@ -799,10 +815,11 @@ class NsfwReviewViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             busy = false,
+                            detail = it.detail?.takeUnless { d -> state.bidirectionalGallery && d.imageId == target.imageId },
                             conflictMessage = "图片状态已被他处修改，已刷新为最新状态（不会自动重提）",
                         )
                     }
-                    if (_state.value.currentId == detail.imageId) loadDetails(detail.imageId)
+                    if (_state.value.currentId == target.imageId) loadDetails(target.imageId)
                     if (undo != null) _state.update { it.copy(undoDecision = null) }
                 } else {
                     handleError(error)
@@ -1687,7 +1704,13 @@ class NsfwReviewViewModel @Inject constructor(
                 if (seq != detailSeq || epoch != connectionEpoch) return@launch
                 _state.update {
                     if (it.currentId != imageId) it
-                    else it.copy(detail = detail, detailLoading = false)
+                    else {
+                        val currentRevision = it.currentItem?.revision?.toBigIntegerOrNull()
+                        val detailRevision = detail.revision.toBigIntegerOrNull()
+                        val superseded = it.bidirectionalGallery && currentRevision != null &&
+                            detailRevision != null && detailRevision < currentRevision
+                        it.copy(detail = if (superseded) it.detail else detail, detailLoading = false)
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error

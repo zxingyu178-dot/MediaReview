@@ -251,6 +251,44 @@ class NsfwReviewViewModelTest {
         assertEquals("e", model.state.value.currentId)
         assertEquals("e", model.state.value.prefetchedPageStartId)
     }
+    @Test fun currentGalleryImageCanBeReviewedWhileItsDetailsAreStillLoading() = runTest {
+        enableBidirectionalGallery()
+        val item = nsfwItem("a")
+        data.galleryResponder = { bidirectionalPage(listOf("a"), 0).copy(items = listOf(item)) }
+        val detailsGate = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails>()
+        data.detailsResponder = { detailsGate.await() }
+        val model = vm()
+        model.select("a")
+        assertEquals("a", model.state.value.currentId)
+        assertTrue(model.state.value.detailLoading)
+        data.decisionResponder = { id, _, _ ->
+            NsfwDecisionResult(id, "KEEP", false, "2026-10-28T12:00:09Z", "2")
+        }
+        try {
+            model.decision("KEEP")
+            assertEquals(1, data.decisionCalls)
+            assertEquals(item.updatedAt, data.lastDecisionExpectedUpdatedAt)
+            assertEquals("KEEP", model.state.value.currentItem?.status)
+            assertEquals("RESET", model.state.value.undoDecision?.restoreAction)
+            detailsGate.complete(nsfwDetails("a", updatedAt = item.updatedAt))
+            assertFalse(model.state.value.detailLoading)
+            assertEquals("2", model.state.value.decisionTarget?.revision)
+        } finally {
+            detailsGate.complete(nsfwDetails("a", updatedAt = item.updatedAt))
+        }
+    }
+
+    @Test fun incompleteGalleryVersionAndUnresolvedConflictRequireDetails() {
+        val item = nsfwItem("a", updatedAt = "")
+        val state = NsfwUiState(items = listOf(item), currentId = item.imageId, bidirectionalGallery = true)
+        assertNull(state.decisionTarget)
+        val current = state.copy(items = listOf(nsfwItem("a")))
+        assertNull(current.copy(conflictMessage = "冲突").decisionTarget)
+        val refreshed = nsfwDetails("a")
+        assertEquals(refreshed.updatedAt, current.copy(conflictMessage = "冲突", detail = refreshed).decisionTarget?.updatedAt)
+        assertNull(current.copy(bidirectionalGallery = false).decisionTarget)
+    }
+
     @Test fun nextAtBoundaryJoinsAnExistingManualPageRequest() = runTest {
         enableBidirectionalGallery()
         val nextPage = CompletableDeferred<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>()

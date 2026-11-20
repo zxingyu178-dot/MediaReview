@@ -78,6 +78,7 @@ internal fun NsfwImageReviewPane(
             android.util.Log.d("MRGeneratedReview", "previewReadyMs=${android.os.SystemClock.elapsedRealtime() - previewStartedAt}")
         }
     }
+    var recordedReviewReady by remember(item?.imageId, item?.previewUrl) { mutableStateOf(false) }
     var resetZoom by remember(item?.imageId) { mutableIntStateOf(0) }
     var moreOpen by remember { mutableStateOf(false) }
     var showThumbnails by rememberSaveable { mutableStateOf(false) }
@@ -279,12 +280,18 @@ internal fun NsfwImageReviewPane(
                     }
                 }
 
-                if (item != null && ready && state.detail == null && !state.detailLoading && !state.busy) {
+                if (item != null && ready && state.decisionTarget == null && !state.detailLoading && !state.busy) {
                     TextButton(onClick = { onSelect(item.imageId) }) { Text("重试读取审核状态") }
                 }
                 val waitingForPage = state.bidirectionalGallery && state.hasMore && state.syncing &&
                     state.currentIndex == state.items.lastIndex
-                val canReview = ready && transitionFinished && !state.busy && !waitingForPage && state.detail != null
+                val canReview = ready && transitionFinished && !state.busy && !waitingForPage && state.decisionTarget != null
+                LaunchedEffect(item?.imageId, canReview) {
+                    if (com.mediareview.app.BuildConfig.DEBUG && item != null && canReview && !recordedReviewReady) {
+                        recordedReviewReady = true
+                        android.util.Log.d("MRGeneratedReview", "reviewReadyMs=${android.os.SystemClock.elapsedRealtime() - previewStartedAt}")
+                    }
+                }
                 val showActionIcons = LocalDensity.current.fontScale <= 1.3f
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
