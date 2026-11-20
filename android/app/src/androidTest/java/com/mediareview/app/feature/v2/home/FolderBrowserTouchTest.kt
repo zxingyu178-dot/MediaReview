@@ -1,9 +1,13 @@
 package com.mediareview.app.feature.v2.home
 
+import android.os.SystemClock
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -201,13 +205,14 @@ class FolderBrowserTouchTest {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): okhttp3.mockwebserver.MockResponse {
                 paths += request.requestUrl!!.encodedPath
                 return okhttp3.mockwebserver.MockResponse().setHeader("Content-Type", "image/png")
+                    .setHeader("Cache-Control", "private, max-age=3600")
                     .setBody(okio.Buffer().write(bytes))
             }
         }
         server.start()
         val base = server.url("/").toString().trimEnd('/')
         try {
-            val sample = DemoMediaCatalog.buildMedia().first { !it.isVideo }
+            val sample = DemoMediaCatalog.buildMedia().first { it.isVideo }
             val media = (0 until 50).map { sample.copy(id = "prefetch-$it", folderId = "root") }
             val tree = listOf(V2FolderNode("root", null, "lib", "媒体库", 40, 50, 50, 50)) +
                 (0 until 40).map { V2FolderNode("child-$it", "root", "lib", "子目录$it", 0, 0, 0, 0) }
@@ -219,9 +224,34 @@ class FolderBrowserTouchTest {
             }
             val vm = testHomeViewModel(repo, SearchHistoryStore(context))
             compose.runOnIdle { ownedViewModels.put("prefetch-fixture", vm) }
-            compose.setContent { FolderBrowserScreen(vm, "root", {}, { _, _, _ -> }) }
-            compose.waitUntil(10_000) { vm.folderTree.value.size == 41 && vm.folderBrowserState.value.items.size == 50 }
+            val showFolder = mutableStateOf(false)
+            compose.setContent {
+                if (showFolder.value) FolderBrowserScreen(vm, "root", {}, { _, _, _ -> })
+            }
+            val firstCard = compose.onNodeWithTag("media_prefetch-0")
+            fun enterAndMeasureFirstCover(): Long {
+                val enteredAt = compose.runOnIdle {
+                    SystemClock.elapsedRealtime().also { showFolder.value = true }
+                }
+                compose.waitUntil(10_000) { vm.folderTree.value.size == 41 && vm.folderBrowserState.value.items.size == 50 }
+                firstCard.assertIsDisplayed()
+                compose.waitUntil(10_000) {
+                    val pixels = firstCard.captureToImage().toPixelMap()
+                    val center = pixels[pixels.width / 2, pixels.height / 2]
+                    center.green > .8f && center.red < .2f && center.blue < .2f
+                }
+                return SystemClock.elapsedRealtime() - enteredAt
+            }
+            val coldMs = enterAndMeasureFirstCover()
             compose.waitUntil(10_000) { paths.contains("/cover/prefetch-15") }
+            val coldFirstRequests = paths.count { it == "/cover/prefetch-0" }
+            assertTrue(coldFirstRequests > 0)
+            compose.runOnIdle { showFolder.value = false }
+            firstCard.assertDoesNotExist()
+            val warmMs = enterAndMeasureFirstCover()
+            val warmFirstRequests = paths.count { it == "/cover/prefetch-0" } - coldFirstRequests
+            Log.i("MRLoadingEvidence", "folder_first_cover cold_ms=$coldMs warm_ms=$warmMs " +
+                "cold_requests=$coldFirstRequests warm_requests=$warmFirstRequests")
             compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
             compose.onNodeWithTag("home_grid").performScrollToIndex(20)
             // 子目录展开后也在独立的一行，媒体预热仍从第 20 项开始。
