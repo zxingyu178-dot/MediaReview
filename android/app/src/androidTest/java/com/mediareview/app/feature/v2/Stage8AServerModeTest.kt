@@ -97,6 +97,69 @@ class Stage8AServerModeTest {
             assertEquals(2, server.requestCount)
         }
     }
+
+    @Test fun legacyHealthProbeReadsOnlyOneTaskEvenWhenMediaIsSlow() = runBlocking {
+        checkLegacyProbe(taskCode = 200, expected = V2ServerStatus.Online)
+    }
+
+    @Test fun legacyHealthProbeRejectsExpiredCredentials() = runBlocking {
+        checkLegacyProbe(taskCode = 401, expected = V2ServerStatus.AuthRejected)
+    }
+
+    @Test fun legacyHealthProbeFallsBackOnlyIfTasksRouteIsMissing() = runBlocking {
+        checkLegacyProbe(taskCode = 404, expected = V2ServerStatus.Online, expectsMedia = true)
+    }
+
+    @Test fun legacyHealthProbeDoesNotFallBackAfterTaskServiceFailure() = runBlocking {
+        checkLegacyProbe(taskCode = 503, expected = V2ServerStatus.Offline)
+    }
+
+    private suspend fun checkLegacyProbe(
+        taskCode: Int,
+        expected: V2ServerStatus,
+        expectsMedia: Boolean = false,
+    ) {
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+                override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): okhttp3.mockwebserver.MockResponse {
+                    val response = okhttp3.mockwebserver.MockResponse()
+                    return when (request.requestUrl?.encodedPath) {
+                        "/api/v1/system/health" -> response.setBody(
+                            """{"success":true,"data":{"version":"1.6.6","api_contract":2}}""",
+                        )
+                        "/api/v1/tasks" -> response.setResponseCode(taskCode).setBody(
+                            """{"success":true,"data":[]}""",
+                        )
+                        "/api/v1/media" -> if (expectsMedia) {
+                            response.setBody("""{"success":true,"data":{"items":[],"total":0}}""")
+                        } else {
+                            response.setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE)
+                        }
+                        else -> response.setResponseCode(404)
+                    }
+                }
+            }
+            server.start()
+            profileStore.saveBaseUrl(server.url("/").toString().trimEnd('/'))
+            V2ServerSessionBootstrap(profileStore, tokenProvider).restore()
+            val client = OkHttpClient.Builder()
+                .addInterceptor(AuthInterceptor(tokenProvider))
+                .readTimeout(1500, TimeUnit.MILLISECONDS)
+                .build()
+            val probeApi = ApiFactory(client, client, Json { ignoreUnknownKeys = true })
+            V2ServerHealthMonitor(profileStore, probeApi, serverStatus).probe()
+
+            assertEquals("/api/v1/system/health", server.takeRequest(3, TimeUnit.SECONDS)?.path)
+            val task = server.takeRequest(3, TimeUnit.SECONDS)
+            assertEquals("/api/v1/tasks?limit=1", task?.path)
+            assertEquals("Bearer mock-token", task?.getHeader("Authorization"))
+            if (expectsMedia) {
+                assertEquals("/api/v1/media", server.takeRequest(3, TimeUnit.SECONDS)?.requestUrl?.encodedPath)
+            }
+            assertEquals(if (expectsMedia) 3 else 2, server.requestCount)
+            assertEquals(expected, serverStatus.status.value)
+        }
+    }
     @Before
     fun setUp() {
         fixture = Stage8FHttpFixture(legacy = true)

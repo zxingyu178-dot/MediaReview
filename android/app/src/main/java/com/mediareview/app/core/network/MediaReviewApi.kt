@@ -109,6 +109,9 @@ interface MediaReviewApi {
     @POST("/api/v1/cache/sprites/{media_id}")
     suspend fun ensureSprite(@Path("media_id") mediaId: String): Envelope<SpriteEnsureOut>
 
+    @GET("/api/v1/tasks")
+    suspend fun tasks(@Query("limit") limit: Int): Envelope<List<TaskStateDto>>
+
     @GET("/api/v1/tasks/{task_id}")
     suspend fun taskDetail(@Path("task_id") taskId: String): Envelope<TaskStateDto>
 

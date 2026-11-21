@@ -2,6 +2,7 @@ package com.mediareview.app.feature.v2.data.server
 
 import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.network.ApiFactory
+import com.mediareview.app.core.network.MediaReviewApi
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -125,7 +126,7 @@ class V2ServerStatusStore @Inject constructor() {
  * 后台健康探测（V2 启动后执行，不参与启动路径）。
  *
  * 步骤刻意保持轻量：health（公开接口）→ 兼容性 Gate（api_contract）→
- * 已配对时优先只校验凭据。兼容旧服务器时才读取单条媒体。
+ * 已配对时优先使用配对探针。旧服务查询最多一条任务，更早的服务缺少任务路由时才查媒体。
  */
 @Singleton
 class V2ServerHealthMonitor @Inject constructor(
@@ -168,21 +169,15 @@ class V2ServerHealthMonitor @Inject constructor(
                     val check = api.pairingCheck()
                     check.success && check.data?.get("paired") == true
                 } else {
-                    api.media(page = 1, pageSize = 1)
-                    true
+                    api.checkLegacyPairing()
                 }
                 if (store.current() != profile) return
                 if (authenticated) statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
                 else statusStore.update(V2ServerStatus.Offline)
             } catch (error: HttpException) {
                 if (store.current() != profile) return
-                if (error.code() == 401) {
-                    statusStore.update(V2ServerStatus.AuthRejected)
-                } else if (supportsPairingCheck) {
-                    statusStore.update(V2ServerStatus.Offline)
-                } else {
-                    statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
-                }
+                val status = if (error.code() == 401) V2ServerStatus.AuthRejected else V2ServerStatus.Offline
+                statusStore.update(status)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -190,6 +185,24 @@ class V2ServerHealthMonitor @Inject constructor(
             if (store.current() == profile) statusStore.update(V2ServerStatus.Offline)
         } catch (_: Exception) {
             if (store.current() == profile) statusStore.update(V2ServerStatus.Offline)
+        }
+    }
+
+    private suspend fun MediaReviewApi.checkLegacyPairing(): Boolean {
+        try {
+            val result = tasks(limit = 1)
+            return result.success && result.data != null
+        } catch (error: HttpException) {
+            if (error.code() != 404 && error.code() != 405) throw error
+        }
+
+        return try {
+            val result = media(page = 1, pageSize = 1)
+            result.success && result.data != null
+        } catch (error: HttpException) {
+            // 更早的 Server 可能在认证通过后，因尚未选库拒绝列表请求。
+            if (error.code() != 422) throw error
+            true
         }
     }
 }
