@@ -203,13 +203,12 @@ def test_build_deploy_packages_all_eight_scripts_and_sha256() -> None:
 def test_build_deploy_version_matches_server() -> None:
     builder = _release_builder()
     builder.verify_version_ssot()
-    from app import __version__
-    assert builder.VERSION == "1.6.6"
+    from app import SERVER_CAPABILITIES, __version__
+
     assert builder.VERSION == __version__
     assert builder.API_CONTRACT == 2
-    assert builder.ANDROID_VERSION == "2.0.0-alpha35"
-    assert builder.ANDROID_CODE == 42
-    assert len(builder.REQUIRED_CAPABILITIES) == 15
+    assert set(builder.REQUIRED_CAPABILITIES) <= set(SERVER_CAPABILITIES)
+    assert "pairing_check_v1" in builder.REQUIRED_CAPABILITIES
     assert "delete_result_v1" in builder.REQUIRED_CAPABILITIES
     assert "native_delete_v1" in builder.REQUIRED_CAPABILITIES
     assert "folder_tree_v1" in builder.REQUIRED_CAPABILITIES

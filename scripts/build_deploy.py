@@ -15,13 +15,16 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import tomllib
+import urllib.error
 import urllib.request
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,10 +33,10 @@ DIST = SERVER / "dist/MediaReviewServer"
 DEPLOY = ROOT / "deployment"
 OUT = ROOT / "deploy_handoff"
 APK_DIR = ROOT / "android/app/build/outputs/apk"
-VERSION = "1.6.7"
+VERSION = "1.6.8"
 API_CONTRACT = 2
-ANDROID_VERSION = "2.0.0-alpha46"
-ANDROID_CODE = 53
+ANDROID_VERSION = "2.0.0-alpha47"
+ANDROID_CODE = 54
 ANDROID_PACKAGE = "com.mediareview.app"
 REQUIRED_CAPABILITIES = (
     "review_session",
@@ -51,6 +54,7 @@ REQUIRED_CAPABILITIES = (
     "native_range_v1",
     "native_read_only_v1",
     "native_delete_v1",
+    "pairing_check_v1",
 )
 ALL_SCRIPTS = (
     "install.ps1",
@@ -191,6 +195,82 @@ def validate_binary_health(data: dict) -> dict:
     return {key: data[key] for key in ("status", "version", "api_contract", "capabilities")}
 
 
+def expected_database_head() -> str:
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory(str(SERVER / "app/db/migrations")).get_current_head()
+    if not head:
+        raise ValueError("Server 源码缺少数据库迁移头")
+    return head
+
+
+def verify_binary_database(data_root: Path, *, require_upgrade_marker: bool = False) -> str:
+    database = data_root / "database/mediareview.db"
+    try:
+        with closing(sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)) as db:
+            revisions = db.execute("SELECT version_num FROM alembic_version").fetchall()
+            if require_upgrade_marker:
+                marker = db.execute(
+                    "SELECT value FROM app_settings WHERE key = 'release_probe'"
+                ).fetchone()
+                if marker != ("preserve",):
+                    raise ValueError("Server EXE 升级未保留隔离 0018 数据")
+    except sqlite3.Error as exc:
+        raise ValueError("Server EXE 隔离数据库迁移无法核验") from exc
+    head = expected_database_head()
+    if revisions != [(head,)]:
+        raise ValueError(f"Server EXE 隔离数据库未迁移到 {head}")
+    return head
+
+
+def verify_binary_pairing(opener, origin: str) -> dict:
+    def request(path: str, body=None, *, token: str = "") -> dict:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(
+            f"{origin}/api/v1/pairing/{path}",
+            data=json.dumps(body).encode() if body is not None else None,
+            headers=headers,
+        )
+        with opener.open(req, timeout=3) as response:
+            if response.status != 200:
+                raise ValueError("Server EXE 配对验证应返回 200")
+            envelope = json.load(response)
+        if not envelope.get("success"):
+            raise ValueError("Server EXE 配对验证响应无效")
+        return envelope["data"]
+
+    try:
+        request("check")
+    except urllib.error.HTTPError as exc:
+        with exc:
+            if exc.code != 401:
+                raise ValueError("Server EXE 未认证探针应返回 401") from exc
+    else:
+        raise ValueError("Server EXE 未认证探针应返回 401")
+
+    code = request("code", {})["code"]
+    token = request("verify", {"code": code, "device_id": "release-probe-isolated"})["token"]
+    if not token or request("check", token=token) != {"paired": True}:
+        raise ValueError("Server EXE 已配对探针未通过")
+    return {"unauthenticated": 401, "authenticated": 200}
+
+
+def seed_binary_upgrade(data_root: Path) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    database = data_root / "database/mediareview.db"
+    database.parent.mkdir(parents=True)
+    config = Config(str(SERVER / "alembic.ini"))
+    config.set_main_option("script_location", str(SERVER / "app/db/migrations").replace("%", "%%"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database.as_posix()}".replace("%", "%%"))
+    command.upgrade(config, "0018")
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute("INSERT INTO app_settings (key, value) VALUES ('release_probe', 'preserve')")
+
+
 def verify_server_binary(exe: Path) -> dict:
     scratch = ROOT / "temp/stage8i-ux/binary"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -207,7 +287,7 @@ def verify_server_binary(exe: Path) -> dict:
                     "server": {"host": "127.0.0.1", "port": port},
                     "storage": {"data_root": str(data_root)},
                     "jellyfin": {"url": "http://127.0.0.1:1", "api_key": ""},
-                    "security": {"pairing_required": False},
+                    "security": {"pairing_required": True},
                     "features": {"sprites": False, "duplicate_scan": False},
                 }
             ),
@@ -219,6 +299,7 @@ def verify_server_binary(exe: Path) -> dict:
             if not key.startswith("MEDIAREVIEW") and key != "PYTHONPATH"
         }
         environment["MEDIAREVIEW_DATA_ROOT"] = str(data_root)
+        seed_binary_upgrade(data_root)
         with (data_root / "binary-output.txt").open("w", encoding="utf-8") as output:
             process = subprocess.Popen(  # noqa: S603 本轮新建 EXE 绝对路径
                 [str(exe.resolve())],
@@ -231,20 +312,24 @@ def verify_server_binary(exe: Path) -> dict:
             try:
                 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                 deadline = time.monotonic() + 60
+                origin = f"http://127.0.0.1:{port}"
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         raise ValueError("Server EXE 隔离实例提前退出")
                     try:
                         with opener.open(
-                            f"http://127.0.0.1:{port}/api/v1/system/health", timeout=2
+                            f"{origin}/api/v1/system/health", timeout=2
                         ) as response:  # noqa: S310 回环地址由绑定端口构造
                             envelope = json.load(response)
                         if not envelope.get("success"):
                             raise ValueError("Server EXE health envelope 无效")
-                        return validate_binary_health(envelope.get("data", {}))
+                        health = validate_binary_health(envelope.get("data", {}))
+                        break
                     except OSError:
                         time.sleep(0.5)
-                raise ValueError("Server EXE health 超时，PACKAGING BLOCKED")
+                else:
+                    raise ValueError("Server EXE health 超时，PACKAGING BLOCKED")
+                health["pairing_probe"] = verify_binary_pairing(opener, origin)
             except Exception:
                 output.flush()
                 failure = ROOT / "review_meta/stage8i/binary-failure.txt"
@@ -259,6 +344,9 @@ def verify_server_binary(exe: Path) -> dict:
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=10)
+            health["database_head"] = verify_binary_database(data_root, require_upgrade_marker=True)
+            health["database_upgrade_from"] = "0018"
+            return health
 
 
 def source_inputs() -> dict[str, str]:
@@ -359,7 +447,6 @@ def package_sources(*, include_artifacts: bool = True) -> dict[str, Path]:
                 if path.is_file()
             }
         )
-        sources["app-release.apk"] = APK_DIR / "release/app-release.apk"
     return sources
 
 
@@ -389,47 +476,50 @@ def git_head(*, require_clean: bool = False) -> str:
     ).stdout.strip()  # noqa: S603,S607
 
 
-def release_manifest(evidence: dict, head: str, exe: Path, apk: Path) -> dict:
+def release_manifest(evidence: dict, head: str, exe: Path) -> dict:
     server = validate_binary_health({"status": "ok", **evidence["server"]})
-    android = evidence["android"]
-    if (
-        android.get("package"),
-        android.get("version_code"),
-        android.get("version_name"),
-        android.get("signature"),
-    ) != (ANDROID_PACKAGE, ANDROID_CODE, ANDROID_VERSION, "PASS"):
-        raise ValueError("已验证 APK 元数据不匹配")
+    database_head = evidence["server"].get("database_head")
+    head_revision = expected_database_head()
+    if database_head != head_revision:
+        raise ValueError(f"发布证据缺少隔离数据库迁移 {head_revision}")
+    if evidence["server"].get("database_upgrade_from") != "0018":
+        raise ValueError("发布证据缺少 0018 数据库升级检查")
+    pairing_probe = evidence["server"].get("pairing_probe")
+    if pairing_probe != {"unauthenticated": 401, "authenticated": 200}:
+        raise ValueError("发布证据缺少配对探针检查")
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise ValueError("Git HEAD 无效")
     return {
         "server_version": server["version"],
         "api_contract": server["api_contract"],
+        "database_head": database_head,
+        "database_upgrade_from": evidence["server"]["database_upgrade_from"],
+        "pairing_probe": pairing_probe,
         "required_capabilities": list(REQUIRED_CAPABILITIES),
-        "android_version_name": android["version_name"],
-        "android_version_code": android["version_code"],
-        "android_package": android["package"],
         "git_head": head,
         "server_exe_sha256": sha256(exe),
-        "apk_sha256": sha256(apk),
-        "apk_signature": "PASS",
-        "apk_size": apk.stat().st_size,
         "production_deployment": "NOT PERFORMED",
         "real_user_lan": "NOT TESTED",
     }
 
 
 def render_handover(manifest: dict) -> str:
+    android = "Android APK 独立交付。"
+    if "android_version_name" in manifest:
+        android = (
+            f"Android: {manifest['android_version_name']}\n"
+            f"- Android versionCode: {manifest['android_version_code']}\n"
+            f"- Android package: {manifest['android_package']}"
+        )
     return f"""# MediaReview RC 部署交接
 
 - Server: {manifest["server_version"]}
 - API Contract: {manifest["api_contract"]}
-- Android: {manifest["android_version_name"]}
-- Android versionCode: {manifest["android_version_code"]}
-- Android package: {manifest["android_package"]}
+- {android}
 - Git HEAD: {manifest["git_head"]}
 - 状态：READY_FOR_USER_VALIDATION；用户真实 LAN 尚未验收。
 
-版本来自 EXE 实际 health 与 APK manifest，签名校验 PASS。
+Server 版本来自 EXE 实际 health。
 安装前阅读 USER_INSTALL_GUIDE.md、UPGRADE_ROLLBACK.md、USER_LAN_VALIDATION.md。
 生产必须显式配置 jellyfin.client_url，不接受 request_host_fallback。
 本包不包含真实配置、数据库、凭据或用户媒体。禁止永久删除真实媒体。
@@ -531,7 +621,7 @@ def package_verified() -> Path:
         or evidence["package_inputs"] != package_inputs()
     ):
         raise ValueError("产物验证期间输入变化，构建证据失效")
-    manifest = release_manifest(evidence, head, exe, apk)
+    manifest = release_manifest(evidence, head, exe)
     manifest["build_git_head"] = evidence["build_git_head"]
     manifest["build_verified_at"] = evidence["verified_at"]
     manifest["source_input_sha256"] = evidence["build_inputs"]
@@ -541,8 +631,9 @@ def package_verified() -> Path:
     package = OUT / name
     zip_path = OUT / f"{name}.zip"
     user_apk = OUT / current_apk_name()
+    apk_manifest = user_apk.with_suffix(".apk.json")
     checksum_path = OUT / f"{name}_SHA256.txt"
-    outputs = (package, zip_path, user_apk, checksum_path)
+    outputs = (package, zip_path, user_apk, apk_manifest, checksum_path)
     if any(path.exists() for path in outputs):
         raise ValueError("发布产物已存在，拒绝覆盖历史产物")
     sources = package_sources()
@@ -552,9 +643,7 @@ def package_verified() -> Path:
     }
     if (
         expected["MediaReviewServer/MediaReviewServer.exe"] != evidence["server_sha256"]
-        or expected["app-release.apk"] != evidence["apk_sha256"]
         or manifest["server_exe_sha256"] != evidence["server_sha256"]
-        or manifest["apk_sha256"] != evidence["apk_sha256"]
     ):
         raise ValueError("原 receipt 的 EXE/APK 证据不一致")
     generated = {
@@ -588,12 +677,21 @@ def package_verified() -> Path:
                     archive.write(path, f"{name}/{path.relative_to(package).as_posix()}")
         count = verify_zip(zip_path, name)
         verify_receipted_package(zip_path, package, expected)
-        # 从已核对的 staging 导出，不再从变化中的 live APK 取第二份内容。
+        # 独立 APK 在复制后再次核对 receipt，ZIP 内只保存 Server。
         with user_apk.open("xb"):
             created.append(user_apk)
-        shutil.copy2(package / "app-release.apk", user_apk)
+        shutil.copy2(apk, user_apk)
         if sha256(user_apk) != evidence["apk_sha256"]:
             raise ValueError("独立 APK 与原 receipt 证据不匹配")
+        android_metadata = json.dumps({
+            **evidence["android"],
+            "sha256": evidence["apk_sha256"],
+            "bytes": user_apk.stat().st_size,
+            "build_git_head": evidence["build_git_head"],
+        }, ensure_ascii=False, indent=2)
+        with apk_manifest.open("x", encoding="utf-8", newline="\n") as handle:
+            created.append(apk_manifest)
+            handle.write(android_metadata)
         zip_digest = sha256(zip_path)
         checksum_text = (
             f"git_head {head}\n"
@@ -610,6 +708,7 @@ def package_verified() -> Path:
         if (
             sha256(zip_path) != zip_digest
             or sha256(user_apk) != evidence["apk_sha256"]
+            or apk_manifest.read_text(encoding="utf-8") != android_metadata
             or checksum_path.read_text(encoding="utf-8") != checksum_text
         ):
             raise ValueError("最终交付产物与原 receipt 证据不匹配")

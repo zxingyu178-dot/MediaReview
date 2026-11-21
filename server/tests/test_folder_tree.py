@@ -509,8 +509,9 @@ def test_dirname_index_upgrade_and_downgrade_preserve_existing_media(tmp_path):
     root = _server_root()
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "app/db/migrations"))
-    database = Database(tmp_path / "dirname-migration.sqlite")
-    config.set_main_option("sqlalchemy.url", str(database.engine.url))
+    db_path = tmp_path / "dirname-migration.sqlite"
+    database = Database(db_path)
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.as_posix()}")
     index = "ix_media_cache_dirname_available"
 
     def index_exists(connection):

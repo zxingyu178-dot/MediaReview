@@ -6,6 +6,7 @@ import importlib.util
 import json
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import zipfile
@@ -156,6 +157,7 @@ def configure_prepared_builder(builder, tmp_path, monkeypatch, *, historical=Fal
     ffmpeg.parent.mkdir(parents=True)
     ffmpeg.write_bytes(b"fixture-ffmpeg")
     monkeypatch.setattr(builder, "git_head", lambda **kwargs: "a" * 40)
+    monkeypatch.setattr(builder, "expected_database_head", lambda: "0019")
     monkeypatch.setattr(
         builder,
         "source_inputs",
@@ -171,6 +173,9 @@ def configure_prepared_builder(builder, tmp_path, monkeypatch, *, historical=Fal
             "version": builder.VERSION,
             "api_contract": builder.API_CONTRACT,
             "capabilities": list(builder.REQUIRED_CAPABILITIES),
+            "database_head": "0019",
+            "database_upgrade_from": "0018",
+            "pairing_probe": {"unauthenticated": 401, "authenticated": 200},
         },
     )
     monkeypatch.setattr(
@@ -224,7 +229,7 @@ class TestReleasePackageInputs8E1:
 
     @pytest.mark.parametrize(
         "relative",
-        ["MediaReviewServer/MediaReviewServer.exe", "app-release.apk", "USER_INSTALL_GUIDE.md"],
+        ["MediaReviewServer/MediaReviewServer.exe", "RELEASE_MANIFEST.json", "USER_INSTALL_GUIDE.md"],
     )
     def test_staging_change_before_checksums_blocks_delivery(
         self, prepared_builder, monkeypatch, relative
@@ -241,7 +246,7 @@ class TestReleasePackageInputs8E1:
             builder.package_verified()
         self.assert_no_delivery(builder)
 
-    def test_independent_apk_exports_verified_staging_and_rejects_copy_tampering(
+    def test_independent_apk_export_rejects_copy_tampering(
         self, prepared_builder, monkeypatch
     ):
         builder = prepared_builder
@@ -259,8 +264,7 @@ class TestReleasePackageInputs8E1:
         with pytest.raises(ValueError, match="APK|receipt|证据"):
             builder.package_verified()
         assert len(exported) == 1
-        assert exported[0].parent.parent == builder.OUT
-        assert exported[0].name == "app-release.apk"
+        assert exported[0] == builder.APK_DIR / "release/app-release.apk"
         self.assert_no_delivery(builder)
 
     def test_copy_failure_cleans_partial_delivery(self, prepared_builder, monkeypatch):
@@ -448,7 +452,8 @@ class TestReleasePackageInputs8E1:
             prefix = archive_path.stem + "/"
             manifest = json.loads(archive.read(prefix + "RELEASE_MANIFEST.json"))
             assert manifest["server_exe_sha256"] == receipt["server_sha256"]
-            assert manifest["apk_sha256"] == receipt["apk_sha256"]
+            assert "apk_sha256" not in manifest
+            assert "android_version_name" not in manifest
             assert manifest["build_input_sha256"] == receipt["build_inputs"]
             assert manifest["package_input_sha256"] == receipt["package_inputs"]
             copied = set()
@@ -462,7 +467,10 @@ class TestReleasePackageInputs8E1:
             }
             exported = builder.OUT / builder.current_apk_name()
             assert builder.sha256(exported) == receipt["apk_sha256"]
-            assert exported.read_bytes() == archive.read(prefix + "app-release.apk")
+            assert not any(name.endswith(".apk") for name in archive.namelist())
+            android_manifest = json.loads(exported.with_suffix(".apk.json").read_text())
+            assert android_manifest["sha256"] == receipt["apk_sha256"]
+            assert android_manifest["version_code"] == builder.ANDROID_CODE
 
     def test_version_ssot_matches_source_deployment_and_builder(self, builder):
         builder.verify_version_ssot()
@@ -508,11 +516,13 @@ class TestReleasePackageIntegrity:
         self, builder, tmp_path, monkeypatch
     ):
         monkeypatch.setattr(builder, "ROOT", tmp_path)
+        monkeypatch.setattr(builder, "seed_binary_upgrade", lambda _: None)
 
         def inspect_fixture(*args, **kwargs):
             root = Path(kwargs["env"]["MEDIAREVIEW_DATA_ROOT"])
             config = json.loads((root / "config/config.json").read_text())
             assert config["storage"]["data_root"] == str(root)
+            assert config["security"]["pairing_required"] is True
             raise RuntimeError("fixture inspected before process startup")
 
         monkeypatch.setattr(builder.subprocess, "Popen", inspect_fixture)
@@ -577,6 +587,39 @@ class TestReleasePackageIntegrity:
         with pytest.raises(ValueError):
             builder.validate_binary_health(health)
 
+    def test_binary_without_pairing_probe_blocks_packaging(self, builder):
+        health = {
+            "status": "ok",
+            "version": builder.VERSION,
+            "api_contract": builder.API_CONTRACT,
+            "capabilities": [
+                capability for capability in builder.REQUIRED_CAPABILITIES
+                if capability != "pairing_check_v1"
+            ],
+        }
+        with pytest.raises(ValueError, match="capabilities"):
+            builder.validate_binary_health(health)
+
+    @pytest.mark.parametrize("outdated", [False, True])
+    def test_binary_database_migration_is_verified(self, builder, tmp_path, outdated):
+        expected = builder.expected_database_head()
+        revision = "0018" if outdated else expected
+        database = tmp_path / "database/mediareview.db"
+        database.parent.mkdir()
+        connection = sqlite3.connect(database)
+        try:
+            with connection:
+                connection.execute("CREATE TABLE alembic_version (version_num TEXT PRIMARY KEY)")
+                connection.execute("INSERT INTO alembic_version VALUES (?)", (revision,))
+        finally:
+            connection.close()
+
+        if outdated:
+            with pytest.raises(ValueError, match=expected):
+                builder.verify_binary_database(tmp_path)
+        else:
+            assert builder.verify_binary_database(tmp_path) == expected
+
     @pytest.mark.parametrize("field", ["package", "code", "name"])
     def test_wrong_apk_manifest_blocks_packaging(self, builder, field):
         values = {
@@ -595,14 +638,16 @@ class TestReleasePackageIntegrity:
             )
 
     def test_manifest_and_handover_use_verified_separate_versions(self, builder, tmp_path):
-        exe, apk = tmp_path / "MediaReviewServer.exe", tmp_path / "app-release.apk"
+        exe = tmp_path / "MediaReviewServer.exe"
         exe.write_bytes(b"fresh-exe")
-        apk.write_bytes(b"fresh-apk")
         evidence = {
             "server": {
                 "version": builder.VERSION,
                 "api_contract": builder.API_CONTRACT,
                 "capabilities": list(builder.REQUIRED_CAPABILITIES),
+                "database_head": builder.expected_database_head(),
+                "database_upgrade_from": "0018",
+                "pairing_probe": {"unauthenticated": 401, "authenticated": 200},
             },
             "android": {
                 "package": builder.ANDROID_PACKAGE,
@@ -611,15 +656,13 @@ class TestReleasePackageIntegrity:
                 "signature": "PASS",
             },
         }
-        manifest = builder.release_manifest(evidence, "a" * 40, exe, apk)
+        manifest = builder.release_manifest(evidence, "a" * 40, exe)
         assert manifest["server_version"] == builder.VERSION
-        assert manifest["android_version_name"] == builder.ANDROID_VERSION
-        assert manifest["android_version_code"] == builder.ANDROID_CODE
-        assert manifest["apk_sha256"] == builder.sha256(apk)
+        assert manifest["database_head"] == builder.expected_database_head()
+        assert "android_version_name" not in manifest
+        assert "apk_sha256" not in manifest
         handover = builder.render_handover(manifest)
-        assert f"Android: {builder.ANDROID_VERSION}" in handover
-        assert f"Android versionCode: {builder.ANDROID_CODE}" in handover
-        assert f"Android: {builder.VERSION}" not in handover
+        assert "Android APK 独立交付" in handover
 
     def test_unsigned_apk_fails_verification(self, builder, tmp_path, monkeypatch):
         def run(command, **kwargs):

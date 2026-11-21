@@ -28,7 +28,7 @@ $Version = $ExpectedServerVersion
 # 健康 Gate 要求 Server 暴露的正式能力清单
 $RequiredCapabilities = @(
     "review_session", "review_nearest", "organize",
-    "delete_nonce", "duplicates_paged", "library_selection"
+    "delete_nonce", "duplicates_paged", "library_selection", "pairing_check_v1"
 )
 
 # 路径参数校验(防注入: InstallDir/DataRoot 会拼入 schtasks /TR 与 start_server.cmd)

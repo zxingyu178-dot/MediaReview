@@ -1,9 +1,13 @@
 # MediaReview 发布与部署
 
-候选目标Server1.6.5 / Contract2 / 数据库0018 + Alpha33/code40。当前已验证交付入口始终是deploy_handoff/CURRENT_RELEASE.json；候选源码或包目录名称不能替代版本及完整性核验。
+交付清单位于 MediaReview 主工作区的 `deploy_handoff/CURRENT_RELEASE.json`。开发 worktree 可能没有这份本地文件。2026-11-21 核对时，主工作区清单仍指向 Server 1.6.6（API Contract 2、数据库迁移 0018）与独立 APK Alpha34 / code41。候选版和最近真机记录见 [项目状态](../docs/PROJECT_STATUS.md)。
 
-安装见根目录USER_INSTALL_GUIDE.md；成对回滚见UPGRADE_ROLLBACK.md；人工验收见USER_LAN_VALIDATION.md。运行入口仍为ControlHub的mediareview / AIHome.MediaReview，不双击EXE，不另建后台实例。本轮未部署生产。
+开发工作区中的历史 Server 1.6.7 ZIP 来自提交 `75266cb`，内附 Alpha37 / code44，构建输入的数据库迁移止于 0018。后续源码新增了迁移 0019 和 `pairing_check_v1`。核对候选包时应同时检查构建提交、版本、哈希、迁移和能力声明。Android 安装使用交付清单的独立 APK。
 
-本版优化相册查询及普通请求响应，支持delete_result_v1查询所属设备的原删除批次；结果未知不虚报释放空间。数据库仍为0018，从更旧版本升级需备份后迁移。生图审核使用独立NSFW审核服务（默认8877），不随本包升级或重启NSFW。实际状态见docs/PROJECT_STATUS.md。
+从 Server 1.6.8 起，新打包流程将 Android APK 和 APK 元数据文件单独导出。Server ZIP 的清单记录 EXE、源码迁移头、0018 合成数据升级验证和配对探针结果。执行打包入口需要干净的 Git 工作区。
 
-Alpha31为独立客户端更新；此前已生成的Server1.6.5 ZIP内仍为Alpha27，原ZIP/manifest/哈希保持不变，本轮不重建EXE或重打Server包。手机安装使用CURRENT_RELEASE的apk字段指向的独立APK，不从历史Server包另取旧APK。
+使用项目的 Python 3.12 环境安装 `server[package]`，再运行 `scripts/build_deploy.py`。该依赖组包含已固定版本的 PyInstaller，并安装 Server 运行依赖。源码回归可使用 `python -m pytest server/tests/test_media_api.py -k stored_dates --basetemp temp/date-contract`。
+
+安装步骤见 [安装指南](../USER_INSTALL_GUIDE.md)，成对回滚见 [升级与回滚](../UPGRADE_ROLLBACK.md)，人工验收见 [局域网验收](../USER_LAN_VALIDATION.md)。Windows 服务使用 ControlHub 的 `mediareview` / `AIHome.MediaReview` 实例。升级前按现有流程备份并校验配置与数据，升级后核对运行实例身份、健康检查和数据库迁移。
+
+生图审核连接独立的 NSFW Studio 桥（默认端口 8877），它有单独的部署和能力验收流程。

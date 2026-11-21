@@ -35,15 +35,7 @@ Server 访问 Jellyfin 使用 `jellyfin.url`（可为回环地址）；手机播
 
 ## 当前版本
 
-唯一当前发布入口为 `deploy_handoff/CURRENT_RELEASE.json`，指向 `deploy_handoff/current/`；旧包只保留历史/回滚，不从目录时间猜测部署版本。安装、备份和回家验证按项目根的三份当前指引执行。
-
-- 源码发布目标：Android `2.0.0-alpha21`（versionCode 28），已覆盖安装并真机抽样；主页视频/相册分开，批阅左右调进度/上下换片，正式包无演示素材。APK独立发布，Server1.6.3恢复受管运行。Server包内旧Alpha18不作为安装入口，以CURRENT_RELEASE为准。详见[五项修复与清理](docs/FIVE_ISSUES_RESULT_20261028.md)。
-- 源码与生产版本：Server `1.6.3` / API Contract `2` / 数据库迁移 `0017`
-- 加载专项沿用现有播放器与批阅流程，雪碧图保持删除；构建、定向测试与交付状态见项目状态页
-- 生产环境：Server1.6.3，经用户确认、完整备份后由ControlHub升级启动；Alpha18邮件此前已获SMTP接受
-
-> **运行态提醒**：2026-10-27终检只有一个ControlHub管理的MediaReview Windows服务实例，安装程序与当前发布清单一致。旧包仅供历史/回滚；以后通过ControlHub启动。24个有效库已刷新，真机视频画面/图片查看抽样通过；不代表全库验收，详见状态页。
-> **当前完整状态、验证证据、生产运行态与待办，以 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 为唯一事实源。** 本文只保留项目简介与当前版本摘要。
+正式交付从 **MediaReview 主工作区**的 `deploy_handoff/CURRENT_RELEASE.json` 查找。开发 worktree 的 APK、ZIP 和解压目录可能属于历史版本或独立验证，按清单核对产物路径、版本与哈希。Server 源码版本、手机最近安装版本、交付清单和当前运行实例分别记录在 [项目状态](docs/PROJECT_STATUS.md)。安装和回滚步骤见 [部署说明](deployment/README.md)。
 
 ## 仓库结构
 

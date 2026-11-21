@@ -519,6 +519,16 @@ object ReleaseNotesCatalog {
                 "生图单图审核优先预览，放大时按需加载原图",
             ),
         ),
+        ReleaseNote(
+            versionCode = 54,
+            versionName = "2.0.0-alpha47",
+            title = "MediaReview 2.0 Alpha 47",
+            highlights = listOf(
+                "修复旧版服务端媒体日期无法显示，相册可正常按日期分组",
+                "单次读取超时后，仍可访问其他在线功能",
+                "电脑端支持实时生图进度时，图库和单图页都可查看",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -1,4 +1,5 @@
 import json
+import shutil
 import zipfile
 
 import pytest
@@ -13,7 +14,19 @@ def old_rc(builder, tmp_path, monkeypatch):  # noqa: F811
     b.EVIDENCE.write_text(json.dumps(evidence))
     old_zip = b.package_verified()
     old = b.OUT / old_zip.stem
-    manifest = json.loads((old / "RELEASE_MANIFEST.json").read_text())
+    manifest_path = old / "RELEASE_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text())
+    exported = b.OUT / b.current_apk_name()
+    shutil.copy2(exported, old / "app-release.apk")
+    manifest.update(
+        android_version_name=b.VERIFIED_RC_ANDROID_VERSION,
+        android_version_code=b.VERIFIED_RC_ANDROID_CODE,
+        android_package=b.ANDROID_PACKAGE,
+        apk_signature="PASS",
+        apk_sha256=b.sha256(exported),
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    b.write_sha256(old)
     monkeypatch.setattr(b, "VERIFIED_RUNTIME_HEAD", manifest["git_head"], raising=False)
     monkeypatch.setattr(b, "VERIFIED_APK_SHA256", manifest["apk_sha256"], raising=False)
     monkeypatch.setattr(b, "VERIFIED_EXE_SHA256", manifest["server_exe_sha256"], raising=False)
