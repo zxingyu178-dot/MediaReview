@@ -529,6 +529,16 @@ object ReleaseNotesCatalog {
                 "电脑端支持实时生图进度时，图库和单图页都可查看",
             ),
         ),
+        ReleaseNote(
+            versionCode = 55,
+            versionName = "2.0.0-alpha48",
+            title = "MediaReview 2.0 Alpha 48",
+            highlights = listOf(
+                "连接旧版电脑端时，校验配对无需加载媒体列表",
+                "大图库加载较慢时，可先完成连接",
+                "配对失效后，仍可从连接入口重新配对",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
