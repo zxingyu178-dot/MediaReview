@@ -86,28 +86,34 @@ class Stage8IFolderHttpTest {
         launch(true)
         compose.onNodeWithText("旅行", substring = false).performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "ft_parent" && !vm.folderBrowserState.value.loading }
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_ft_child").assertIsDisplayed()
         Assert.assertEquals(0, vm.folderTree.value.first { it.id == "ft_parent" }.directMediaCount)
-        compose.waitUntil(10_000) { live.apiRequests.any { it.path.endsWith("/thumbnail") && it.authenticated } }
-        compose.waitUntil(10_000) {
-            val pixels = compose.onNodeWithTag("folder_cover_ft_child", useUnmergedTree = true).captureToImage().toPixelMap()
-            val center = pixels[pixels.width / 2, pixels.height / 2]
-            center.green > .8f && center.red < .2f && center.blue < .2f
-        }
+        compose.onNodeWithTag("folder_more").performTouchInput { click() }
+        compose.onNodeWithTag("folder_scope_toggle").performTouchInput { click() }
         compose.waitUntil(10_000) { !vm.folderBrowserState.value.includeDescendants && !vm.folderBrowserState.value.loading }
         Assert.assertTrue(vm.folderBrowserState.value.items.isEmpty())
         compose.onNodeWithTag("folder_ft_child").assertIsDisplayed().performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "ft_child" && !vm.folderBrowserState.value.loading }
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
         compose.onNodeWithTag("folder_ft_leaf").performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "ft_leaf" && vm.folderBrowserState.value.items.size == 2 }
-        compose.onNodeWithTag("media_first").assertExists()
+        val firstCard = compose.onNodeWithTag("media_first").assertIsDisplayed()
+        compose.waitUntil(10_000) {
+            val pixels = firstCard.captureToImage().toPixelMap()
+            val center = pixels[pixels.width / 2, pixels.height / 2]
+            center.green > .8f && center.red < .2f && center.blue < .2f
+        }
+        Assert.assertTrue(live.apiRequests.any { it.path.endsWith("/thumbnail") && it.authenticated })
         compose.onNodeWithText("旅行", substring = false).performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "ft_parent" && !vm.folderBrowserState.value.loading }
         compose.onNodeWithTag("folder_more").performTouchInput { click() }
         compose.onNodeWithTag("folder_scope_toggle").performTouchInput { click() }
         compose.waitUntil(10_000) { vm.folderBrowserState.value.includeDescendants && vm.folderBrowserState.value.items.size == 2 && !vm.folderBrowserState.value.refreshing }
         compose.onNodeWithTag("folder_back").performTouchInput { click() }
-        compose.onNodeWithTag("folder_ft_parent").assertExists()
+        compose.waitUntil(10_000) { vm.folderBrowserState.value.folderId == "ft_root" && !vm.folderBrowserState.value.loading }
+        compose.onNodeWithTag("folder_children_toggle").performTouchInput { click() }
+        compose.onNodeWithTag("folder_ft_parent").assertIsDisplayed()
         val requests = live.apiRequests.filter { it.folderId != null }
         Assert.assertTrue(requests.all { it.folderId!!.startsWith("ft_") && it.authenticated && it.pageSize == "50" })
         Assert.assertTrue(requests.any { it.folderId == "ft_parent" && it.includeDescendants == "true" })

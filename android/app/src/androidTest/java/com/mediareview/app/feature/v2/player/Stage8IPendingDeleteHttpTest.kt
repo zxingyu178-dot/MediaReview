@@ -148,7 +148,7 @@ class Stage8IPendingDeleteHttpTest {
         return compose.onNodeWithTag("player_pending_delete")
     }
     @Test fun fullInitialLoadAndAddOnlyConfirmAfterHttpThenSnackbarUndoUsesDelete() {
-        val live = RealHttpPlaybackFixture(blockPendingRead = true, blockPendingWrite = true, authenticatedApi = true)
+        val live = RealHttpPlaybackFixture(blockPendingRead = true, blockPendingWrite = true, authenticatedApi = true, canDelete = true)
         launch(live)
         Assert.assertTrue(live.pendingReadRequested.await(5, TimeUnit.SECONDS))
         fullButton().assertIsNotEnabled()
@@ -168,7 +168,7 @@ class Stage8IPendingDeleteHttpTest {
         fullButton().assertIsEnabled()
     }
     @Test fun fullLoadFailureRetriesAndWriteFailureNeverShowsConfirmedUndo() {
-        val live = RealHttpPlaybackFixture(authenticatedApi = true).apply { pendingReadFailure = true }
+        val live = RealHttpPlaybackFixture(authenticatedApi = true, canDelete = true).apply { pendingReadFailure = true }
         launch(live)
         compose.waitUntil(10_000) { home.viewerPendingDeleteState.value is ViewerPendingDeleteState.Error }
         compose.onNodeWithText("状态未知 · 重试").assertExists()
@@ -183,7 +183,7 @@ class Stage8IPendingDeleteHttpTest {
         compose.onNodeWithText("撤销待删除").assertDoesNotExist()
     }
     @Test fun viewerSnackbarUndoCallsRealHttpRatherThanCurrentPageToggle() {
-        val live = RealHttpPlaybackFixture(imageMedia = true, authenticatedApi = true)
+        val live = RealHttpPlaybackFixture(imageMedia = true, authenticatedApi = true, canDelete = true)
         launch(live, viewer = true)
         compose.waitUntil(10_000) { home.viewerPendingDeleteState.value is ViewerPendingDeleteState.Ready }
         compose.onNodeWithTag("viewer_delete").performClick()
@@ -200,7 +200,7 @@ class Stage8IPendingDeleteHttpTest {
         Assert.assertTrue(live.pendingWrites.all { it.mediaId == "first" })
     }
     @Test fun previousMediaLateHttpWriteCannotPublishNewMediaConfirmation() {
-        val live = RealHttpPlaybackFixture(blockPendingWrite = true, authenticatedApi = true)
+        val live = RealHttpPlaybackFixture(blockPendingWrite = true, authenticatedApi = true, canDelete = true)
         launch(live)
         compose.waitUntil(10_000) { home.viewerPendingDeleteState.value is ViewerPendingDeleteState.Ready }
         fullButton().performClick()

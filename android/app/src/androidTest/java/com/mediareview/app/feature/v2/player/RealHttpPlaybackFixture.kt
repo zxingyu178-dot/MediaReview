@@ -43,6 +43,7 @@ internal class RealHttpPlaybackFixture(
     private val reviewStartIndex: Int = 0,
     private val blockNextReviewPage: Boolean = false,
     private val failVideo: Boolean = false,
+    private val canDelete: Boolean = false,
 ) : AutoCloseable {
     @Volatile var reviewActive = true
     @Volatile var reviewQueueFailure = false
@@ -115,7 +116,7 @@ internal class RealHttpPlaybackFixture(
     private fun envelope(body: String) = json("""{"success":true,"data":$body}""")
     private fun media(id: String): String {
         val images = if (imageMedia || shortVideo) ""","cover_url":"/api/v1/media/$id/${if (shortVideo) "thumbnail" else "cover"}?v=fixture1","original_url":"/api/v1/media/$id/original?v=fixture1" """ else ""
-        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia && !reviewScopeFixture) "image" else "video"}","library_id":"test","duration_ms":${if (shortVideo) 6000 else if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false$images}"""
+        return """{"media_id":"$id","name":"HTTP 视频 $id","media_type":"${if (imageMedia && !reviewScopeFixture) "image" else "video"}","library_id":"test","duration_ms":${if (shortVideo) 6000 else if (longVideo) 60000 else 18000},"width":640,"height":360,"folder_id":"${if (folderFixture) "ft_leaf" else "test"}","folder_name":"测试","is_favorite":false,"can_delete":$canDelete$images}"""
     }
     private fun session(index: Int = reviewStartIndex) = """{"session_id":"$reviewSessionId","status":"active","current_index":$index,"total_count":$reviewItemCount,"seen_count":0,"remaining_count":$reviewItemCount,"unavailable_count":0,"completed_count":0,"source":{"filter":${if (reviewScopeFixture) reviewSource else """{"media_type":"${if (imageMedia) "image" else "video"}"}"""},"sort":{"sort_by":"created","sort_order":"desc"}}}"""
 
