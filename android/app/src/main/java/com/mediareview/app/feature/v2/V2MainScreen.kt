@@ -3,6 +3,7 @@ package com.mediareview.app.feature.v2
 import androidx.compose.foundation.background
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -166,6 +167,14 @@ fun V2MainScreen(
         NavHost(
             navController = navController,
             startDestination = MediaNavigator.ROUTE_HOME,
+            enterTransition = {
+                if (usesPageFade(initialState.destination.route, targetState.destination.route)) fadeIn(tween(160))
+                else EnterTransition.None
+            },
+            exitTransition = {
+                if (usesPageFade(initialState.destination.route, targetState.destination.route)) fadeOut(tween(120))
+                else ExitTransition.None
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -480,3 +489,15 @@ internal fun PlaceholderPage(
         }
     }
 }
+
+
+private val pageFadeRoutes = setOf(
+    MediaNavigator.ROUTE_HOME,
+    MediaNavigator.ROUTE_FAVORITES,
+    MediaNavigator.ROUTE_ORGANIZE,
+    MediaNavigator.ROUTE_FOLDER_BROWSER,
+    MediaNavigator.ROUTE_ALBUM,
+)
+
+private fun usesPageFade(from: String?, to: String?): Boolean =
+    from != to && from in pageFadeRoutes && to in pageFadeRoutes

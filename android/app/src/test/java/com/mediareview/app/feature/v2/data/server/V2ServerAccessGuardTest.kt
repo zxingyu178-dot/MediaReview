@@ -185,6 +185,12 @@ class V2ServerAccessGuardTest {
         assertEquals(2, statusStore.serverApiContract.value)
     }
 
+    @Test fun businessReadTimeoutDoesNotDisconnectOtherPages() {
+        statusStore.recordCompatible("1.6.6", 2)
+        statusStore.onRequestFailure(java.net.SocketTimeoutException("slow endpoint"))
+        assertEquals(V2ServerStatus.Online, statusStore.status.value)
+    }
+
     // ---------- §23：失败迁移只在 Online 发生 ----------
 
     @Test

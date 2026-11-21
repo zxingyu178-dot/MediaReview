@@ -13,6 +13,12 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -163,12 +169,22 @@ fun FolderBrowserScreen(
             }
             if (largeText) sortButton()
         }
-        if (showChildren && effectiveFolderId != null && children.isNotEmpty()) {
-            LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = MediaSpacing.Medium),
-                horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
-                items(children, key = { it.id }) { node ->
-                    AssistChip(onClick = { folderId = node.id }, label = { Text(node.name, maxLines = 1) },
-                        modifier = Modifier.testTag("folder_${node.id}"))
+        key(effectiveFolderId) {
+            AnimatedVisibility(
+                visible = showChildren && effectiveFolderId != null && children.isNotEmpty(),
+                enter = expandVertically(tween(180), expandFrom = Alignment.Top) + fadeIn(tween(150)),
+                exit = shrinkVertically(tween(140), shrinkTowards = Alignment.Top) + fadeOut(tween(110)),
+            ) {
+                LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = MediaSpacing.Medium),
+                    horizontalArrangement = Arrangement.spacedBy(MediaSpacing.Small)) {
+                    items(children, key = { it.id }) { node ->
+                        AssistChip(
+                            onClick = { if (showChildren) folderId = node.id },
+                            label = { Text(node.name, maxLines = 1) },
+                            enabled = showChildren,
+                            modifier = Modifier.testTag("folder_${node.id}"),
+                        )
+                    }
                 }
             }
         }

@@ -151,6 +151,16 @@ def test_status_reflects_config(pair_client: TestClient) -> None:
     assert data["pairing_required"] is True
 
 
+def test_pairing_check_is_advertised_and_verifies_only_the_current_token(pair_client: TestClient):
+    path = "/api/v1/pairing/check"
+    capabilities = pair_client.get("/api/v1/system/health").json()["data"]["capabilities"]
+    assert "pairing_check_v1" in capabilities
+    assert pair_client.get(path).status_code == 401
+    assert pair_client.get(path, headers=_bearer("invalid-token")).status_code == 401
+    valid = pair_client.get(path, headers=_bearer(_pair(pair_client)))
+    assert valid.status_code == 200
+    assert valid.json()["data"] == {"paired": True}
+
 def test_valid_token_allows_dangerous_apis(pair_client: TestClient) -> None:
     token = _pair(pair_client)
     headers = _bearer(token)

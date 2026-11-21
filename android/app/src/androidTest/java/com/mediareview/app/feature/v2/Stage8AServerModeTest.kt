@@ -27,6 +27,7 @@ import com.mediareview.app.feature.v2.data.server.V2ServerHealthMonitor
 import com.mediareview.app.feature.v2.data.server.V2ServerMediaRepository
 import com.mediareview.app.feature.v2.data.server.V2ServerResourceCache
 import com.mediareview.app.feature.v2.data.server.V2ServerSessionBootstrap
+import com.mediareview.app.feature.v2.data.server.V2ServerStatus
 import com.mediareview.app.feature.v2.data.server.V2ServerStatusStore
 import com.mediareview.app.feature.v2.home.HomeScreen
 import com.mediareview.app.feature.v2.home.V2HomeViewModel
@@ -75,6 +76,27 @@ class Stage8AServerModeTest {
     private lateinit var fixture: Stage8FHttpFixture
     private val baseUrl get() = fixture.baseUrl
 
+    @Test fun supportedHealthProbeChecksPairingWithoutReadingMedia() = runBlocking {
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.start()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+                """{"success":true,"data":{"version":"1.6.7","api_contract":2,"capabilities":["pairing_check_v1"]}}""",
+            ))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+                """{"success":true,"data":{"paired":true}}""",
+            ))
+            profileStore.saveBaseUrl(server.url("/").toString().trimEnd('/'))
+            V2ServerSessionBootstrap(profileStore, tokenProvider).restore()
+            V2ServerHealthMonitor(profileStore, apiFactory, serverStatus).probe()
+
+            assertEquals(V2ServerStatus.Online, serverStatus.status.value)
+            assertEquals("/api/v1/system/health", server.takeRequest(3, TimeUnit.SECONDS)?.path)
+            val check = server.takeRequest(3, TimeUnit.SECONDS)
+            assertEquals("/api/v1/pairing/check", check?.path)
+            assertEquals("Bearer mock-token", check?.getHeader("Authorization"))
+            assertEquals(2, server.requestCount)
+        }
+    }
     @Before
     fun setUp() {
         fixture = Stage8FHttpFixture(legacy = true)

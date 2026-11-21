@@ -4,6 +4,7 @@ import com.mediareview.app.core.datastore.ServerProfileStore
 import com.mediareview.app.core.network.ApiFactory
 import com.mediareview.app.core.pairing.REQUIRED_SERVER_API_CONTRACT
 import java.io.IOException
+import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -102,6 +103,7 @@ class V2ServerStatusStore @Inject constructor() {
         if (_status.value != V2ServerStatus.Online) return
         when {
             error is HttpException && error.code() == 401 -> _status.value = V2ServerStatus.AuthRejected
+            error is SocketTimeoutException -> Unit
             error is IOException -> _status.value = V2ServerStatus.Offline
             else -> Unit
         }
@@ -123,7 +125,7 @@ class V2ServerStatusStore @Inject constructor() {
  * 后台健康探测（V2 启动后执行，不参与启动路径）。
  *
  * 步骤刻意保持轻量：health（公开接口）→ 兼容性 Gate（api_contract）→
- * 已配对时用 1 条媒体确认凭据有效。绝不串联旧流程的四段检查。
+ * 已配对时优先只校验凭据。兼容旧服务器时才读取单条媒体。
  */
 @Singleton
 class V2ServerHealthMonitor @Inject constructor(
@@ -160,15 +162,24 @@ class V2ServerHealthMonitor @Inject constructor(
                 statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
                 return
             }
+            val supportsPairingCheck = "pairing_check_v1" in data.capabilities
             try {
-                // 1 条媒体即可确认 token 仍然有效（401 = 认证失效）
-                api.media(page = 1, pageSize = 1)
+                val authenticated = if (supportsPairingCheck) {
+                    val check = api.pairingCheck()
+                    check.success && check.data?.get("paired") == true
+                } else {
+                    api.media(page = 1, pageSize = 1)
+                    true
+                }
                 if (store.current() != profile) return
-                statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
+                if (authenticated) statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
+                else statusStore.update(V2ServerStatus.Offline)
             } catch (error: HttpException) {
                 if (store.current() != profile) return
                 if (error.code() == 401) {
                     statusStore.update(V2ServerStatus.AuthRejected)
+                } else if (supportsPairingCheck) {
+                    statusStore.update(V2ServerStatus.Offline)
                 } else {
                     statusStore.recordCompatible(data.version, data.api_contract, data.capabilities)
                 }

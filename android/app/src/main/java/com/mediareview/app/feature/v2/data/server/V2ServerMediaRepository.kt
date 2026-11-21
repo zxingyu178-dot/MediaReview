@@ -278,7 +278,7 @@ class V2ServerMediaRepository internal constructor(
         return true
     }
 
-    override suspend fun favorites(): List<V2Media> = call { api, base ->
+    override suspend fun favorites(): List<V2Media> = call(waitForProbe = true) { api, base ->
         // 仅在用户首次进入收藏页时调用(不再阻塞首页);收藏状态由服务端随摘要下发
         val items = unwrap(api.listFavorites()).mapNotNull { it.media }
         mapAndCache(items, base)

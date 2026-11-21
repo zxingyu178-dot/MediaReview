@@ -78,6 +78,12 @@ def status(request: Request, db: Session = Depends(get_db)) -> Envelope[PairingS
     )
 
 
+@router.get("/check", response_model=Envelope[dict[str, bool]])
+def check_pairing(_auth=Depends(require_auth)) -> Envelope[dict[str, bool]]:
+    """校验当前设备凭据，无需读取媒体或返回设备信息。"""
+    return ok({"paired": True})
+
+
 @router.get("/devices", response_model=Envelope[list[dict]])
 def devices(_auth=Depends(require_auth), db: Session = Depends(get_db)) -> Envelope[list[dict]]:
     rows = [

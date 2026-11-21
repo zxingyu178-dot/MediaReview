@@ -29,4 +29,5 @@ SERVER_CAPABILITIES: tuple[str, ...] = (
     "delete_nonce",
     "duplicates_paged",
     "library_selection",
+    "pairing_check_v1",
 )
