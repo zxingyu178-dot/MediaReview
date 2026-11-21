@@ -101,6 +101,26 @@ class V2ServerMediaRepositoryContractTest {
     // ---------- 列表 / 分页 / 参数 ----------
 
     @Test
+    fun legacyMediaDatesUseUtcWithoutChangingExplicitOffsets() = runTest {
+        router.mediaBody = mediaPageJson(6, 1, 50, """
+            {"media_id":"legacy","name":"legacy","media_type":"video","library_id":"lib","created_at":"2026-11-21T12:34:56.123456"},
+            {"media_id":"offset","name":"offset","media_type":"video","library_id":"lib","created_at":"2026-11-21T20:34:56.123456+08:00"},
+            {"media_id":"legacy_space","name":"legacy_space","media_type":"video","library_id":"lib","created_at":"2026-11-21 12:34:56.123456"},
+            {"media_id":"date_only","name":"date_only","media_type":"video","library_id":"lib","created_at":"2026-11-21"},
+            {"media_id":"missing","name":"missing","media_type":"video","library_id":"lib"},
+            {"media_id":"invalid","name":"invalid","media_type":"video","library_id":"lib","created_at":"unknown"}
+        """.trimIndent())
+
+        val dates = repository.mediaPage(V2MediaQuery()).items.associate { it.id to it.dateMillis }
+        val expected = java.time.Instant.parse("2026-11-21T12:34:56.123456Z").toEpochMilli()
+        assertEquals(
+            mapOf("legacy" to expected, "offset" to expected, "legacy_space" to expected,
+                "date_only" to 0L, "missing" to 0L, "invalid" to 0L),
+            dates,
+        )
+    }
+
+    @Test
     fun `图片默认低清保留源版本且切源清除资源`() = runTest {
         router.mediaBody = mediaPageJson(1, 1, 50, """{"media_id":"photo","name":"照片","media_type":"image","library_id":"lib","cover_url":"/api/v1/media/photo/thumbnail?v=source1","original_url":"/api/v1/media/photo/original?v=source1"}""")
         val photo = repository.mediaPage(V2MediaQuery()).items.single()

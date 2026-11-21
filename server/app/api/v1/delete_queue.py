@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
 
 from fastapi import APIRouter, Depends
@@ -24,7 +23,7 @@ from app.api.v1.media import (
     row_source_version,
 )
 from app.core.errors import ConflictError, MediaNotFoundError, NotFoundError
-from app.core.responses import Envelope, ok
+from app.core.responses import Envelope, UtcResponseTime, ok, utc_response_time
 from app.db.session import get_db
 from app.db.models import DeleteCommitNonce
 from app.services import delete_queue, media_index
@@ -55,7 +54,7 @@ class QueueSummaryView(BaseModel):
 
 class CommitPrepView(BaseModel):
     nonce: str
-    expires_at: datetime
+    expires_at: UtcResponseTime
     count: int
     total_bytes: int
     media_ids: list[str]
@@ -79,7 +78,7 @@ def list_queue(
                 "media_id": row.media_id,
                 "status": row.status,
                 "size_bytes": row.size_bytes,
-                "added_at": row.added_at,
+                "added_at": utc_response_time(row.added_at),
                 # Stage 8C.1 §23: failed 项下发失败原因(guard 代码,如 file_size_changed /
                 # library_not_allowed / stat_failed:*),客户端映射为简短中文,不展示原始堆栈。
                 "error": row.error,

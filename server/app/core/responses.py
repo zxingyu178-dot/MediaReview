@@ -6,13 +6,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, PlainSerializer
 
 from app.core.errors import AppError
 from app.core.request_id import get_request_id
+
+
+def utc_response_time(value: datetime | None) -> datetime | None:
+    """数据库保存无时区的 UTC，HTTP 输出显式标注时区。"""
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+UtcResponseTime = Annotated[datetime, PlainSerializer(utc_response_time, when_used="json")]
 
 
 class ErrorBody(BaseModel):

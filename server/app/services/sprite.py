@@ -15,6 +15,7 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from app.core.responses import utc_response_time
 from app.db.models import BackgroundTask, SpriteManifest, utc_now
 from app.db.session import Database
 from app.media.ffmpeg import MediaExecutor, build_sprite_plan
@@ -53,7 +54,7 @@ def manifest_view(manifest: SpriteManifest) -> dict:
         "video_height": manifest.video_height,
         "url": None if manifest.status != "ready" else _sprite_url(manifest.media_id),
         "error": manifest.error,
-        "updated_at": manifest.updated_at,
+        "updated_at": utc_response_time(manifest.updated_at),
     }
 
 

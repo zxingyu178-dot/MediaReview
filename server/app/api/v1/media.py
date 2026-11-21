@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -26,7 +25,7 @@ from app.api.v1.jellyfin import jellyfin_client
 from app.core.config import ensure_jellyfin_url_excludes_api_key
 from app.core.errors import ConfigError, MediaNotFoundError, ValidationFailedError
 from app.core.perf import log_perf, perf_now
-from app.core.responses import Envelope, ok
+from app.core.responses import Envelope, UtcResponseTime, ok
 from app.db.models import utc_now
 from app.db.session import get_db
 from app.services import folder_tree, media_index
@@ -57,8 +56,8 @@ class MediaSummary(BaseModel):
     width: int | None = None
     height: int | None = None
     container: str | None = None
-    created_at: datetime | None = None
-    modified_at: datetime | None = None
+    created_at: UtcResponseTime | None = None
+    modified_at: UtcResponseTime | None = None
     # 需 MediaReview 配对认证的相对缩略图代理 URL
     cover_url: str | None = None
     # 需 MediaReview 配对认证的相对原图代理 URL；视频为 None
@@ -78,7 +77,7 @@ class MediaSyncSummary(BaseModel):
     task_id: str | None = None
     processed: int
     total: int
-    last_success_at: datetime | None = None
+    last_success_at: UtcResponseTime | None = None
     message: str
 
 

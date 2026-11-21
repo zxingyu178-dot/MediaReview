@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -20,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.auth import require_auth
 from app.api.v1.media import media_thumbnail_url, row_source_version
 from app.core.errors import MediaNotFoundError, NotFoundError
-from app.core.responses import Envelope, ok
+from app.core.responses import Envelope, UtcResponseTime, ok
 from app.db.session import get_db
 from app.services import duplicate_scanner, hash_tasks
 from app.services.tasks import safe_task_view
@@ -41,7 +40,7 @@ class DuplicateSummaryView(BaseModel):
     scan_task_id: str | None = None
     scan_status: str | None = None
     scan_progress: int = 0
-    last_successful_scan_at: datetime | None = None
+    last_successful_scan_at: UtcResponseTime | None = None
 
 
 class DuplicateDetailMemberView(BaseModel):

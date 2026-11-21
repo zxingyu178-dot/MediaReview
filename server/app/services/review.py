@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.core.errors import ValidationFailedError
+from app.core.responses import utc_response_time
 from app.db.models import MediaCacheIndex, ReviewSession, ReviewSessionItem, utc_now
 from app.services import folder_tree, media_index
 from app.services.hash_contract import full_sha256_sql_predicate
@@ -536,9 +537,9 @@ def progress_view(session: Session, review: ReviewSession) -> dict:
         "status": review.status,
         "current_index": review.current_index,
         **review_progress_counts(session, review.session_id),
-        "created_at": review.created_at,
-        "updated_at": review.updated_at,
-        "completed_at": review.completed_at,
+        "created_at": utc_response_time(review.created_at),
+        "updated_at": utc_response_time(review.updated_at),
+        "completed_at": utc_response_time(review.completed_at),
     }
 
 

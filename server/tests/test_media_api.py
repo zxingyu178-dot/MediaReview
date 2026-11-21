@@ -79,6 +79,80 @@ def test_media_list_sort_by_size_desc(jellyfin_api_client) -> None:
     assert _names(resp) == ["E.mp4", "d.mp4", "C.mp4", "a.mp4", "B.mp4"]
 
 
+def test_media_list_and_detail_serialize_stored_dates_as_utc(jellyfin_api_client) -> None:
+    client, _transport = jellyfin_api_client
+    assert client.get("/api/v1/libraries").status_code == 200
+    selection = client.put("/api/v1/libraries/selection", json={"selected": ["lib-movies"]})
+    assert selection.status_code == 200
+    _seed_mock_library(client, "lib-movies")
+    with client.app.state.database.session() as session:
+        session.add(
+            models.MediaSyncState(
+                library_id="lib-movies",
+                state="succeeded",
+                last_success_at=datetime(2026, 11, 21, 14, 0),
+            )
+        )
+        session.add(
+            models.BackgroundTask(
+                task_id="date-contract-task",
+                type="media_refresh",
+                status="succeeded",
+                created_at=datetime(2026, 11, 21, 14, 0),
+                started_at=datetime(2026, 11, 21, 14, 1),
+                finished_at=datetime(2026, 11, 21, 14, 2),
+            )
+        )
+        session.execute(
+            sa.update(models.MediaCacheIndex).values(
+                created_at=datetime(2026, 11, 21, 12, 34, 56),
+                modified_at=datetime(2026, 11, 21, 13, 0),
+            )
+        )
+        session.commit()
+
+    response = client.get("/api/v1/media", params={"library_id": "lib-movies"})
+    assert response.status_code == 200
+    assert response.json()["data"]["sync"]["last_success_at"] == "2026-11-21T14:00:00Z"
+    item = response.json()["data"]["items"][0]
+
+    def assert_dates(summary):
+        assert summary["created_at"] == "2026-11-21T12:34:56Z"
+        assert summary["modified_at"] == "2026-11-21T13:00:00Z"
+
+    assert_dates(item)
+    media_id = item["media_id"]
+    response = client.get(f"/api/v1/media/{media_id}")
+    assert response.status_code == 200
+    assert_dates(response.json()["data"])
+
+    for route in ("favorites", "delete-queue"):
+        assert client.post(f"/api/v1/{route}/{media_id}").status_code == 200
+        response = client.get(f"/api/v1/{route}")
+        assert response.status_code == 200
+        row = response.json()["data"][0]
+        assert_dates(row["media"])
+        if route == "delete-queue":
+            assert row["added_at"].endswith("Z")
+
+    response = client.post("/api/v1/review/sessions", json={})
+    assert response.status_code == 200
+    review = response.json()["data"]
+    assert review["created_at"].endswith("Z")
+    assert review["updated_at"].endswith("Z")
+    assert review["completed_at"] is None
+    response = client.get(f"/api/v1/review/sessions/{review['session_id']}/queue")
+    assert response.status_code == 200
+    assert_dates(response.json()["data"]["items"][0]["media"])
+
+    response = client.get("/api/v1/tasks/date-contract-task")
+    assert response.status_code == 200
+    task = response.json()["data"]
+    assert task["created_at"] == "2026-11-21T14:00:00Z"
+    assert task["started_at"] == "2026-11-21T14:01:00Z"
+    assert task["finished_at"] == "2026-11-21T14:02:00Z"
+
+
 def test_media_list_filter_media_type_video(jellyfin_api_client) -> None:
     client, _transport = jellyfin_api_client
     _seed_mock_library(client, "lib-movies")

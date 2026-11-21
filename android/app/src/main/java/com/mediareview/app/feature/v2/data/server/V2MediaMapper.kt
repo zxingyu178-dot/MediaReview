@@ -6,7 +6,10 @@ import com.mediareview.app.core.network.MediaUrlResolver
 import com.mediareview.app.feature.v2.model.V2Folder
 import com.mediareview.app.feature.v2.model.V2Media
 import com.mediareview.app.feature.v2.model.V2MediaType
+import java.time.Instant
+import java.time.LocalDateTime
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -99,18 +102,24 @@ class V2MediaMapper @Inject constructor(
             urlResolver.resolve(raw, baseUrl, serverOnlyHosts)
         }.getOrNull()
 
-    /** ISO-8601 时间 → epoch millis；缺失/无法解析时为 0（排序由 Server 执行，这里只服务展示）。 */
+    /** 旧版 Server 的无时区 ISO-8601 时间也是 UTC。缺失或无法解析时返回 0。 */
     private fun parseDateMillis(raw: String?): Long {
-        val value = raw?.trim().orEmpty()
+        val value = raw?.trim()?.replaceFirst(' ', 'T').orEmpty()
         if (value.isEmpty()) return 0L
-        return try {
-            OffsetDateTime.parse(value).toInstant().toEpochMilli()
+        try {
+            return OffsetDateTime.parse(value).toInstant().toEpochMilli()
         } catch (_: DateTimeParseException) {
-            try {
-                java.time.Instant.parse(value).toEpochMilli()
-            } catch (_: DateTimeParseException) {
-                0L
-            }
+            // 保留 Instant 支持的写法，例如历史时间戳中的 UTC 闰秒。
+        }
+        try {
+            return Instant.parse(value).toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            // 旧的索引接口省略了时区。
+        }
+        return try {
+            LocalDateTime.parse(value).toInstant(ZoneOffset.UTC).toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            0L
         }
     }
 

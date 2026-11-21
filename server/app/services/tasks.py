@@ -22,6 +22,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
+from app.core.responses import utc_response_time
 from app.db.models import BackgroundTask, MediaRefreshTarget, MediaSyncState, utc_now
 from app.db.session import Database
 
@@ -163,9 +164,9 @@ def safe_task_view(task: BackgroundTask) -> dict:
         "progress": task.progress,
         "media_id": task.media_id if task.type != "media_refresh" else None,
         "error": safe_error,
-        "created_at": task.created_at,
-        "started_at": task.started_at,
-        "finished_at": task.finished_at,
+        "created_at": utc_response_time(task.created_at),
+        "started_at": utc_response_time(task.started_at),
+        "finished_at": utc_response_time(task.finished_at),
     }
 
 

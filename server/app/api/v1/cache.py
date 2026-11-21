@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import require_localhost_or_auth
 from app.core.errors import MediaNotFoundError, NotFoundError
-from app.core.responses import Envelope, ok
+from app.core.responses import Envelope, ok, utc_response_time
 from app.db.models import BackgroundTask, SpriteManifest
 from app.db.session import get_db
 from app.services import media_index, sprite
@@ -40,9 +40,9 @@ def _task_view(task: BackgroundTask) -> dict:
         "media_id": task.media_id,
         "error": task.error,
         "result": task.result,
-        "created_at": task.created_at,
-        "started_at": task.started_at,
-        "finished_at": task.finished_at,
+        "created_at": utc_response_time(task.created_at),
+        "started_at": utc_response_time(task.started_at),
+        "finished_at": utc_response_time(task.finished_at),
     }
 
 

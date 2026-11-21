@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.adapters.media_source import can_delete
 from app.api.v1.auth import require_auth
 from app.core.errors import ForbiddenError, ValidationFailedError
-from app.core.responses import ok
+from app.core.responses import ok, utc_response_time
 from app.db.models import LocalRoot
 from app.db.session import get_db
 from app.services import native_sources
@@ -50,7 +50,7 @@ def root_view(root):
     # 与媒体/库摘要同源：跟随能力表，本地源自 native_delete_v1 起可两阶段删除。
     return {"source_id": root.root_id, "source_type": "local", "name": root.name,
             "status": root.status, "enabled": root.enabled, "can_delete": can_delete("local"),
-            "last_scan_at": root.last_scan_at}
+            "last_scan_at": utc_response_time(root.last_scan_at)}
 
 
 @router.get("")

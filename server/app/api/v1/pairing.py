@@ -20,7 +20,7 @@ from app.adapters.jellyfin.client import JellyfinClient, JellyfinError
 from app.api.v1.auth import require_auth
 from app.core.config import AppConfig
 from app.core.errors import ForbiddenError
-from app.core.responses import Envelope, ok
+from app.core.responses import Envelope, ok, utc_response_time
 from app.db.session import get_db
 from app.services import pairing
 
@@ -91,9 +91,9 @@ def devices(_auth=Depends(require_auth), db: Session = Depends(get_db)) -> Envel
             "device_id": d.device_id,
             "installation_id": d.installation_id,
             "name": d.name,
-            "paired_at": d.paired_at,
+            "paired_at": utc_response_time(d.paired_at),
             "revoked": d.revoked,
-            "last_seen_at": d.last_seen_at,
+            "last_seen_at": utc_response_time(d.last_seen_at),
         }
         for d in pairing.paired_devices(db)
     ]
