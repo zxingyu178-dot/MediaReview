@@ -99,6 +99,23 @@ class NsfwVisualPolishTest {
         capture("viewer-next")
     }
 
+    @Test fun galleryShowsProgressBelowToolbarAndClearsItWhenIdle() = withImages { base, loader, items ->
+        val state = mutableStateOf(NsfwUiState(
+            phase = NsfwPhase.READY, baseUrl = base, items = items, currentId = items.first().imageId,
+            galleryEnabled = true, generationProgress = NsfwGenerationProgress(3, 6, 20),
+        ))
+        compose.setContent { MediaReviewTheme { Surface {
+            NsfwGallery(state.value, loader, rememberLazyGridState(), {}, {}, {}, {}, { _, _ -> })
+        } } }
+        val filter = compose.onNodeWithContentDescription("筛选").fetchSemanticsNode().boundsInRoot
+        val text = compose.onNodeWithText("3/6　剩余 20 段").assertIsDisplayed()
+        assertTrue(text.fetchSemanticsNode().boundsInRoot.top >= filter.bottom)
+        compose.onNode(SemanticsMatcher.expectValue(
+            SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(.5f, 0f..1f),
+        )).assertIsDisplayed()
+        compose.runOnIdle { state.value = state.value.copy(generationProgress = null) }
+        compose.onNodeWithText("3/6　剩余 20 段").assertDoesNotExist()
+    }
     @Test fun generationProgressRendersAndClearsOnTheReviewScreen() = withImages { base, loader, items ->
         val state = mutableStateOf(NsfwUiState(
             phase = NsfwPhase.READY, baseUrl = base, items = items, currentId = items.first().imageId,

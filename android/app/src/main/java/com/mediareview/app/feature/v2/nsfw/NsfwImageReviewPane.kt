@@ -256,19 +256,7 @@ internal fun NsfwImageReviewPane(
                         }
                     }
                 }
-                state.generationProgress?.let { progress ->
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        val current = progress.currentImage
-                        val total = progress.imagesInSegment
-                        val currentLabel = if (current != null && total != null) "$current/$total　" else ""
-                        Text("${currentLabel}剩余 ${progress.remainingSegments} 段",
-                            color = MediaTextPrimary, style = MaterialTheme.typography.labelSmall)
-                        if (current != null && total != null) {
-                            LinearProgressIndicator(progress = { current.toFloat() / total },
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-                        }
-                    }
-                }
+                state.generationProgress?.let { NsfwGenerationProgressStrip(it) }
                 if (messages.isNotEmpty() && (!messageDismissed || important)) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
                         style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)

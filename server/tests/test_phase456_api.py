@@ -174,6 +174,45 @@ def test_review_resume_deep_index(app, client) -> None:
     assert done["status"] == "completed"
 
 
+def test_favorite_list_loads_in_one_query_and_preserves_missing_entries(app, client):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import event
+
+    from app.db.models import Favorite
+
+    _seed_media(app, "old")
+    _seed_media(app, "new")
+    db = app.state.database
+    with db.session() as session:
+        session.add_all([
+            Favorite(media_id="old", created_at=datetime(2026, 1, 1, tzinfo=UTC)),
+            Favorite(media_id="missing", created_at=datetime(2026, 1, 2, tzinfo=UTC)),
+            Favorite(media_id="new", created_at=datetime(2026, 1, 3, tzinfo=UTC)),
+        ])
+        session.commit()
+
+    selects = []
+
+    def record_select(connection, cursor, statement, parameters, context, executemany):
+        sql = statement.lower()
+        if sql.lstrip().startswith("select") and ("favorite" in sql or "media_cache_index" in sql):
+            selects.append(statement)
+
+    event.listen(db.engine, "before_cursor_execute", record_select)
+    try:
+        response = client.get("/api/v1/favorites")
+    finally:
+        event.remove(db.engine, "before_cursor_execute", record_select)
+
+    assert response.status_code == 200
+    items = response.json()["data"]
+    assert [item["media_id"] for item in items] == ["new", "missing", "old"]
+    assert items[1]["media"] is None
+    assert all(items[i]["media"]["is_favorite"] for i in (0, 2))
+    assert len(selects) == 1
+
+
 def test_favorites_api_flow(app, client) -> None:
     _seed_media(app, "fav1")
     resp = client.post("/api/v1/favorites/fav1")

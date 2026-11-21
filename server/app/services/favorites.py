@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.db.models import Favorite
+from app.db.models import Favorite, MediaCacheIndex
 from app.services import audit
 
 
@@ -40,4 +40,15 @@ def list_ids(session: Session) -> list[str]:
     return [row.media_id for row in rows]
 
 
-__all__ = ["add", "is_favorite", "list_ids", "remove"]
+def list_with_media(session: Session) -> list[tuple[str, MediaCacheIndex | None]]:
+    """按收藏时间返回媒体摘要所需的索引，保留索引缺失的收藏。"""
+    statement = (
+        sa.select(Favorite.media_id, MediaCacheIndex)
+        .select_from(Favorite)
+        .outerjoin(MediaCacheIndex, MediaCacheIndex.media_id == Favorite.media_id)
+        .order_by(Favorite.created_at.desc())
+    )
+    return [(media_id, media) for media_id, media in session.execute(statement)]
+
+
+__all__ = ["add", "is_favorite", "list_ids", "list_with_media", "remove"]

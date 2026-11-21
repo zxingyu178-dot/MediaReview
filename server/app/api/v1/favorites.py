@@ -28,27 +28,18 @@ class FavoriteItem(BaseModel):
 
 
 @router.get("", response_model=Envelope[list[dict]])
-async def list_favorites(
+def list_favorites(
     _auth=Depends(require_auth), db: Session = Depends(get_db)
 ) -> Envelope[list[dict]]:
     """收藏列表(阶段 8A.1 起只在用户首次进入收藏页时才请求,不再阻塞首页)。"""
     started = perf_now()
-    ids = favorites.list_ids(db)
-    favorite_ids = set(ids)
-    result: list[dict] = []
-    for media_id in ids:
-        row = media_index.get_cached_media(db, media_id)
-        result.append(
-            {
-                "media_id": media_id,
-                "media": _summary_from_row(
-                    row,
-                    is_favorite=media_id in favorite_ids,
-                )
-                if row
-                else None,
-            }
-        )
+    result = [
+        {
+            "media_id": media_id,
+            "media": _summary_from_row(row, is_favorite=True) if row is not None else None,
+        }
+        for media_id, row in favorites.list_with_media(db)
+    ]
     log_perf("favorites_list", start=started, count=len(result))
     return ok(result)
 
