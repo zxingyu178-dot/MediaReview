@@ -599,6 +599,16 @@ object ReleaseNotesCatalog {
                 "连接恢复无需手动关闭提示或重开应用，进度展示直接回到正常状态",
             ),
         ),
+        ReleaseNote(
+            versionCode = 62,
+            versionName = "2.0.0-alpha55",
+            title = "MediaReview 2.0 Alpha 55",
+            highlights = listOf(
+                "电脑端生成中或暂停时，顶栏同时显示排队任务数",
+                "多任务连续提交时可直接看到后续还有几张等待生成",
+                "旧桥缺少排队字段时保持原有文案，不影响使用",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -44,16 +44,19 @@ data class NsfwGenerationProgress(
 
     /** 顶栏文案：只读计数，不暴露 Prompt / Job 控制。 */
     val label: String
-        get() = when {
-            remainingSegments <= 0 -> "电脑端暂无生成任务"
-            activeStatus == "paused" -> "电脑端生成已暂停 · 剩余 $remainingSegments 段"
-            currentImage != null && imagesInSegment != null ->
-                "电脑端生成中：第 $currentImage / $imagesInSegment 张 · 剩余 $remainingSegments 段"
-            activeStatus == "queued" ->
-                "电脑端已提交：排队 $queuedJobs 个任务"
-            activeStatus == "running" ->
-                "电脑端生成中：准备下一张 · 剩余 $remainingSegments 段"
-            else -> "电脑端队列：剩余 $remainingSegments 段"
+        get() {
+            val queueSuffix = if (queuedJobs > 0) " · 排队 $queuedJobs" else ""
+            return when {
+                remainingSegments <= 0 -> "电脑端暂无生成任务"
+                activeStatus == "paused" -> "电脑端生成已暂停 · 剩余 $remainingSegments 段$queueSuffix"
+                currentImage != null && imagesInSegment != null ->
+                    "电脑端生成中：第 $currentImage / $imagesInSegment 张 · 剩余 $remainingSegments 段$queueSuffix"
+                activeStatus == "queued" ->
+                    "电脑端已提交：排队 $queuedJobs 个任务"
+                activeStatus == "running" ->
+                    "电脑端生成中：准备下一张 · 剩余 $remainingSegments 段$queueSuffix"
+                else -> "电脑端队列：剩余 $remainingSegments 段$queueSuffix"
+            }
         }
 }
 

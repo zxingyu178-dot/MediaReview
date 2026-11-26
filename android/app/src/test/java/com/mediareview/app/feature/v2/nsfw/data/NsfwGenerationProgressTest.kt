@@ -27,6 +27,29 @@ class NsfwGenerationProgressTest {
     }
 
     @Test
+    fun `生成中同时显示排队任务数`() {
+        val progress = NsfwGenerationProgress(
+            currentImage = 3,
+            imagesInSegment = 6,
+            remainingSegments = 20,
+            activeStatus = "running",
+            queuedJobs = 2,
+        )
+        assertEquals("电脑端生成中：第 3 / 6 张 · 剩余 20 段 · 排队 2", progress.label)
+    }
+
+    @Test
+    fun `暂停时也显示排队任务数`() {
+        val progress = NsfwGenerationProgress(
+            remainingSegments = 3,
+            activeStatus = "paused",
+            queuedJobs = 2,
+            pausedJobs = 1,
+        )
+        assertEquals("电脑端生成已暂停 · 剩余 3 段 · 排队 2", progress.label)
+    }
+
+    @Test
     fun `排队状态显示已提交任务数`() {
         val progress = NsfwGenerationProgress(
             remainingSegments = 2,
