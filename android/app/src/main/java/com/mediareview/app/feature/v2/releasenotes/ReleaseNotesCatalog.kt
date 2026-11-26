@@ -589,6 +589,16 @@ object ReleaseNotesCatalog {
                 "进度文案切换加入淡入淡出，减少文字跳动",
             ),
         ),
+        ReleaseNote(
+            versionCode = 61,
+            versionName = "2.0.0-alpha54",
+            title = "MediaReview 2.0 Alpha 54",
+            highlights = listOf(
+                "电脑端 Bridge 恢复后“无法连接”提示自动消失，不再残留错误横幅",
+                "下一次成功同步后自动清除网络错误，操作类提示保持不变",
+                "连接恢复无需手动关闭提示或重开应用，进度展示直接回到正常状态",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -176,6 +176,7 @@ internal fun NsfwImageReviewPane(
     val importantMessage = state.conflictMessage ?: state.evaluationRecoveryHint ?: messages.firstOrNull { message ->
         listOf("未确认", "未知", "待核对", "冲突").any(message::contains)
     }
+    val bannerMessage = importantMessage ?: messages.firstOrNull()
     val important = importantMessage != null
     if (messageDetailsOpen && messages.isNotEmpty()) AlertDialog(
         onDismissRequest = { messageDetailsOpen = false }, title = { Text(if (important) "结果需核对" else "连接提示") },
@@ -302,12 +303,12 @@ internal fun NsfwImageReviewPane(
                     if (generationProgress != null) GenerationProgressStrip(generationProgress)
                 }
                 AnimatedVisibility(
-                    visible = messages.isNotEmpty() && (!messageDismissed || important),
+                    visible = bannerMessage != null && (!messageDismissed || important),
                     enter = fadeIn(tween(150)) + expandVertically(tween(160)),
                     exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
+                        Text(bannerMessage.orEmpty(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
                             style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         ViewerIcon("查看提示详情", Icons.Default.Info, { messageDetailsOpen = true })
                         if (!important) ViewerIcon("收起提示", Icons.Default.Close, { messageDismissed = true })

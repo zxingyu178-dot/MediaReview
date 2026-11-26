@@ -898,6 +898,39 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun transientSyncErrorClearsAfterSuccessfulRefresh() = runTest {
+        val vm = bootstrapPaired()
+        var fail = true
+        data.feedResponder = {
+            if (fail) throw NsfwApiException("NETWORK_ERROR", "无法连接 NSFW Bridge", 0)
+            nsfwPage(listOf(nsfwItem("img_a"), nsfwItem("img_b")))
+        }
+        vm.refresh()
+        assertTrue(vm.state.value.message.orEmpty().contains("无法连接 NSFW Bridge"))
+        fail = false
+        vm.refresh()
+        assertNull(vm.state.value.message)
+    }
+
+    @Test
+    fun galleryTransientSyncErrorClearsAfterSuccessfulRefresh() = runTest {
+        enableBidirectionalGallery()
+        data.galleryResponder = { bidirectionalPage(listOf("a", "b", "c", "d"), 0) }
+        var fail = true
+        data.feedResponder = {
+            if (fail) throw NsfwApiException("NETWORK_ERROR", "无法连接 NSFW Bridge", 0)
+            nsfwPage(emptyList(), nextCursor = "w", hasMore = false)
+        }
+        val model = vm()
+        assertTrue(model.state.value.items.isNotEmpty())
+        model.refresh()
+        assertTrue(model.state.value.message.orEmpty().contains("无法连接 NSFW Bridge"))
+        fail = false
+        model.refresh()
+        assertNull(model.state.value.message)
+    }
+
+    @Test
     fun confirmedDecisionAdvancesOnlyAfterReceipt() = runTest {
         val vm = bootstrapPaired()
         val receipt = CompletableDeferred<NsfwDecisionResult>()

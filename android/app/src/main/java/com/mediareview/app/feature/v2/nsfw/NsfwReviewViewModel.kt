@@ -215,7 +215,10 @@ class NsfwReviewViewModel @Inject constructor(
     private var savedGalleryReview: NsfwSavedGalleryReview? = null
     private val pendingEvaluations = readPendingEvaluations().toMutableList()
 
-    /** 仅测试可调；生产为 15 秒。 */
+    /** 网络/同步失败提示；下一次成功同步后自动清除，避免桥恢复后残留错误横幅。 */
+    private var transientSyncError: String? = null
+
+    /** 仅测试可调；生产为 3 秒。 */
     internal var pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS
 
     init {
@@ -1518,6 +1521,7 @@ class NsfwReviewViewModel @Inject constructor(
                 lastCursor = next
                 cursor = next
                 pollBackoff.result(true)
+                clearTransientSyncError()
                 if (!page.hasMore) return
             }
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -1531,6 +1535,7 @@ class NsfwReviewViewModel @Inject constructor(
             cursorExpired = error is NsfwApiException && error.code == NsfwErrorCodes.CURSOR_EXPIRED,
             message = if (error is NsfwApiException && error.code == NsfwErrorCodes.CURSOR_EXPIRED)
                 "原范围或增量已过期，请返回图库查看最新或重新选择日期" else error.message ?: "图库加载失败，请重试") }
+        transientSyncError = _state.value.message
     }
 
     private suspend fun syncFeed(epoch: Int, reset: Boolean, manual: Boolean) {
@@ -1556,6 +1561,9 @@ class NsfwReviewViewModel @Inject constructor(
                 if (epoch != connectionEpoch) return
                 pollBackoff.result(false)
                 handleFetchFailure(error)
+                if (!(error is NsfwApiException && error.isAuthRejected)) {
+                    transientSyncError = _state.value.message
+                }
                 return
             }
             if (epoch != connectionEpoch) return
@@ -1629,6 +1637,7 @@ class NsfwReviewViewModel @Inject constructor(
                 message = message,
             )
         }
+        clearTransientSyncError()
         if (targetId != null && targetId != _state.value.detail?.imageId && !_state.value.detailLoading) loadDetails(targetId)
         maybeStartPolling()
     }
@@ -1664,6 +1673,7 @@ class NsfwReviewViewModel @Inject constructor(
                 },
             )
         }
+        clearTransientSyncError()
         if (targetId != null && targetId != _state.value.detail?.imageId) loadDetails(targetId)
     }
 
@@ -1759,6 +1769,13 @@ class NsfwReviewViewModel @Inject constructor(
             )
         }
         return true
+    }
+
+    /** 只有当前横幅仍是那次同步错误时才清除，避免抹掉并发产生的操作提示。 */
+    private fun clearTransientSyncError() {
+        val stale = transientSyncError ?: return
+        transientSyncError = null
+        _state.update { if (it.message == stale) it.copy(message = null) else it }
     }
 
     private fun handleError(error: Throwable) {
