@@ -4,12 +4,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clipToBounds
@@ -35,9 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -74,6 +79,7 @@ internal fun NsfwImageReviewPane(
     onPrefetchNext: () -> Boolean = { false },
 ) {
     val item = state.currentItem
+    val haptic = LocalHapticFeedback.current
     var chrome by remember(item?.imageId) { mutableStateOf(NsfwViewerChrome()) }
     var scale by remember(item?.imageId) { mutableFloatStateOf(1f) }
     var ready by remember(item?.imageId, item?.previewUrl, item?.originalUrl) { mutableStateOf(false) }
@@ -87,6 +93,22 @@ internal fun NsfwImageReviewPane(
     var resetZoom by remember(item?.imageId) { mutableIntStateOf(0) }
     var moreOpen by remember { mutableStateOf(false) }
     var showThumbnails by rememberSaveable { mutableStateOf(false) }
+    // 收藏切换时图标轻微弹跳；只在用户改变状态时触发，切图不重放。
+    val favoriteScale = remember(item?.imageId) { Animatable(1f) }
+    var lastFavorite by remember(item?.imageId) { mutableStateOf(item?.isFavorite == true) }
+    LaunchedEffect(item?.isFavorite) {
+        val favorite = item?.isFavorite == true
+        if (favorite != lastFavorite) {
+            lastFavorite = favorite
+            if (favorite) {
+                favoriteScale.animateTo(1.18f, tween(90, easing = FastOutSlowInEasing))
+                favoriteScale.animateTo(
+                    1f,
+                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                )
+            }
+        }
+    }
     val thumbnails = rememberLazyListState()
     val canNavigate = !state.busy && state.panel?.submitting != true
     val canPrevious = canNavigate && (state.currentIndex > 0 || state.bidirectionalGallery && state.previousPageCursor != null)
@@ -238,7 +260,11 @@ internal fun NsfwImageReviewPane(
                     ViewerIcon("返回图库", Icons.AutoMirrored.Filled.ArrowBack, onGallery, canNavigate)
                     Text(state.reviewPositionLabel, Modifier.weight(1f).padding(horizontal = 8.dp),
                         color = MediaTextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                    if (state.newImageCount > 0) {
+                    AnimatedVisibility(
+                        visible = state.newImageCount > 0,
+                        enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.85f, animationSpec = tween(160)),
+                        exit = fadeOut(tween(100)),
+                    ) {
                         TextButton(onClick = { requestedDirection = 0; onLatest() }, enabled = !state.busy && !state.syncing,
                             contentPadding = PaddingValues(horizontal = 6.dp)) {
                             Text("新图 ${state.newImageCount}", style = MaterialTheme.typography.labelSmall, maxLines = 1)
@@ -310,7 +336,11 @@ internal fun NsfwImageReviewPane(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Button(
-                            onClick = { requestedDirection = 1; onDecision("KEEP", null) },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                requestedDirection = 1
+                                onDecision("KEEP", null)
+                            },
                             enabled = canReview,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                             shape = RoundedCornerShape(16.dp),
@@ -323,7 +353,11 @@ internal fun NsfwImageReviewPane(
                             Text("保留", maxLines = 1)
                         }
                         OutlinedButton(
-                            onClick = { requestedDirection = 1; onDecision("REJECT", null) },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                requestedDirection = 1
+                                onDecision("REJECT", null)
+                            },
                             enabled = canReview,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                             shape = RoundedCornerShape(16.dp),
@@ -335,12 +369,20 @@ internal fun NsfwImageReviewPane(
                             }
                             Text("淘汰", maxLines = 1)
                         }
-                        ViewerIcon(
-                            if (item?.isFavorite == true) "取消收藏" else "收藏",
-                            if (item?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            onToggleFavorite,
-                            enabled = canReview,
-                        )
+                        Box(Modifier.graphicsLayer {
+                            scaleX = favoriteScale.value
+                            scaleY = favoriteScale.value
+                        }) {
+                            ViewerIcon(
+                                if (item?.isFavorite == true) "取消收藏" else "收藏",
+                                if (item?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onToggleFavorite()
+                                },
+                                enabled = canReview,
+                            )
+                        }
                         ViewerIcon(
                             "撤销上次审核", Icons.AutoMirrored.Filled.Undo,
                             { requestedDirection = -1; onUndo() },

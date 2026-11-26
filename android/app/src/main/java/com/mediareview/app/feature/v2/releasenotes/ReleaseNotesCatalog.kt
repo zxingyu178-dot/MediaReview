@@ -559,6 +559,16 @@ object ReleaseNotesCatalog {
                 "配对与图库流程保持 Alpha 49 的只读审核边界",
             ),
         ),
+        ReleaseNote(
+            versionCode = 58,
+            versionName = "2.0.0-alpha51",
+            title = "MediaReview 2.0 Alpha 51",
+            highlights = listOf(
+                "保留、淘汰与收藏加入轻触反馈，收藏图标切换时轻微弹跳",
+                "新图提醒与主页面切换加入淡入缩放动画，过渡更连贯",
+                "图库到审图的浏览动效保持原方向感，操作结果更直观",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

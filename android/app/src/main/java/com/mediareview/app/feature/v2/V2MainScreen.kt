@@ -493,6 +493,8 @@ internal fun PlaceholderPage(
 
 private val pageFadeRoutes = setOf(
     MediaNavigator.ROUTE_HOME,
+    MediaNavigator.ROUTE_REVIEW,
+    MediaNavigator.ROUTE_NSFW_REVIEW,
     MediaNavigator.ROUTE_FAVORITES,
     MediaNavigator.ROUTE_ORGANIZE,
     MediaNavigator.ROUTE_FOLDER_BROWSER,
