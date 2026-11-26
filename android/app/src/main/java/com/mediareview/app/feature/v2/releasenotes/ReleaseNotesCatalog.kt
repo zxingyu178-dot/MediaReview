@@ -609,6 +609,16 @@ object ReleaseNotesCatalog {
                 "旧桥缺少排队字段时保持原有文案，不影响使用",
             ),
         ),
+        ReleaseNote(
+            versionCode = 63,
+            versionName = "2.0.0-alpha56",
+            title = "MediaReview 2.0 Alpha 56",
+            highlights = listOf(
+                "手动切到某张新图后，“新图 N”计数同步减少，不再长期残留",
+                "新图计数只统计尚未查看的图片，逐张浏览也会自动更新",
+                "仍可点击“新图 N”一次跳到最新图片",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

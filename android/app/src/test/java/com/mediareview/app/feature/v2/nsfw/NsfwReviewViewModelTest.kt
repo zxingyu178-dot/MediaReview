@@ -859,6 +859,17 @@ class NsfwReviewViewModelTest {
     }
 
     @Test
+    fun selectingNewImageClearsItFromNewImageCount() = runTest {
+        val vm = bootstrapPaired()
+        data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c"))) }
+        vm.refresh()
+        assertEquals(1, vm.state.value.newImageCount)
+        vm.select("img_c")
+        assertEquals(0, vm.state.value.newImageCount)
+        assertEquals("img_c", vm.state.value.currentId)
+    }
+
+    @Test
     fun newImageRemovedWithinSamePageIsNotCounted() = runTest {
         val vm = bootstrapPaired()
         data.feedResponder = { nsfwPage(listOf(nsfwItem("img_c"),

@@ -554,12 +554,15 @@ class NsfwReviewViewModel @Inject constructor(
 
     fun select(imageId: String) {
         if (imageId.isBlank() || _state.value.items.none { it.imageId == imageId }) return
+        // 手动切到某张新图即视为已查看，避免“新图 N”长期残留。
+        val wasPendingNew = pendingNewImageIds.remove(imageId)
         pendingBrowseId = null
         browseReadFailed = false
         _state.update { it.copy(restoringBrowsePosition = false, hasBrowsePosition = true,
             browseRecoveryMessage = if (galleryAnchorReadFailed) "图库位置读取失败，滑动图库后将记录新位置" else null) }
         persistBrowsePosition(imageId)
         if (imageId == _state.value.currentId) {
+            if (wasPendingNew) _state.update { it.copy(newImageCount = pendingNewImageIds.size) }
             if (_state.value.detail == null && !_state.value.detailLoading) loadDetails(imageId)
             return
         }
@@ -569,6 +572,7 @@ class NsfwReviewViewModel @Inject constructor(
                 detail = null,
                 conflictMessage = null,
                 panel = null,
+                newImageCount = pendingNewImageIds.size,
             )
         }
         loadDetails(imageId)
