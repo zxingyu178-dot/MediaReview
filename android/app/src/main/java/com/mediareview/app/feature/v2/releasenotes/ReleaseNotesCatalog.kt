@@ -549,6 +549,16 @@ object ReleaseNotesCatalog {
                 "图库与批量审核契约已和电脑端实现对齐",
             ),
         ),
+        ReleaseNote(
+            versionCode = 57,
+            versionName = "2.0.0-alpha50",
+            title = "MediaReview 2.0 Alpha 50",
+            highlights = listOf(
+                "审图页顶部新增电脑端生图进度：第 X / Y 张、剩余 N 段，带呼吸提示动画",
+                "进度仅只读显示，不提供生成控制；老电脑端无该能力时自动隐藏",
+                "配对与图库流程保持 Alpha 49 的只读审核边界",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

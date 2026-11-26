@@ -13,6 +13,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedStore
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
 import com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairingGateway
@@ -26,6 +27,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryQuery
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
 import com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview
 import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_CAPABILITY
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GENERATION_PROGRESS_CAPABILITY
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineStart
@@ -130,6 +132,9 @@ data class NsfwUiState(
     val galleryPositionValid: Boolean = false,
     val galleryQuery: NsfwGalleryQuery = NsfwGalleryQuery(),
     val galleryViewEpoch: Int = 0,
+    /** 只读生图进度：仅当桥声明 mobile_generation_progress_v1 时显示。 */
+    val generationProgressEnabled: Boolean = false,
+    val generationProgress: NsfwGenerationProgress? = null,
 ) {
     val currentIndex: Int
         get() = items.indexOfFirst { it.imageId == currentId }.coerceAtLeast(0)
@@ -344,6 +349,7 @@ class NsfwReviewViewModel @Inject constructor(
                 galleryReviewFilterEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_REVIEW_FILTER_CAPABILITY in snapshot.capabilities,
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
                 batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
+                generationProgressEnabled = NSFW_GENERATION_PROGRESS_CAPABILITY in snapshot.capabilities,
             )
         }
         syncFromCursor(reset = true)
@@ -372,6 +378,8 @@ class NsfwReviewViewModel @Inject constructor(
                             detail = null,
                             newImageCount = 0,
                             undoDecision = null,
+                            generationProgressEnabled = false,
+                            generationProgress = null,
                         )
                     }
                     applyConnectionSnapshot(NsfwConnectionSnapshot(
@@ -417,7 +425,10 @@ class NsfwReviewViewModel @Inject constructor(
     fun refresh() {
         if (_state.value.phase != NsfwPhase.READY || _state.value.busy || _state.value.syncing || manualFeedJob?.isActive == true) return
         pollBackoff.reset()
-        manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) { syncFromCursor(reset = false, manual = true) }
+        manualFeedJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            syncFromCursor(reset = false, manual = true)
+            refreshGenerationProgress()
+        }
         manualFeedJob?.start()
     }
 
@@ -435,12 +446,14 @@ class NsfwReviewViewModel @Inject constructor(
         pollJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
             syncFromCursor(reset = false)
             checkPromptUpdates()
+            refreshGenerationProgress()
             while (isActive) {
                 delay(pollBackoff.interval(pollIntervalMs))
                 val snapshot = _state.value
                 if (snapshot.phase == NsfwPhase.READY && !snapshot.busy) {
                     syncFromCursor(reset = false)
                     checkPromptUpdates()
+                    refreshGenerationProgress()
                 }
             }
         }
@@ -478,6 +491,7 @@ class NsfwReviewViewModel @Inject constructor(
         savedGalleryReview = null
         _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, galleryReviewFilterEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
+            generationProgressEnabled = false, generationProgress = null,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
         pendingBrowseId = null
@@ -1263,6 +1277,26 @@ class NsfwReviewViewModel @Inject constructor(
                 }
                 throw error
             }
+        }
+    }
+
+    /**
+     * 只读生图进度：失败静默（老桥无能力/瞬断都不能干扰审核主流程）。
+     * 只有连接 epoch 未变且仍 READY 时才落状态，避免旧连接覆盖新连接。
+     */
+    private suspend fun refreshGenerationProgress() {
+        val snapshot = _state.value
+        if (snapshot.phase != NsfwPhase.READY || !snapshot.generationProgressEnabled) return
+        val epoch = connectionEpoch
+        try {
+            val progress = dataSource.generationProgress() ?: return
+            if (epoch == connectionEpoch && _state.value.phase == NsfwPhase.READY) {
+                _state.update { it.copy(generationProgress = progress) }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // 进度是增值信息；失败不清空旧值，避免顶栏闪烁（连接切换会重置）。
         }
     }
 

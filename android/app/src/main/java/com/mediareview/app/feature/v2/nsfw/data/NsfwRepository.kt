@@ -14,6 +14,8 @@ interface NsfwReviewDataSource {
     suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String? = null, scopeCursor: String? = null, anchorId: String? = null, limit: Int = 50): NsfwGalleryPage =
         throw NsfwApiException("GALLERY_UNSUPPORTED", "日期查询需要更新电脑端生图审核服务")
     suspend fun feed(cursor: String?, limit: Int = 50): NsfwFeedPage
+    /** 只读生图进度；桥未提供该能力时返回 null（UI 隐藏，不视为错误）。 */
+    suspend fun generationProgress(): NsfwGenerationProgress? = null
     suspend fun details(imageId: String): NsfwImageDetails
     suspend fun decide(
         imageId: String,
@@ -104,6 +106,20 @@ class NsfwRepository internal constructor(
     override suspend fun feed(cursor: String?, limit: Int): NsfwFeedPage {
         val safeLimit = limit.coerceIn(1, 100)
         return call { api().feed(cursor = cursor, limit = safeLimit) }
+    }
+
+    override suspend fun generationProgress(): NsfwGenerationProgress {
+        val progress = call { api().generationProgress() }
+        val current = progress.currentImage
+        val total = progress.imagesInSegment
+        if (progress.remainingSegments < 0 ||
+            (current == null) != (total == null) ||
+            (current != null && current < 1) ||
+            (total != null && total < 1) ||
+            (current != null && total != null && current > total)) {
+            throw mismatch("生图进度字段不一致，请重试")
+        }
+        return progress
     }
 
     override suspend fun details(imageId: String): NsfwImageDetails {

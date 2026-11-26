@@ -16,6 +16,27 @@ const val NSFW_REQUIRED_API_CONTRACT: Int = 2
 
 const val NSFW_BATCH_REVIEW_CAPABILITY = "mobile_image_batch_review_v1"
 
+/** 只读生图进度能力；老桥没有该能力时整块 UI 隐藏。 */
+const val NSFW_GENERATION_PROGRESS_CAPABILITY = "mobile_generation_progress_v1"
+
+@Serializable
+data class NsfwGenerationProgress(
+    @SerialName("current_image") val currentImage: Int? = null,
+    @SerialName("images_in_segment") val imagesInSegment: Int? = null,
+    @SerialName("remaining_segments") val remainingSegments: Int = 0,
+) {
+    val isGenerating: Boolean get() = remainingSegments > 0
+
+    /** 顶栏文案：只读计数，不暴露 Prompt / Job 控制。 */
+    val label: String
+        get() = when {
+            remainingSegments <= 0 -> "电脑端暂无生成任务"
+            currentImage != null && imagesInSegment != null ->
+                "电脑端生成中：第 $currentImage / $imagesInSegment 张 · 剩余 $remainingSegments 段"
+            else -> "电脑端队列：剩余 $remainingSegments 段"
+        }
+}
+
 @Serializable
 data class NsfwBatchReviewItem(
     @SerialName("image_id") val imageId: String,

@@ -7,6 +7,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationReceipt
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationRequest
 import com.mediareview.app.feature.v2.nsfw.data.NsfwEvaluationResult
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedPage
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
 import com.mediareview.app.feature.v2.nsfw.data.NsfwHealth
 import com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPairingRequest
@@ -69,6 +70,10 @@ interface NsfwStudioApi {
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = 50,
     ): NsfwEnvelope<NsfwFeedPage>
+
+    /** 只读生图进度（需配对 Bearer；能力缺失时服务端 404，客户端静默隐藏）。 */
+    @GET("/mobile/generation/progress")
+    suspend fun generationProgress(): NsfwEnvelope<NsfwGenerationProgress>
 
     @GET("/mobile/images/{image_id}/details")
     suspend fun imageDetails(@Path("image_id") imageId: String): NsfwEnvelope<NsfwImageDetails>

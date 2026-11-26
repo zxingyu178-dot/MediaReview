@@ -6,6 +6,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clipToBounds
@@ -43,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
 import com.mediareview.app.feature.v2.nsfw.di.NsfwImageLoader
 import com.mediareview.app.feature.v2.viewer.ZoomableImage
 import com.mediareview.app.feature.v2.viewer.ZoomImageSource
@@ -256,6 +261,15 @@ internal fun NsfwImageReviewPane(
                         }
                     }
                 }
+                val generationProgress = state.generationProgress
+                AnimatedVisibility(
+                    visible = state.generationProgressEnabled,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    // 只读进度：老桥没有该能力时整行不出现。
+                    if (generationProgress != null) GenerationProgressStrip(generationProgress)
+                }
                 if (messages.isNotEmpty() && (!messageDismissed || important)) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
                         style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -343,6 +357,45 @@ internal fun NsfwImageReviewPane(
         }
         if (chrome.zoomed) Text("${(scale * 100).toInt()}%", color = MediaTextSecondary,
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp))
+    }
+}
+
+@Composable
+private fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
+    val pulse = if (progress.isGenerating) {
+        val transition = rememberInfiniteTransition(label = "generation-progress")
+        val value by transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(durationMillis = 900), RepeatMode.Reverse),
+            label = "generation-progress-alpha",
+        )
+        value
+    } else {
+        1f
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .graphicsLayer { alpha = pulse }
+                .background(
+                    if (progress.isGenerating) MaterialTheme.colorScheme.primary else MediaTextSecondary,
+                    RoundedCornerShape(3.dp),
+                ),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            progress.label,
+            color = if (progress.isGenerating) MediaTextPrimary else MediaTextSecondary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
