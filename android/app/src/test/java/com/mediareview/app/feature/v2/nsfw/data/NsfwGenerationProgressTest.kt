@@ -66,6 +66,15 @@ class NsfwGenerationProgressTest {
     }
 
     @Test
+    fun `分段进度比例在未知或非法计数时为 null`() {
+        assertEquals(0.5f, NsfwGenerationProgress(1, 2, 1).fraction)
+        assertEquals(1f, NsfwGenerationProgress(3, 2, 1).fraction)
+        assertNull(NsfwGenerationProgress(null, 2, 1).fraction)
+        assertNull(NsfwGenerationProgress(1, null, 1).fraction)
+        assertNull(NsfwGenerationProgress(1, 0, 1).fraction)
+    }
+
+    @Test
     fun `新桥响应解析队列状态字段`() {
         val progress = json.decodeFromString<NsfwGenerationProgress>(
             """{"current_image":null,"images_in_segment":null,"remaining_segments":2,

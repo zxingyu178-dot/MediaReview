@@ -579,6 +579,16 @@ object ReleaseNotesCatalog {
                 "旧电脑端缺少状态字段时保持原有计数展示，不影响使用",
             ),
         ),
+        ReleaseNote(
+            versionCode = 60,
+            versionName = "2.0.0-alpha53",
+            title = "MediaReview 2.0 Alpha 53",
+            highlights = listOf(
+                "生图进度条按“排队 / 生成 / 暂停”变色，并显示本段已完成比例",
+                "缩略图条和审核提示改为平滑展开与收起",
+                "进度文案切换加入淡入淡出，减少文字跳动",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

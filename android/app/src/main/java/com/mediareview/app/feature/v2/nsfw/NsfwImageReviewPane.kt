@@ -1,15 +1,20 @@
 package com.mediareview.app.feature.v2.nsfw
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -296,20 +301,32 @@ internal fun NsfwImageReviewPane(
                     // 只读进度：老桥没有该能力时整行不出现。
                     if (generationProgress != null) GenerationProgressStrip(generationProgress)
                 }
-                if (messages.isNotEmpty() && (!messageDismissed || important)) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
-                        style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    ViewerIcon("查看提示详情", Icons.Default.Info, { messageDetailsOpen = true })
-                    if (!important) ViewerIcon("收起提示", Icons.Default.Close, { messageDismissed = true })
+                AnimatedVisibility(
+                    visible = messages.isNotEmpty() && (!messageDismissed || important),
+                    enter = fadeIn(tween(150)) + expandVertically(tween(160)),
+                    exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
+                            style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        ViewerIcon("查看提示详情", Icons.Default.Info, { messageDetailsOpen = true })
+                        if (!important) ViewerIcon("收起提示", Icons.Default.Close, { messageDismissed = true })
+                    }
                 }
             }
         }
         AnimatedVisibility(chrome.visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xED080B10), Color(0xFF080B10)))).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                if (showThumbnails) LazyRow(state = thumbnails, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().height(72.dp)) {
-                    items(state.items, key = { it.imageId }) { thumbnail ->
-                        NsfwReviewThumbnail(safeNsfwImageUrl(state.baseUrl, thumbnail.thumbnailUrl), imageLoader,
-                            thumbnail.imageId == state.currentId) { if (canNavigate) { requestedDirection = 0; onSelect(thumbnail.imageId) } }
+                AnimatedVisibility(
+                    visible = showThumbnails,
+                    enter = fadeIn(tween(160)) + expandVertically(tween(180)),
+                    exit = fadeOut(tween(120)) + shrinkVertically(tween(160)),
+                ) {
+                    LazyRow(state = thumbnails, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().height(72.dp)) {
+                        items(state.items, key = { it.imageId }) { thumbnail ->
+                            NsfwReviewThumbnail(safeNsfwImageUrl(state.baseUrl, thumbnail.thumbnailUrl), imageLoader,
+                                thumbnail.imageId == state.currentId) { if (canNavigate) { requestedDirection = 0; onSelect(thumbnail.imageId) } }
+                        }
                     }
                 }
 
@@ -404,6 +421,12 @@ internal fun NsfwImageReviewPane(
 
 @Composable
 private fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
+    val statusColor = when (progress.activeStatus) {
+        "running" -> MaterialTheme.colorScheme.primary
+        "queued" -> MaterialTheme.colorScheme.tertiary
+        "paused" -> MaterialTheme.colorScheme.error
+        else -> MediaTextSecondary
+    }
     val pulse = if (progress.isGenerating) {
         val transition = rememberInfiniteTransition(label = "generation-progress")
         val value by transition.animateFloat(
@@ -416,28 +439,54 @@ private fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
     } else {
         1f
     }
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(6.dp)
-                .graphicsLayer { alpha = pulse }
-                .background(
-                    if (progress.isGenerating) MaterialTheme.colorScheme.primary else MediaTextSecondary,
-                    RoundedCornerShape(3.dp),
-                ),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            progress.label,
-            color = if (progress.isGenerating) MediaTextPrimary else MediaTextSecondary,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .graphicsLayer { alpha = pulse }
+                    .background(statusColor, RoundedCornerShape(3.dp)),
+            )
+            Spacer(Modifier.width(6.dp))
+            AnimatedContent(
+                targetState = progress.label,
+                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
+                label = "generation-progress-label",
+                modifier = Modifier.weight(1f),
+            ) { label ->
+                Text(
+                    label,
+                    color = if (progress.isGenerating) MediaTextPrimary else MediaTextSecondary,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        val fraction = progress.fraction
+        if (fraction != null) {
+            val animated by animateFloatAsState(
+                targetValue = fraction,
+                animationSpec = tween(260),
+                label = "generation-progress-fraction",
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .height(3.dp)
+                    .background(Color(0x33FFFFFF), RoundedCornerShape(1.5.dp)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(animated)
+                        .height(3.dp)
+                        .background(statusColor, RoundedCornerShape(1.5.dp)),
+                )
+            }
+        }
     }
 }
 

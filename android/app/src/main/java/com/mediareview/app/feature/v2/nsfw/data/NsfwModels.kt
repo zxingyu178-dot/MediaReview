@@ -33,6 +33,15 @@ data class NsfwGenerationProgress(
 ) {
     val isGenerating: Boolean get() = remainingSegments > 0
 
+    /** 当前段内的完成比例；未知或非法计数时返回 null（不画进度条）。 */
+    val fraction: Float?
+        get() {
+            val current = currentImage ?: return null
+            val total = imagesInSegment ?: return null
+            if (total <= 0) return null
+            return (current.toFloat() / total).coerceIn(0f, 1f)
+        }
+
     /** 顶栏文案：只读计数，不暴露 Prompt / Job 控制。 */
     val label: String
         get() = when {
