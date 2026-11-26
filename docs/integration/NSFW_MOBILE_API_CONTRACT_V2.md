@@ -278,6 +278,12 @@
 
 配套提案：`docs/integration/openapi-mobile-review-v2.proposal.json` 与 `docs/integration/fixtures/`（含 `feed_remove.json`、`decision_favorite_only.json`）。
 
-## 可选扩展：不提供生图进度
+## 可选扩展：只读生图进度（已启用）
 
-8877 桥的安全红线是不暴露 generation / engine_control / prompt_edit。手机端不提供生图进度入口；`mobile_generation_progress_v1` 不在能力集内。如未来需要进度，必须走独立的桌面端通道，不得在 8877 上开口子。
+8877 桥的安全红线仍是**不暴露** generation 控制 / engine control / prompt 编辑；只提供只读计数：
+
+- `mobile_generation_progress_v1`：`current_image` / `images_in_segment` / `remaining_segments`；
+- `mobile_generation_queue_status_v1`：追加 `active_status`（running / paused / queued / none）、
+  `queued_jobs`、`paused_jobs`；
+- 不返回 Prompt、Job ID 或任何可写入口；响应 `Cache-Control: no-store`，未配对/撤销返回 401；
+- 客户端未看到 `mobile_generation_progress_v1` 时隐藏进度 UI；缺少状态字段时按原计数展示。

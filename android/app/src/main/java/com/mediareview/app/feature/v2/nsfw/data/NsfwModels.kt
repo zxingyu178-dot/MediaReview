@@ -19,11 +19,17 @@ const val NSFW_BATCH_REVIEW_CAPABILITY = "mobile_image_batch_review_v1"
 /** 只读生图进度能力；老桥没有该能力时整块 UI 隐藏。 */
 const val NSFW_GENERATION_PROGRESS_CAPABILITY = "mobile_generation_progress_v1"
 
+/** 进度扩展能力：额外返回 active_status / queued_jobs / paused_jobs（只读）。 */
+const val NSFW_GENERATION_QUEUE_STATUS_CAPABILITY = "mobile_generation_queue_status_v1"
+
 @Serializable
 data class NsfwGenerationProgress(
     @SerialName("current_image") val currentImage: Int? = null,
     @SerialName("images_in_segment") val imagesInSegment: Int? = null,
     @SerialName("remaining_segments") val remainingSegments: Int = 0,
+    @SerialName("active_status") val activeStatus: String? = null,
+    @SerialName("queued_jobs") val queuedJobs: Int = 0,
+    @SerialName("paused_jobs") val pausedJobs: Int = 0,
 ) {
     val isGenerating: Boolean get() = remainingSegments > 0
 
@@ -31,8 +37,13 @@ data class NsfwGenerationProgress(
     val label: String
         get() = when {
             remainingSegments <= 0 -> "电脑端暂无生成任务"
+            activeStatus == "paused" -> "电脑端生成已暂停 · 剩余 $remainingSegments 段"
             currentImage != null && imagesInSegment != null ->
                 "电脑端生成中：第 $currentImage / $imagesInSegment 张 · 剩余 $remainingSegments 段"
+            activeStatus == "queued" ->
+                "电脑端已提交：排队 $queuedJobs 个任务"
+            activeStatus == "running" ->
+                "电脑端生成中：准备下一张 · 剩余 $remainingSegments 段"
             else -> "电脑端队列：剩余 $remainingSegments 段"
         }
 }

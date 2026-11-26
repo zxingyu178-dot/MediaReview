@@ -569,6 +569,16 @@ object ReleaseNotesCatalog {
                 "图库到审图的浏览动效保持原方向感，操作结果更直观",
             ),
         ),
+        ReleaseNote(
+            versionCode = 59,
+            versionName = "2.0.0-alpha52",
+            title = "MediaReview 2.0 Alpha 52",
+            highlights = listOf(
+                "审图页进度新增“已提交 / 生成中 / 已暂停”状态，排队任务数直接可见",
+                "两张图之间显示“准备下一张”，不再误显示为没有任务",
+                "旧电脑端缺少状态字段时保持原有计数展示，不影响使用",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
