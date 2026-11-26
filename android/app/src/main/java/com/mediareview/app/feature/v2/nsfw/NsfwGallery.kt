@@ -1,5 +1,11 @@
 package com.mediareview.app.feature.v2.nsfw
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -145,6 +151,14 @@ internal fun NsfwGallery(
                         onClick = { moreOpen = false; onDisconnect() })
                 }
             }
+        }
+        // 电脑端有排队 / 生成 / 暂停任务时，在生图库顶部同步只读进度；空闲时不占位。
+        AnimatedVisibility(
+            visible = state.generationProgress?.visibleInGallery(state.generationProgressEnabled) == true,
+            enter = fadeIn(tween(160)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(140)),
+        ) {
+            state.generationProgress?.takeIf { it.isGenerating }?.let { GenerationProgressStrip(it) }
         }
         if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {

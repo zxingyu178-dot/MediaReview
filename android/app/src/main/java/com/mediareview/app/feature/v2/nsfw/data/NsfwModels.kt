@@ -33,6 +33,9 @@ data class NsfwGenerationProgress(
 ) {
     val isGenerating: Boolean get() = remainingSegments > 0
 
+    /** 生图库顶部进度条是否可见：能力可用且确有排队 / 生成 / 暂停任务，空闲时不占位。 */
+    fun visibleInGallery(enabled: Boolean): Boolean = enabled && isGenerating
+
     /** 当前段内的完成比例；未知或非法计数时返回 null（不画进度条）。 */
     val fraction: Float?
         get() {

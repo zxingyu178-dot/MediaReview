@@ -2,7 +2,9 @@ package com.mediareview.app.feature.v2.nsfw.data
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 审图页只读生图进度文案：排队 / 生成中 / 阶段间隙 / 暂停 / 旧桥兼容。 */
@@ -95,6 +97,15 @@ class NsfwGenerationProgressTest {
         assertNull(NsfwGenerationProgress(null, 2, 1).fraction)
         assertNull(NsfwGenerationProgress(1, null, 1).fraction)
         assertNull(NsfwGenerationProgress(1, 0, 1).fraction)
+    }
+
+    @Test
+    fun `生图库顶部仅在能力可用且有任务时显示进度`() {
+        assertFalse(NsfwGenerationProgress().visibleInGallery(true))
+        assertFalse(NsfwGenerationProgress(remainingSegments = 2).visibleInGallery(false))
+        assertTrue(NsfwGenerationProgress(remainingSegments = 2).visibleInGallery(true))
+        assertTrue(NsfwGenerationProgress(activeStatus = "queued", queuedJobs = 1,
+            remainingSegments = 1).visibleInGallery(true))
     }
 
     @Test

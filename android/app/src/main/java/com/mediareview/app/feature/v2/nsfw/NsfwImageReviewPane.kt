@@ -421,7 +421,7 @@ internal fun NsfwImageReviewPane(
 }
 
 @Composable
-private fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
+internal fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
     val statusColor = when (progress.activeStatus) {
         "running" -> MaterialTheme.colorScheme.primary
         "queued" -> MaterialTheme.colorScheme.tertiary

@@ -619,6 +619,16 @@ object ReleaseNotesCatalog {
                 "仍可点击“新图 N”一次跳到最新图片",
             ),
         ),
+        ReleaseNote(
+            versionCode = 64,
+            versionName = "2.0.0-alpha57",
+            title = "MediaReview 2.0 Alpha 57",
+            highlights = listOf(
+                "生图库顶部也会显示电脑端生成进度，翻缩略图时无需进入单图",
+                "有排队、生成或暂停任务时才出现，空闲时不占位",
+                "进度条随任务状态自动淡入淡出",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
