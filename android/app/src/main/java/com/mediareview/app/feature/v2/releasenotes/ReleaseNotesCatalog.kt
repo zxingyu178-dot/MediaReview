@@ -539,6 +539,16 @@ object ReleaseNotesCatalog {
                 "配对失效后，仍可从连接入口重新配对",
             ),
         ),
+        ReleaseNote(
+            versionCode = 56,
+            versionName = "2.0.0-alpha49",
+            title = "MediaReview 2.0 Alpha 49",
+            highlights = listOf(
+                "生图审核只显示电脑端真实支持的能力，移除未上线的进度入口",
+                "配套电脑端升级到 0.14.0，健康检查可核对构建版本",
+                "图库与批量审核契约已和电脑端实现对齐",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

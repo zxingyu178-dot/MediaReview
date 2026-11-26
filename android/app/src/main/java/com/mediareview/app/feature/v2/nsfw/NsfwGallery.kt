@@ -34,7 +34,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
-import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
@@ -147,7 +146,6 @@ internal fun NsfwGallery(
                 }
             }
         }
-        state.generationProgress?.let { NsfwGenerationProgressStrip(it) }
         if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) {
@@ -360,26 +358,5 @@ private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, load
         Icon(statusIcon, contentDescription = null,
             modifier = Modifier.align(Alignment.BottomStart).background(Color(0xAA000000)).padding(4.dp).size(16.dp),
             tint = Color.White)
-    }
-}
-
-/** 紧贴生图库和单图页的工具栏，共用同一份桥端进度。 */
-@Composable
-internal fun NsfwGenerationProgressStrip(progress: NsfwGenerationProgress) {
-    val current = progress.currentImage
-    val total = progress.imagesInSegment
-    val currentLabel = if (current != null && total != null) "$current/$total　" else ""
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-        Text(
-            "${currentLabel}剩余 ${progress.remainingSegments} 段",
-            color = MediaTextPrimary,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        if (current != null && total != null) {
-            LinearProgressIndicator(
-                progress = { current.toFloat() / total },
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            )
-        }
     }
 }

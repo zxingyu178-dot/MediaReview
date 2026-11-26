@@ -15,14 +15,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import coil.ImageLoader
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
-import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
 import com.mediareview.app.feature.v2.nsfw.data.NsfwImageDetails
 import com.mediareview.app.feature.v2.nsfw.di.NsfwImageLoader
 import com.mediareview.app.feature.v2.nsfw.network.NsfwTokenProvider
@@ -97,57 +94,6 @@ class NsfwVisualPolishTest {
         compose.runOnIdle { state.value = state.value.copy(syncing = true) }
         compose.onAllNodesWithContentDescription("图片").assertCountEquals(1)
         capture("viewer-next")
-    }
-
-    @Test fun galleryShowsProgressBelowToolbarAndClearsItWhenIdle() = withImages { base, loader, items ->
-        val state = mutableStateOf(NsfwUiState(
-            phase = NsfwPhase.READY, baseUrl = base, items = items, currentId = items.first().imageId,
-            galleryEnabled = true, generationProgress = NsfwGenerationProgress(3, 6, 20),
-        ))
-        compose.setContent { MediaReviewTheme { Surface {
-            NsfwGallery(state.value, loader, rememberLazyGridState(), {}, {}, {}, {}, { _, _ -> })
-        } } }
-        val filter = compose.onNodeWithContentDescription("筛选").fetchSemanticsNode().boundsInRoot
-        val text = compose.onNodeWithText("3/6　剩余 20 段").assertIsDisplayed()
-        assertTrue(text.fetchSemanticsNode().boundsInRoot.top >= filter.bottom)
-        compose.onNode(SemanticsMatcher.expectValue(
-            SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(.5f, 0f..1f),
-        )).assertIsDisplayed()
-        compose.runOnIdle { state.value = state.value.copy(generationProgress = null) }
-        compose.onNodeWithText("3/6　剩余 20 段").assertDoesNotExist()
-    }
-    @Test fun generationProgressRendersAndClearsOnTheReviewScreen() = withImages { base, loader, items ->
-        val state = mutableStateOf(NsfwUiState(
-            phase = NsfwPhase.READY, baseUrl = base, items = items, currentId = items.first().imageId,
-            generationProgress = NsfwGenerationProgress(3, 6, 20),
-        ))
-        compose.setContent {
-            val density = LocalDensity.current.density
-            CompositionLocalProvider(LocalDensity provides Density(density, 2f)) {
-                Box(Modifier.width(320.dp)) {
-                    MediaReviewTheme { Surface {
-                        NsfwImageReviewPane(state.value, loader, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}, {}, {}, {})
-                    } }
-                }
-            }
-        }
-
-        fun bar(fraction: Float) = compose.onNode(SemanticsMatcher.expectValue(
-            SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(fraction, 0f..1f),
-        ))
-
-        compose.onNodeWithText("3/6　剩余 20 段").assertIsDisplayed()
-        bar(.5f).assertIsDisplayed()
-        compose.runOnIdle { state.value = state.value.copy(generationProgress = NsfwGenerationProgress(1, 6, 19)) }
-        compose.onNodeWithText("1/6　剩余 19 段").assertIsDisplayed()
-        bar(1f / 6f).assertIsDisplayed()
-        bar(.5f).assertDoesNotExist()
-
-        compose.runOnIdle { state.value = state.value.copy(generationProgress = NsfwGenerationProgress(null, null, 19)) }
-        compose.onNodeWithText("剩余 19 段").assertIsDisplayed()
-        bar(1f / 6f).assertDoesNotExist()
-        compose.runOnIdle { state.value = state.value.copy(generationProgress = null) }
-        compose.onNodeWithText("剩余 19 段").assertDoesNotExist()
     }
 
     @Test fun undoStaysInViewerAndActionBarFitsLargeText() = withImages { base, loader, items ->

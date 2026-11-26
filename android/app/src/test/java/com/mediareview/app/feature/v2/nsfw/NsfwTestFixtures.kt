@@ -240,14 +240,6 @@ class FakeNsfwEvaluationJournal(
 }
 
 class FakeNsfwDataSource : NsfwReviewDataSource {
-    var generationProgressCalls = 0
-    var generationProgressResponder: suspend () -> com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress? = { null }
-
-    override suspend fun generationProgress(): com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress? {
-        generationProgressCalls++
-        return generationProgressResponder()
-    }
-
     var batchCalls = 0
     var batchReceiptCalls = 0
     var batchResponder: suspend (String, List<com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewItem>) -> com.mediareview.app.feature.v2.nsfw.data.NsfwBatchReviewResult = { _, _ -> error("unconfigured batch") }

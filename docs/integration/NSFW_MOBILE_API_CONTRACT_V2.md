@@ -2,7 +2,7 @@
 
 - 版本：`NSFW_MOBILE_CONTRACT_V2 = 2`
 - 冻结方：MediaReview Android（`feature/nsfw-image-review-v2`）
-- 状态：**客户端已冻结 / 服务端未实现**。本文件是客户端唯一端点与字段事实源；UI 不得临时拼接其它版本端点。
+- 状态：**客户端与桥已实现**（Bridge 0.14.0 / api_contract 2）。本文件是客户端唯一端点与字段事实源；UI 不得临时拼接其它版本端点。
 - 来源需求：`docs/integration/NSFW_MOBILE_API_REQUEST_V2.md`（原文归档，未改动）。
 - 基线：MediaReview `codex/mediareview-stage9-native-source` @ `37e93e2`；NSFW Studio 只读参考（未修改任何 NSFW 代码、数据库、部署或端口）。
 
@@ -244,13 +244,20 @@
 
 - 提交超时/结果未知时，客户端用同一 `client_request_id` 查询；`found=false` 才允许重新提交（仍用同一 ID）。
 
+### 2.8 `GET /mobile/images/gallery` 与批量审核
+
+- 图库：`GET /mobile/images/gallery?sort=&from_utc=&before_utc=&page_cursor=&scope_cursor=&anchor_id=&limit=`。首屏只传 `scope_cursor` 或 `anchor_id`；后续翻页只传 `page_cursor`，两者同时出现返回 422。
+- 批量：`POST /mobile/images/batch-review`（`Idempotency-Key`），回执 `GET /mobile/images/batch-review/{request_id}/result`。
+- 相关能力：`mobile_gallery_query_v1`、`mobile_gallery_bidirectional_v1`、`mobile_gallery_filters_v1`、`mobile_gallery_review_filter_v1`、`mobile_gallery_search_v1`、`mobile_image_batch_review_v1`。
+- 字段与分页语义以 `docs/integration/fixtures/` 和桥端 `MEDIAREVIEW_NSFW_CONTRACT_V2.md` 为准。
+
 ## 3. 客户端实现边界
 
 - 只新增独立 NSFW 配对存储（DataStore `nsfw_studio_profile`）、独立 token、独立 Retrofit 客户端；**不覆盖** MediaReview Server 的 DataStore / token / 401 处理。
 - 不将 NSFW 加入全局 `V2DataMode`；`DEMO / SERVER` 含义不变。
 - 不复用依赖视频播放、Jellyfin 与删除队列的 `V2ReviewViewModel`；只复用通用图片缩放、时间格式化、Snackbar。
 - 不提供永久删除；不调用 Desktop 8000 路由；不新增端口。
-- 服务端未实现前：真实 Bridge 配对会在能力门禁处被拒绝，这是**预期行为**，不是客户端缺陷。
+- 桥已实现 v2 必需能力；旧 Bridge 或缺失能力仍会在能力门禁处被拒绝，这是**预期行为**，不是客户端缺陷。
 
 ## 4. 契约变更流程
 
@@ -271,20 +278,6 @@
 
 配套提案：`docs/integration/openapi-mobile-review-v2.proposal.json` 与 `docs/integration/fixtures/`（含 `feed_remove.json`、`decision_favorite_only.json`）。
 
-## 可选扩展 mobile_generation_progress_v1
+## 可选扩展：不提供生图进度
 
-配对审核桥可在现有健康检查的 capabilities 中声明此能力。手机仅在审核页前台且当前连接声明该能力时，通过现有配对 Bearer 读取，下线或读取失败时隐藏旧快照。
-
-- GET /mobile/generation/progress
-- 使用既有成功响应信封，data 示例为 `{"current_image":3,"images_in_segment":6,"remaining_segments":20}`。
-- current_image 是正在生成的图的 1 基序号，images_in_segment 属于同一个提示词段。
-- remaining_segments 来自同一份队列快照，包含正在生成的段。一段提示词对应一个队列项，20 段包含当前段时显示「3/6　剩余 20 段」。
-- 没有运行段时两个图片字段均为 null。剩余段数仍取队列快照，空队列返回 0。
-- 接口只读，只返回计数，不返回提示词、路径、任务详情或图片。旧桥不声明能力时继续使用原审核流程。
-
-### 审核桥接入与验收
-
-- 序号取当前运行的图片槽位 item_index 加一。Studio 现有槽位从零开始。续跑可能复用先前出图，因此不能用已完成数加一推算当前槽位。
-- 当前槽位、当前段请求图片数和剩余段数要来自同一个一致性读取。阶段切换间隙没有 RUNNING 槽位时返回 null 序号与总张数，同时保留尚未完成的段数。
-- 用隔离配对和合成任务验收：未配对拒绝；运行第 3/6 张且剩余 20 段；同段下一张；换到下一段后的第 1 张及剩余 19 段；停等或断线时旧进度不残留；恢复后以新快照为准。
-- 审核桥验证通过后才声明 capability。桌面队列接口的完整任务详情和控制路由继续只由桌面端使用。
+8877 桥的安全红线是不暴露 generation / engine_control / prompt_edit。手机端不提供生图进度入口；`mobile_generation_progress_v1` 不在能力集内。如未来需要进度，必须走独立的桌面端通道，不得在 8877 上开口子。

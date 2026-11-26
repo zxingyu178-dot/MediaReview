@@ -7,8 +7,6 @@ import retrofit2.HttpException
 
 /** 审核页只依赖该接口；真实实现走 Bridge，测试用 MockWebServer 或假实现。 */
 interface NsfwReviewDataSource {
-    suspend fun generationProgress(): NsfwGenerationProgress? = null
-
     suspend fun batchReview(requestId: String, items: List<NsfwBatchReviewItem>): NsfwBatchReviewResult =
         throw NsfwApiException("BATCH_REVIEW_UNSUPPORTED", "批量审核需要更新电脑端生图审核服务")
     suspend fun batchReviewReceipt(requestId: String): NsfwBatchReviewResult =
@@ -102,11 +100,6 @@ class NsfwRepository internal constructor(
         NsfwBaseUrlPort { store.current().baseUrl },
         apiFactory,
     )
-
-    override suspend fun generationProgress(): NsfwGenerationProgress =
-        call { api().generationProgress() }.also {
-            if (!it.valid) throw mismatch("生成进度数据无效")
-        }
 
     override suspend fun feed(cursor: String?, limit: Int): NsfwFeedPage {
         val safeLimit = limit.coerceIn(1, 100)

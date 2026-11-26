@@ -17,20 +17,9 @@ import org.junit.Test
 /**
  * v2 端点合同测试（MockWebServer 真实 HTTP）：
  * 路径/参数/字段解析/错误码全部按 docs/integration/NSFW_MOBILE_API_CONTRACT_V2.md；
- * 这里证明"客户端契约与模拟接口"可用，不代表真实 Bridge 已实现。
+ * 这里证明客户端契约可用；真实 Bridge 0.14.0 已实现 v2 必需能力。
  */
 class NsfwRepositoryContractTest {
-    @Test fun generationProgressUsesQueueSnapshotAndRejectsImpossibleIndex() = runTest {
-        server.enqueue(okay("""{"success":true,"data":{"current_image":3,"images_in_segment":6,"remaining_segments":20}}"""))
-        assertEquals(NsfwGenerationProgress(3, 6, 20), repository.generationProgress())
-        val request = server.takeRequest()
-        assertEquals("GET", request.method)
-        assertEquals("/mobile/generation/progress", request.path)
-
-        server.enqueue(okay("""{"success":true,"data":{"current_image":7,"images_in_segment":6,"remaining_segments":20}}"""))
-        assertTrue(runCatching { repository.generationProgress() }.exceptionOrNull() is NsfwApiException)
-    }
-
     @Test fun gallerySearchSendsNormalizedLiteralTextAndCurrentPromptTag() = runTest {
         val query = NsfwGalleryFilter(search = "  silver %_  ", tag = "  style  ").resolve()
         server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"s","sync_cursor":"w","filters":{"search":"silver %_","tag":"style"}}}"""))

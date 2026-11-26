@@ -256,7 +256,6 @@ internal fun NsfwImageReviewPane(
                         }
                     }
                 }
-                state.generationProgress?.let { NsfwGenerationProgressStrip(it) }
                 if (messages.isNotEmpty() && (!messageDismissed || important)) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(importantMessage ?: messages.first(), Modifier.weight(1f).padding(start = 12.dp), color = if (important) MaterialTheme.colorScheme.error else MediaTextSecondary,
                         style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
