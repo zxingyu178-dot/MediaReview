@@ -789,6 +789,16 @@ object ReleaseNotesCatalog {
                 "空状态下全选、清空与提交按钮自动隐藏",
             ),
         ),
+        ReleaseNote(
+            versionCode = 81,
+            versionName = "2.0.0-alpha74",
+            title = "MediaReview 2.0 Alpha 74",
+            highlights = listOf(
+                "筛选面板把搜索区放到顶部，键盘弹出时输入框与搜索按钮保持可见",
+                "小屏 / 大字体下不再出现“正在输入却看不到内容”的情况",
+                "常规尺寸下的筛选行为不变",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

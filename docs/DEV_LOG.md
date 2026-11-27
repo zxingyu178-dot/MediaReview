@@ -4118,3 +4118,11 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 - 进程保持 pid 18611，crash buffer 今日无新崩溃。
 
 证据：`docs/evidence/alpha74-batch-open.xml`、`alpha74-batch-selected.xml`、`alpha74-batch-all.xml`、`alpha74-batch-cleared.xml`、`alpha74-reject-all-dialog.xml`、`alpha74-reject-all-second.xml`、`alpha74-confirm-dialog.xml`、`alpha74-exit-dialog.xml`、`alpha74-batch-selected.png`、`alpha74-back-gallery.xml`。
+
+### 2026-11-27 Alpha74 小屏 / 大字体搜索可见性
+
+把模拟器切到 480dpi（约 360dp 宽）+ 1.3 倍字体复测筛选面板：搜索框获得焦点、键盘弹出后，输入框和右侧“应用搜索”图标会被键盘遮挡（只能看到顶部标签）。尝试自动滚回时发现 IME 会让面板滚动位置重置、滚动范围不稳定。
+
+最终修复：筛选面板顺序改为“搜索区置顶”（搜索框、标签、应用按钮紧跟标题），IME 避让移到滚动容器外侧；移除不可靠的自动滚回逻辑。键盘弹出后搜索框与图标天然位于可见区，标签输入仍可手动滚动到达。
+
+版本 Alpha74（versionCode 81）：1.3 倍字体 / 480dpi 下键盘弹出后搜索框位于 y1176–1243、搜索图标 1267–1339（键盘顶部约 1500），完整可见；输入 `zzzz-small` 点图标应用显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；恢复 420dpi / 1.0 后默认尺寸同样正常，图库 21732 张。全量 836 项 JVM 单测通过；验证进程 pid 21400，重新安装最终 APK 后 pid 21736，crash buffer 今日无新崩溃。证据：`docs/evidence/alpha74-small-launch.xml`、`alpha74-keyboard-top.xml`、`alpha74-keyboard-top.png`、`alpha74-small-applied.xml`、`alpha74-default-keyboard.xml`、`alpha74-default-keyboard.png`、`alpha74-final-gallery.xml`。

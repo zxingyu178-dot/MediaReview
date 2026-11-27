@@ -272,18 +272,20 @@ internal fun NsfwGallery(
         }
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text("加载更多") }
     }
+    val filterScroll = rememberScrollState()
     if (filtersOpen) ModalBottomSheet(onDismissRequest = { filtersOpen = false }, containerColor = Color(0xFF181E28)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().verticalScroll(filterScroll).padding(bottom = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("筛选生图", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { filtersOpen = false }) { Text("完成") }
             }
+            // 搜索区放在顶部：小屏 / 大字体下键盘弹出时输入框仍在可见区，不需要额外滚动。
+            if (state.gallerySearchEnabled) LibrarySearch(filter, interaction.canChangeQuery, onChangeFilter, onApplied = { filtersOpen = false })
+            else Text("搜索与标签不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
             if (state.galleryEnabled) GalleryFilters(filter, interaction.canChangeQuery, onChangeFilter)
             else Text("排序与日期不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
             if (state.galleryFiltersEnabled) LibraryFilters(filter, interaction.canChangeQuery, state.galleryReviewFilterEnabled, onChangeFilter)
             else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
-            if (state.gallerySearchEnabled) LibrarySearch(filter, interaction.canChangeQuery, onChangeFilter, onApplied = { filtersOpen = false })
-            else Text("搜索与标签不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
         }
     }
     if (capabilityOpen) AlertDialog(onDismissRequest = { capabilityOpen = false },
