@@ -132,6 +132,39 @@ val NsfwGalleryFilter.emptyStateLabel: String
 val NsfwGalleryFilter.emptyStateActionLabel: String
     get() = if (emptyStateNarrowed) "清除筛选" else "刷新图库"
 
+/** 摘要里关键词保留的开头长度；超出部分用省略号，避免大字体下挤占“清除”按钮。 */
+private const val GALLERY_SUMMARY_KEYWORD_MAX = 12
+
+/**
+ * 顶部筛选条摘要：直接说明当前生效条件，不必重新打开筛选面板。
+ * 顺序固定为搜索、标签、日期、状态、分类、收藏、提示词；排序不算筛选。
+ */
+val NsfwGalleryFilter.activeSummary: String
+    get() {
+        fun keyword(value: String): String =
+            value.take(GALLERY_SUMMARY_KEYWORD_MAX) + if (value.length > GALLERY_SUMMARY_KEYWORD_MAX) "…" else ""
+        val parts = buildList {
+            search?.trim()?.takeIf { it.isNotEmpty() }?.let { add("搜索「${keyword(it)}」") }
+            tag?.trim()?.takeIf { it.isNotEmpty() }?.let { add("标签「${keyword(it)}」") }
+            if (dates != NsfwGalleryDates.ALL) add(label)
+            status?.let { add(statusSummaryLabel(it)) }
+            category?.let { add(if (it == "anime") "动漫" else "导入") }
+            favorite?.let { add(if (it) "已收藏" else "未收藏") }
+            promptId?.let { add(if (versionId != null) "提示词版本" else "提示词") }
+        }
+        return parts.joinToString(" · ").ifEmpty { "筛选已启用" }
+    }
+
+private fun statusSummaryLabel(status: String): String = when (status) {
+    "NEW" -> "只看未审核"
+    "NOT_REJECTED" -> "隐藏已淘汰"
+    "KEEP" -> "已保留"
+    "REJECT" -> "已淘汰"
+    "ARCHIVED" -> "已归档"
+    "FAVORITE" -> "已收藏"
+    else -> "状态筛选"
+}
+
 /** 自选日期区间是否可应用：两端都已选且结束不早于开始（与服务端 resolve 校验一致）。 */
 fun isValidGalleryDateRange(startMillis: Long?, endMillis: Long?): Boolean =
     startMillis != null && endMillis != null && endMillis >= startMillis

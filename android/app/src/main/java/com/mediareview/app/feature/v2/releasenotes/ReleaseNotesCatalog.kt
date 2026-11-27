@@ -809,6 +809,16 @@ object ReleaseNotesCatalog {
                 "筛选行为与搜索结果不变",
             ),
         ),
+        ReleaseNote(
+            versionCode = 83,
+            versionName = "2.0.0-alpha76",
+            title = "MediaReview 2.0 Alpha 76",
+            highlights = listOf(
+                "图库顶部直接显示当前筛选摘要：搜索、标签、日期、状态、分类和收藏一目了然",
+                "摘要过长自动省略，“清除”按钮在大字体下仍保持可见",
+                "筛选与清除行为不变",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

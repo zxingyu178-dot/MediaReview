@@ -55,6 +55,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates
 import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_SEARCH_MAX_LENGTH
 import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_TAG_MAX_LENGTH
+import com.mediareview.app.feature.v2.nsfw.data.activeSummary
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateActionLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateNarrowed
@@ -182,11 +183,10 @@ internal fun NsfwGallery(
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (filter.emptyStateNarrowed) {
-                    TextButton(onClick = { filtersOpen = true }) { Text(when (filter.status) {
-                        "NEW" -> "只看未审核"; "NOT_REJECTED" -> "隐藏已淘汰"
-                        "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; "ARCHIVED" -> "已归档"
-                        else -> "筛选已启用"
-                    }) }
+                    // 摘要直接说明当前生效条件；只占可用宽度，超长省略，保证“清除”始终可见。
+                    TextButton(onClick = { filtersOpen = true }, modifier = Modifier.weight(1f, fill = false)) {
+                        Text(filter.activeSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     TextButton(enabled = interaction.canChangeQuery, onClick = {
                         onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
                     }) { Text("清除") }

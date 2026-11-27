@@ -4134,3 +4134,11 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 发现筛选面板的标题栏（含“完成”）位于滚动区内，内容较高（大字体 + 展开搜索）滚动时会一起滚走。现在标题栏固定在面板顶部，筛选内容在其下方独立滚动；IME 避让保持在外层。
 
 版本 Alpha75（versionCode 82）：键盘弹出并滚动后，“完成”固定在面板顶部（y176–257），搜索框、标签、应用/清除按钮均可见；恢复 420dpi / 1.0 后默认尺寸布局正常，图库 21732 张。全量 836 项 JVM 单测通过（`ImageRequestLifetimeTest` 已知波动，复跑通过）；进程存活（pid 22417），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha75-launch.xml`、`alpha75-large-toolbar.xml`、`alpha75-large-toolbar.png`、`alpha75-large-review.xml`、`alpha75-large-review.png`、`alpha75-pinned-keyboard.xml`、`alpha75-pinned-keyboard.png`、`alpha75-default-filter.xml`、`alpha75-default-filter.png`、`alpha75-final-gallery.xml`。
+
+### 2026-11-27 Alpha76 大字体边界巡检与筛选摘要
+
+1.3 倍字体 / 480dpi 继续巡检剩余边界，全部通过：“更多操作”菜单四项完整显示（宽 408px，右缘与按钮对齐）；筛选面板收起/展开、键盘弹出后的搜索框与“完成”、日期下拉与自选日期选择器、9 图批量审核（标题 / 9 张 / 全选-清空-重试 / 保留-淘汰-未就绪计数 / 提交本页）、单图审阅底栏、搜索空结果（无匹配图片 / 清除筛选）均无截断、重叠或越界。
+
+筛选开启后，图库顶部此前只显示笼统的“筛选已启用”。现在改为具体摘要：搜索、标签、日期、状态、分类、收藏、提示词按固定顺序拼接（如“搜索「cat」 · 只看未审核”）；关键词超过 12 字截断为省略号；摘要限制在可用宽度内并单行省略，“清除”按钮在大字体下仍然可见。新增 1 项 JVM 单测覆盖各筛选维度、排序不参与、关键词截断与组合顺序，全量 837 项通过（102 suites，0 失败）。
+
+版本 Alpha76（versionCode 83）：模拟器安装后自动显示 Alpha76 更新说明；1.3 倍字体下状态筛选显示“只看未审核”，叠加搜索显示“搜索「cat」 · 只看未审核”，23 位关键词显示“搜索「abcdefghijkl…」 · 只看未审核”，“清除”位于其后且未被挤出屏幕；点“清除”恢复 21732 张。恢复 420dpi / 1.0 后默认字体摘要与工具栏正常，图库 21732 张。验证期间模拟器出现一次 system_server / sdcard 服务异常（`Can't find service: window`、`Transport endpoint is not connected`），重启模拟器后继续完成全部验证；应用进程存活（pid 3888），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha76-upgrade-notes.png`、`alpha76-more-menu.png`、`alpha76-filter-open.png`、`alpha76-filter-expanded.png`、`alpha76-filter-keyboard.png`、`alpha76-batch9.png`、`alpha76-empty-search.png`、`alpha76-datepicker.png`、`alpha76-dates-menu.png`、`alpha76-summary-status.png`、`alpha76-summary-combined.xml`、`alpha76-summary-combined.png`、`alpha76-summary-long.xml`、`alpha76-summary-long.png`、`alpha76-cleared.xml`、`alpha76-default-gallery.xml`、`alpha76-default-summary.xml`、`alpha76-default-summary.png`、`alpha76-final.xml`。

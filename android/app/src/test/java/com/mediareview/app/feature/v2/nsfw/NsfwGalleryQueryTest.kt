@@ -43,6 +43,28 @@ class NsfwGalleryQueryTest {
         }
     }
 
+    @Test fun activeSummaryNamesEveryNarrowingDimension() {
+        // 排序不是筛选：无其他条件时摘要保持默认文案。
+        assertEquals("筛选已启用", NsfwGalleryFilter().activeSummary)
+        assertEquals("筛选已启用", NsfwGalleryFilter(sort = NsfwGallerySort.OLDEST).activeSummary)
+        assertEquals("只看未审核", NsfwGalleryFilter(status = "NEW").activeSummary)
+        assertEquals("隐藏已淘汰", NsfwGalleryFilter(status = "NOT_REJECTED").activeSummary)
+        assertEquals("搜索「needle」", NsfwGalleryFilter(search = "needle").activeSummary)
+        assertEquals("标签「curated」", NsfwGalleryFilter(tag = "curated").activeSummary)
+        assertEquals("今天", NsfwGalleryFilter(dates = NsfwGalleryDates.TODAY).activeSummary)
+        assertEquals("动漫", NsfwGalleryFilter(category = "anime").activeSummary)
+        assertEquals("未收藏", NsfwGalleryFilter(favorite = false).activeSummary)
+        assertEquals("提示词", NsfwGalleryFilter(promptId = "p").activeSummary)
+        assertEquals("提示词版本", NsfwGalleryFilter(promptId = "p", versionId = "v").activeSummary)
+        // 关键词超长时截断，避免摘要把“清除”挤出屏幕。
+        assertEquals("搜索「${"a".repeat(12)}…」", NsfwGalleryFilter(search = "a".repeat(20)).activeSummary)
+        assertEquals(
+            "搜索「cat」 · 标签「v1」 · 今天 · 只看未审核 · 导入 · 已收藏",
+            NsfwGalleryFilter(search = "cat", tag = "v1", dates = NsfwGalleryDates.TODAY, status = "NEW",
+                category = "imported", favorite = true).activeSummary,
+        )
+    }
+
     @Test fun searchAndTagLimitsAreSharedWithInputCap() {
         // 输入框与服务端校验共用同一上限：刚好等于上限可用，超一个字符拒绝。
         NsfwGalleryFilter(search = "a".repeat(NSFW_GALLERY_SEARCH_MAX_LENGTH)).resolve()
