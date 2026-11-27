@@ -4096,3 +4096,11 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 自选日期此前只校验“两端都已选”，结束早于开始时仍可点“应用日期”，错误信息会被筛选面板挡住。现在新增 `isValidGalleryDateRange(start, end)` 纯逻辑（两端已选且结束不早于开始），确认按钮按此禁用；日期选择器内按状态提示：未选结束日期时显示“请选择结束日期（不早于开始日期）”，倒序时显示“结束日期不能早于开始日期”。新增 1 项边界单测，全量 835 项通过。
 
 版本 Alpha72（versionCode 79），模拟器安装后显示更新说明；只选 11 月 27 日时提示出现，点击“应用日期”无动作（弹窗保持）；再选 11 月 28 日后提示消失，应用后筛选面板显示“2026-11-27 至 2026-11-28”，图库 8 张；点“清除”恢复 21732 张，进程存活（pid 18191），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha72-launch.xml`、`alpha72-hint-start.xml`、`alpha72-range-valid.xml`、`alpha72-range-applied.xml`、`alpha72-range-gallery.xml`、`alpha72-restored.xml`。
+
+### 2026-11-27 Alpha73 批量审核空状态
+
+9 图批量审核在没有可审图片时仍显示全选、清空、重试、未就绪计数和禁用的提交按钮，信息杂乱且没有明确出路。现在改为专门空状态：图标 + “本范围已审完”（有后续页时为“本页暂无可审核图片”），有后续页时提供“加载下一批”，否则提供“返回图库”；空状态下隐藏全选、清空、重试与提交。
+
+新增 `batchEmptyStateLabel(hasMore)` 单测；全量 836 项 JVM 单测通过（`ImageRequestLifetimeTest` 为已知环境波动，单独复跑与全量复跑均通过）。
+
+版本 Alpha73（versionCode 80），模拟器安装后显示更新说明；搜索空结果（0 张）→ 更多操作 → 9图批量审核，页面显示“0 张 / 本范围已审完 / 返回图库”，全选、清空、提交均不出现；点“返回图库”回到空图库，清除筛选恢复 21732 张，进程存活（pid 18611），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha73-launch.xml`、`alpha73-empty-batch.xml`、`alpha73-empty-batch.png`、`alpha73-back-gallery.xml`、`alpha73-restored.xml`。

@@ -5,8 +5,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFrozenBatch
 
 /** 当前可见页的选择草稿；不写服务器，不把未加载图判为淘汰。 */
-data class NsfwBatchDraft private constructor(
-    val items: List<NsfwFeedItem>,
+data class NsfwBatchDraft private constructor(    val items: List<NsfwFeedItem>,
     val loadedIds: Set<String> = emptySet(),
     val selectedIds: Set<String> = emptySet(),
     val displayedIds: Set<String> = emptySet(),
@@ -58,3 +57,7 @@ data class NsfwBatchDraft private constructor(
         })
     }
 }
+
+/** 批量审核空页文案：有后续页时可继续加载，否则表示本范围已审完。 */
+internal fun batchEmptyStateLabel(hasMore: Boolean): String =
+    if (hasMore) "本页暂无可审核图片" else "本范围已审完"

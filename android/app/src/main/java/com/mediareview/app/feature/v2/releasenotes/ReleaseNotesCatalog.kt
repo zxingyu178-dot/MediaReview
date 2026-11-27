@@ -779,6 +779,16 @@ object ReleaseNotesCatalog {
                 "合法区间仍可一键应用，筛选行为不变",
             ),
         ),
+        ReleaseNote(
+            versionCode = 80,
+            versionName = "2.0.0-alpha73",
+            title = "MediaReview 2.0 Alpha 73",
+            highlights = listOf(
+                "9 图批量审核没有可审图片时显示专门空状态，不再堆叠无效操作",
+                "有后续页时直接“加载下一批”，否则一键“返回图库”",
+                "空状态下全选、清空与提交按钮自动隐藏",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

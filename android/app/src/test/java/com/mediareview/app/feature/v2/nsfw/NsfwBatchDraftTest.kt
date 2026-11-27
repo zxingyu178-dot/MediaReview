@@ -5,6 +5,11 @@ import org.junit.Test
 
 /** 只验证用户选择和真实可见集合，不访问媒体或提交审核。 */
 class NsfwBatchDraftTest {
+    @Test fun emptyPageLabelReflectsWhetherMorePagesExist() {
+        assertEquals("本页暂无可审核图片", batchEmptyStateLabel(true))
+        assertEquals("本范围已审完", batchEmptyStateLabel(false))
+    }
+
     @Test fun prefetchedButNeverDisplayedImageCannotBeRejected() {
         val draft = NsfwBatchDraft.open(listOf(nsfwItem("offscreen"))).loaded("offscreen", true)
         assertTrue(runCatching { draft.freeze("request", allowRejectAll = true) }.isFailure)

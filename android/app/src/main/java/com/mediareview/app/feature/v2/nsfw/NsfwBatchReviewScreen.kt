@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -181,7 +182,21 @@ internal fun NsfwBatchReviewScreen(
         message?.let { Text(it, color = MediaTextSecondary) }
         if (locked) TextButton(onClick = ::recover, enabled = !working) { Text(if (working) "核对中…" else "核对上次批次结果") }
         if (refreshRequired) TextButton(onClick = ::refreshPage, enabled = !working && !locked) { Text(if (refreshingPage) "刷新中…" else "刷新本页并重新确认") }
-        LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid, modifier = Modifier.weight(1f),
+        if (draft.items.isEmpty()) {
+            // 无图可审时给出明确去向，不保留全选/清空/提交等无效控件。
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Default.CheckCircle, null, Modifier.size(32.dp), tint = MediaTextSecondary)
+                    Text(batchEmptyStateLabel(state.hasMore), color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    if (state.hasMore) {
+                        MediaActionButton(onClick = onLoadMore, enabled = !state.syncing && !working && !locked,
+                            label = if (state.syncing) "正在加载…" else "加载下一批", tone = MediaActionTone.SECONDARY)
+                    } else {
+                        TextButton(onClick = onClose, enabled = !working) { Text("返回图库") }
+                    }
+                }
+            }
+        } else LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid, modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(draft.items, key = { it.imageId }) { item ->
                 Column(Modifier.clip(RoundedCornerShape(12.dp)).background(if (item.imageId in draft.selectedIds) MediaAccent.copy(alpha = 0.16f) else MediaSurfaceRaised)) {
@@ -201,23 +216,22 @@ internal fun NsfwBatchReviewScreen(
                 }
             }
         }
-        Row {
-            TextButton(onClick = { draft = draft.selectAll() }, enabled = !working && !locked) { Text("全选") }
-            TextButton(onClick = { draft = draft.clearSelection() }, enabled = !working && !locked) { Text("清空") }
-            TextButton(onClick = { retryImages++ }, enabled = !working && !locked) { Text("重试图片") }
+        if (draft.items.isNotEmpty()) {
+            Row {
+                TextButton(onClick = { draft = draft.selectAll() }, enabled = !working && !locked) { Text("全选") }
+                TextButton(onClick = { draft = draft.clearSelection() }, enabled = !working && !locked) { Text("清空") }
+                TextButton(onClick = { retryImages++ }, enabled = !working && !locked) { Text("重试图片") }
+            }
+            Text("保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}", color = MediaTextSecondary)
+            MediaActionButton(onClick = {
+                try {
+                    confirmation = draft.freeze(UUID.randomUUID().toString(), allowRejectAll = true)
+                    confirmationSkipped = draft.unloadedCount
+                    confirm = true
+                } catch (error: Exception) { message = error.message }
+            }, enabled = supported && !working && !locked && !refreshRequired && draft.eligibleIds.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
+                label = if (working) "提交中…" else "提交本页", tone = MediaActionTone.PRIMARY)
         }
-        Text("保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}", color = MediaTextSecondary)
-        if (draft.items.isEmpty()) TextButton(onClick = onLoadMore, enabled = state.hasMore && !state.syncing && !working && !locked) {
-            Text(if (state.syncing) "正在加载…" else if (state.hasMore) "加载下一批" else "本范围已审完")
-        }
-        MediaActionButton(onClick = {
-            try {
-                confirmation = draft.freeze(UUID.randomUUID().toString(), allowRejectAll = true)
-                confirmationSkipped = draft.unloadedCount
-                confirm = true
-            } catch (error: Exception) { message = error.message }
-        }, enabled = supported && !working && !locked && !refreshRequired && draft.eligibleIds.isNotEmpty(), modifier = Modifier.fillMaxWidth(),
-            label = if (working) "提交中…" else "提交本页", tone = MediaActionTone.PRIMARY)
     }
     val confirmedKeep = confirmation?.items?.count { it.action == "KEEP" } ?: 0
     val confirmedReject = confirmation?.items?.count { it.action == "REJECT" } ?: 0
