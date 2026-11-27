@@ -839,6 +839,16 @@ object ReleaseNotesCatalog {
                 "进度百分比、筛选与审核行为不变",
             ),
         ),
+        ReleaseNote(
+            versionCode = 86,
+            versionName = "2.0.0-alpha79",
+            title = "MediaReview 2.0 Alpha 79",
+            highlights = listOf(
+                "审图页顶栏新增当前图片的底模，浏览时无需打开图片信息",
+                "图片信息里的模型名去掉文件扩展名，与进度条显示一致",
+                "旧图或外部导入没有底模时自动隐藏或显示“未知”，不占位",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -334,45 +334,63 @@ internal fun NsfwImageReviewPane(
                     // 只读进度：仅在确有任务时出现，空闲时不占用顶栏空间。
                     if (generationProgress != null) GenerationProgressStrip(generationProgress)
                 }
-                // 当前图片的生成时提示词摘要：点击打开“图片信息”，右侧可直接复制原文。
-                val promptPreview = state.detail?.takeIf { it.imageId == item?.imageId }?.promptPreview
+                // 当前图片的生成时提示词摘要与底模：点击打开“图片信息”，右侧可直接复制原文。
+                val currentDetail = state.detail?.takeIf { it.imageId == item?.imageId }
+                val promptPreview = currentDetail?.promptPreview
+                val modelLabel = currentDetail?.modelLabel
                 val clipboard = LocalClipboardManager.current
                 AnimatedVisibility(
-                    visible = promptPreview != null,
+                    visible = promptPreview != null || modelLabel != null,
                     enter = fadeIn(tween(160)) + expandVertically(tween(180)),
                     exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 底模：旧任务/外部导入没有该字段，自动不占位。
+                        modelLabel?.let { model ->
+                            Text(
+                                "底模 $model",
+                                Modifier.padding(start = 12.dp).widthIn(max = 132.dp),
+                                color = MediaTextSecondary,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         Text(
                             promptPreview.orEmpty(),
                             Modifier.weight(1f)
                                 .clickable(enabled = transitionFinished && state.detail != null) { onDetails() }
-                                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                .padding(
+                                    start = if (modelLabel != null) 8.dp else 12.dp,
+                                    end = 4.dp, top = 4.dp, bottom = 4.dp,
+                                ),
                             color = MediaTextSecondary,
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Box(
-                            Modifier
-                                .clickable {
-                                    clipboard.setText(AnnotatedString(promptPreview.orEmpty()))
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    copiedHint = true
+                        if (promptPreview != null) {
+                            Box(
+                                Modifier
+                                    .clickable {
+                                        clipboard.setText(AnnotatedString(promptPreview))
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        copiedHint = true
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                            ) {
+                                AnimatedContent(
+                                    targetState = copiedHint,
+                                    transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(90)) },
+                                    label = "prompt-copy-hint",
+                                ) { copied ->
+                                    Text(
+                                        if (copied) "已复制" else "复制",
+                                        color = if (copied) MaterialTheme.colorScheme.tertiary
+                                        else MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
                                 }
-                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                        ) {
-                            AnimatedContent(
-                                targetState = copiedHint,
-                                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(90)) },
-                                label = "prompt-copy-hint",
-                            ) { copied ->
-                                Text(
-                                    if (copied) "已复制" else "复制",
-                                    color = if (copied) MaterialTheme.colorScheme.tertiary
-                                    else MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
                             }
                         }
                     }

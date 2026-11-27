@@ -418,7 +418,7 @@ private fun DetailsDialog(
                 InfoLine("生成快照（负向）", detail.negativePrompt ?: "未知")
                 InfoLine("任务 / 模块", (detail.jobId ?: "无") + " / " + (detail.moduleId ?: "无"))
                 InfoLine("Seed", detail.seed?.toString() ?: "未知")
-                InfoLine("模型", detail.model ?: "未知")
+                InfoLine("模型", detail.modelLabel ?: "未知")
                 InfoLine("大小 / 类型", (detail.sizeBytes?.toString() ?: "未知") + " / " + (detail.mime ?: "未知"))
                 InfoLine("更新时间 / revision", formatIso(detail.updatedAt) + " / " + detail.revision)
             }

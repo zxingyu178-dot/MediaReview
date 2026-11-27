@@ -31,4 +31,16 @@ class NsfwImageDetailsTest {
         assertNull(nsfwStatusBadgeLabel("NEW"))
         assertNull(nsfwStatusBadgeLabel(""))
     }
+
+    @Test
+    fun `图片详情底模去掉权重扩展名`() {
+        assertEquals(
+            "miaomiaoHarem_v14",
+            NsfwImageDetails(model = "  miaomiaoHarem_v14.safetensors ").modelLabel,
+        )
+        assertEquals("NoobAI-XL-v1.1", NsfwImageDetails(model = "NoobAI-XL-v1.1.CKPT").modelLabel)
+        assertNull(NsfwImageDetails(model = "   ").modelLabel)
+        assertNull(NsfwImageDetails(model = null).modelLabel)
+        assertNull(nsfwModelLabel(""))
+    }
 }

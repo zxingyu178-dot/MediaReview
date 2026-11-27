@@ -4164,3 +4164,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 AI 直提省略 `model` 时电脑端沿用 binding 默认底模，此前快照不记录模型，Alpha78 的底模行对这类任务为空。电脑端 6fccaee 起在创建 Job 时把默认底模写入快照（仅当 binding 声明 model 注入），手机桥 `model` 字段因此对默认模型任务同样有值；客户端无需改动。
 
 Alpha78 在模拟器复核：生产桥 6fccaee 下由 Agent 提交完全省略 model 的 2 张任务 `job_eb70e06b-8e68-4e3c-a07c-e4d6d6fe8266`（832×1216 / 40 步 / 关人脸修复），运行中图库顶栏显示“电脑端生成中：第 1 / 2 张 · 剩余 1 段 · 3%”+“底模 miaomiaoHarem_v14”；2 张 COMPLETED 后进度与底模行消失，出现“新图 3”。证据：`docs/evidence/alpha78-default-model-gallery.xml`、`alpha78-default-model-gallery.png`、`alpha78-default-model-final.xml`。
+
+### 2026-11-27 Alpha79 审图顶栏显示当前图片底模
+
+浏览已完成图片时，底模只在“图片信息”里，且桥的详情 `model` 一直为 null（显示“未知”）。现在 Bridge `GET /mobile/images/{id}/details` 的 `model` 改为读取原任务工作流快照（与队列/桌面同源；省略 model 的 AI 任务也会由电脑端补齐），无 Job/外部导入仍为 null。移动端单图审图顶栏在提示词摘要左侧新增“底模 X”（去掉权重扩展名，长名省略），与进度条共用 `nsfwModelLabel` 规则；旧图没有底模时不占位，详情“模型”显示“未知”。新增 1 项 JVM 单测（去扩展名/空白/大小写），全量 842 项通过（102 suites，0 失败）。
+
+版本 Alpha79（versionCode 86）：模拟器覆盖安装后显示更新说明；进入生图审核打开最新图（`img_b90242ce…`，原任务 `job_eb70e06b`），顶栏显示“底模 miaomiaoHarem_v14”，图片信息“模型 miaomiaoHarem_v14”；切到第 3 张旧任务图（无快照底模）时顶栏不出现底模行，详情“模型”显示“未知”。进程存活（pid 5284），crash buffer 无本应用新崩溃，显示设置 420dpi / 1.0 未变。证据：`docs/evidence/alpha79-launch.xml`、`alpha79-review-model.xml`、`alpha79-review-model.png`、`alpha79-details-model.xml`、`alpha79-details-model.png`、`alpha79-legacy-no-model.xml`、`alpha79-legacy-details.xml`、`alpha79-final.xml`。

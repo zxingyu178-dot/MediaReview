@@ -32,6 +32,13 @@ const val NSFW_GENERATION_ITEM_PROGRESS_CAPABILITY = "mobile_generation_item_pro
 /** 进度扩展能力：额外返回运行中任务底模 model（只读；排队/旧任务为 null）。 */
 const val NSFW_GENERATION_MODEL_CAPABILITY = "mobile_generation_model_v1"
 
+/** 底模短名：去掉权重扩展名；空白返回 null（进度、图片详情与审图顶栏统一规则）。 */
+fun nsfwModelLabel(raw: String?): String? {
+    val name = raw?.trim().orEmpty()
+    if (name.isEmpty()) return null
+    return name.replace(Regex("\\.(safetensors|ckpt|pt|pth)$", RegexOption.IGNORE_CASE), "")
+}
+
 @Serializable
 data class NsfwGenerationProgress(
     @SerialName("current_image") val currentImage: Int? = null,
@@ -63,11 +70,7 @@ data class NsfwGenerationProgress(
 
     /** 底模短名：去掉权重扩展名；旧桥/排队/旧任务没有该字段时为 null。 */
     val modelLabel: String?
-        get() {
-            val name = model?.trim().orEmpty()
-            if (name.isEmpty()) return null
-            return name.replace(Regex("\\.(safetensors|ckpt|pt|pth)$", RegexOption.IGNORE_CASE), "")
-        }
+        get() = nsfwModelLabel(model)
 
     /** 旧桥未声明底模能力时丢弃该字段，避免展示无法解释的信息。 */
     fun withModelCapability(enabled: Boolean): NsfwGenerationProgress =
@@ -321,6 +324,9 @@ data class NsfwImageDetails(
 
     /** 详情快照是生成时的；UI 只展示，不得用当前 Prompt 正文替换。 */
     val positiveSnapshot: String? get() = positivePrompt
+
+    /** 底模短名（去掉权重扩展名）；旧任务/外部导入为 null，由 UI 显示“未知”。 */
+    val modelLabel: String? get() = nsfwModelLabel(model)
 
     /** 审图页顶栏单行提示词摘要；空白时返回 null（不占位），过长截断避免遮挡画面。 */
     val promptPreview: String?
