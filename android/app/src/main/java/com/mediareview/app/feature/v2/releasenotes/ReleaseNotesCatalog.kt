@@ -629,6 +629,16 @@ object ReleaseNotesCatalog {
                 "进度条随任务状态自动淡入淡出",
             ),
         ),
+        ReleaseNote(
+            versionCode = 65,
+            versionName = "2.0.0-alpha58",
+            title = "MediaReview 2.0 Alpha 58",
+            highlights = listOf(
+                "单图审阅顶部显示生成时的提示词摘要，不必打开图片信息也能核对",
+                "摘要只占一行，过长自动截断，空白提示词不占位",
+                "点按摘要可直接打开图片信息",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -301,6 +302,24 @@ internal fun NsfwImageReviewPane(
                 ) {
                     // 只读进度：老桥没有该能力时整行不出现。
                     if (generationProgress != null) GenerationProgressStrip(generationProgress)
+                }
+                // 当前图片的生成时提示词摘要：点击打开“图片信息”，不覆盖详情快照语义。
+                val promptPreview = state.detail?.takeIf { it.imageId == item?.imageId }?.promptPreview
+                AnimatedVisibility(
+                    visible = promptPreview != null,
+                    enter = fadeIn(tween(160)) + expandVertically(tween(180)),
+                    exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
+                ) {
+                    Text(
+                        promptPreview.orEmpty(),
+                        Modifier.fillMaxWidth()
+                            .clickable(enabled = transitionFinished && state.detail != null) { onDetails() }
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        color = MediaTextSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 AnimatedVisibility(
                     visible = bannerMessage != null && (!messageDismissed || important),

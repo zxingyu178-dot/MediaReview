@@ -11,6 +11,9 @@ import kotlinx.serialization.Serializable
  * - UI 与 ViewModel 不拼接路径，也不解析游标（游标是服务端 opaque 字符串）。
  */
 
+/** 审图页顶栏提示词摘要的最大字符数。 */
+private const val PROMPT_PREVIEW_LIMIT = 120
+
 /** 客户端要求的最低 Bridge API contract。 */
 const val NSFW_REQUIRED_API_CONTRACT: Int = 2
 
@@ -268,6 +271,15 @@ data class NsfwImageDetails(
 
     /** 详情快照是生成时的；UI 只展示，不得用当前 Prompt 正文替换。 */
     val positiveSnapshot: String? get() = positivePrompt
+
+    /** 审图页顶栏单行提示词摘要；空白时返回 null（不占位），过长截断避免遮挡画面。 */
+    val promptPreview: String?
+        get() {
+            val text = positivePrompt?.trim().orEmpty()
+            if (text.isEmpty()) return null
+            return if (text.length <= PROMPT_PREVIEW_LIMIT) text
+            else text.take(PROMPT_PREVIEW_LIMIT).trimEnd() + "…"
+        }
 }
 
 @Serializable
