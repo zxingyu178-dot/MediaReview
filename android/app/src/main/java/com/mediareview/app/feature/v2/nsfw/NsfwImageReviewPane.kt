@@ -563,6 +563,29 @@ internal fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
                 )
             }
         }
+        // 当前张的采样完成度：细条叠加在本段进度下方，旧桥无该字段时不出现。
+        val itemFraction = progress.itemFraction
+        if (itemFraction != null) {
+            val animatedItem by animateFloatAsState(
+                targetValue = itemFraction,
+                animationSpec = tween(300),
+                label = "generation-item-progress",
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp)
+                    .height(2.dp)
+                    .background(Color(0x22FFFFFF), RoundedCornerShape(1.dp)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(animatedItem)
+                        .height(2.dp)
+                        .background(statusColor.copy(alpha = 0.65f), RoundedCornerShape(1.dp)),
+                )
+            }
+        }
     }
 }
 

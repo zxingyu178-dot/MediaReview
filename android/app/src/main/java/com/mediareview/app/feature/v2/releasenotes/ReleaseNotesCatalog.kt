@@ -669,6 +669,16 @@ object ReleaseNotesCatalog {
                 "切换图片或撤销审核后状态同步更新",
             ),
         ),
+        ReleaseNote(
+            versionCode = 69,
+            versionName = "2.0.0-alpha62",
+            title = "MediaReview 2.0 Alpha 62",
+            highlights = listOf(
+                "生图进度显示当前这张的真实采样完成度，如“第 1 / 6 张 · 42%”",
+                "进度条下方新增一条细进度，直观看到单张推进",
+                "旧版电脑端不返回该字段时自动隐藏，不影响原有显示",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -1,5 +1,6 @@
 package com.mediareview.app.feature.v2.nsfw.data
 
+import kotlin.math.roundToInt
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -25,6 +26,9 @@ const val NSFW_GENERATION_PROGRESS_CAPABILITY = "mobile_generation_progress_v1"
 /** 进度扩展能力：额外返回 active_status / queued_jobs / paused_jobs（只读）。 */
 const val NSFW_GENERATION_QUEUE_STATUS_CAPABILITY = "mobile_generation_queue_status_v1"
 
+/** 进度扩展能力：额外返回当前张完成度 current_progress（0..1，只读）。 */
+const val NSFW_GENERATION_ITEM_PROGRESS_CAPABILITY = "mobile_generation_item_progress_v1"
+
 @Serializable
 data class NsfwGenerationProgress(
     @SerialName("current_image") val currentImage: Int? = null,
@@ -33,6 +37,7 @@ data class NsfwGenerationProgress(
     @SerialName("active_status") val activeStatus: String? = null,
     @SerialName("queued_jobs") val queuedJobs: Int = 0,
     @SerialName("paused_jobs") val pausedJobs: Int = 0,
+    @SerialName("current_progress") val currentProgress: Float? = null,
 ) {
     val isGenerating: Boolean get() = remainingSegments > 0
 
@@ -48,15 +53,25 @@ data class NsfwGenerationProgress(
             return (current.toFloat() / total).coerceIn(0f, 1f)
         }
 
+    /** 当前张的采样完成度；旧桥没有该字段时为 null。 */
+    val itemFraction: Float?
+        get() = currentProgress?.coerceIn(0f, 1f)
+
+    /** 当前张百分比后缀；无进度时不显示。 */
+    private val itemPercentSuffix: String
+        get() = itemFraction?.let { " · ${(it * 100).roundToInt()}%" } ?: ""
+
     /** 顶栏文案：只读计数，不暴露 Prompt / Job 控制。 */
     val label: String
         get() {
             val queueSuffix = if (queuedJobs > 0) " · 排队 $queuedJobs" else ""
             return when {
                 remainingSegments <= 0 -> "电脑端暂无生成任务"
-                activeStatus == "paused" -> "电脑端生成已暂停 · 剩余 $remainingSegments 段$queueSuffix"
+                activeStatus == "paused" ->
+                    "电脑端生成已暂停 · 剩余 $remainingSegments 段$queueSuffix$itemPercentSuffix"
                 currentImage != null && imagesInSegment != null ->
-                    "电脑端生成中：第 $currentImage / $imagesInSegment 张 · 剩余 $remainingSegments 段$queueSuffix"
+                    "电脑端生成中：第 $currentImage / $imagesInSegment 张 · 剩余 $remainingSegments 段" +
+                        queueSuffix + itemPercentSuffix
                 activeStatus == "queued" ->
                     "电脑端已提交：排队 $queuedJobs 个任务"
                 activeStatus == "running" ->

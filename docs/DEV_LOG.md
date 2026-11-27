@@ -4012,3 +4012,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 单图审阅顶栏新增当前图片审核状态徽标：已保留（绿）/ 已淘汰（红）/ 已归档（灰）；未审核图片不显示，切换图片或撤销后随详情同步。状态文案由 `nsfwStatusBadgeLabel` 统一映射，避免与图库状态文案分叉。
 
 版本 Alpha61（versionCode 68），JVM 单测 828 项全绿；模拟器安装并 AOT 后显示 Alpha61 更新说明；从图库打开已保留的第 11 张，顶栏显示“11 / 21724”与“已保留”；打开最新未审核图不显示徽标，进程存活（pid 10336），crash buffer 无新崩溃。
+
+### 2026-11-27 Alpha62 当前张采样完成度
+
+手机端生图进度新增当前张真实采样百分比：Bridge `GET /mobile/generation/progress` 读取当前 RUNNING StageItem 的 `progress`，新增只读字段 `current_progress`（0..1，阶段间隙为 null）与能力 `mobile_generation_item_progress_v1`；审图页与生图库在段进度条下新增 2dp 细进度条，文案末尾显示“ · NN%”，旧桥无该字段时自动隐藏。
+
+版本 Alpha62（versionCode 69），JVM 单测 831 项全绿；模拟器安装并 AOT 后显示 Alpha62 更新说明；生产桥（build 55638e8）提交真实 20 步任务后，生图库顶部显示“电脑端生成中：第 1 / 1 张 · 剩余 1 段 · 10%”，约 7 秒后推进到 50%；任务完成（job_3c6c70e7-24c3-4716-b7b5-6cb2821fd715，1 张）后进度条消失并显示“新图 1”，进程存活（pid 10718），crash buffer 今日无新崩溃。后端定向与全量（864 项）测试通过。

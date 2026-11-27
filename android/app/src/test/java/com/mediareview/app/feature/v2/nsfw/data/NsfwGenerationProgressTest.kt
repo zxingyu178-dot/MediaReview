@@ -100,6 +100,30 @@ class NsfwGenerationProgressTest {
     }
 
     @Test
+    fun `当前张完成度显示百分比`() {
+        val progress = NsfwGenerationProgress(1, 2, 1, "running", 0, 0, 0.62f)
+        assertEquals(0.62f, progress.itemFraction)
+        assertEquals("电脑端生成中：第 1 / 2 张 · 剩余 1 段 · 62%", progress.label)
+    }
+
+    @Test
+    fun `当前张完成度缺少或非法时安全回退`() {
+        assertNull(NsfwGenerationProgress(1, 2, 1).itemFraction)
+        assertEquals(1f, NsfwGenerationProgress(1, 2, 1, "running", 0, 0, 1.4f).itemFraction)
+        assertEquals(0f, NsfwGenerationProgress(1, 2, 1, "running", 0, 0, -0.3f).itemFraction)
+    }
+
+    @Test
+    fun `解析当前张完成度字段`() {
+        val progress = json.decodeFromString<NsfwGenerationProgress>(
+            """{"current_image":1,"images_in_segment":2,"remaining_segments":1,
+               "active_status":"running","current_progress":0.42}"""
+        )
+        assertEquals(0.42f, progress.currentProgress)
+        assertEquals("电脑端生成中：第 1 / 2 张 · 剩余 1 段 · 42%", progress.label)
+    }
+
+    @Test
     fun `生图库顶部仅在能力可用且有任务时显示进度`() {
         assertFalse(NsfwGenerationProgress().visibleInGallery(true))
         assertFalse(NsfwGenerationProgress(remainingSegments = 2).visibleInGallery(false))
