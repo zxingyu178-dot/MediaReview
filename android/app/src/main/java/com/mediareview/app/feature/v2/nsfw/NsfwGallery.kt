@@ -169,7 +169,11 @@ internal fun NsfwGallery(
         ) {
             state.generationProgress?.takeIf { it.isGenerating }?.let { GenerationProgressStrip(it) }
         }
-        if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0) {
+        AnimatedVisibility(
+            visible = filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0,
+            enter = fadeIn(tween(140)) + expandVertically(tween(160)),
+            exit = fadeOut(tween(100)) + shrinkVertically(tween(120)),
+        ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) {
                     TextButton(onClick = { filtersOpen = true }) { Text(when (filter.status) {

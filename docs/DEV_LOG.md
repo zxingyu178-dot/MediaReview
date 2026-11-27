@@ -4060,3 +4060,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 生图库空状态改为 AnimatedContent：同步中的加载提示与空结果（“无匹配图片/清除筛选”或“暂无图片/刷新图库”）之间淡入 + 轻微缩放切换，避免加载完成时内容突然跳变；有图时仍直接显示网格。
 
 版本 Alpha69（versionCode 76），JVM 单测 832 项全绿；模拟器安装后显示 Alpha69 更新说明；搜索 `zzzz-a69` 后空状态显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；点击清除筛选恢复 21730 张，进程存活（pid 15311），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha69-launch.xml`、`alpha69-empty.xml`、`alpha69-restored.xml`。
+
+### 2026-11-27 Alpha70 筛选行展开动画
+
+“筛选已启用 / 清除”提示行由瞬时出现改为淡入 + 展开，清除筛选时平滑收起；与电脑端生成进度条使用一致的展开节奏，“新图 N”仍保持独立缩放动画。
+
+版本 Alpha70（versionCode 77），JVM 单测 832 项全绿；模拟器安装后显示 Alpha70 更新说明；搜索 `zzzz-a70` 后提示行与“0 张 / 无匹配图片 / 清除筛选”正常显示；清除筛选恢复 21730 张，进程存活（pid 15648），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha70-launch.xml`、`alpha70-filtered.xml`、`alpha70-restored.xml`。

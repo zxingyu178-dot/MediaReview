@@ -749,6 +749,16 @@ object ReleaseNotesCatalog {
                 "有图时直接显示网格，不增加额外等待",
             ),
         ),
+        ReleaseNote(
+            versionCode = 77,
+            versionName = "2.0.0-alpha70",
+            title = "MediaReview 2.0 Alpha 70",
+            highlights = listOf(
+                "“筛选已启用 / 清除”提示行改为展开淡入，不再突然挤出图库",
+                "清除筛选时提示行平滑收起，“新图 N”仍单独动画",
+                "筛选行与电脑端生成进度条使用一致的展开节奏",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
