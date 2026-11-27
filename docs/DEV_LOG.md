@@ -4024,3 +4024,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 生图库新增下拉刷新（PullToRefreshBox），与顶部刷新按钮共用同一次有界增量同步；“新图 N”提示改为淡入缩放出现，数量变化用 AnimatedContent 平滑切换。新增仪器测试 galleryPullToRefreshInvokesRefresh，直接断言下拉手势触发刷新回调。
 
 版本 Alpha63（versionCode 70），JVM 单测 831 项全绿，NsfwVisualPolishTest 4 项仪器测试通过；模拟器安装并 AOT 后显示 Alpha63 更新说明，重新配对生产桥后生图库 21725 张，下拉手势后界面与进程正常（pid 12163）；提交 20 步任务时顶部显示“生成中 · 5%→40%”，完成后出现“新图 1”，点按后总数 21726，crash buffer 今日无新崩溃。
+
+### 2026-11-27 Alpha64 批量审核页生图进度
+
+9 图批量审核页顶部新增电脑端只读生图进度，与图库、单图审阅共用同一份快照；电脑端空闲时自动隐藏，不占用批审空间。
+
+版本 Alpha64（versionCode 71），JVM 单测 831 项全绿（ImageRequestLifetimeTest 首轮波动，复跑通过）；模拟器安装并 AOT 后显示 Alpha64 更新说明；生产提交真实 20 步任务后在批量审核页看到“电脑端生成中：第 1 / 1 张 · 剩余 1 段 · 30%”，完成后进度自动隐藏并停留在批审页；返回图库显示“新图 1”（21726 张），进程存活（pid 12812），crash buffer 今日无新崩溃。

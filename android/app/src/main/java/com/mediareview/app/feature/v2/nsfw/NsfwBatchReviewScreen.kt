@@ -1,6 +1,12 @@
 package com.mediareview.app.feature.v2.nsfw
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -163,6 +169,14 @@ internal fun NsfwBatchReviewScreen(
             Text("${draft.items.size} 张", color = MediaTextSecondary)
         }
         Text("勾选保留 · 未选就绪图淘汰 · 不删除文件", color = MediaTextSecondary, style = MaterialTheme.typography.bodySmall)
+        // 批审期间同样显示电脑端只读生图进度；空闲时不占位。
+        AnimatedVisibility(
+            visible = state.generationProgress?.visibleInGallery(state.generationProgressEnabled) == true,
+            enter = fadeIn(tween(160)) + expandVertically(tween(180)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(140)),
+        ) {
+            state.generationProgress?.takeIf { it.isGenerating }?.let { GenerationProgressStrip(it) }
+        }
         if (!supported) Text("批量审核不可用 · 请更新电脑端", color = MediaDanger)
         message?.let { Text(it, color = MediaTextSecondary) }
         if (locked) TextButton(onClick = ::recover, enabled = !working) { Text(if (working) "核对中…" else "核对上次批次结果") }

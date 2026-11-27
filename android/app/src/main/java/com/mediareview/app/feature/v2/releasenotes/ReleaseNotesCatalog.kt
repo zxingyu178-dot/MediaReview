@@ -689,6 +689,16 @@ object ReleaseNotesCatalog {
                 "筛选、状态与排序保持不变，刷新后仍停留在当前浏览位置",
             ),
         ),
+        ReleaseNote(
+            versionCode = 71,
+            versionName = "2.0.0-alpha64",
+            title = "MediaReview 2.0 Alpha 64",
+            highlights = listOf(
+                "9 图批量审核页顶部也显示电脑端生成进度，批审时不必返回图库查看",
+                "进度与图库、单图审阅共用同一份只读快照，当前张百分比同步刷新",
+                "电脑端空闲时自动隐藏，不占用批审空间",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
