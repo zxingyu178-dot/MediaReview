@@ -117,6 +117,38 @@ class NsfwReviewViewModelTest {
         assertEquals("b", model.state.value.currentItem?.imageId)
     }
 
+    @Test fun modelFilterRequiresBridgeCapabilityBeforeNetworkRequest() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1"))
+        val model = vm()
+        assertFalse(model.state.value.galleryModelFilterEnabled)
+        assertEquals(0, data.galleryModelsCalls)
+        val before = data.galleryCalls.size
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(model = "A.safetensors"))
+        assertEquals(before, data.galleryCalls.size)
+        assertTrue(model.state.value.message.orEmpty().contains("底模"))
+    }
+
+    @Test fun modelCandidatesLoadSortedAndBindToGalleryQuery() = runTest {
+        gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
+            capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1",
+                "mobile_gallery_model_filter_v1"))
+        data.galleryModelsResponder = {
+            listOf(
+                com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelOption("A", 1),
+                com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelOption("B", 5),
+            )
+        }
+        data.galleryResponder = { call -> com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage(
+            filters = call.query.filter.selection, syncCursor = "w1", scopeCursor = "s1") }
+        val model = vm()
+        assertTrue(model.state.value.galleryModelFilterEnabled)
+        assertEquals(listOf("B", "A"), model.state.value.galleryModels.map { it.model })
+        model.changeGalleryFilter(com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter(model = "B"))
+        assertEquals("B", data.galleryCalls.last().query.filter.model)
+        assertNull(data.galleryCalls.last().query.matches(nsfwItem("a")))
+    }
+
     @Test fun statusFilterRejectsUnsupportedHideRejectedBeforeNetworkRequest() = runTest {
         gateway.snapshot = NsfwConnectionSnapshot(baseUrl = "http://nsfw.test:8877", paired = true,
             capabilities = setOf("mobile_gallery_query_v1", "mobile_gallery_filters_v1"))

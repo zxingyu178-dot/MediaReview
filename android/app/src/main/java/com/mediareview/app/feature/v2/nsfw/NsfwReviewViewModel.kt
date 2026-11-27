@@ -23,10 +23,12 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptLink
 import com.mediareview.app.feature.v2.nsfw.data.NsfwPromptSummary
 import com.mediareview.app.feature.v2.nsfw.data.NsfwReviewDataSource
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter
+import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelOption
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryQuery
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
 import com.mediareview.app.feature.v2.nsfw.data.NsfwSavedGalleryReview
 import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_CAPABILITY
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_MODEL_CAPABILITY
 import com.mediareview.app.feature.v2.nsfw.data.NSFW_GENERATION_PROGRESS_CAPABILITY
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -124,6 +126,9 @@ data class NsfwUiState(
     val galleryFiltersEnabled: Boolean = false,
     val galleryReviewFilterEnabled: Boolean = false,
     val gallerySearchEnabled: Boolean = false,
+    /** 底模筛选：仅当桥声明 mobile_gallery_model_filter_v1 时显示入口。 */
+    val galleryModelFilterEnabled: Boolean = false,
+    val galleryModels: List<NsfwGalleryModelOption> = emptyList(),
     val galleryMembershipUnknown: Boolean = false,
     val batchReviewEnabled: Boolean = false,
     val previousPageCursor: String? = null,
@@ -351,6 +356,8 @@ class NsfwReviewViewModel @Inject constructor(
                 galleryEnabled = NSFW_GALLERY_CAPABILITY in snapshot.capabilities,
                 gallerySearchEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_SEARCH_CAPABILITY in snapshot.capabilities,
                 galleryFiltersEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_FILTERS_CAPABILITY in snapshot.capabilities,
+                galleryModelFilterEnabled = NSFW_GALLERY_MODEL_CAPABILITY in snapshot.capabilities,
+                galleryModels = if (NSFW_GALLERY_MODEL_CAPABILITY in snapshot.capabilities) it.galleryModels else emptyList(),
                 galleryReviewFilterEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_REVIEW_FILTER_CAPABILITY in snapshot.capabilities,
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
                 batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
@@ -360,6 +367,7 @@ class NsfwReviewViewModel @Inject constructor(
         }
         syncFromCursor(reset = true)
         maybeStartPolling()
+        refreshGalleryModels()
     }
 
     fun pair(baseUrl: String, code: String) {
@@ -496,7 +504,7 @@ class NsfwReviewViewModel @Inject constructor(
         galleryWatermark = null
         galleryResumeAnchor = null
         savedGalleryReview = null
-        _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, galleryReviewFilterEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
+        _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, galleryModelFilterEnabled = false, galleryModels = emptyList(), galleryReviewFilterEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
             generationProgressEnabled = false, generationModelEnabled = false, generationProgress = null,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
@@ -1335,6 +1343,21 @@ class NsfwReviewViewModel @Inject constructor(
         requestGallery(saved?.query ?: _state.value.galleryQuery, saved?.scopeCursor, anchor)
     }
 
+    /** 刷新图库底模候选（筛选面板打开/连接就绪时）；旧桥或失败时保留现有列表。 */
+    fun refreshGalleryModels() {
+        val state = _state.value
+        if (!state.galleryModelFilterEnabled || state.phase != NsfwPhase.READY) return
+        val epoch = connectionEpoch
+        viewModelScope.launch {
+            try {
+                val models = dataSource.galleryModels()
+                    .sortedWith(compareByDescending<NsfwGalleryModelOption> { it.count }.thenBy { it.model })
+                if (epoch == connectionEpoch) _state.update { it.copy(galleryModels = models) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* 候选刷新失败不阻断图库；保留上次列表 */ }
+        }
+    }
+
     private fun requestGallery(
         query: NsfwGalleryQuery,
         scope: String? = null,
@@ -1346,6 +1369,10 @@ class NsfwReviewViewModel @Inject constructor(
         if (!state.galleryEnabled || state.phase != NsfwPhase.READY || state.busy || state.panel?.submitting == true) return
         if ((query.filter.search != null || query.filter.tag != null) && !state.gallerySearchEnabled) {
             _state.update { it.copy(message = "当前审核桥不支持搜索或标签筛选，请升级审核桥") }
+            return
+        }
+        if (query.filter.model != null && !state.galleryModelFilterEnabled) {
+            _state.update { it.copy(message = "底模筛选需升级电脑端审核桥") }
             return
         }
         if (query.filter.selection.active && !state.galleryFiltersEnabled) {

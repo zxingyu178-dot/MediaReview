@@ -260,6 +260,13 @@ class FakeNsfwDataSource : NsfwReviewDataSource {
         galleryCalls += call
         return galleryResponder(call)
     }
+    var galleryModelsCalls = 0
+    var galleryModelsResponder: suspend () -> List<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelOption> = { emptyList() }
+    override suspend fun galleryModels(): List<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelOption> {
+        galleryModelsCalls++
+        return galleryModelsResponder()
+    }
+
     var feedResponder: suspend (String?) -> NsfwFeedPage = { NsfwFeedPage() }
     var detailsResponder: suspend (String) -> NsfwImageDetails = { NsfwImageDetails(imageId = it) }
     var decisionResponder: suspend (String, String?, Boolean?) -> NsfwDecisionResult = { id, status, favorite ->

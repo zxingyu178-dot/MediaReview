@@ -250,7 +250,8 @@
 
 - 图库：`GET /mobile/images/gallery?sort=&from_utc=&before_utc=&page_cursor=&scope_cursor=&anchor_id=&limit=`。首屏只传 `scope_cursor` 或 `anchor_id`；后续翻页只传 `page_cursor`，两者同时出现返回 422。
 - 批量：`POST /mobile/images/batch-review`（`Idempotency-Key`），回执 `GET /mobile/images/batch-review/{request_id}/result`。
-- 相关能力：`mobile_gallery_query_v1`、`mobile_gallery_bidirectional_v1`、`mobile_gallery_filters_v1`、`mobile_gallery_review_filter_v1`、`mobile_gallery_search_v1`、`mobile_image_batch_review_v1`。
+- 底模筛选（Alpha80）：`GET /mobile/images/gallery?model=`（≤200 字；`__none__` = 未记录），候选 `GET /mobile/images/models` → `{"items":[{"model","count"}]}`；响应 `filters` 回显 `model`。
+- 相关能力：`mobile_gallery_query_v1`、`mobile_gallery_bidirectional_v1`、`mobile_gallery_filters_v1`、`mobile_gallery_review_filter_v1`、`mobile_gallery_search_v1`、`mobile_gallery_model_filter_v1`、`mobile_image_batch_review_v1`。
 - 字段与分页语义以 `docs/integration/fixtures/` 和桥端 `MEDIAREVIEW_NSFW_CONTRACT_V2.md` 为准。
 
 ## 3. 客户端实现边界

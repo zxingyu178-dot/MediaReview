@@ -849,6 +849,17 @@ object ReleaseNotesCatalog {
                 "旧图或外部导入没有底模时自动隐藏或显示“未知”，不占位",
             ),
         ),
+        ReleaseNote(
+            versionCode = 87,
+            versionName = "2.0.0-alpha80",
+            title = "MediaReview 2.0 Alpha 80",
+            highlights = listOf(
+                "图库筛选新增“底模”：按电脑端任务快照里的模型筛选图片",
+                "底模候选显示图片数，并支持一键查看“未记录底模”的旧图与导入图",
+                "筛选摘要同步显示底模，切换后列表、计数与卡片一起刷新",
+                "旧电脑端未声明能力时自动隐藏底模筛选，不影响原有筛选",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

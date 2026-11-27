@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
 const val NSFW_GALLERY_CAPABILITY = "mobile_gallery_query_v1"
 const val NSFW_GALLERY_SEARCH_CAPABILITY = "mobile_gallery_search_v1"
 const val NSFW_GALLERY_FILTERS_CAPABILITY = "mobile_gallery_filters_v1"
+/** 图库按底模筛选：gallery 的 model 参数 + /mobile/images/models 候选。 */
+const val NSFW_GALLERY_MODEL_CAPABILITY = "mobile_gallery_model_filter_v1"
 const val NSFW_GALLERY_REVIEW_FILTER_CAPABILITY = "mobile_gallery_review_filter_v1"
 const val NSFW_BIDIRECTIONAL_CAPABILITY = "mobile_gallery_bidirectional_v1"
 
@@ -18,6 +20,12 @@ const val NSFW_GALLERY_SEARCH_MAX_LENGTH = 200
 
 /** 版本标签上限（精确匹配，非生成版本标签）。 */
 const val NSFW_GALLERY_TAG_MAX_LENGTH = 100
+
+/** 底模名称上限（与桥的 model 查询参数一致）。 */
+const val NSFW_GALLERY_MODEL_MAX_LENGTH = 200
+
+/** 未记录底模的筛选值（无任务快照 / 导入图 / 旧任务）。 */
+const val NSFW_GALLERY_MODEL_NONE = "__none__"
 
 @Serializable
 enum class NsfwGallerySort(val wire: String, val label: String) {
@@ -42,14 +50,17 @@ data class NsfwGalleryFilter(
     val favorite: Boolean? = null,
     val search: String? = null,
     val tag: String? = null,
+    val model: String? = null,
 ) {
-    val selection: NsfwGallerySelection get() = NsfwGallerySelection(promptId, versionId, status, category, favorite, search, tag)
+    val selection: NsfwGallerySelection get() = NsfwGallerySelection(promptId, versionId, status, category, favorite, search, tag, model)
     val label: String get() = if (dates == NsfwGalleryDates.CUSTOM) "$startDate 至 $endDate" else dates.label
 
     fun resolve(now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): NsfwGalleryQuery {
         require((search?.length ?: 0) <= NSFW_GALLERY_SEARCH_MAX_LENGTH) { "搜索关键词最多${NSFW_GALLERY_SEARCH_MAX_LENGTH}字" }
         require((tag?.length ?: 0) <= NSFW_GALLERY_TAG_MAX_LENGTH) { "标签最多${NSFW_GALLERY_TAG_MAX_LENGTH}字" }
-        val normalized = copy(search = search?.trim()?.takeIf { it.isNotEmpty() }, tag = tag?.trim()?.takeIf { it.isNotEmpty() })
+        require((model?.length ?: 0) <= NSFW_GALLERY_MODEL_MAX_LENGTH) { "底模名称最多${NSFW_GALLERY_MODEL_MAX_LENGTH}字" }
+        val normalized = copy(search = search?.trim()?.takeIf { it.isNotEmpty() }, tag = tag?.trim()?.takeIf { it.isNotEmpty() },
+            model = model?.trim()?.takeIf { it.isNotEmpty() })
         if (normalized != this) return normalized.resolve(now, zone)
         require(promptId == null || promptId.isNotBlank())
         require(versionId == null || (versionId.isNotBlank() && promptId != null)) { "提示词版本需要所属提示词" }
@@ -91,7 +102,8 @@ data class NsfwGalleryQuery(
             val categories = item.categories ?: return null
             if (filter.category !in categories) return false
         }
-        return if (filter.search != null || filter.tag != null) null else true
+        // 底模只存在于任务快照，feed 条目没有该字段：与搜索/标签一样交由服务端判定。
+        return if (filter.search != null || filter.tag != null || filter.model != null) null else true
     }
 
     fun contains(timestamp: String): Boolean = runCatching {
@@ -116,9 +128,18 @@ data class NsfwGallerySelection(
     val favorite: Boolean? = null,
     val search: String? = null,
     val tag: String? = null,
+    val model: String? = null,
 ) {
-    val active: Boolean get() = promptId != null || versionId != null || status != null || category != null || favorite != null || search != null || tag != null
+    val active: Boolean get() = promptId != null || versionId != null || status != null ||
+        category != null || favorite != null || search != null || tag != null || model != null
 }
+
+/** 底模候选（`GET /mobile/images/models`）：model 为快照原值，count 为图片数。 */
+@Serializable
+data class NsfwGalleryModelOption(val model: String, val count: Int = 0)
+
+@Serializable
+data class NsfwGalleryModelsPage(val items: List<NsfwGalleryModelOption> = emptyList())
 
 /** 空结果是否由筛选（含搜索/标签/日期）造成；排序不算筛选。 */
 val NsfwGalleryFilter.emptyStateNarrowed: Boolean
@@ -150,6 +171,7 @@ val NsfwGalleryFilter.activeSummary: String
         val parts = buildList {
             search?.trim()?.takeIf { it.isNotEmpty() }?.let { add("搜索「${keyword(it)}」") }
             tag?.trim()?.takeIf { it.isNotEmpty() }?.let { add("标签「${keyword(it)}」") }
+            model?.let { add(if (it == NSFW_GALLERY_MODEL_NONE) "未记录底模" else "底模 ${nsfwModelLabel(it) ?: it}") }
             if (dates != NsfwGalleryDates.ALL) add(label)
             status?.let { add(statusSummaryLabel(it)) }
             category?.let { add(if (it == "anime") "动漫" else "导入") }

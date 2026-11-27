@@ -86,6 +86,7 @@ internal fun NsfwGallery(
     onResume: () -> Unit = { state.currentId?.let(onSelect) },
     onLoadPrevious: () -> Unit = {},
     onOpenBatch: () -> Unit = {},
+    onRefreshModels: () -> Unit = {},
 ) {
     val initialAnchor = remember(state.baseUrl, state.galleryViewEpoch) { state.galleryAnchor }
     var restorePending by remember(state.baseUrl, state.galleryViewEpoch) { mutableStateOf(initialAnchor != null) }
@@ -276,6 +277,10 @@ internal fun NsfwGallery(
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text("加载更多") }
     }
     val filterScroll = rememberScrollState()
+    // 每次打开筛选面板刷新底模候选：新任务完成后数量与候选会变化。
+    LaunchedEffect(filtersOpen) {
+        if (filtersOpen && state.galleryModelFilterEnabled) onRefreshModels()
+    }
     if (filtersOpen) ModalBottomSheet(onDismissRequest = { filtersOpen = false }, containerColor = Color(0xFF181E28)) {
         Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()) {
             // 标题栏固定在面板顶部：内容滚动时“完成”始终可见。
@@ -289,7 +294,8 @@ internal fun NsfwGallery(
                 else Text("搜索与标签不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
                 if (state.galleryEnabled) GalleryFilters(filter, interaction.canChangeQuery, onChangeFilter)
                 else Text("排序与日期不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
-                if (state.galleryFiltersEnabled) LibraryFilters(filter, interaction.canChangeQuery, state.galleryReviewFilterEnabled, onChangeFilter)
+                if (state.galleryFiltersEnabled) LibraryFilters(filter, interaction.canChangeQuery,
+                    state.galleryReviewFilterEnabled, state.galleryModelFilterEnabled, state.galleryModels, onChangeFilter)
                 else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
             }
         }
@@ -379,15 +385,40 @@ private fun GalleryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LibraryFilters(filter: NsfwGalleryFilter, enabled: Boolean, reviewFilterEnabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
+private fun LibraryFilters(
+    filter: NsfwGalleryFilter,
+    enabled: Boolean,
+    reviewFilterEnabled: Boolean,
+    modelFilterEnabled: Boolean,
+    models: List<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelOption>,
+    onChange: (NsfwGalleryFilter) -> Unit,
+) {
     FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val statuses = listOf(null to "全部状态", "NEW" to "只看未审核", "KEEP" to "已保留", "REJECT" to "已淘汰", "ARCHIVED" to "已归档") +
             if (reviewFilterEnabled) listOf("NOT_REJECTED" to "隐藏已淘汰") else emptyList()
         LibraryFilterMenu("状态", filter.status, statuses, enabled) { onChange(filter.copy(status = it)) }
         LibraryFilterMenu("分类", filter.category, listOf(null to "全部分类", "anime" to "动漫", "imported" to "导入"), enabled) { onChange(filter.copy(category = it)) }
         LibraryFilterMenu("收藏", filter.favorite?.toString(), listOf(null to "全部收藏状态", "true" to "已收藏", "false" to "未收藏"), enabled) { onChange(filter.copy(favorite = it?.toBooleanStrict())) }
+        if (modelFilterEnabled) {
+            val modelOptions = buildList {
+                add(null to "全部底模")
+                models.forEach { option ->
+                    val label = com.mediareview.app.feature.v2.nsfw.data.nsfwModelLabel(option.model) ?: option.model
+                    add(option.model to "$label（${option.count}）")
+                }
+                add(com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_MODEL_NONE to "未记录底模")
+                // 当前底模已无图片（或候选尚未加载）时不丢失入口，仍可切回。
+                filter.model?.takeIf { current -> none { it.first == current } }?.let { current ->
+                    val label = if (current == com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_MODEL_NONE) "未记录底模"
+                        else "底模 " + (com.mediareview.app.feature.v2.nsfw.data.nsfwModelLabel(current) ?: current)
+                    add(current to label)
+                }
+            }
+            LibraryFilterMenu("底模", filter.model, modelOptions, enabled) { onChange(filter.copy(model = it)) }
+        }
         if (filter.selection.active) TextButton(enabled = enabled, onClick = {
-            onChange(filter.copy(promptId = null, versionId = null, status = null, category = null, favorite = null, search = null, tag = null))
+            onChange(filter.copy(promptId = null, versionId = null, status = null, category = null,
+                favorite = null, search = null, tag = null, model = null))
         }) { Text("清除库筛选") }
     }
     if (filter.promptId != null) Text(if (filter.versionId != null) "限定同一提示词版本" else "限定同一提示词", modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelMedium)

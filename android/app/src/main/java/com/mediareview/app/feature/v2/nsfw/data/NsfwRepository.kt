@@ -13,6 +13,8 @@ interface NsfwReviewDataSource {
         throw NsfwApiException("BATCH_REVIEW_UNSUPPORTED", "批量回执需要更新电脑端生图审核服务")
     suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String? = null, scopeCursor: String? = null, anchorId: String? = null, limit: Int = 50): NsfwGalleryPage =
         throw NsfwApiException("GALLERY_UNSUPPORTED", "日期查询需要更新电脑端生图审核服务")
+    /** 底模候选；旧桥没有该端点时返回空列表（能力门禁已隐藏入口）。 */
+    suspend fun galleryModels(): List<NsfwGalleryModelOption> = emptyList()
     suspend fun feed(cursor: String?, limit: Int = 50): NsfwFeedPage
     /** 只读生图进度；桥未提供该能力时返回 null（UI 隐藏，不视为错误）。 */
     suspend fun generationProgress(): NsfwGenerationProgress? = null
@@ -86,7 +88,7 @@ class NsfwRepository internal constructor(
     override suspend fun gallery(query: NsfwGalleryQuery, pageCursor: String?, scopeCursor: String?, anchorId: String?, limit: Int): NsfwGalleryPage {
         val selection = query.filter.selection
         val page = call { api().gallery(query.filter.sort.wire, query.fromUtc, query.beforeUtc, pageCursor, scopeCursor, anchorId, limit.coerceIn(1, 100),
-            selection.promptId, selection.versionId, selection.status, selection.category, selection.favorite, selection.search, selection.tag) }
+            selection.promptId, selection.versionId, selection.status, selection.category, selection.favorite, selection.search, selection.tag, selection.model) }
         if ((page.filters ?: NsfwGallerySelection()) != selection) {
             throw mismatch("图库筛选条件未获服务端确认，请升级审核桥或重试")
         }
@@ -97,6 +99,11 @@ class NsfwRepository internal constructor(
         }
         return page
     }
+
+    override suspend fun galleryModels(): List<NsfwGalleryModelOption> =
+        call { api().galleryModels() }.items
+            .filter { it.model.isNotBlank() && it.count >= 0 }
+            .distinctBy { it.model }
 
     constructor(store: NsfwProfileStore, apiFactory: NsfwApiFactory) : this(
         NsfwBaseUrlPort { store.current().baseUrl },

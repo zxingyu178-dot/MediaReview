@@ -54,7 +54,12 @@ interface NsfwStudioApi {
         @Query("favorite") favorite: Boolean? = null,
         @Query("search") search: String? = null,
         @Query("tag") tag: String? = null,
+        @Query("model") model: String? = null,
     ): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryPage>
+
+    /** 底模候选；能力缺失的旧桥返回 404，客户端不展示底模筛选。 */
+    @GET("/mobile/images/models")
+    suspend fun galleryModels(): NsfwEnvelope<com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryModelsPage>
 
     @GET("/mobile/system/health")
     suspend fun health(): NsfwEnvelope<NsfwHealth>

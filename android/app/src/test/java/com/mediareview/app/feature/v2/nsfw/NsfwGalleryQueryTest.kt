@@ -68,10 +68,32 @@ class NsfwGalleryQueryTest {
         // 关键词超长时截断，避免摘要把“清除”挤出屏幕。
         assertEquals("搜索「${"a".repeat(12)}…」", NsfwGalleryFilter(search = "a".repeat(20)).activeSummary)
         assertEquals(
-            "搜索「cat」 · 标签「v1」 · 今天 · 只看未审核 · 导入 · 已收藏",
-            NsfwGalleryFilter(search = "cat", tag = "v1", dates = NsfwGalleryDates.TODAY, status = "NEW",
+            "搜索「cat」 · 标签「v1」 · 底模 miaomiaoHarem_v14 · 今天 · 只看未审核 · 导入 · 已收藏",
+            NsfwGalleryFilter(search = "cat", tag = "v1", model = "miaomiaoHarem_v14.safetensors",
+                dates = NsfwGalleryDates.TODAY, status = "NEW",
                 category = "imported", favorite = true).activeSummary,
         )
+    }
+
+    @Test fun modelFilterIsServerOnlyAndNamedInSummary() {
+        val model = "NoobAI-XL-v1.1.safetensors"
+        val filter = NsfwGalleryFilter(model = "  $model  ")
+        val query = filter.resolve()
+        assertEquals(model, query.filter.model)
+        assertTrue(query.filter.selection.active)
+        assertTrue(query.filter.emptyStateNarrowed)
+        assertEquals("无匹配图片", query.filter.emptyStateLabel)
+        assertEquals("底模 NoobAI-XL-v1.1", query.filter.activeSummary)
+        assertEquals("未记录底模", NsfwGalleryFilter(model = NSFW_GALLERY_MODEL_NONE).activeSummary)
+        // feed 条目没有底模字段：成员归属只能由服务端确认。
+        assertNull(query.matches(nsfwItem("a")))
+        NsfwGalleryFilter(model = "m".repeat(NSFW_GALLERY_MODEL_MAX_LENGTH)).resolve()
+        try {
+            NsfwGalleryFilter(model = "m".repeat(NSFW_GALLERY_MODEL_MAX_LENGTH + 1)).resolve()
+            fail("超长底模名称应被拒绝")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("底模名称最多200字", expected.message)
+        }
     }
 
     @Test fun searchAndTagLimitsAreSharedWithInputCap() {

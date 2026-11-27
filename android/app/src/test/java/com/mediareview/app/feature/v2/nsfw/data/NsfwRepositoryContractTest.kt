@@ -53,6 +53,21 @@ class NsfwRepositoryContractTest {
             assertTrue(runCatching { repository.gallery(query) }.exceptionOrNull() is NsfwApiException)
         }
     }
+    @Test fun galleryModelFilterBindsAndRejectsIgnoredEcho() = runTest {
+        val query = NsfwGalleryFilter(model = "  NoobAI-XL-v1.1.safetensors  ").resolve()
+        server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"s","sync_cursor":"w","filters":{"model":"NoobAI-XL-v1.1.safetensors"}}}"""))
+        repository.gallery(query)
+        assertEquals("NoobAI-XL-v1.1.safetensors", server.takeRequest().requestUrl!!.queryParameter("model"))
+        server.enqueue(okay("""{"success":true,"data":{"items":[],"scope_cursor":"s","sync_cursor":"w","filters":{}}}"""))
+        assertTrue(runCatching { repository.gallery(query) }.exceptionOrNull() is NsfwApiException)
+    }
+
+    @Test fun galleryModelsParsesCandidatesAndDropsInvalidRows() = runTest {
+        server.enqueue(okay("""{"success":true,"data":{"items":[{"model":"A","count":5},{"model":" ","count":1},{"model":"B","count":-1},{"model":"C","count":2}]}}"""))
+        assertEquals(listOf(NsfwGalleryModelOption("A", 5), NsfwGalleryModelOption("C", 2)), repository.galleryModels())
+        assertEquals("/mobile/images/models", server.takeRequest().requestUrl!!.encodedPath)
+    }
+
     @Test fun batchRefreshReadsAuthoritativeImageStatusFromDetails() = runTest {
         server.enqueue(okay("""{"success":true,"data":{"image_id":"a","status":"KEEP","revision":"15","updated_at":"2026-11-10T01:00:00Z"}}"""))
         val detail = repository.details("a")

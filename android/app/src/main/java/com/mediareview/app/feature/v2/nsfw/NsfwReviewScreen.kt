@@ -158,6 +158,7 @@ fun NsfwReviewScreen(
                 onViewLatest = vm::viewLatestImages,
                 onGalleryFilter = vm::changeGalleryFilter,
                 onResumeGallery = vm::resumeGalleryReview,
+                onRefreshModels = vm::refreshGalleryModels,
                 onOpenDetails = { detailsOpen = true },
                 onDisconnect = vm::clearPairing,
                 originalOpen = originalOpen,
@@ -311,6 +312,7 @@ private fun ReadyPane(
     onViewLatest: () -> Unit,
     onGalleryFilter: (com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter) -> Unit,
     onResumeGallery: () -> Unit,
+    onRefreshModels: () -> Unit = {},
     onOpenDetails: () -> Unit,
     onDisconnect: () -> Unit,
     originalOpen: Boolean,
@@ -346,7 +348,8 @@ private fun ReadyPane(
             onRefresh = onRefresh, onLoadMore = onLoadMore, onLoadPrevious = onLoadPrevious, onOpenBatch = { batchOpen = true },
             onDisconnect = { confirmDisconnect = true }, onAnchor = onGalleryAnchor,
             onChangeFilter = onGalleryFilter, onLatest = onViewLatest,
-            onResume = { onResumeGallery(); galleryOpen = false })
+            onResume = { onResumeGallery(); galleryOpen = false },
+            onRefreshModels = onRefreshModels)
         return
     }
     NsfwImageReviewPane(state, imageLoader,

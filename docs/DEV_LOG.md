@@ -4170,3 +4170,11 @@ Alpha78 在模拟器复核：生产桥 6fccaee 下由 Agent 提交完全省略 m
 浏览已完成图片时，底模只在“图片信息”里，且桥的详情 `model` 一直为 null（显示“未知”）。现在 Bridge `GET /mobile/images/{id}/details` 的 `model` 改为读取原任务工作流快照（与队列/桌面同源；省略 model 的 AI 任务也会由电脑端补齐），无 Job/外部导入仍为 null。移动端单图审图顶栏在提示词摘要左侧新增“底模 X”（去掉权重扩展名，长名省略），与进度条共用 `nsfwModelLabel` 规则；旧图没有底模时不占位，详情“模型”显示“未知”。新增 1 项 JVM 单测（去扩展名/空白/大小写），全量 842 项通过（102 suites，0 失败）。
 
 版本 Alpha79（versionCode 86）：模拟器覆盖安装后显示更新说明；进入生图审核打开最新图（`img_b90242ce…`，原任务 `job_eb70e06b`），顶栏显示“底模 miaomiaoHarem_v14”，图片信息“模型 miaomiaoHarem_v14”；切到第 3 张旧任务图（无快照底模）时顶栏不出现底模行，详情“模型”显示“未知”。进程存活（pid 5284），crash buffer 无本应用新崩溃，显示设置 420dpi / 1.0 未变。证据：`docs/evidence/alpha79-launch.xml`、`alpha79-review-model.xml`、`alpha79-review-model.png`、`alpha79-details-model.xml`、`alpha79-details-model.png`、`alpha79-legacy-no-model.xml`、`alpha79-legacy-details.xml`、`alpha79-final.xml`。
+
+### 2026-11-27 Alpha80 图库按底模筛选
+
+图库此前只能按日期、状态、分类、收藏、搜索与标签筛选，同一列表混着多款底模，想只看某款模型出图只能逐张看详情。现在 `NsfwGalleryFilter` 增加 `model`：筛选面板新增“底模”菜单，候选来自 Bridge `GET /mobile/images/models`（显示张数，按数量降序），并带“未记录底模”（`__none__`，含导入图 / 旧任务 / 无快照）；选中后查询参数 `model` 随游标提交，顶部摘要显示“底模 X / 未记录底模”，清除按钮一并清空。能力 `mobile_gallery_model_filter_v1` 未声明时入口隐藏；若仍有代码路径带 model，会在发网前提示“底模筛选需升级电脑端审核桥”。切换底模后列表、总数与筛选摘要一起刷新，图格沿用现有 `animateItem` 过渡。
+
+新增 JVM 测试 5 项：`NsfwGalleryQueryTest`（摘要、trim/上限、服务端成员判定）、`NsfwRepositoryContractTest`（model 参数与回显、候选无效应丢弃）、`NsfwReviewViewModelTest`（旧桥门禁不发请求、候选排序并绑定查询）；全量 847 项 / 102 suites 通过（0 失败）。
+
+版本 Alpha80（versionCode 87）：模拟器覆盖安装后显示 4 条更新说明；图库 21738 张，底模菜单为“全部底模 / NoobAI-XL-v1.1（5）/ miaomiaoHarem_v14（2）/ waiNSFWIllustrious_v150（1）/ 未记录底模”；选 NoobAI 后标题“5 张”、摘要“底模 NoobAI-XL-v1.1”、网格恰好 5 张；切“未记录底模”后 21730 张；点“清除”恢复 21738 张、摘要消失。进程存活（pid 6748），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha80-launch.xml/png`、`alpha80-filter-sheet.xml/png`、`alpha80-model-menu.xml/png`、`alpha80-model-noobai.xml/png`、`alpha80-model-none.xml/png`、`alpha80-cleared.xml`、`alpha80-home.xml`、`alpha80-gallery.xml`、`alpha80-filter-noobai.xml`、`alpha80-model-menu2.xml`。
