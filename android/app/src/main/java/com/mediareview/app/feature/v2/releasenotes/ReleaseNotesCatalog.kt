@@ -679,6 +679,16 @@ object ReleaseNotesCatalog {
                 "旧版电脑端不返回该字段时自动隐藏，不影响原有显示",
             ),
         ),
+        ReleaseNote(
+            versionCode = 70,
+            versionName = "2.0.0-alpha63",
+            title = "MediaReview 2.0 Alpha 63",
+            highlights = listOf(
+                "生图库支持下拉刷新，和顶部刷新按钮使用同一次增量同步",
+                "“新图 N”提示带淡入缩放动画，数量变化时平滑切换",
+                "筛选、状态与排序保持不变，刷新后仍停留在当前浏览位置",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

@@ -4018,3 +4018,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 手机端生图进度新增当前张真实采样百分比：Bridge `GET /mobile/generation/progress` 读取当前 RUNNING StageItem 的 `progress`，新增只读字段 `current_progress`（0..1，阶段间隙为 null）与能力 `mobile_generation_item_progress_v1`；审图页与生图库在段进度条下新增 2dp 细进度条，文案末尾显示“ · NN%”，旧桥无该字段时自动隐藏。
 
 版本 Alpha62（versionCode 69），JVM 单测 831 项全绿；模拟器安装并 AOT 后显示 Alpha62 更新说明；生产桥（build 55638e8）提交真实 20 步任务后，生图库顶部显示“电脑端生成中：第 1 / 1 张 · 剩余 1 段 · 10%”，约 7 秒后推进到 50%；任务完成（job_3c6c70e7-24c3-4716-b7b5-6cb2821fd715，1 张）后进度条消失并显示“新图 1”，进程存活（pid 10718），crash buffer 今日无新崩溃。后端定向与全量（864 项）测试通过。
+
+### 2026-11-27 Alpha63 生图库下拉刷新
+
+生图库新增下拉刷新（PullToRefreshBox），与顶部刷新按钮共用同一次有界增量同步；“新图 N”提示改为淡入缩放出现，数量变化用 AnimatedContent 平滑切换。新增仪器测试 galleryPullToRefreshInvokesRefresh，直接断言下拉手势触发刷新回调。
+
+版本 Alpha63（versionCode 70），JVM 单测 831 项全绿，NsfwVisualPolishTest 4 项仪器测试通过；模拟器安装并 AOT 后显示 Alpha63 更新说明，重新配对生产桥后生图库 21725 张，下拉手势后界面与进程正常（pid 12163）；提交 20 步任务时顶部显示“生成中 · 5%→40%”，完成后出现“新图 1”，点按后总数 21726，crash buffer 今日无新崩溃。

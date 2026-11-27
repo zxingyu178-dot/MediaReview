@@ -136,6 +136,23 @@ class NsfwVisualPolishTest {
         undo.assertIsNotEnabled()
         compose.onNodeWithTag("nsfw_image_stage").assertIsDisplayed()
     }
+    @Test fun galleryPullToRefreshInvokesRefresh() = withImages { base, loader, items ->
+        var refreshes = 0
+        val state = mutableStateOf(NsfwUiState(phase = NsfwPhase.READY, baseUrl = base, items = items,
+            currentId = items[0].imageId, galleryEnabled = true, galleryTotal = items.size,
+            galleryPositionValid = true))
+        compose.setContent { MediaReviewTheme { Surface {
+            NsfwGallery(state.value, loader, rememberLazyGridState(), {}, { refreshes += 1 }, {}, {}, { _, _ -> })
+        } } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("nsfw_gallery_grid").assertExists()
+        compose.onNodeWithTag("nsfw_gallery_pull_refresh").performTouchInput {
+            swipeDown(startY = centerY, endY = bottom - 10f, durationMillis = 500)
+        }
+        compose.waitUntil(5_000) { refreshes == 1 }
+        assertEquals(1, refreshes)
+    }
+
     private fun withImages(block: (String, NsfwImageLoader, List<NsfwFeedItem>) -> Unit) {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {

@@ -1,11 +1,14 @@
 package com.mediareview.app.feature.v2.nsfw
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -173,9 +177,21 @@ internal fun NsfwGallery(
                     }) { Text("清除") }
                 }
                 Spacer(Modifier.weight(1f))
-                if (state.newImageCount > 0) TextButton(
-                    onClick = { if (state.galleryEnabled) onLatest() else capabilityOpen = true },
-                    enabled = interaction.canChangeQuery) { Text("新图 ${state.newImageCount}") }
+                AnimatedVisibility(
+                    visible = state.newImageCount > 0,
+                    enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.88f, animationSpec = tween(160)),
+                    exit = fadeOut(tween(100)),
+                ) {
+                    TextButton(
+                        onClick = { if (state.galleryEnabled) onLatest() else capabilityOpen = true },
+                        enabled = interaction.canChangeQuery) {
+                        AnimatedContent(
+                            targetState = state.newImageCount,
+                            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+                            label = "nsfw-gallery-new-count",
+                        ) { count -> Text("新图 $count") }
+                    }
+                }
             }
         }
         if (ordinaryMessages.isNotEmpty() && !messageDismissed) {
@@ -196,20 +212,27 @@ internal fun NsfwGallery(
         if (state.bidirectionalGallery && state.previousPageCursor != null) TextButton(onClick = onLoadPrevious, enabled = interaction.canRefresh) {
             Text("加载前页")
         }
-        if (state.items.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (state.syncing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
-                    Text(if (state.syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
-                        color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+        // 下拉刷新与顶部刷新按钮共用同一次有界增量同步；仅非空图库可下拉。
+        PullToRefreshBox(
+            isRefreshing = state.syncing && state.items.isNotEmpty(),
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f).fillMaxWidth().testTag("nsfw_gallery_pull_refresh"),
+        ) {
+            if (state.items.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (state.syncing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
+                        Text(if (state.syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
+                            color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
-            }
-        } else LazyVerticalGrid(columns = GridCells.Adaptive(100.dp), state = grid,
-            modifier = Modifier.weight(1f).testTag("nsfw_gallery_grid"),
-            contentPadding = PaddingValues(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            itemsIndexed(state.items, key = { _, item -> item.imageId }) { index, item ->
-                GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
+            } else LazyVerticalGrid(columns = GridCells.Adaptive(100.dp), state = grid,
+                modifier = Modifier.fillMaxSize().testTag("nsfw_gallery_grid"),
+                contentPadding = PaddingValues(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                itemsIndexed(state.items, key = { _, item -> item.imageId }) { index, item ->
+                    GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
+                }
             }
         }
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text("加载更多") }
