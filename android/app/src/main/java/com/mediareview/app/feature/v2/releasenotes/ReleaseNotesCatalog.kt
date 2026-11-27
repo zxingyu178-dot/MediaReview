@@ -870,6 +870,16 @@ object ReleaseNotesCatalog {
                 "单击、双击、双指缩放与审核按钮行为保持不变",
             ),
         ),
+        ReleaseNote(
+            versionCode = 89,
+            versionName = "2.0.0-alpha82",
+            title = "MediaReview 2.0 Alpha 82",
+            highlights = listOf(
+                "审图顶栏的底模可点：一键回到图库并只显示同一底模的作品",
+                "底模旁新增筛选图标，返回后顶部摘要直接可见",
+                "旧电脑端未声明底模筛选能力时不显示入口",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

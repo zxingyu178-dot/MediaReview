@@ -4184,3 +4184,9 @@ Alpha78 在模拟器复核：生产桥 6fccaee 下由 Agent 提交完全省略 m
 审图页此前横向滑动只在越过 64dp 阈值后切换图片，拖动过程没有任何视觉反馈，手指与画面脱节。现在在 fit 比例下横向拖动会让图片跟随手指平移（最多 96dp，长边阻尼 0.38），边缘（第一张向左滑 / 最后一张向右滑）降到 0.12 做橡皮筋；松手未达阈值弹回，达阈值时先 70ms 顺势滑出再切换，淡出幅度随拖动距离最多 14%。手势判定、阈值、缩放/双击、单击显隐控制层与审核按钮逻辑均未改动；拖动状态在换图时自动归零。
 
 新增无 JVM 断言（交互视觉），全量 847 项 / 102 suites 通过（0 失败）。版本 Alpha81（versionCode 88）：模拟器覆盖安装后显示 3 条更新说明；1 / 21738 处按住向左拖 280px 截图可见图片整体左移、右侧留黑，松手后变为 2 / 21738；再向右拖回到 1 / 21738；在第一张继续向右拖只小幅右移且松手仍为 1 / 21738；单击仍隐藏/恢复控制层。进程存活（pid 7405），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha81-launch.xml/png`、`alpha81-review.xml/png`、`alpha81-swipe-drag.png`、`alpha81-swipe-after.xml`、`alpha81-swipe-back.png`、`alpha81-swipe-back-after.xml`、`alpha81-edge-drag.png`、`alpha81-edge-after.xml`、`alpha81-tap-hidden.xml`、`alpha81-tap-restored.xml`、`alpha81-gallery.xml`。
+
+### 2026-11-27 Alpha82 审图顶栏底模一键筛选
+
+审图顶栏虽已显示当前图片底模，但只是只读文字；想回看同一底模的作品要返回图库、打开筛选、再手动找模型名。现在当详情返回原始底模且桥声明 `mobile_gallery_model_filter_v1` 时，顶栏“底模 X”变为可点区域并带筛选图标：点击后沿用当前图库筛选（日期/状态/分类等）追加 `model`，随即返回图库，列表、总数与顶部摘要同步收敛。旧桥未声明能力、或旧图/导入图没有底模时保持只读且不占位；底模短名、进度条与滑动切图逻辑不变。
+
+无新增 JVM 断言（Compose 交互），全量 847 项 / 102 suites 通过（0 失败）。版本 Alpha82（versionCode 89）：模拟器覆盖安装显示 3 条更新说明；审图 1 / 21738 顶栏出现“底模 NoobAI-XL-v1.1”与“只看此底模 NoobAI-XL-v1.1”；点击后回到图库，标题“5 张”、摘要“底模 NoobAI-XL-v1.1”、网格恰好 5 张。进程存活（pid 7902），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha82-launch.xml/png`、`alpha82-review.xml/png`、`alpha82-filtered.xml/png`。

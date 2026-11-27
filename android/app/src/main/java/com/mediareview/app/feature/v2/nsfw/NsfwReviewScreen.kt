@@ -356,7 +356,13 @@ private fun ReadyPane(
         onGallery = { galleryOpen = true }, onRefresh = onRefresh,
         onPrevious = onPrevious, onNext = onNext, onSelect = onSelect, onDecision = onDecision,
         onToggleFavorite = onToggleFavorite, onUndo = onUndo, onDetails = onOpenDetails,
-        onLatest = onViewLatest, onDisconnect = { confirmDisconnect = true }, onPrefetchNext = onPrefetchNext)
+        onLatest = onViewLatest, onDisconnect = { confirmDisconnect = true }, onPrefetchNext = onPrefetchNext,
+        onFilterModel = { model ->
+            if (state.galleryModelFilterEnabled) {
+                onGalleryFilter(state.galleryQuery.filter.copy(model = model))
+                galleryOpen = true
+            }
+        })
 }
 
 @Composable

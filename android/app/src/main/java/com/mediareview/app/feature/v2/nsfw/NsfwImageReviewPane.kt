@@ -20,6 +20,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
@@ -52,6 +53,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -88,6 +90,7 @@ internal fun NsfwImageReviewPane(
     onLatest: () -> Unit,
     onDisconnect: () -> Unit,
     onPrefetchNext: () -> Boolean = { false },
+    onFilterModel: (String) -> Unit = {},
 ) {
     val item = state.currentItem
     val haptic = LocalHapticFeedback.current
@@ -377,6 +380,9 @@ internal fun NsfwImageReviewPane(
                 val currentDetail = state.detail?.takeIf { it.imageId == item?.imageId }
                 val promptPreview = currentDetail?.promptPreview
                 val modelLabel = currentDetail?.modelLabel
+                // 底模可点：与桌面「只看此底模」一致，回到图库并锁定同一款底模。
+                val modelValue = currentDetail?.model?.trim()?.takeIf { it.isNotEmpty() }
+                val canFilterModel = state.galleryModelFilterEnabled && modelValue != null
                 val clipboard = LocalClipboardManager.current
                 AnimatedVisibility(
                     visible = promptPreview != null || modelLabel != null,
@@ -384,16 +390,35 @@ internal fun NsfwImageReviewPane(
                     exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 底模：旧任务/外部导入没有该字段，自动不占位。
+                        // 底模：旧任务/外部导入没有该字段，自动不占位；可点时带筛选图标。
                         modelLabel?.let { model ->
-                            Text(
-                                "底模 $model",
-                                Modifier.padding(start = 12.dp).widthIn(max = 132.dp),
-                                color = MediaTextSecondary,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(
+                                Modifier.padding(start = 12.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(enabled = canFilterModel) {
+                                        if (canFilterModel) onFilterModel(modelValue!!)
+                                    }
+                                    .semantics {
+                                        if (canFilterModel) contentDescription = "只看此底模 $model"
+                                    },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "底模 $model",
+                                    Modifier.widthIn(max = if (canFilterModel) 112.dp else 132.dp),
+                                    color = MediaTextSecondary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (canFilterModel) {
+                                    Icon(
+                                        Icons.Default.FilterList, null,
+                                        Modifier.padding(start = 2.dp).size(13.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
                         }
                         Text(
                             promptPreview.orEmpty(),
