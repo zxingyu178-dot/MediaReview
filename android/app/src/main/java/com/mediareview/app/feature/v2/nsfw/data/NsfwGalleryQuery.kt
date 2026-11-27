@@ -132,6 +132,10 @@ val NsfwGalleryFilter.emptyStateLabel: String
 val NsfwGalleryFilter.emptyStateActionLabel: String
     get() = if (emptyStateNarrowed) "清除筛选" else "刷新图库"
 
+/** 自选日期区间是否可应用：两端都已选且结束不早于开始（与服务端 resolve 校验一致）。 */
+fun isValidGalleryDateRange(startMillis: Long?, endMillis: Long?): Boolean =
+    startMillis != null && endMillis != null && endMillis >= startMillis
+
 @Serializable
 data class NsfwGalleryPage(
     val filters: NsfwGallerySelection? = null,

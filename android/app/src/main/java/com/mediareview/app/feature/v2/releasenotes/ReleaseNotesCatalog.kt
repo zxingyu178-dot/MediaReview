@@ -769,6 +769,16 @@ object ReleaseNotesCatalog {
                 "其余筛选行为不变，应用搜索后仍立即收起面板",
             ),
         ),
+        ReleaseNote(
+            versionCode = 79,
+            versionName = "2.0.0-alpha72",
+            title = "MediaReview 2.0 Alpha 72",
+            highlights = listOf(
+                "自选日期时结束早于开始，“应用日期”直接禁用",
+                "日期选择框内即时提示：未选结束日期或结束早于开始都会被说明，不会被筛选面板挡住",
+                "合法区间仍可一键应用，筛选行为不变",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

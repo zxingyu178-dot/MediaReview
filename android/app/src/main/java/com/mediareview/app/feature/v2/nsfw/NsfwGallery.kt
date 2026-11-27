@@ -58,6 +58,7 @@ import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_TAG_MAX_LENGTH
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateActionLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateNarrowed
+import com.mediareview.app.feature.v2.nsfw.data.isValidGalleryDateRange
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -341,14 +342,29 @@ private fun GalleryFilters(filter: NsfwGalleryFilter, enabled: Boolean, onChange
     if (customOpen) {
         fun dateMillis(date: String?): Long? = date?.let { runCatching { LocalDate.parse(it).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull() }
         val picker = rememberDateRangePickerState(initialSelectedStartDateMillis = dateMillis(filter.startDate), initialSelectedEndDateMillis = dateMillis(filter.endDate))
+        val startMillis = picker.selectedStartDateMillis
+        val endMillis = picker.selectedEndDateMillis
+        val validRange = isValidGalleryDateRange(startMillis, endMillis)
+        val hint = when {
+            startMillis == null -> null
+            endMillis == null -> "请选择结束日期（不早于开始日期）"
+            !validRange -> "结束日期不能早于开始日期"
+            else -> null
+        }
         DatePickerDialog(onDismissRequest = { customOpen = false }, confirmButton = {
-            TextButton(enabled = picker.selectedStartDateMillis != null && picker.selectedEndDateMillis != null, onClick = {
+            TextButton(enabled = validRange, onClick = {
                 fun date(value: Long) = Instant.ofEpochMilli(value).atZone(ZoneOffset.UTC).toLocalDate().toString()
-                onChange(filter.copy(dates = NsfwGalleryDates.CUSTOM, startDate = date(picker.selectedStartDateMillis!!), endDate = date(picker.selectedEndDateMillis!!)))
+                onChange(filter.copy(dates = NsfwGalleryDates.CUSTOM, startDate = date(startMillis!!), endDate = date(endMillis!!)))
                 customOpen = false
             }) { Text("应用日期") }
         }, dismissButton = { TextButton(onClick = { customOpen = false }) { Text("取消") } }) {
-            DateRangePicker(state = picker, modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp), title = { Text("选择审核日期", modifier = Modifier.padding(16.dp)) })
+            Column {
+                // 日期选择器会静默拒绝早于开始的结束日期：提示必须覆盖“结束未定”和“倒序”两种状态。
+                if (hint != null) Text(hint,
+                    color = if (endMillis != null && !validRange) MaterialTheme.colorScheme.error else MediaTextSecondary,
+                    style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                DateRangePicker(state = picker, modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp), title = { Text("选择审核日期", modifier = Modifier.padding(16.dp)) })
+            }
         }
     }
 }

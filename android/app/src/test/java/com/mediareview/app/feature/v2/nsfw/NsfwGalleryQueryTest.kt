@@ -61,6 +61,15 @@ class NsfwGalleryQueryTest {
         }
     }
 
+    @Test fun customDateRangeRequiresOrderedBounds() {
+        assertFalse(isValidGalleryDateRange(null, null))
+        assertFalse(isValidGalleryDateRange(1L, null))
+        assertFalse(isValidGalleryDateRange(null, 1L))
+        assertTrue(isValidGalleryDateRange(1L, 1L))
+        assertTrue(isValidGalleryDateRange(1L, 2L))
+        assertFalse(isValidGalleryDateRange(2L, 1L))
+    }
+
     @Test fun unreviewedMembershipDropsBothDecisionOutcomes() {
         val query = NsfwGalleryFilter(status = "NEW").resolve()
         assertEquals(true, query.matches(nsfwItem("a").copy(status = "NEW")))
