@@ -383,9 +383,11 @@ internal fun NsfwImageReviewPane(
                 // 底模可点：与桌面「只看此底模」一致，回到图库并锁定同一款底模。
                 val modelValue = currentDetail?.model?.trim()?.takeIf { it.isNotEmpty() }
                 val canFilterModel = state.galleryModelFilterEnabled && modelValue != null
+                // AI 直提来源：仅在 agent/doubao 时显示紧凑徽标，网页/续跑不占位。
+                val aiSubmitted = currentDetail?.isAiSubmitted == true
                 val clipboard = LocalClipboardManager.current
                 AnimatedVisibility(
-                    visible = promptPreview != null || modelLabel != null,
+                    visible = promptPreview != null || modelLabel != null || aiSubmitted,
                     enter = fadeIn(tween(160)) + expandVertically(tween(180)),
                     exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
                 ) {
@@ -419,6 +421,19 @@ internal fun NsfwImageReviewPane(
                                     )
                                 }
                             }
+                        }
+                        if (aiSubmitted) {
+                            Text(
+                                "AI",
+                                Modifier.padding(start = if (modelLabel != null) 6.dp else 12.dp)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                        RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                                    .semantics { contentDescription = "AI 提交" },
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                            )
                         }
                         Text(
                             promptPreview.orEmpty(),

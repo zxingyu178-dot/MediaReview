@@ -4190,3 +4190,9 @@ Alpha78 在模拟器复核：生产桥 6fccaee 下由 Agent 提交完全省略 m
 审图顶栏虽已显示当前图片底模，但只是只读文字；想回看同一底模的作品要返回图库、打开筛选、再手动找模型名。现在当详情返回原始底模且桥声明 `mobile_gallery_model_filter_v1` 时，顶栏“底模 X”变为可点区域并带筛选图标：点击后沿用当前图库筛选（日期/状态/分类等）追加 `model`，随即返回图库，列表、总数与顶部摘要同步收敛。旧桥未声明能力、或旧图/导入图没有底模时保持只读且不占位；底模短名、进度条与滑动切图逻辑不变。
 
 无新增 JVM 断言（Compose 交互），全量 847 项 / 102 suites 通过（0 失败）。版本 Alpha82（versionCode 89）：模拟器覆盖安装显示 3 条更新说明；审图 1 / 21738 顶栏出现“底模 NoobAI-XL-v1.1”与“只看此底模 NoobAI-XL-v1.1”；点击后回到图库，标题“5 张”、摘要“底模 NoobAI-XL-v1.1”、网格恰好 5 张。进程存活（pid 7902），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha82-launch.xml/png`、`alpha82-review.xml/png`、`alpha82-filtered.xml/png`。
+
+### 2026-11-27 Alpha83 审图显示 AI 提交来源
+
+多数图片由 Agent / 豆包直提，但手机审图只能看到底模，分不清 AI 与网页提交。Bridge 详情新增 `job_source`（`web / resume / agent / doubao`，无 Job / 导入 / 旧桥为 null）后，Alpha83 在审图顶栏对 `agent`/`doubao` 显示紧凑“AI”徽标（读屏“AI 提交”），图片信息新增“提交来源”，映射为 AI 提交 / 网页提交 / 续跑；未知来源详情回退原值，缺失显示“未知”，顶栏不占位。
+
+新增 1 项 JVM 数据测试（大小写与 doubao 映射、未知/空白/缺失、AI 判定），全量 848 项 / 102 suites 通过（0 失败）。版本 Alpha83（versionCode 90）：模拟器覆盖安装显示 3 条更新说明；审图 1 / 21738 顶栏显示“底模 NoobAI-XL-v1.1”+“AI”徽标，图片信息显示“提交来源 AI 提交”；进程存活（pid 8523），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha83-launch.xml/png`、`alpha83-review.xml/png`、`alpha83-menu.xml`、`alpha83-details.xml/png`。

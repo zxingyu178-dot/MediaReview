@@ -33,6 +33,20 @@ class NsfwImageDetailsTest {
     }
 
     @Test
+    fun `提交来源映射 AI 与网页`() {
+        assertEquals("AI 提交", NsfwImageDetails(jobSource = "agent").jobSourceLabel)
+        assertEquals("AI 提交", NsfwImageDetails(jobSource = "doubao").jobSourceLabel)
+        assertEquals("网页提交", NsfwImageDetails(jobSource = "web").jobSourceLabel)
+        assertEquals("续跑", NsfwImageDetails(jobSource = "resume").jobSourceLabel)
+        assertNull(NsfwImageDetails(jobSource = "other").jobSourceLabel)
+        assertNull(NsfwImageDetails(jobSource = "  ").jobSourceLabel)
+        assertNull(NsfwImageDetails().jobSourceLabel)
+        org.junit.Assert.assertTrue(NsfwImageDetails(jobSource = "AGENT").isAiSubmitted)
+        org.junit.Assert.assertFalse(NsfwImageDetails(jobSource = "web").isAiSubmitted)
+        org.junit.Assert.assertFalse(NsfwImageDetails().isAiSubmitted)
+    }
+
+    @Test
     fun `图片详情底模去掉权重扩展名`() {
         assertEquals(
             "miaomiaoHarem_v14",

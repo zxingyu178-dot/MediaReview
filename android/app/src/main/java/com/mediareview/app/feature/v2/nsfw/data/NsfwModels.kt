@@ -311,6 +311,8 @@ data class NsfwImageDetails(
     @SerialName("link_state") val linkState: String = NsfwPromptLink.LINK_UNLINKED,
     @SerialName("job_id") val jobId: String? = null,
     @SerialName("module_id") val moduleId: String? = null,
+    /** 原任务提交来源：web / resume / agent / doubao；旧桥/导入图为 null。 */
+    @SerialName("job_source") val jobSource: String? = null,
     val seed: Long? = null,
     val model: String? = null,
     @SerialName("size_bytes") val sizeBytes: Long? = null,
@@ -327,6 +329,22 @@ data class NsfwImageDetails(
 
     /** 底模短名（去掉权重扩展名）；旧任务/外部导入为 null，由 UI 显示“未知”。 */
     val modelLabel: String? get() = nsfwModelLabel(model)
+
+    /** 提交来源中文标签；未知来源返回 null（UI 可回退原值或隐藏）。 */
+    val jobSourceLabel: String?
+        get() = when (jobSource?.trim()?.lowercase()) {
+            "agent", "doubao" -> "AI 提交"
+            "web" -> "网页提交"
+            "resume" -> "续跑"
+            else -> null
+        }
+
+    /** AI（Agent / 豆包）直提的任务：审图顶栏显示紧凑徽标。 */
+    val isAiSubmitted: Boolean
+        get() {
+            val source = jobSource?.trim()?.lowercase()
+            return source == "agent" || source == "doubao"
+        }
 
     /** 审图页顶栏单行提示词摘要；空白时返回 null（不占位），过长截断避免遮挡画面。 */
     val promptPreview: String?

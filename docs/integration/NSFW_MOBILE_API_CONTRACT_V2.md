@@ -147,6 +147,7 @@
   "link_state": "EXACT",
   "job_id": "job_...",
   "module_id": "basic_generate",
+  "job_source": "agent",
   "seed": 123456,
   "model": "qwen-image-2.1",
   "size_bytes": 1048576,
@@ -159,6 +160,8 @@
 - `positive_prompt / negative_prompt` 是**生成时快照**；`null` = 未知，`""` = 明确为空，两者不可混淆。
 - `model` 是原任务工作流快照的底模文件名（服务端会为省略 model 的任务补齐 binding 默认值）；
   无 Job / 外部导入 / 旧快照为 `null`，客户端显示“未知”并在审图顶栏隐藏底模行。
+- `job_source` 是原任务提交来源（`web / resume / agent / doubao`）；无 Job / 外部导入 / 旧桥为
+  `null`。Agent83 起顶栏对 agent/doubao 显示“AI”徽标，详情显示“提交来源”。
 - `link_state`：`EXACT`（prompt + version 都可靠）/ `UNRESOLVED`（prompt 可靠、生成版本未知）/ `UNLINKED`（连 prompt 也不可靠）。
 - 图片提示词被编辑后，旧图仍显示旧快照；客户端禁止用当前 Prompt 正文替换历史快照，也禁止按文本相同自动认领 prompt_id。
 

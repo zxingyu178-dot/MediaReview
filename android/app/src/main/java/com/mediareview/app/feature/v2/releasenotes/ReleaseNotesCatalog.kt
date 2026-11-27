@@ -880,6 +880,16 @@ object ReleaseNotesCatalog {
                 "旧电脑端未声明底模筛选能力时不显示入口",
             ),
         ),
+        ReleaseNote(
+            versionCode = 90,
+            versionName = "2.0.0-alpha83",
+            title = "MediaReview 2.0 Alpha 83",
+            highlights = listOf(
+                "审图顶栏新增 AI 徽标：一眼看出图片来自 Agent / 豆包直提",
+                "图片信息新增“提交来源”，显示 AI 提交 / 网页提交 / 续跑",
+                "旧电脑端或导入图没有来源时自动隐藏，详情显示“未知”",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

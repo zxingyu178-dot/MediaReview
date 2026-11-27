@@ -428,6 +428,8 @@ private fun DetailsDialog(
                 InfoLine("任务 / 模块", (detail.jobId ?: "无") + " / " + (detail.moduleId ?: "无"))
                 InfoLine("Seed", detail.seed?.toString() ?: "未知")
                 InfoLine("模型", detail.modelLabel ?: "未知")
+                InfoLine("提交来源", detail.jobSourceLabel
+                    ?: detail.jobSource?.takeIf { it.isNotBlank() } ?: "未知")
                 InfoLine("大小 / 类型", (detail.sizeBytes?.toString() ?: "未知") + " / " + (detail.mime ?: "未知"))
                 InfoLine("更新时间 / revision", formatIso(detail.updatedAt) + " / " + detail.revision)
             }
