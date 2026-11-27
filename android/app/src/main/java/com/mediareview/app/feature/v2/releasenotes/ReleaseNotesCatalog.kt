@@ -659,6 +659,16 @@ object ReleaseNotesCatalog {
                 "点按摘要正文仍可打开图片信息",
             ),
         ),
+        ReleaseNote(
+            versionCode = 68,
+            versionName = "2.0.0-alpha61",
+            title = "MediaReview 2.0 Alpha 61",
+            highlights = listOf(
+                "单图审阅顶栏显示当前图片的审核状态（已保留 / 已淘汰 / 已归档）",
+                "未审核图片不显示状态，避免顶栏常驻占位",
+                "切换图片或撤销审核后状态同步更新",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

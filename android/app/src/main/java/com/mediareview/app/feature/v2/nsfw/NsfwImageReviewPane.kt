@@ -61,6 +61,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGenerationProgress
+import com.mediareview.app.feature.v2.nsfw.data.nsfwStatusBadgeLabel
 import com.mediareview.app.feature.v2.nsfw.di.NsfwImageLoader
 import com.mediareview.app.feature.v2.viewer.ZoomableImage
 import com.mediareview.app.feature.v2.viewer.ZoomImageSource
@@ -278,6 +279,25 @@ internal fun NsfwImageReviewPane(
                     ViewerIcon("返回图库", Icons.AutoMirrored.Filled.ArrowBack, onGallery, canNavigate)
                     Text(state.reviewPositionLabel, Modifier.weight(1f).padding(horizontal = 8.dp),
                         color = MediaTextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    val currentStatus = state.detail?.takeIf { it.imageId == item?.imageId }
+                        ?.status?.takeIf { it.isNotBlank() } ?: item?.status.orEmpty()
+                    val statusBadge = nsfwStatusBadgeLabel(currentStatus)
+                    if (statusBadge != null) {
+                        val statusColor = when (currentStatus.uppercase()) {
+                            "KEEP", "KEPT" -> Color(0xFF4ADE80)
+                            "REJECT", "REJECTED" -> MaterialTheme.colorScheme.error
+                            else -> MediaTextSecondary
+                        }
+                        Text(
+                            statusBadge,
+                            Modifier.padding(end = 4.dp)
+                                .background(statusColor.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            color = statusColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                    }
                     AnimatedVisibility(
                         visible = state.newImageCount > 0,
                         enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.85f, animationSpec = tween(160)),

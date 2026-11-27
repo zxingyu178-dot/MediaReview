@@ -21,4 +21,14 @@ class NsfwImageDetailsTest {
         assertEquals(121, preview?.length)
         assertEquals("a".repeat(120) + "…", preview)
     }
+
+    @Test
+    fun `审核状态徽标只显示已处理状态`() {
+        assertEquals("已保留", nsfwStatusBadgeLabel("KEEP"))
+        assertEquals("已保留", nsfwStatusBadgeLabel("kept"))
+        assertEquals("已淘汰", nsfwStatusBadgeLabel("REJECT"))
+        assertEquals("已归档", nsfwStatusBadgeLabel("ARCHIVED"))
+        assertNull(nsfwStatusBadgeLabel("NEW"))
+        assertNull(nsfwStatusBadgeLabel(""))
+    }
 }

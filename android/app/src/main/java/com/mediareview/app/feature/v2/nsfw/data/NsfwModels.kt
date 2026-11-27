@@ -213,6 +213,14 @@ data class NsfwPromptLink(
     }
 }
 
+/** 单图审阅顶栏状态徽标文案；NEW/PENDING 不显示，避免常驻占位。 */
+fun nsfwStatusBadgeLabel(status: String): String? = when (status.uppercase()) {
+    "KEEP", "KEPT" -> "已保留"
+    "REJECT", "REJECTED" -> "已淘汰"
+    "ARCHIVED" -> "已归档"
+    else -> null
+}
+
 @Serializable
 data class NsfwFeedItem(
     @SerialName("image_id") val imageId: String = "",
