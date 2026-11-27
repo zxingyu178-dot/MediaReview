@@ -69,6 +69,7 @@ import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** 图片始终占据同一个视口；同步、提示和控制层不会改变它的尺寸。 */
 @Composable
@@ -168,6 +169,13 @@ internal fun NsfwImageReviewPane(
     val latestCanPrevious by rememberUpdatedState(canPrevious)
     val latestCanNext by rememberUpdatedState(canNext)
     val swipeThreshold = with(LocalDensity.current) { 64.dp.toPx() }
+    // 横向拖动跟随：手指按住时图片跟着平移，松手回弹或顺势切换；不改变原有阈值与缩放判定。
+    // 手势检测在 AwaitPointerEventScope 里（受限挂起作用域），拖动值用普通状态更新，
+    // 回弹/滑出动画放到 rememberCoroutineScope，避免在受限作用域调用 Animatable。
+    var dragPx by remember(item?.imageId) { mutableFloatStateOf(0f) }
+    var dragJob by remember(item?.imageId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val dragScope = rememberCoroutineScope()
+    val maxDrag = with(LocalDensity.current) { 96.dp.toPx() }
     var prefetchAttempted by remember(state.nextCursor) { mutableStateOf(false) }
     LaunchedEffect(item?.imageId, state.nextCursor, state.busy, state.syncing) {
         if (item != null && !state.busy && !state.syncing && !prefetchAttempted && onPrefetchNext()) {
@@ -225,9 +233,11 @@ internal fun NsfwImageReviewPane(
                 ZoomImageSource(imageLoader.loader, previewRequest, imageLoader.request(original, original = true))
             }
             // 达到横移阈值后先声明手势，让子级点击识别取消；双指和放大拖图仍交给缩放器。
-            val gestures = Modifier.pointerInput(item.imageId, chrome.zoomed, canNavigate) {
+            val gestures = Modifier.pointerInput(item.imageId, chrome.zoomed, canNavigate, maxDrag) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    dragJob?.cancel()
+                    dragPx = 0f
                     var end = down.position
                     var multiTouch = false
                     var swipeClaimed = false
@@ -239,15 +249,43 @@ internal fun NsfwImageReviewPane(
                             val delta = end - down.position
                             if (!multiTouch && scale <= 1.01f && canNavigate) {
                                 if (!change.isConsumed && abs(delta.x) >= swipeThreshold && abs(delta.x) > abs(delta.y) * 1.5f) swipeClaimed = true
-                                if (swipeClaimed) change.consume()
+                                if (swipeClaimed) {
+                                    change.consume()
+                                    // 有下一张时 0.38 跟随，边界降到 0.12 做阻尼回弹，避免死拽。
+                                    val canMove = if (delta.x < 0) latestCanNext else latestCanPrevious
+                                    val resistance = if (canMove) 0.38f else 0.12f
+                                    dragPx = (delta.x * resistance).coerceIn(-maxDrag, maxDrag)
+                                }
                             }
                         }
                     } while (event.changes.any { it.pressed })
                     val delta = end - down.position
                     if (swipeClaimed && !multiTouch && scale <= 1.01f && canNavigate &&
                         abs(delta.x) >= swipeThreshold && abs(delta.x) > abs(delta.y) * 1.5f) {
-                        if (delta.x < 0 && latestCanNext) latestNext()
-                        else if (delta.x > 0 && latestCanPrevious) latestPrevious()
+                        val forward = delta.x < 0
+                        val target = when {
+                            forward && latestCanNext -> -maxDrag * 1.8f
+                            !forward && latestCanPrevious -> maxDrag * 1.8f
+                            else -> 0f
+                        }
+                        val navigate = target != 0f
+                        dragJob = dragScope.launch {
+                            val anim = Animatable(dragPx)
+                            if (navigate) {
+                                anim.animateTo(target, tween(70, easing = FastOutSlowInEasing)) { dragPx = value }
+                                if (forward) { requestedDirection = 1; latestNext() }
+                                else { requestedDirection = -1; latestPrevious() }
+                            } else {
+                                anim.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium)) { dragPx = value }
+                            }
+                            dragPx = 0f
+                        }
+                    } else {
+                        dragJob = dragScope.launch {
+                            Animatable(dragPx).animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium)) { dragPx = value }
+                        }
                     }
                 }
             }.semantics {
@@ -257,8 +295,9 @@ internal fun NsfwImageReviewPane(
                 )
             }
             key(item.imageId) { Box(Modifier.fillMaxSize().graphicsLayer {
-                alpha = motion.value
-                translationX = motionDirection * motionDistance * (1f - motion.value)
+                val dragFraction = (abs(dragPx) / maxDrag).coerceIn(0f, 1f)
+                alpha = motion.value * (1f - 0.14f * dragFraction)
+                translationX = motionDirection * motionDistance * (1f - motion.value) + dragPx
             }.then(gestures)) {
                 ZoomableImage(
                     previewUri = preview,

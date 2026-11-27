@@ -860,6 +860,16 @@ object ReleaseNotesCatalog {
                 "旧电脑端未声明能力时自动隐藏底模筛选，不影响原有筛选",
             ),
         ),
+        ReleaseNote(
+            versionCode = 88,
+            versionName = "2.0.0-alpha81",
+            title = "MediaReview 2.0 Alpha 81",
+            highlights = listOf(
+                "审图页左右滑动时图片跟随手指移动，松手回弹或顺势切图",
+                "到达第一张或最后一张时阻尼更小，边界不再生硬",
+                "单击、双击、双指缩放与审核按钮行为保持不变",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

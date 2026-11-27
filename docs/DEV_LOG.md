@@ -4178,3 +4178,9 @@ Alpha78 在模拟器复核：生产桥 6fccaee 下由 Agent 提交完全省略 m
 新增 JVM 测试 5 项：`NsfwGalleryQueryTest`（摘要、trim/上限、服务端成员判定）、`NsfwRepositoryContractTest`（model 参数与回显、候选无效应丢弃）、`NsfwReviewViewModelTest`（旧桥门禁不发请求、候选排序并绑定查询）；全量 847 项 / 102 suites 通过（0 失败）。
 
 版本 Alpha80（versionCode 87）：模拟器覆盖安装后显示 4 条更新说明；图库 21738 张，底模菜单为“全部底模 / NoobAI-XL-v1.1（5）/ miaomiaoHarem_v14（2）/ waiNSFWIllustrious_v150（1）/ 未记录底模”；选 NoobAI 后标题“5 张”、摘要“底模 NoobAI-XL-v1.1”、网格恰好 5 张；切“未记录底模”后 21730 张；点“清除”恢复 21738 张、摘要消失。进程存活（pid 6748），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha80-launch.xml/png`、`alpha80-filter-sheet.xml/png`、`alpha80-model-menu.xml/png`、`alpha80-model-noobai.xml/png`、`alpha80-model-none.xml/png`、`alpha80-cleared.xml`、`alpha80-home.xml`、`alpha80-gallery.xml`、`alpha80-filter-noobai.xml`、`alpha80-model-menu2.xml`。
+
+### 2026-11-27 Alpha81 审图左右滑动跟随手指
+
+审图页此前横向滑动只在越过 64dp 阈值后切换图片，拖动过程没有任何视觉反馈，手指与画面脱节。现在在 fit 比例下横向拖动会让图片跟随手指平移（最多 96dp，长边阻尼 0.38），边缘（第一张向左滑 / 最后一张向右滑）降到 0.12 做橡皮筋；松手未达阈值弹回，达阈值时先 70ms 顺势滑出再切换，淡出幅度随拖动距离最多 14%。手势判定、阈值、缩放/双击、单击显隐控制层与审核按钮逻辑均未改动；拖动状态在换图时自动归零。
+
+新增无 JVM 断言（交互视觉），全量 847 项 / 102 suites 通过（0 失败）。版本 Alpha81（versionCode 88）：模拟器覆盖安装后显示 3 条更新说明；1 / 21738 处按住向左拖 280px 截图可见图片整体左移、右侧留黑，松手后变为 2 / 21738；再向右拖回到 1 / 21738；在第一张继续向右拖只小幅右移且松手仍为 1 / 21738；单击仍隐藏/恢复控制层。进程存活（pid 7405），crash buffer 无本应用新崩溃。证据：`docs/evidence/alpha81-launch.xml/png`、`alpha81-review.xml/png`、`alpha81-swipe-drag.png`、`alpha81-swipe-after.xml`、`alpha81-swipe-back.png`、`alpha81-swipe-back-after.xml`、`alpha81-edge-drag.png`、`alpha81-edge-after.xml`、`alpha81-tap-hidden.xml`、`alpha81-tap-restored.xml`、`alpha81-gallery.xml`。
