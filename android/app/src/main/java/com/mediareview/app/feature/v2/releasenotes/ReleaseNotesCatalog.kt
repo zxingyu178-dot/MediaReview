@@ -739,6 +739,16 @@ object ReleaseNotesCatalog {
                 "应用后自动收起面板与键盘，结果立即可见；再次展开可继续调整",
             ),
         ),
+        ReleaseNote(
+            versionCode = 76,
+            versionName = "2.0.0-alpha69",
+            title = "MediaReview 2.0 Alpha 69",
+            highlights = listOf(
+                "生图库加载完成时，空结果与“清除筛选/刷新图库”按钮淡入出现",
+                "同步中的加载提示与空结果之间平滑切换，不再突然跳变",
+                "有图时直接显示网格，不增加额外等待",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

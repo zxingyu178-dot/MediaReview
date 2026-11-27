@@ -225,21 +225,31 @@ internal fun NsfwGallery(
         ) {
             if (state.items.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (state.syncing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
-                        Text(if (state.syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
-                            color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
-                        // 空结果给出直接出路：筛选导致为空时可一键清除，否则重新同步。
-                        if (!state.syncing) {
-                            val narrowed = filter.selection.active || filter.dates != NsfwGalleryDates.ALL
-                            TextButton(
-                                onClick = {
-                                    if (narrowed) onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
-                                    else onRefresh()
-                                },
-                                enabled = if (narrowed) interaction.canChangeQuery else interaction.canRefresh,
-                            ) { Text(if (narrowed) "清除筛选" else "刷新图库") }
+                    // 同步中与空结果之间淡入切换，避免加载完成后内容突然跳变。
+                    AnimatedContent(
+                        targetState = state.syncing,
+                        transitionSpec = {
+                            (fadeIn(tween(180)) + scaleIn(initialScale = 0.96f, animationSpec = tween(180))) togetherWith
+                                fadeOut(tween(120))
+                        },
+                        label = "nsfw-gallery-empty",
+                    ) { syncing ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (syncing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
+                            Text(if (syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
+                                color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                            // 空结果给出直接出路：筛选导致为空时可一键清除，否则重新同步。
+                            if (!syncing) {
+                                val narrowed = filter.selection.active || filter.dates != NsfwGalleryDates.ALL
+                                TextButton(
+                                    onClick = {
+                                        if (narrowed) onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
+                                        else onRefresh()
+                                    },
+                                    enabled = if (narrowed) interaction.canChangeQuery else interaction.canRefresh,
+                                ) { Text(if (narrowed) "清除筛选" else "刷新图库") }
+                            }
                         }
                     }
                 }

@@ -4054,3 +4054,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 筛选面板的搜索框支持键盘“搜索”键和右侧搜索图标直接应用关键词；应用后自动收起面板并清除焦点（键盘随之关闭），结果立即可见，再次展开可继续调整标签；面板增加 IME 底部避让。
 
 版本 Alpha68（versionCode 75），JVM 单测 832 项全绿；模拟器安装后显示 Alpha68 更新说明；输入 `zzzz-ime-search` 按键盘搜索键，面板自动收起并显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；清除筛选后再次展开搜索输入 `zzzz-icon`，点输入框右侧“应用搜索”图标同样应用并收起；清除筛选恢复图库，进程存活（pid 14896），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha68-ime-applied.xml`、`alpha68-empty.xml`、`alpha68-icon-applied.xml`、`alpha68-keyboard.png`。
+
+### 2026-11-27 Alpha69 空结果淡入
+
+生图库空状态改为 AnimatedContent：同步中的加载提示与空结果（“无匹配图片/清除筛选”或“暂无图片/刷新图库”）之间淡入 + 轻微缩放切换，避免加载完成时内容突然跳变；有图时仍直接显示网格。
+
+版本 Alpha69（versionCode 76），JVM 单测 832 项全绿；模拟器安装后显示 Alpha69 更新说明；搜索 `zzzz-a69` 后空状态显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；点击清除筛选恢复 21730 张，进程存活（pid 15311），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha69-launch.xml`、`alpha69-empty.xml`、`alpha69-restored.xml`。
