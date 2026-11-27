@@ -799,6 +799,16 @@ object ReleaseNotesCatalog {
                 "常规尺寸下的筛选行为不变",
             ),
         ),
+        ReleaseNote(
+            versionCode = 82,
+            versionName = "2.0.0-alpha75",
+            title = "MediaReview 2.0 Alpha 75",
+            highlights = listOf(
+                "筛选面板标题栏固定，“完成”在滚动筛选内容时始终可见",
+                "大字体 / 小屏下可滚动查看排序、日期、状态与收藏筛选",
+                "筛选行为与搜索结果不变",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

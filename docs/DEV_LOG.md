@@ -4126,3 +4126,11 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 最终修复：筛选面板顺序改为“搜索区置顶”（搜索框、标签、应用按钮紧跟标题），IME 避让移到滚动容器外侧；移除不可靠的自动滚回逻辑。键盘弹出后搜索框与图标天然位于可见区，标签输入仍可手动滚动到达。
 
 版本 Alpha74（versionCode 81）：1.3 倍字体 / 480dpi 下键盘弹出后搜索框位于 y1176–1243、搜索图标 1267–1339（键盘顶部约 1500），完整可见；输入 `zzzz-small` 点图标应用显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；恢复 420dpi / 1.0 后默认尺寸同样正常，图库 21732 张。全量 836 项 JVM 单测通过；验证进程 pid 21400，重新安装最终 APK 后 pid 21736，crash buffer 今日无新崩溃。证据：`docs/evidence/alpha74-small-launch.xml`、`alpha74-keyboard-top.xml`、`alpha74-keyboard-top.png`、`alpha74-small-applied.xml`、`alpha74-default-keyboard.xml`、`alpha74-default-keyboard.png`、`alpha74-final-gallery.xml`。
+
+### 2026-11-27 Alpha75 大字体巡检与筛选标题固定
+
+1.3 倍字体 / 480dpi 巡检：图库顶部工具栏（生图、张数、最新、筛选、刷新、更多）与单图审阅顶栏（返回、序号、提示词、复制、刷新/更多）均无截断或重叠，底部“保留/淘汰/收藏/撤销”完整可见。
+
+发现筛选面板的标题栏（含“完成”）位于滚动区内，内容较高（大字体 + 展开搜索）滚动时会一起滚走。现在标题栏固定在面板顶部，筛选内容在其下方独立滚动；IME 避让保持在外层。
+
+版本 Alpha75（versionCode 82）：键盘弹出并滚动后，“完成”固定在面板顶部（y176–257），搜索框、标签、应用/清除按钮均可见；恢复 420dpi / 1.0 后默认尺寸布局正常，图库 21732 张。全量 836 项 JVM 单测通过（`ImageRequestLifetimeTest` 已知波动，复跑通过）；进程存活（pid 22417），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha75-launch.xml`、`alpha75-large-toolbar.xml`、`alpha75-large-toolbar.png`、`alpha75-large-review.xml`、`alpha75-large-review.png`、`alpha75-pinned-keyboard.xml`、`alpha75-pinned-keyboard.png`、`alpha75-default-filter.xml`、`alpha75-default-filter.png`、`alpha75-final-gallery.xml`。
