@@ -14,6 +14,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
@@ -37,10 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.nsfw.data.NsfwFeedItem
@@ -249,7 +254,7 @@ internal fun NsfwGallery(
         if (state.hasMore) TextButton(onClick = onLoadMore, enabled = !state.syncing) { Text("加载更多") }
     }
     if (filtersOpen) ModalBottomSheet(onDismissRequest = { filtersOpen = false }, containerColor = Color(0xFF181E28)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(bottom = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("筛选生图", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { filtersOpen = false }) { Text("完成") }
@@ -258,7 +263,7 @@ internal fun NsfwGallery(
             else Text("排序与日期不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
             if (state.galleryFiltersEnabled) LibraryFilters(filter, interaction.canChangeQuery, state.galleryReviewFilterEnabled, onChangeFilter)
             else Text("分类、状态与收藏筛选需更新电脑端", modifier = Modifier.padding(16.dp))
-            if (state.gallerySearchEnabled) LibrarySearch(filter, interaction.canChangeQuery, onChangeFilter)
+            if (state.gallerySearchEnabled) LibrarySearch(filter, interaction.canChangeQuery, onChangeFilter, onApplied = { filtersOpen = false })
             else Text("搜索与标签不可用 · 请更新电脑端", modifier = Modifier.padding(16.dp))
         }
     }
@@ -347,18 +352,41 @@ private fun LibraryFilters(filter: NsfwGalleryFilter, enabled: Boolean, reviewFi
 }
 
 @Composable
-private fun LibrarySearch(filter: NsfwGalleryFilter, enabled: Boolean, onChange: (NsfwGalleryFilter) -> Unit) {
+private fun LibrarySearch(
+    filter: NsfwGalleryFilter,
+    enabled: Boolean,
+    onChange: (NsfwGalleryFilter) -> Unit,
+    onApplied: () -> Unit,
+) {
     var search by remember(filter.search) { mutableStateOf(filter.search.orEmpty()) }
     var tag by remember(filter.tag) { mutableStateOf(filter.tag.orEmpty()) }
     var expanded by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    // 应用后收起面板：键盘会随之关闭，结果立即可见；再次展开可继续调整。
+    val apply = {
+        onChange(filter.copy(search = search, tag = tag))
+        focusManager.clearFocus()
+        onApplied()
+    }
     TextButton(onClick = { expanded = !expanded }) { Text(if (filter.search != null || filter.tag != null) "搜索/标签筛选已启用" else "搜索与文字标签") }
     if (expanded) Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         OutlinedTextField(value = search, onValueChange = { search = it }, enabled = enabled, singleLine = true,
-            label = { Text("搜索提示词或文件名") }, supportingText = { Text("关键词，最多200字") }, modifier = Modifier.fillMaxWidth())
+            label = { Text("搜索提示词或文件名") }, supportingText = { Text("关键词，最多200字") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { apply() }),
+            trailingIcon = {
+                IconButton(enabled = enabled, onClick = apply) {
+                    Icon(Icons.Default.Search, contentDescription = "应用搜索")
+                }
+            },
+            modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = tag, onValueChange = { tag = it }, enabled = enabled, singleLine = true,
-            label = { Text("当前版本标签") }, supportingText = { Text("精确匹配，最多100字 · 非生成版本标签") }, modifier = Modifier.fillMaxWidth())
+            label = { Text("当前版本标签") }, supportingText = { Text("精确匹配，最多100字 · 非生成版本标签") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { apply() }),
+            modifier = Modifier.fillMaxWidth())
         Row {
-            TextButton(enabled = enabled, onClick = { onChange(filter.copy(search = search, tag = tag)) }) { Text("应用搜索") }
+            TextButton(enabled = enabled, onClick = apply) { Text("应用搜索") }
             TextButton(enabled = enabled, onClick = { search = ""; tag = ""; onChange(filter.copy(search = null, tag = null)) }) { Text("清除搜索") }
         }
     }

@@ -729,6 +729,16 @@ object ReleaseNotesCatalog {
                 "清除筛选后立即回到完整图库，无需逐项手动恢复",
             ),
         ),
+        ReleaseNote(
+            versionCode = 75,
+            versionName = "2.0.0-alpha68",
+            title = "MediaReview 2.0 Alpha 68",
+            highlights = listOf(
+                "筛选面板的搜索框支持键盘“搜索”键直接应用关键词与标签",
+                "搜索框右侧新增搜索按钮，键盘弹出时也能直接点按",
+                "应用后自动收起面板与键盘，结果立即可见；再次展开可继续调整",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

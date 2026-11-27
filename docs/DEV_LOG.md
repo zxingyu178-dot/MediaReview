@@ -4048,3 +4048,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 生图库筛选后无结果时，空状态新增直达按钮：有筛选（收藏/日期/搜索/标签）时显示“清除筛选”，一键回到完整图库；没有筛选时显示“刷新图库”，与下拉刷新共用同一次增量同步。按钮随同步状态禁用，避免重复提交。
 
 版本 Alpha67（versionCode 74），JVM 单测 832 项全绿；模拟器安装后显示 Alpha67 更新说明（三条），进入生图审核（21730 张）→ 筛选 → 展开搜索输入 `zzzz-no-match-xyz` → 应用搜索，页面显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；点击“清除筛选”后立即恢复 21730 张图库，进程存活（pid 14200），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha67-launch.xml`、`alpha67-step8.xml`、`alpha67-step9.xml`、`alpha67-gallery-restored.png`。
+
+### 2026-11-27 Alpha68 筛选搜索键与图标
+
+筛选面板的搜索框支持键盘“搜索”键和右侧搜索图标直接应用关键词；应用后自动收起面板并清除焦点（键盘随之关闭），结果立即可见，再次展开可继续调整标签；面板增加 IME 底部避让。
+
+版本 Alpha68（versionCode 75），JVM 单测 832 项全绿；模拟器安装后显示 Alpha68 更新说明；输入 `zzzz-ime-search` 按键盘搜索键，面板自动收起并显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”；清除筛选后再次展开搜索输入 `zzzz-icon`，点输入框右侧“应用搜索”图标同样应用并收起；清除筛选恢复图库，进程存活（pid 14896），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha68-ime-applied.xml`、`alpha68-empty.xml`、`alpha68-icon-applied.xml`、`alpha68-keyboard.png`。
