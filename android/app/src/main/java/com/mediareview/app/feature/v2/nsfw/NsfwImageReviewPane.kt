@@ -1,6 +1,5 @@
 package com.mediareview.app.feature.v2.nsfw
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -49,7 +48,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -69,6 +67,7 @@ import com.mediareview.app.feature.v2.viewer.ZoomImageSource
 import com.mediareview.app.ui.theme.MediaTextPrimary
 import com.mediareview.app.ui.theme.MediaTextSecondary
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 
 /** 图片始终占据同一个视口；同步、提示和控制层不会改变它的尺寸。 */
 @Composable
@@ -103,6 +102,14 @@ internal fun NsfwImageReviewPane(
     var resetZoom by remember(item?.imageId) { mutableIntStateOf(0) }
     var moreOpen by remember { mutableStateOf(false) }
     var showThumbnails by rememberSaveable { mutableStateOf(false) }
+    // 复制后在本页短暂显示“已复制”，不依赖系统 Toast。
+    var copiedHint by remember(item?.imageId) { mutableStateOf(false) }
+    LaunchedEffect(copiedHint) {
+        if (copiedHint) {
+            delay(2000)
+            copiedHint = false
+        }
+    }
     // 收藏切换时图标轻微弹跳；只在用户改变状态时触发，切图不重放。
     val favoriteScale = remember(item?.imageId) { Animatable(1f) }
     var lastFavorite by remember(item?.imageId) { mutableStateOf(item?.isFavorite == true) }
@@ -310,7 +317,6 @@ internal fun NsfwImageReviewPane(
                 // 当前图片的生成时提示词摘要：点击打开“图片信息”，右侧可直接复制原文。
                 val promptPreview = state.detail?.takeIf { it.imageId == item?.imageId }?.promptPreview
                 val clipboard = LocalClipboardManager.current
-                val context = LocalContext.current
                 AnimatedVisibility(
                     visible = promptPreview != null,
                     enter = fadeIn(tween(160)) + expandVertically(tween(180)),
@@ -327,17 +333,28 @@ internal fun NsfwImageReviewPane(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            "复制",
+                        Box(
                             Modifier
                                 .clickable {
                                     clipboard.setText(AnnotatedString(promptPreview.orEmpty()))
-                                    Toast.makeText(context, "提示词已复制", Toast.LENGTH_SHORT).show()
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    copiedHint = true
                                 }
-                                .padding(horizontal = 12.dp, vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                        ) {
+                            AnimatedContent(
+                                targetState = copiedHint,
+                                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(90)) },
+                                label = "prompt-copy-hint",
+                            ) { copied ->
+                                Text(
+                                    if (copied) "已复制" else "复制",
+                                    color = if (copied) MaterialTheme.colorScheme.tertiary
+                                    else MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
                     }
                 }
                 AnimatedVisibility(

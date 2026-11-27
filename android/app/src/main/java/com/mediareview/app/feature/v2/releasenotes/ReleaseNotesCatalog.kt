@@ -649,6 +649,16 @@ object ReleaseNotesCatalog {
                 "点按摘要正文仍可打开图片信息",
             ),
         ),
+        ReleaseNote(
+            versionCode = 67,
+            versionName = "2.0.0-alpha60",
+            title = "MediaReview 2.0 Alpha 60",
+            highlights = listOf(
+                "复制提示词后，按钮原位淡入“已复制”，2 秒后自动恢复",
+                "复制成功带轻触反馈，不再弹出系统提示打断浏览",
+                "点按摘要正文仍可打开图片信息",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
