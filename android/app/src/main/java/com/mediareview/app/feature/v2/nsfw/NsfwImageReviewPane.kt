@@ -391,6 +391,18 @@ internal fun NsfwImageReviewPane(
                 }
             }
         }
+        // 沉浸模式（控制层已隐藏）下保留一条紧凑进度，避免为看进度反复点按。
+        val compactProgress = state.generationProgress?.takeIf {
+            state.generationProgressEnabled && it.isGenerating
+        }
+        AnimatedVisibility(
+            visible = !chrome.visible && compactProgress != null,
+            enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.9f, animationSpec = tween(180)),
+            exit = fadeOut(tween(120)),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            compactProgress?.let { CompactGenerationProgressPill(it) }
+        }
         AnimatedVisibility(chrome.visible, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xED080B10), Color(0xFF080B10)))).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
                 AnimatedVisibility(
@@ -585,6 +597,36 @@ internal fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
                         .background(statusColor.copy(alpha = 0.65f), RoundedCornerShape(1.dp)),
                 )
             }
+        }
+    }
+}
+
+/** 沉浸浏览时的紧凑进度胶囊：只读、单行，百分比变化淡入切换。 */
+@Composable
+private fun CompactGenerationProgressPill(progress: NsfwGenerationProgress) {
+    val statusColor = when (progress.activeStatus) {
+        "running" -> MaterialTheme.colorScheme.primary
+        "queued" -> MaterialTheme.colorScheme.tertiary
+        "paused" -> MaterialTheme.colorScheme.error
+        else -> MediaTextSecondary
+    }
+    val label = progress.compactLabel
+    Row(
+        Modifier
+            .statusBarsPadding()
+            .padding(top = 8.dp)
+            .background(Color(0xCC080B10), RoundedCornerShape(50))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(6.dp).background(statusColor, RoundedCornerShape(3.dp)))
+        Spacer(Modifier.width(6.dp))
+        AnimatedContent(
+            targetState = label,
+            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+            label = "compact-generation-progress",
+        ) { text ->
+            Text(text, color = MediaTextPrimary, style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
     }
 }

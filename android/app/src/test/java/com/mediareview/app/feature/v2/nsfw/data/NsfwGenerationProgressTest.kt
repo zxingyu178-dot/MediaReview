@@ -29,6 +29,18 @@ class NsfwGenerationProgressTest {
     }
 
     @Test
+    fun `沉浸模式紧凑文案覆盖生成暂停排队与间隙`() {
+        assertEquals("电脑端生成中 1/2 张 · 62%",
+            NsfwGenerationProgress(1, 2, 1, "running", 0, 0, 0.62f).compactLabel)
+        assertEquals("电脑端已暂停 · 剩余 3 段",
+            NsfwGenerationProgress(remainingSegments = 3, activeStatus = "paused").compactLabel)
+        assertEquals("电脑端排队 2",
+            NsfwGenerationProgress(remainingSegments = 2, activeStatus = "queued", queuedJobs = 2).compactLabel)
+        assertEquals("电脑端生成中 · 剩余 3 段",
+            NsfwGenerationProgress(remainingSegments = 3, activeStatus = "running").compactLabel)
+    }
+
+    @Test
     fun `生成中同时显示排队任务数`() {
         val progress = NsfwGenerationProgress(
             currentImage = 3,

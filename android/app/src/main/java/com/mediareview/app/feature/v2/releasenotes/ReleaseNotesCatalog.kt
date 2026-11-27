@@ -699,6 +699,16 @@ object ReleaseNotesCatalog {
                 "电脑端空闲时自动隐藏，不占用批审空间",
             ),
         ),
+        ReleaseNote(
+            versionCode = 72,
+            versionName = "2.0.0-alpha65",
+            title = "MediaReview 2.0 Alpha 65",
+            highlights = listOf(
+                "单图沉浸浏览时顶部保留紧凑进度胶囊，隐藏控制层也能看到当前张百分比",
+                "胶囊随生成进度淡入更新，暂停与排队状态一并提示",
+                "控制层显示时自动让位给完整进度条，电脑端空闲时不出现",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
