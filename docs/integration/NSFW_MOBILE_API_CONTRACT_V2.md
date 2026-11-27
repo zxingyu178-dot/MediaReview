@@ -287,7 +287,8 @@
   `queued_jobs`、`paused_jobs`；
 - `mobile_generation_item_progress_v1`：追加 `current_progress`（0..1，阶段间隙为 null）；
 - `mobile_generation_model_v1`：追加 `model`（运行中 Job 的底模文件名；阶段间隙仍返回同一 Job 的
-  底模，排队/空闲/旧任务为 null）；
+  底模，排队/空闲/旧任务为 null）；服务端提交时会为“省略 model / 绑定默认”的任务补齐 binding
+  默认底模并写入快照，因此默认模型任务同样有值；
 - 不返回 Prompt、Job ID 或任何可写入口；响应 `Cache-Control: no-store`，未配对/撤销返回 401；
 - 客户端未看到 `mobile_generation_progress_v1` 时隐藏进度 UI；缺少状态字段时按原计数展示；
   未看到 `mobile_generation_model_v1` 时即使字段存在也不展示底模。

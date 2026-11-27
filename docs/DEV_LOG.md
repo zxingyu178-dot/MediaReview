@@ -4158,3 +4158,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 电脑端用不同底模生成时，审图页只显示张数 / 百分比，无法判断当前用的是哪款模型。Bridge `GET /mobile/generation/progress` 新增只读 `model`（运行中 Job 的 workflow 快照 `modules[0].config.model`；阶段间隙继续沿用同一 Job，排队 / 空闲 / 旧任务为 null）与能力 `mobile_generation_model_v1`。移动端进度条在百分比下方新增“底模 NoobAI-XL-v1.1”一行（去掉权重扩展名），沉浸胶囊同样显示；旧桥未声明能力时客户端丢弃该字段，不占高度。新增 2 项 JVM 单测（解析 / 短名 / 扩展名、能力门禁），全量 841 项通过（102 suites，0 失败）。
 
 版本 Alpha78（versionCode 85）：模拟器安装后显示更新说明；生产桥 bf4c173 下由 Agent 提交真实 20 步 NoobAI 任务 `job_a82176c7-abe1-4e4f-9fee-4636d39e22e8`（832×1216 / seed 20261128 / 关人脸修复），完成后 83.9s COMPLETED，产出 `img_f670bec2-ac65-4277-b2bb-f2c2a1800743`。运行中三次采样：图库顶部“电脑端生成中：第 1 / 1 张 · 剩余 1 段 · 0% / 40%”+“底模 NoobAI-XL-v1.1”；单图审阅 70% 同一底模行；隐藏控制层后的沉浸胶囊 95% + 底模行。完成后进度与底模自动消失，图库出现“新图 1”，点按后 21732 → 21733；进程存活（pid 1817），crash buffer 无新崩溃，显示设置恢复为 420dpi / 1.0。验证期间模拟器冷启动出现 FallbackHome / adb offline，重启模拟器并常驻 adb 后恢复。证据：`docs/evidence/alpha78-launch.xml`、`alpha78-gallery.xml`、`alpha78-progress-model.xml`、`alpha78-progress-model2.xml`、`alpha78-progress-single.xml`、`alpha78-progress-immersive.xml`、`alpha78-final.xml`、`alpha78-new-image.xml`。
+
+### 2026-11-27 默认底模任务也显示底模
+
+AI 直提省略 `model` 时电脑端沿用 binding 默认底模，此前快照不记录模型，Alpha78 的底模行对这类任务为空。电脑端 6fccaee 起在创建 Job 时把默认底模写入快照（仅当 binding 声明 model 注入），手机桥 `model` 字段因此对默认模型任务同样有值；客户端无需改动。
+
+Alpha78 在模拟器复核：生产桥 6fccaee 下由 Agent 提交完全省略 model 的 2 张任务 `job_eb70e06b-8e68-4e3c-a07c-e4d6d6fe8266`（832×1216 / 40 步 / 关人脸修复），运行中图库顶栏显示“电脑端生成中：第 1 / 2 张 · 剩余 1 段 · 3%”+“底模 miaomiaoHarem_v14”；2 张 COMPLETED 后进度与底模行消失，出现“新图 3”。证据：`docs/evidence/alpha78-default-model-gallery.xml`、`alpha78-default-model-gallery.png`、`alpha78-default-model-final.xml`。
