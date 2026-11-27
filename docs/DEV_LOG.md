@@ -4104,3 +4104,17 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 新增 `batchEmptyStateLabel(hasMore)` 单测；全量 836 项 JVM 单测通过（`ImageRequestLifetimeTest` 为已知环境波动，单独复跑与全量复跑均通过）。
 
 版本 Alpha73（versionCode 80），模拟器安装后显示更新说明；搜索空结果（0 张）→ 更多操作 → 9图批量审核，页面显示“0 张 / 本范围已审完 / 返回图库”，全选、清空、提交均不出现；点“返回图库”回到空图库，清除筛选恢复 21732 张，进程存活（pid 18611），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha73-launch.xml`、`alpha73-empty-batch.xml`、`alpha73-empty-batch.png`、`alpha73-back-gallery.xml`、`alpha73-restored.xml`。
+
+### 2026-11-27 批量审核有图状态复验（Alpha73）
+
+同一 Alpha73 在模拟器完整走查有图批审（未实际提交，避免改动真实 21732 张数据）：
+
+- 打开后 9 张全部加载，“未就绪 0”，默认“保留 0 · 淘汰 9”。
+- 点选第 1 张：计数变为“保留 1 · 淘汰 8”，对应 Checkbox 勾选。
+- “全选” → 9/0；“清空” → 0/9。
+- 0 选中点“提交本页”：先出现“确认本页审核（保留 0 张、淘汰 9 张）”，再点“确认提交”出现第二次“确认全部淘汰？”，取消后无提交。
+- 1 选中点“提交本页”：确认文案为“保留 1 张、淘汰 8 张”，返回选择无副作用。
+- 带选择按返回：出现“离开未提交的选择？”，选“继续选择”保留勾选；清空后返回图库。
+- 进程保持 pid 18611，crash buffer 今日无新崩溃。
+
+证据：`docs/evidence/alpha74-batch-open.xml`、`alpha74-batch-selected.xml`、`alpha74-batch-all.xml`、`alpha74-batch-cleared.xml`、`alpha74-reject-all-dialog.xml`、`alpha74-reject-all-second.xml`、`alpha74-confirm-dialog.xml`、`alpha74-exit-dialog.xml`、`alpha74-batch-selected.png`、`alpha74-back-gallery.xml`。
