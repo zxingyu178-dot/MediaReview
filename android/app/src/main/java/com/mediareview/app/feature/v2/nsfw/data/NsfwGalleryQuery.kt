@@ -132,6 +132,10 @@ val NsfwGalleryFilter.emptyStateLabel: String
 val NsfwGalleryFilter.emptyStateActionLabel: String
     get() = if (emptyStateNarrowed) "清除筛选" else "刷新图库"
 
+/** 是否已有搜索/标签条件：决定筛选面板打开时是否直接展开输入区。 */
+val NsfwGalleryFilter.hasTextQuery: Boolean
+    get() = !search.isNullOrBlank() || !tag.isNullOrBlank()
+
 /** 摘要里关键词保留的开头长度；超出部分用省略号，避免大字体下挤占“清除”按钮。 */
 private const val GALLERY_SUMMARY_KEYWORD_MAX = 12
 

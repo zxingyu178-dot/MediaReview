@@ -10,6 +10,12 @@ class NsfwBatchDraftTest {
         assertEquals("本范围已审完", batchEmptyStateLabel(false))
     }
 
+    @Test fun batchCellLabelsCarryOrdinalForScreenReaders() {
+        assertEquals("第 1 张待审核图片", batchImageLabel(1))
+        assertEquals("保留第 2 张", batchKeepLabel(2))
+        assertEquals("放大第 9 张", batchZoomLabel(9))
+    }
+
     @Test fun prefetchedButNeverDisplayedImageCannotBeRejected() {
         val draft = NsfwBatchDraft.open(listOf(nsfwItem("offscreen"))).loaded("offscreen", true)
         assertTrue(runCatching { draft.freeze("request", allowRejectAll = true) }.isFailure)

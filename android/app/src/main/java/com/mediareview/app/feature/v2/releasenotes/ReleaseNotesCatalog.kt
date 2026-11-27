@@ -819,6 +819,16 @@ object ReleaseNotesCatalog {
                 "筛选与清除行为不变",
             ),
         ),
+        ReleaseNote(
+            versionCode = 84,
+            versionName = "2.0.0-alpha77",
+            title = "MediaReview 2.0 Alpha 77",
+            highlights = listOf(
+                "已有搜索或标签时，筛选面板打开即展开输入区，可直接查看和修改关键词",
+                "9 图批量审核的缩略图、勾选框与放大按钮带序号说明，读屏可逐张定位",
+                "筛选、刷新与批审计数变化加入过渡动画，操作反馈更平滑",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

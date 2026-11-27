@@ -61,3 +61,12 @@ data class NsfwBatchDraft private constructor(    val items: List<NsfwFeedItem>,
 /** 批量审核空页文案：有后续页时可继续加载，否则表示本范围已审完。 */
 internal fun batchEmptyStateLabel(hasMore: Boolean): String =
     if (hasMore) "本页暂无可审核图片" else "本范围已审完"
+
+/** 批审格子的序号文案：读屏与自动化都能逐张定位，不再所有图片都叫“待审核图片”。 */
+internal fun batchImageLabel(ordinal: Int): String = "第 $ordinal 张待审核图片"
+
+/** 勾选框序号文案：读屏用户能确认自己勾选的是哪一张。 */
+internal fun batchKeepLabel(ordinal: Int): String = "保留第 $ordinal 张"
+
+/** 放大按钮序号文案：与勾选框、缩略图使用同一序号。 */
+internal fun batchZoomLabel(ordinal: Int): String = "放大第 $ordinal 张"

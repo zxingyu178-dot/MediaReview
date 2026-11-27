@@ -59,6 +59,7 @@ import com.mediareview.app.feature.v2.nsfw.data.activeSummary
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateActionLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateNarrowed
+import com.mediareview.app.feature.v2.nsfw.data.hasTextQuery
 import com.mediareview.app.feature.v2.nsfw.data.isValidGalleryDateRange
 import java.time.Instant
 import java.time.LocalDate
@@ -266,7 +267,9 @@ internal fun NsfwGallery(
                 modifier = Modifier.fillMaxSize().testTag("nsfw_gallery_grid"),
                 contentPadding = PaddingValues(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(state.items, key = { _, item -> item.imageId }) { index, item ->
-                    GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true) { onSelect(item.imageId) }
+                    GalleryImage(item, index + 1 + if (state.bidirectionalGallery && state.galleryPositionValid) state.galleryStartIndex else 0, state.baseUrl, imageLoader, item.imageId == state.currentId, !state.busy && state.panel?.submitting != true,
+                        // 筛选/刷新导致列表变化时，图格淡入并平滑移动到新位置。
+                        modifier = Modifier.animateItem()) { onSelect(item.imageId) }
                 }
             }
         }
@@ -399,7 +402,8 @@ private fun LibrarySearch(
 ) {
     var search by remember(filter.search) { mutableStateOf(filter.search.orEmpty()) }
     var tag by remember(filter.tag) { mutableStateOf(filter.tag.orEmpty()) }
-    var expanded by remember { mutableStateOf(false) }
+    // 已有搜索/标签时直接展开：打开面板即可看到并修改当前关键词，不用再点一次。
+    var expanded by remember { mutableStateOf(filter.hasTextQuery) }
     val focusManager = LocalFocusManager.current
     // 应用后收起面板：键盘会随之关闭，结果立即可见；再次展开可继续调整。
     val apply = {
@@ -443,7 +447,7 @@ private fun LibraryFilterMenu(label: String, value: String?, options: List<Pair<
 }
 
 @Composable
-private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, loader: NsfwImageLoader, selected: Boolean, enabled: Boolean, onOpen: () -> Unit) {
+private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, loader: NsfwImageLoader, selected: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onOpen: () -> Unit) {
     var failed by remember(item.imageId, item.thumbnailUrl) { mutableStateOf(false) }
     var attempt by remember(item.imageId, item.thumbnailUrl) { mutableIntStateOf(0) }
     val statusLabel = when (item.status) {
@@ -460,7 +464,7 @@ private fun GalleryImage(item: NsfwFeedItem, ordinal: Int, baseUrl: String, load
     }
     val url = safeNsfwImageUrl(baseUrl, item.thumbnailUrl)
     val request = remember(loader, url, attempt) { loader.request(url) }
-    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
+    Box(modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
         .background(Color(0xFF202630))
         .border(if (selected) 2.dp else 0.dp, if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
         .clickable(enabled = enabled, onClick = onOpen)) {

@@ -1,12 +1,14 @@
 package com.mediareview.app.feature.v2.nsfw
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mediareview.app.feature.v2.nsfw.data.*
@@ -198,19 +202,21 @@ internal fun NsfwBatchReviewScreen(
             }
         } else LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid, modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(draft.items, key = { it.imageId }) { item ->
+            itemsIndexed(draft.items, key = { _, item -> item.imageId }) { index, item ->
+                val ordinal = index + 1
                 Column(Modifier.clip(RoundedCornerShape(12.dp)).background(if (item.imageId in draft.selectedIds) MediaAccent.copy(alpha = 0.16f) else MediaSurfaceRaised)) {
                     key(item.imageId, retryImages) {
                         AsyncImage(model = loader.request(safeNsfwImageUrl(state.baseUrl, item.thumbnailUrl)), imageLoader = loader.loader,
-                            contentDescription = "待审核图片", contentScale = ContentScale.Fit,
+                            contentDescription = batchImageLabel(ordinal), contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxWidth().aspectRatio(1f).clickable(enabled = !working && !locked) { draft = draft.toggle(item.imageId) },
                             onSuccess = { draft = draft.loaded(item.imageId, true) },
                             onError = { draft = draft.loaded(item.imageId, false) })
                     }
                     FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                         Checkbox(checked = item.imageId in draft.selectedIds, enabled = !working && !locked && item.imageId in draft.eligibleIds,
-                            onCheckedChange = { draft = draft.toggle(item.imageId) })
-                        IconButton(onClick = { onOpenOriginal(item) }, enabled = !working, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.ZoomIn, "放大") }
+                            onCheckedChange = { draft = draft.toggle(item.imageId) },
+                            modifier = Modifier.semantics { contentDescription = batchKeepLabel(ordinal) })
+                        IconButton(onClick = { onOpenOriginal(item) }, enabled = !working, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.ZoomIn, batchZoomLabel(ordinal)) }
                     }
                     if (item.imageId !in draft.eligibleIds) Text("未就绪 · 跳过", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall)
                 }
@@ -222,7 +228,12 @@ internal fun NsfwBatchReviewScreen(
                 TextButton(onClick = { draft = draft.clearSelection() }, enabled = !working && !locked) { Text("清空") }
                 TextButton(onClick = { retryImages++ }, enabled = !working && !locked) { Text("重试图片") }
             }
-            Text("保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}", color = MediaTextSecondary)
+            // 勾选/清空时计数淡入切换，避免数字瞬间跳变。
+            AnimatedContent(
+                targetState = "保留 ${draft.keptCount} · 淘汰 ${draft.rejectedCount} · 未就绪 ${draft.unloadedCount}",
+                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(90)) },
+                label = "batch-review-count",
+            ) { text -> Text(text, color = MediaTextSecondary) }
             MediaActionButton(onClick = {
                 try {
                     confirmation = draft.freeze(UUID.randomUUID().toString(), allowRejectAll = true)

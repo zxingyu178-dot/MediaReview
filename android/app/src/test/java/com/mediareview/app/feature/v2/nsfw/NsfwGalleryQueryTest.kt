@@ -43,6 +43,15 @@ class NsfwGalleryQueryTest {
         }
     }
 
+    @Test fun textQueryExpandsSearchSectionOnlyWhenMeaningful() {
+        // 空白关键词不算“已启用”，面板保持收起；有实际关键词时直接展开。
+        assertFalse(NsfwGalleryFilter().hasTextQuery)
+        assertFalse(NsfwGalleryFilter(search = "   ").hasTextQuery)
+        assertFalse(NsfwGalleryFilter(tag = "").hasTextQuery)
+        assertTrue(NsfwGalleryFilter(search = "cat").hasTextQuery)
+        assertTrue(NsfwGalleryFilter(tag = "v1").hasTextQuery)
+    }
+
     @Test fun activeSummaryNamesEveryNarrowingDimension() {
         // 排序不是筛选：无其他条件时摘要保持默认文案。
         assertEquals("筛选已启用", NsfwGalleryFilter().activeSummary)
