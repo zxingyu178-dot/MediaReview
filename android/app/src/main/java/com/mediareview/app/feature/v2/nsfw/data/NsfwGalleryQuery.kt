@@ -114,6 +114,18 @@ data class NsfwGallerySelection(
     val active: Boolean get() = promptId != null || versionId != null || status != null || category != null || favorite != null || search != null || tag != null
 }
 
+/** 空结果是否由筛选（含搜索/标签/日期）造成；排序不算筛选。 */
+val NsfwGalleryFilter.emptyStateNarrowed: Boolean
+    get() = selection.active || dates != NsfwGalleryDates.ALL
+
+/** 空结果标题：有筛选说“无匹配图片”，否则是图库本身为空。 */
+val NsfwGalleryFilter.emptyStateLabel: String
+    get() = if (emptyStateNarrowed) "无匹配图片" else "暂无图片"
+
+/** 空结果直达动作：有筛选一键清除，否则重新增量同步。 */
+val NsfwGalleryFilter.emptyStateActionLabel: String
+    get() = if (emptyStateNarrowed) "清除筛选" else "刷新图库"
+
 @Serializable
 data class NsfwGalleryPage(
     val filters: NsfwGallerySelection? = null,

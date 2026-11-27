@@ -53,6 +53,9 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates
+import com.mediareview.app.feature.v2.nsfw.data.emptyStateActionLabel
+import com.mediareview.app.feature.v2.nsfw.data.emptyStateLabel
+import com.mediareview.app.feature.v2.nsfw.data.emptyStateNarrowed
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -170,12 +173,12 @@ internal fun NsfwGallery(
             state.generationProgress?.takeIf { it.isGenerating }?.let { GenerationProgressStrip(it) }
         }
         AnimatedVisibility(
-            visible = filter.selection.active || filter.dates != NsfwGalleryDates.ALL || state.newImageCount > 0,
+            visible = filter.emptyStateNarrowed || state.newImageCount > 0,
             enter = fadeIn(tween(140)) + expandVertically(tween(160)),
             exit = fadeOut(tween(100)) + shrinkVertically(tween(120)),
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) {
+                if (filter.emptyStateNarrowed) {
                     TextButton(onClick = { filtersOpen = true }) { Text(when (filter.status) {
                         "NEW" -> "只看未审核"; "NOT_REJECTED" -> "隐藏已淘汰"
                         "KEEP" -> "已保留"; "REJECT" -> "已淘汰"; "ARCHIVED" -> "已归档"
@@ -241,18 +244,17 @@ internal fun NsfwGallery(
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (syncing) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                             else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
-                            Text(if (syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
+                            Text(if (syncing) "正在同步图库…" else filter.emptyStateLabel,
                                 color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
                             // 空结果给出直接出路：筛选导致为空时可一键清除，否则重新同步。
                             if (!syncing) {
-                                val narrowed = filter.selection.active || filter.dates != NsfwGalleryDates.ALL
                                 TextButton(
                                     onClick = {
-                                        if (narrowed) onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
+                                        if (filter.emptyStateNarrowed) onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
                                         else onRefresh()
                                     },
-                                    enabled = if (narrowed) interaction.canChangeQuery else interaction.canRefresh,
-                                ) { Text(if (narrowed) "清除筛选" else "刷新图库") }
+                                    enabled = if (filter.emptyStateNarrowed) interaction.canChangeQuery else interaction.canRefresh,
+                                ) { Text(filter.emptyStateActionLabel) }
                             }
                         }
                     }

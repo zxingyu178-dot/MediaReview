@@ -23,6 +23,26 @@ class NsfwGalleryQueryTest {
         assertTrue(restored.filter.selection.active)
     }
 
+    @Test fun emptyGalleryActionFollowsActiveFilters() {
+        val plain = NsfwGalleryFilter()
+        assertFalse(plain.emptyStateNarrowed)
+        assertEquals("暂无图片", plain.emptyStateLabel)
+        assertEquals("刷新图库", plain.emptyStateActionLabel)
+        // 排序不是筛选，空图库仍应提示刷新而不是清除筛选。
+        assertFalse(NsfwGalleryFilter(sort = NsfwGallerySort.OLDEST).emptyStateNarrowed)
+        listOf(
+            NsfwGalleryFilter(search = "needle"),
+            NsfwGalleryFilter(tag = "curated"),
+            NsfwGalleryFilter(dates = NsfwGalleryDates.TODAY),
+            NsfwGalleryFilter(status = "NEW"),
+            NsfwGalleryFilter(favorite = true),
+        ).forEach { filter ->
+            assertTrue(filter.emptyStateNarrowed)
+            assertEquals("无匹配图片", filter.emptyStateLabel)
+            assertEquals("清除筛选", filter.emptyStateActionLabel)
+        }
+    }
+
     @Test fun unreviewedMembershipDropsBothDecisionOutcomes() {
         val query = NsfwGalleryFilter(status = "NEW").resolve()
         assertEquals(true, query.matches(nsfwItem("a").copy(status = "NEW")))

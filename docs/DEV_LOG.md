@@ -4066,3 +4066,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 “筛选已启用 / 清除”提示行由瞬时出现改为淡入 + 展开，清除筛选时平滑收起；与电脑端生成进度条使用一致的展开节奏，“新图 N”仍保持独立缩放动画。
 
 版本 Alpha70（versionCode 77），JVM 单测 832 项全绿；模拟器安装后显示 Alpha70 更新说明；搜索 `zzzz-a70` 后提示行与“0 张 / 无匹配图片 / 清除筛选”正常显示；清除筛选恢复 21730 张，进程存活（pid 15648），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha70-launch.xml`、`alpha70-filtered.xml`、`alpha70-restored.xml`。
+
+### 2026-11-27 空状态逻辑抽离与单测
+
+将生图库空状态判断抽成 `NsfwGalleryFilter` 上的 `emptyStateNarrowed / emptyStateLabel / emptyStateActionLabel` 纯逻辑：排序变化不触发“清除筛选”，搜索、标签、日期、状态、收藏任一启用即给出“无匹配图片 + 清除筛选”，否则为“暂无图片 + 刷新图库”。新增 1 项 JVM 单测覆盖上述分支，全量 833 项通过。
+
+重构后模拟器复验（同一 Alpha70 / code77）：搜索 `zzzz-refactor` 显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”，点击清除筛选恢复图库，进程存活（pid 16073），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha70-empty-refactor.xml`。
