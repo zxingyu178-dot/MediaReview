@@ -43,6 +43,24 @@ class NsfwGalleryQueryTest {
         }
     }
 
+    @Test fun searchAndTagLimitsAreSharedWithInputCap() {
+        // 输入框与服务端校验共用同一上限：刚好等于上限可用，超一个字符拒绝。
+        NsfwGalleryFilter(search = "a".repeat(NSFW_GALLERY_SEARCH_MAX_LENGTH)).resolve()
+        try {
+            NsfwGalleryFilter(search = "a".repeat(NSFW_GALLERY_SEARCH_MAX_LENGTH + 1)).resolve()
+            fail("超长搜索应被拒绝")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("搜索关键词最多200字", expected.message)
+        }
+        NsfwGalleryFilter(tag = "t".repeat(NSFW_GALLERY_TAG_MAX_LENGTH)).resolve()
+        try {
+            NsfwGalleryFilter(tag = "t".repeat(NSFW_GALLERY_TAG_MAX_LENGTH + 1)).resolve()
+            fail("超长标签应被拒绝")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("标签最多100字", expected.message)
+        }
+    }
+
     @Test fun unreviewedMembershipDropsBothDecisionOutcomes() {
         val query = NsfwGalleryFilter(status = "NEW").resolve()
         assertEquals(true, query.matches(nsfwItem("a").copy(status = "NEW")))

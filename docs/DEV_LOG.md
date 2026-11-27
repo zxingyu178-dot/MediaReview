@@ -4084,3 +4084,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 - 全程未崩溃，crash buffer 今日无新崩溃。
 
 证据：`alpha71-single-progress1.xml`、`alpha71-immersive1.xml`、`alpha71-immersive2.xml`、`alpha71-immersive-progress.png`、`alpha71-immersive-done.xml`、`alpha71-gallery-new.xml`、`alpha71-gallery-latest.xml`。
+
+### 2026-11-27 Alpha71 搜索/标签长度上限
+
+搜索关键词与标签之前只在上限文案里提示，粘贴超长内容后应用会走 `resolve()` 异常分支并弹出错误。现在上限抽成 `NSFW_GALLERY_SEARCH_MAX_LENGTH = 200` / `NSFW_GALLERY_TAG_MAX_LENGTH = 100`，输入框与服务端校验共用：输入时直接截断，提示文案由同一常量生成，不再出现“提交后才报错”。新增 1 项边界单测（等于上限可用、超一个字符拒绝），全量 834 项通过。
+
+版本 Alpha71（versionCode 78），模拟器安装后显示更新说明；筛选面板输入 210 个字符后输入框实际保留 200 字符，按键盘搜索应用显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”，无错误提示；清除筛选恢复 21732 张，进程存活（pid 16801），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha71-launch.xml`、`alpha71-truncated-field2.xml`、`alpha71-truncated-applied.xml`、`alpha71-restored.xml`。

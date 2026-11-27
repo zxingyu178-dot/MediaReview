@@ -759,6 +759,16 @@ object ReleaseNotesCatalog {
                 "筛选行与电脑端生成进度条使用一致的展开节奏",
             ),
         ),
+        ReleaseNote(
+            versionCode = 78,
+            versionName = "2.0.0-alpha71",
+            title = "MediaReview 2.0 Alpha 71",
+            highlights = listOf(
+                "搜索关键词与标签超过上限时自动截断，不再提交后才提示错误",
+                "输入框提示与服务端校验共用同一上限（搜索 200 字 / 标签 100 字）",
+                "其余筛选行为不变，应用搜索后仍立即收起面板",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

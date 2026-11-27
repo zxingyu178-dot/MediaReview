@@ -53,6 +53,8 @@ import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryAnchor
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryFilter
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGallerySort
 import com.mediareview.app.feature.v2.nsfw.data.NsfwGalleryDates
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_SEARCH_MAX_LENGTH
+import com.mediareview.app.feature.v2.nsfw.data.NSFW_GALLERY_TAG_MAX_LENGTH
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateActionLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateLabel
 import com.mediareview.app.feature.v2.nsfw.data.emptyStateNarrowed
@@ -386,8 +388,8 @@ private fun LibrarySearch(
     }
     TextButton(onClick = { expanded = !expanded }) { Text(if (filter.search != null || filter.tag != null) "搜索/标签筛选已启用" else "搜索与文字标签") }
     if (expanded) Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-        OutlinedTextField(value = search, onValueChange = { search = it }, enabled = enabled, singleLine = true,
-            label = { Text("搜索提示词或文件名") }, supportingText = { Text("关键词，最多200字") },
+        OutlinedTextField(value = search, onValueChange = { search = it.take(NSFW_GALLERY_SEARCH_MAX_LENGTH) }, enabled = enabled, singleLine = true,
+            label = { Text("搜索提示词或文件名") }, supportingText = { Text("关键词，最多${NSFW_GALLERY_SEARCH_MAX_LENGTH}字") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { apply() }),
             trailingIcon = {
@@ -396,8 +398,8 @@ private fun LibrarySearch(
                 }
             },
             modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = tag, onValueChange = { tag = it }, enabled = enabled, singleLine = true,
-            label = { Text("当前版本标签") }, supportingText = { Text("精确匹配，最多100字 · 非生成版本标签") },
+        OutlinedTextField(value = tag, onValueChange = { tag = it.take(NSFW_GALLERY_TAG_MAX_LENGTH) }, enabled = enabled, singleLine = true,
+            label = { Text("当前版本标签") }, supportingText = { Text("精确匹配，最多${NSFW_GALLERY_TAG_MAX_LENGTH}字 · 非生成版本标签") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { apply() }),
             modifier = Modifier.fillMaxWidth())
