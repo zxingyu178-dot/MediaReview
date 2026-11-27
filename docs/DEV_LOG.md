@@ -4072,3 +4072,15 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 将生图库空状态判断抽成 `NsfwGalleryFilter` 上的 `emptyStateNarrowed / emptyStateLabel / emptyStateActionLabel` 纯逻辑：排序变化不触发“清除筛选”，搜索、标签、日期、状态、收藏任一启用即给出“无匹配图片 + 清除筛选”，否则为“暂无图片 + 刷新图库”。新增 1 项 JVM 单测覆盖上述分支，全量 833 项通过。
 
 重构后模拟器复验（同一 Alpha70 / code77）：搜索 `zzzz-refactor` 显示“0 张 / 筛选已启用 / 无匹配图片 / 清除筛选”，点击清除筛选恢复图库，进程存活（pid 16073），crash buffer 今日无新崩溃。证据：`docs/evidence/alpha70-empty-refactor.xml`。
+
+### 2026-11-27 真实任务进度联动复验（Alpha70）
+
+生产 8000 由 Agent 提交快速任务（20 步 / face_detailer=false / 默认 miaomiaoHarem / 832×1216 / seed 20261129），Job job_04758791-284b-40ab-9a3b-c167b8932ca3 于 67.4s 完成，产出 img_4f2e9684-3d5b-473f-99b3-f0525014b2ff。
+
+模拟器同一进程（pid 16073）验证：
+- 单图审阅控制层显示“电脑端生成中：第 1 / 1 张 · 剩余 1 段 · 0%”；
+- 点按隐藏控制层后顶部胶囊显示“电脑端生成中 1/1 张 · 15%”，12 秒后更新为“60%”；
+- 任务完成后进度节点消失（无“电脑端”文本），返回图库刷新出现“新图 1”，点按后总数 21731 → 21732；
+- 全程未崩溃，crash buffer 今日无新崩溃。
+
+证据：`alpha71-single-progress1.xml`、`alpha71-immersive1.xml`、`alpha71-immersive2.xml`、`alpha71-immersive-progress.png`、`alpha71-immersive-done.xml`、`alpha71-gallery-new.xml`、`alpha71-gallery-latest.xml`。
