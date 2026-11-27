@@ -709,6 +709,16 @@ object ReleaseNotesCatalog {
                 "控制层显示时自动让位给完整进度条，电脑端空闲时不出现",
             ),
         ),
+        ReleaseNote(
+            versionCode = 73,
+            versionName = "2.0.0-alpha66",
+            title = "MediaReview 2.0 Alpha 66",
+            highlights = listOf(
+                "单图审阅空闲时不再显示“暂无生成任务”，顶栏更干净",
+                "沉浸进度胶囊在排队时显示“排队 N”，与完整进度条信息一致",
+                "电脑端有任务时完整进度条与胶囊都会平滑出现",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

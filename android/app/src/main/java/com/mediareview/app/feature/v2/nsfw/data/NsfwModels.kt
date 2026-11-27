@@ -85,7 +85,8 @@ data class NsfwGenerationProgress(
         get() = when {
             activeStatus == "paused" -> "电脑端已暂停 · 剩余 $remainingSegments 段"
             currentImage != null && imagesInSegment != null ->
-                "电脑端生成中 $currentImage/$imagesInSegment 张$itemPercentSuffix"
+                "电脑端生成中 $currentImage/$imagesInSegment 张$itemPercentSuffix" +
+                    (if (queuedJobs > 0) " · 排队 $queuedJobs" else "")
             activeStatus == "queued" -> "电脑端排队 $queuedJobs"
             else -> "电脑端生成中 · 剩余 $remainingSegments 段"
         }

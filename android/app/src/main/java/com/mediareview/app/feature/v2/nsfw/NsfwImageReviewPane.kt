@@ -327,11 +327,11 @@ internal fun NsfwImageReviewPane(
                 }
                 val generationProgress = state.generationProgress
                 AnimatedVisibility(
-                    visible = state.generationProgressEnabled,
+                    visible = state.generationProgressEnabled && generationProgress?.isGenerating == true,
                     enter = fadeIn(),
                     exit = fadeOut(),
                 ) {
-                    // 只读进度：老桥没有该能力时整行不出现。
+                    // 只读进度：仅在确有任务时出现，空闲时不占用顶栏空间。
                     if (generationProgress != null) GenerationProgressStrip(generationProgress)
                 }
                 // 当前图片的生成时提示词摘要：点击打开“图片信息”，右侧可直接复制原文。

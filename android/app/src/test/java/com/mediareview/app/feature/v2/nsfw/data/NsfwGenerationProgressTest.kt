@@ -32,6 +32,8 @@ class NsfwGenerationProgressTest {
     fun `沉浸模式紧凑文案覆盖生成暂停排队与间隙`() {
         assertEquals("电脑端生成中 1/2 张 · 62%",
             NsfwGenerationProgress(1, 2, 1, "running", 0, 0, 0.62f).compactLabel)
+        assertEquals("电脑端生成中 1/2 张 · 62% · 排队 1",
+            NsfwGenerationProgress(1, 2, 2, "running", 1, 0, 0.62f).compactLabel)
         assertEquals("电脑端已暂停 · 剩余 3 段",
             NsfwGenerationProgress(remainingSegments = 3, activeStatus = "paused").compactLabel)
         assertEquals("电脑端排队 2",
