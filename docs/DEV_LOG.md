@@ -3994,3 +3994,9 @@ Studio 官方 ControlHub 状态 online，队列无运行、等待、暂停，桥
 验收时发现并修正：给 `@Serializable` DTO 添加私有 companion 会让序列化生成的 `Companion` 变为不可访问，5 条详情契约用例抛 `IllegalAccessException`；改为文件级私有常量后恢复。
 
 版本 Alpha58（versionCode 65），JVM 单测 827 项全绿；模拟器安装并 AOT 后显示 Alpha58 更新说明，打开最新图（1 / 21724）顶部显示生成时提示词“gallery progress check, simple background”，点按打开“图片信息”（图片 img_96fd4ee8…，768×1024），进程存活（pid 8488），crash buffer 无新崩溃。
+
+### 2026-11-27 Alpha59 提示词一键复制
+
+单图审阅顶栏的提示词摘要右侧新增“复制”：一键写入系统剪贴板并弹出轻提示，点按摘要正文仍打开“图片信息”。复制内容使用详情里的生成时快照，避免与当前 Prompt 编辑内容混淆。
+
+版本 Alpha59（versionCode 66），JVM 单测 827 项全绿；模拟器安装并 AOT 后显示 Alpha59 更新说明；审图页显示提示词与“复制”，点按后在首页搜索框粘贴得到“gallery progress check, simple background”，证明剪贴板内容正确；进程存活（pid 9432），crash buffer 无新崩溃。

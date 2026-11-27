@@ -1,5 +1,6 @@
 package com.mediareview.app.feature.v2.nsfw
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -47,12 +48,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -303,23 +307,38 @@ internal fun NsfwImageReviewPane(
                     // 只读进度：老桥没有该能力时整行不出现。
                     if (generationProgress != null) GenerationProgressStrip(generationProgress)
                 }
-                // 当前图片的生成时提示词摘要：点击打开“图片信息”，不覆盖详情快照语义。
+                // 当前图片的生成时提示词摘要：点击打开“图片信息”，右侧可直接复制原文。
                 val promptPreview = state.detail?.takeIf { it.imageId == item?.imageId }?.promptPreview
+                val clipboard = LocalClipboardManager.current
+                val context = LocalContext.current
                 AnimatedVisibility(
                     visible = promptPreview != null,
                     enter = fadeIn(tween(160)) + expandVertically(tween(180)),
                     exit = fadeOut(tween(100)) + shrinkVertically(tween(140)),
                 ) {
-                    Text(
-                        promptPreview.orEmpty(),
-                        Modifier.fillMaxWidth()
-                            .clickable(enabled = transitionFinished && state.detail != null) { onDetails() }
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        color = MediaTextSecondary,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            promptPreview.orEmpty(),
+                            Modifier.weight(1f)
+                                .clickable(enabled = transitionFinished && state.detail != null) { onDetails() }
+                                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                            color = MediaTextSecondary,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "复制",
+                            Modifier
+                                .clickable {
+                                    clipboard.setText(AnnotatedString(promptPreview.orEmpty()))
+                                    Toast.makeText(context, "提示词已复制", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
                 }
                 AnimatedVisibility(
                     visible = bannerMessage != null && (!messageDismissed || important),
