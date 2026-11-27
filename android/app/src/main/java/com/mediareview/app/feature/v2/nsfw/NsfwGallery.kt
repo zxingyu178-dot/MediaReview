@@ -225,6 +225,17 @@ internal fun NsfwGallery(
                         else Icon(Icons.Default.PhotoLibrary, null, Modifier.size(32.dp), tint = MediaTextSecondary)
                         Text(if (state.syncing) "正在同步图库…" else if (filter.selection.active || filter.dates != NsfwGalleryDates.ALL) "无匹配图片" else "暂无图片",
                             color = MediaTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                        // 空结果给出直接出路：筛选导致为空时可一键清除，否则重新同步。
+                        if (!state.syncing) {
+                            val narrowed = filter.selection.active || filter.dates != NsfwGalleryDates.ALL
+                            TextButton(
+                                onClick = {
+                                    if (narrowed) onChangeFilter(NsfwGalleryFilter(sort = filter.sort))
+                                    else onRefresh()
+                                },
+                                enabled = if (narrowed) interaction.canChangeQuery else interaction.canRefresh,
+                            ) { Text(if (narrowed) "清除筛选" else "刷新图库") }
+                        }
                     }
                 }
             } else LazyVerticalGrid(columns = GridCells.Adaptive(100.dp), state = grid,

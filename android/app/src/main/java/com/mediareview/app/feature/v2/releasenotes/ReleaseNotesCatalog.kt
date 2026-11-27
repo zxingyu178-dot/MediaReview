@@ -719,6 +719,16 @@ object ReleaseNotesCatalog {
                 "电脑端有任务时完整进度条与胶囊都会平滑出现",
             ),
         ),
+        ReleaseNote(
+            versionCode = 74,
+            versionName = "2.0.0-alpha67",
+            title = "MediaReview 2.0 Alpha 67",
+            highlights = listOf(
+                "生图库无结果时给出直接操作：筛选导致为空可一键“清除筛选”",
+                "没有筛选时显示“刷新图库”，与下拉刷新共用同一次增量同步",
+                "清除筛选后立即回到完整图库，无需逐项手动恢复",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */
