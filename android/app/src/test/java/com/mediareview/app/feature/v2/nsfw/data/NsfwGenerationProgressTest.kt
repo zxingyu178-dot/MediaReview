@@ -147,6 +147,29 @@ class NsfwGenerationProgressTest {
     }
 
     @Test
+    fun `运行中底模字段解析并缩短扩展名`() {
+        val progress = json.decodeFromString<NsfwGenerationProgress>(
+            """{"current_image":1,"images_in_segment":2,"remaining_segments":1,
+               "active_status":"running","model":" NoobAI-XL-v1.1.safetensors "}"""
+        )
+        assertEquals("NoobAI-XL-v1.1", progress.modelLabel)
+        // 底模单独一行展示，不改变既有进度文案。
+        assertEquals("电脑端生成中：第 1 / 2 张 · 剩余 1 段", progress.label)
+        assertNull(NsfwGenerationProgress().modelLabel)
+        assertNull(NsfwGenerationProgress(model = "   ").modelLabel)
+        assertEquals("waiNSFWIllustrious_v150",
+            NsfwGenerationProgress(model = "waiNSFWIllustrious_v150.ckpt").modelLabel)
+    }
+
+    @Test
+    fun `旧桥不支持底模能力时丢弃字段`() {
+        val progress = NsfwGenerationProgress(1, 2, 1, "running", 0, 0, 0.5f,
+            "NoobAI-XL-v1.1.safetensors")
+        assertNull(progress.withModelCapability(false).model)
+        assertEquals("NoobAI-XL-v1.1.safetensors", progress.withModelCapability(true).model)
+    }
+
+    @Test
     fun `新桥响应解析队列状态字段`() {
         val progress = json.decodeFromString<NsfwGenerationProgress>(
             """{"current_image":null,"images_in_segment":null,"remaining_segments":2,

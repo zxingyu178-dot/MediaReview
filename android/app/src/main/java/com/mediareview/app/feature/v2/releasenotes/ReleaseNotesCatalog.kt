@@ -829,6 +829,16 @@ object ReleaseNotesCatalog {
                 "筛选、刷新与批审计数变化加入过渡动画，操作反馈更平滑",
             ),
         ),
+        ReleaseNote(
+            versionCode = 85,
+            versionName = "2.0.0-alpha78",
+            title = "MediaReview 2.0 Alpha 78",
+            highlights = listOf(
+                "审图进度条新增“底模”行，电脑端正在用哪款模型生成一眼可见",
+                "底模只在运行中显示；排队、旧任务或旧电脑端自动隐藏，不占高度",
+                "进度百分比、筛选与审核行为不变",
+            ),
+        ),
     )
 
     /** 查询某个 versionCode 的更新日志；不存在时返回 null（Release 不崩溃、不展示）。 */

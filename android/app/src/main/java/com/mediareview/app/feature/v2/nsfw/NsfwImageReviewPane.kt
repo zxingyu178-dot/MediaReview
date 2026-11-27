@@ -553,6 +553,12 @@ internal fun GenerationProgressStrip(progress: NsfwGenerationProgress) {
                 )
             }
         }
+        // 运行中底模：新桥才返回；排队 / 旧任务 / 旧桥自动隐藏，不占高度。
+        progress.modelLabel?.let { model ->
+            Text("底模 $model", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp, top = 1.dp))
+        }
         val fraction = progress.fraction
         if (fraction != null) {
             val animated by animateFloatAsState(
@@ -611,22 +617,28 @@ private fun CompactGenerationProgressPill(progress: NsfwGenerationProgress) {
         else -> MediaTextSecondary
     }
     val label = progress.compactLabel
-    Row(
+    Column(
         Modifier
             .statusBarsPadding()
             .padding(top = 8.dp)
             .background(Color(0xCC080B10), RoundedCornerShape(50))
             .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(6.dp).background(statusColor, RoundedCornerShape(3.dp)))
-        Spacer(Modifier.width(6.dp))
-        AnimatedContent(
-            targetState = label,
-            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
-            label = "compact-generation-progress",
-        ) { text ->
-            Text(text, color = MediaTextPrimary, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(6.dp).background(statusColor, RoundedCornerShape(3.dp)))
+            Spacer(Modifier.width(6.dp))
+            AnimatedContent(
+                targetState = label,
+                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+                label = "compact-generation-progress",
+            ) { text ->
+                Text(text, color = MediaTextPrimary, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            }
+        }
+        progress.modelLabel?.let { model ->
+            Text("底模 $model", color = MediaTextSecondary, style = MaterialTheme.typography.labelSmall,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp, top = 1.dp))
         }
     }
 }

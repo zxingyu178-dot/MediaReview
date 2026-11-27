@@ -29,6 +29,9 @@ const val NSFW_GENERATION_QUEUE_STATUS_CAPABILITY = "mobile_generation_queue_sta
 /** 进度扩展能力：额外返回当前张完成度 current_progress（0..1，只读）。 */
 const val NSFW_GENERATION_ITEM_PROGRESS_CAPABILITY = "mobile_generation_item_progress_v1"
 
+/** 进度扩展能力：额外返回运行中任务底模 model（只读；排队/旧任务为 null）。 */
+const val NSFW_GENERATION_MODEL_CAPABILITY = "mobile_generation_model_v1"
+
 @Serializable
 data class NsfwGenerationProgress(
     @SerialName("current_image") val currentImage: Int? = null,
@@ -38,6 +41,7 @@ data class NsfwGenerationProgress(
     @SerialName("queued_jobs") val queuedJobs: Int = 0,
     @SerialName("paused_jobs") val pausedJobs: Int = 0,
     @SerialName("current_progress") val currentProgress: Float? = null,
+    @SerialName("model") val model: String? = null,
 ) {
     val isGenerating: Boolean get() = remainingSegments > 0
 
@@ -56,6 +60,18 @@ data class NsfwGenerationProgress(
     /** 当前张的采样完成度；旧桥没有该字段时为 null。 */
     val itemFraction: Float?
         get() = currentProgress?.coerceIn(0f, 1f)
+
+    /** 底模短名：去掉权重扩展名；旧桥/排队/旧任务没有该字段时为 null。 */
+    val modelLabel: String?
+        get() {
+            val name = model?.trim().orEmpty()
+            if (name.isEmpty()) return null
+            return name.replace(Regex("\\.(safetensors|ckpt|pt|pth)$", RegexOption.IGNORE_CASE), "")
+        }
+
+    /** 旧桥未声明底模能力时丢弃该字段，避免展示无法解释的信息。 */
+    fun withModelCapability(enabled: Boolean): NsfwGenerationProgress =
+        if (enabled) this else copy(model = null)
 
     /** 当前张百分比后缀；无进度时不显示。 */
     private val itemPercentSuffix: String

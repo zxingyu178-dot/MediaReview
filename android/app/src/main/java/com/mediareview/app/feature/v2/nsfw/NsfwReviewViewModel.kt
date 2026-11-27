@@ -134,6 +134,8 @@ data class NsfwUiState(
     val galleryViewEpoch: Int = 0,
     /** 只读生图进度：仅当桥声明 mobile_generation_progress_v1 时显示。 */
     val generationProgressEnabled: Boolean = false,
+    /** 只读底模：仅当桥声明 mobile_generation_model_v1 时展示（旧桥字段直接丢弃）。 */
+    val generationModelEnabled: Boolean = false,
     val generationProgress: NsfwGenerationProgress? = null,
 ) {
     val currentIndex: Int
@@ -353,6 +355,7 @@ class NsfwReviewViewModel @Inject constructor(
                 bidirectionalGallery = com.mediareview.app.feature.v2.nsfw.data.NSFW_BIDIRECTIONAL_CAPABILITY in snapshot.capabilities,
                 batchReviewEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_BATCH_REVIEW_CAPABILITY in snapshot.capabilities,
                 generationProgressEnabled = NSFW_GENERATION_PROGRESS_CAPABILITY in snapshot.capabilities,
+                generationModelEnabled = com.mediareview.app.feature.v2.nsfw.data.NSFW_GENERATION_MODEL_CAPABILITY in snapshot.capabilities,
             )
         }
         syncFromCursor(reset = true)
@@ -382,6 +385,7 @@ class NsfwReviewViewModel @Inject constructor(
                             newImageCount = 0,
                             undoDecision = null,
                             generationProgressEnabled = false,
+                            generationModelEnabled = false,
                             generationProgress = null,
                         )
                     }
@@ -494,7 +498,7 @@ class NsfwReviewViewModel @Inject constructor(
         savedGalleryReview = null
         _state.update { it.copy(galleryEnabled = false, gallerySearchEnabled = false, galleryFiltersEnabled = false, galleryReviewFilterEnabled = false, bidirectionalGallery = false, batchReviewEnabled = false, previousPageCursor = null,
             galleryPositionValid = false, galleryStartIndex = 0, galleryTotal = 0,
-            generationProgressEnabled = false, generationProgress = null,
+            generationProgressEnabled = false, generationModelEnabled = false, generationProgress = null,
             galleryQuery = NsfwGalleryQuery(), galleryViewEpoch = galleryGeneration) }
         browseOrigin = ""
         pendingBrowseId = null
@@ -1298,7 +1302,7 @@ class NsfwReviewViewModel @Inject constructor(
         try {
             val progress = dataSource.generationProgress() ?: return
             if (epoch == connectionEpoch && _state.value.phase == NsfwPhase.READY) {
-                _state.update { it.copy(generationProgress = progress) }
+                _state.update { it.copy(generationProgress = progress.withModelCapability(it.generationModelEnabled)) }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
